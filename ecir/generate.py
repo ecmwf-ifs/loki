@@ -1,6 +1,6 @@
 from open_fortran_parser import parse
 
-from ecir.visitors import XMLElementParser
+from ecir.visitors import IRGenerator
 
 __all__ = ['generate']
 
@@ -14,4 +14,4 @@ def generate(filename, verbosity=100):
     ast = parse(filename, verbosity=verbosity)
 
     # Create our own internal representation of the code
-    return XMLElementParser().visit(ast)
+    return IRGenerator().visit(ast)

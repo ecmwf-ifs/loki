@@ -110,7 +110,7 @@ class IRGenerator(GenericVisitor):
         if instance.tag in self._handlers:
             return self._handlers[instance.tag]
         else:
-            return super(XMLElementParser, self).lookup_method(instance)
+            return super(IRGenerator, self).lookup_method(instance)
 
     def visit_Element(self, o):
         """
