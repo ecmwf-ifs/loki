@@ -1,0 +1,4 @@
+*~
+*.pyc
+
+ecir.egg-info/*
