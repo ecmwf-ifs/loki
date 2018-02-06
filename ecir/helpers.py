@@ -3586,7 +3586,7 @@ def remove_associates(filename):
                 if '!' in ''.join(orig_lines) :
                     print('going to have to deal with this ...')
                     input(''.join(orig_lines))
-                associations = crack_associates(''.join(orig_lines),words)
+                associations = crack_associates(''.join(orig_lines))
                 new_file.write( '!!'+''.join( orig_lines ) )
                 print('Finished an ASSOCIATE statement, now either one more, or routine code ...')
                 found_an_assoc = True
@@ -3610,40 +3610,16 @@ def remove_associates(filename):
 
 #==================================
 
-def crack_associates(assoc_line,wds):
-    if wds[0] != 'ASSOCIATE':
-        print('trying to assoc-crack a non-ASSOCIATE line : will *not* work... ',assoc_line)
-        raise SystemError('aborting ')
-    
-    lline = copy.copy(assoc_line)
-    lline = lline.split('ASSOCIATE')[1]
-    lline = lline.strip(' ()\n')
-
-    # lline should now be succession of associations, so split into a list
-    assoc_list = []
-    while '=>' in lline :
-        if lline.count('=>') > 1 :
-            arrow_pos = lline.index('=>')
-            comma_pos = lline.index(',',arrow_pos) # this should be the first comma after the =>
-            # sanity check : if there is more than one comma between successive arrows, this becomes complicated ...
-            arrow2_pos = lline.index('=>',arrow_pos)
-            if lline[arrow_pos:arrow2_pos+1].count(',') > 1 :
-                print('This assoc looks like it has difficult commas ...\n',lline)
-                input('...')
-            assoc = ( lline[:comma_pos].split('=>')[0].strip(' ()&\n') , lline[:comma_pos].split('=>')[1].strip(' ()&\n') )
-            lline = lline[comma_pos+1:]
-            assoc_list.append(assoc)
-        else : # this is the last association, so no more splitting needed
-            assoc = ( lline.split('=>')[0].strip(' ()&\n') , lline.split('=>')[1].strip(' ()&\n') )
-            assoc_list.append(assoc)
-            lline = ''
-
-    print('this should be a list of association tuples : \n', assoc_list)
-    input('yes?')
-    return assoc_list
-
-#def crack_associates(assoc_line,wds)
-    
+def crack_associates(assoc_line):
+    """
+    Extract a ``name->expr`` map for ASSOCIATEs.
+    """
+    assert('ASSOCIATE' in assoc_line)
+    content = assoc_line.split('ASSOCIATE')[1].strip(' ()\n')
+    raw_pairs = [s.strip(' &\n') for s in content.split(',')]
+    associations = dict([tuple(p.split('=>')) for p in raw_pairs])
+    # TODO: associations should probably be sanity -checked
+    return associations
         
     
 #==================================
