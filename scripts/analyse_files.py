@@ -1,6 +1,8 @@
 #!/usr/bin/env python3 
 
 import os, sys, getopt, string,argparse,re,subprocess,copy,shutil,time
+import click as cli
+
 import ecir.helpers as helpers
 
 print_routine_names = True
@@ -11,7 +13,12 @@ def usage():
 add self-explanatory usage message here!
 """ )
 
-def main() :
+@cli.command()
+@cli.option('--file', '-f', multiple=True,
+            help="Explicitly defined source file(s).")
+@cli.option('--projectfile', '-p', default=None,
+            help="Project file containing multiple source file names.")
+def main(projectfile, file=None):
     t0 = time.time()
 
     ## Initialization...
@@ -25,21 +32,19 @@ def main() :
     # list of files that, for whatever reason, should not be scanned
     do_not_scan_list = ['Magics_dummy.F90'] 
 
-
-    ## deal with command line arguments: there should be exactly two, the script name and the list of files
-    if len(sys.argv) != 2 :
-        print(sys.argv)
-        raise SystemError(" analyse_files.py for checking IFS fortran interfaces not called properly" )
-    else :
-        project_file = sys.argv[1]
-
-    print ('Scanning IFS fortran files for presence of required interfaces. \n' )
-    print ('List of files being scanned: \n ',project_file)
+    # Gnerate source file list either from project file or given file list
+    source_files = list(file)
+    if projectfile is not None:
+        # Process project file for long file lists
+        print("Reading project file: %s" % projectfile)
+        with open(projectfile) as f:
+            source_files += [line.strip() for line in f.readlines()]
+    print("Source files: %s" % str(source_files))
 
     ### Parse the project file and reload the current dependency map from .spam_restart_file
 
     #print project_file
-    helpers.classify_files(project_file)
+    helpers.classify_files(source_files)
 
     t1 = time.time()
     print('classify_files elapsed time : ', t1-t0)

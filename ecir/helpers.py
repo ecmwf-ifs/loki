@@ -31,7 +31,7 @@ decl_keywords = ['INTEGER', 'REAL', 'DOUBLE', 'LOGICAL', 'TYPE', 'CHARACTER', 'E
                   'NAMELIST'] # should 'SAVE' be in this list? not obvious for the moment
 
 
-def classify_files(projfile=''):
+def classify_files(source_files):
     """
     go through the list of file names, assign default file types by suffix,
     look for duplicate files and include directories.
@@ -43,24 +43,10 @@ def classify_files(projfile=''):
                  ".f90":"free", ".c":"C", ".h":"C", ".H":"C",\
                  ".inc":"fixed", ".INC":"fixed", ".SYM":"fixed"}
 
-    ## argument 1 should be a file with a list of Fortran files
-    try:
-        inputfile = open(projfile,'r')
-    except IOError:
-        print( "Could not open project file called ",projfile)
-        sys.exit(2)
-        
-    source_files = inputfile.readlines()
-    inputfile.close()
-
-
-#    load_maps()
-
     longnamesize=20
     shortnamesize=12
     shortnamelist={}
     dups=0
-
 
     line_number=0
 
