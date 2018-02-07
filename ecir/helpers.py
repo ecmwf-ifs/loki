@@ -3462,7 +3462,36 @@ def generate_single_column_code(filename, list_of_arrays):
 #==================================
 # hopefully does what the name suggests
 def remove_associates(filename):
+    """
+    Remove ASSOCIATE statement and replace all association mappings.
+    """
+
+    # Parse the given file into our internal format
+    from ecir.sourcefile import FortranSourceFile
+    newfile = FortranSourceFile('%s_1cv' % filename)
+
+    # Pick ASSOCIATE statement from longlines
+    assoc_lines = [l for l in newfile.longlines if 'ASSOCIATE' in l]
+    assert len(assoc_lines) == 1
+    assoc_line = assoc_lines[0]
+    assert('ASSOCIATE' in assoc_line)
+
+    # Extract association map from statement
+    content = assoc_line.split('ASSOCIATE')[1].strip(' ()\n')
+    raw_pairs = [s.strip(' &\n') for s in content.split(',')]
+    associations = dict([tuple(p.split('=>')) for p in raw_pairs])
+    # TODO: associations should probably be sanity-checked
+
+    # Strip original ASSOCIATE statement
+    re_strip_assoc = re.compile('ASSOCIATE\([^)]*\)\n', re.MULTILINE)
+    newfile._raw_string = re_strip_assoc.sub(repl='', string=newfile._raw_string)
+
+    # Replace associations in the subroutine body
+    newfile.replace(associations)
     
+    # Write out the generated file
+    newfile.write(filename='%s_assoc2' % newfile.name)
+
     new_filename = filename + '_1cv'
     out_filename = copy.copy(new_filename)
     

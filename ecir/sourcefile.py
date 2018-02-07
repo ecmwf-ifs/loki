@@ -34,25 +34,20 @@ class FortranSourceFile(object):
         with open(filename) as f:
             self._raw_string = f.read()
 
-        # Store a list of (longline, rawline) tuples
-        self._long_raw = self._sanitize(self._raw_string)
+    @property
+    def lines(self):
+        """
+        Sanitizes content into long lines with continuous statements.
 
-    def _sanitize(self, raw_string):
+        Note: This does not change the content of the file
         """
-        Sanitize raw lines into continuous statements
-        """
-        from ecir.helpers import assemble_continued_statement_from_iterator
-        raw_lines = raw_string.split('\n')
-        srciter = iter(raw_lines)
-        return [assemble_continued_statement_from_iterator(line, srciter) for line in srciter]
+        return self._raw_string.split('\n')
 
     @property
     def longlines(self):
-        return [long for long, _ in self._long_raw]
-
-    @property
-    def rawlines(self):
-        return flatten(raw for _, raw in self._long_raw)
+        from ecir.helpers import assemble_continued_statement_from_iterator
+        srciter = iter(self.lines)
+        return [assemble_continued_statement_from_iterator(line, srciter)[0] for line in srciter]
 
     def write(self, filename=None):
         """
@@ -62,29 +57,17 @@ class FortranSourceFile(object):
         """
         filename = filename or self.name
         with open(filename, 'w') as f:
-            f.write('\n'.join(self.rawlines))
-
-    def strip_long(self, striplines):
-        """
-        Strip/delete a set of lines from the file by providing the longline string.
-
-        Note: This modifies the the "raw lines" as well as the "long lines"
-        """
-        # Ensure longlines are iterable
-        striplines = [striplines] if isinstance(striplines, str) else striplines
-        self._long_raw = [(longline, rawline) for longline, rawline in self._long_raw
-                          if longline not in striplines]
+            f.write(self._raw_string)
 
     def replace(self, mapping):
         """
         Performs a string-replacement from a given mapping
 
-        Note: The replacement is performed on the `rawlines` and the
-        `longlines` are rebuilt from the `rawlines`. Might need to
-        improve this later to unpick linebreaks in the search keys.
+        Note: The replacement is performed on each raw line. Might
+        need to improve this later to unpick linebreaks in the search
+        keys.
         """
-        rawlines = self.rawlines
+        rawlines = self.lines
         for k, v in mapping.items():
             rawlines = [line.replace(k, v) for line in rawlines]
         self._raw_string = '\n'.join(rawlines)
-        self._long_raw = self._sanitize(self._raw_string)
