@@ -19,21 +19,28 @@ def convert(file, output):
     decls = [l for l in source.declarations.longlines if tdim in l]
     decls = [l for l in decls if not l.startswith('!')]  # Strip comments
 
-    # Extract names of all variables that have the target dimensions
-    re_vnames = re.compile('::\W*(?P<name>[a-zA-Z\_]*)')
+    # Get list of all allocations involving the target dimension
+    re_allocs = re.compile('ALLOCATE\(.*?\)\)')
+    allocs = [l for l in re_allocs.findall(source.body._source) if tdim in l]
+
+    # Extract all variables that use the target dimensions from decls and allocs
+    re_vnames = re.compile('::\W*(?P<name>[a-zA-Z0-9\_]*)')
     vnames = [re_vnames.search(l).groupdict()['name'] for l in decls]
+    re_valloc = re.compile('ALLOCATE\((?P<var>[a-zA-Z0-9\_]*)\(')
+    vnames += [re_valloc.search(l).groupdict()['var'] for l in allocs]
 
-    # Strip the target dimension from all declarations
     # Note: We assume that KLON is always the leading dimension(!)
-    newdecls = [d.replace('(%s,' % tdim, '(') for d in decls]
-    newdecls = [d.replace('(%s)' % tdim, '') for d in newdecls]
-    source.declarations.replace(dict(zip(decls, newdecls)))
+    # Strip target dimension from declarations and body (for ALLOCATEs)
+    source.declarations.replace({'(%s,' % tdim: '(', '(%s)' % tdim: ''})
+    source.body.replace({'(%s,' % tdim: '(', '(%s)' % tdim: ''})
 
-    # Replace all target iteration indices
-    index_mapping = OrderedDict()
+    # Strip all target iteration indices
+    source.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
+
     for var in vnames:
-        index_mapping.update({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
-    source.body.replace(index_mapping)
+        # Strip all colon indices for leading dimensions
+        source.body.replace({'%s(:,' % var: '%s(' % var,
+                             '%s(:)' % var: '%s' % var})
 
     # Super-hacky regex replacement for the target loops,
     # assuming that we only ever replace the inner (fast) loop!
@@ -45,6 +52,14 @@ def convert(file, output):
         body = '\n'.join([line.replace('  ', '', 1) for line in body.split('\n')])
         # Manually perform the replacement, as we're going accross lines
         source.body._source = source.body._source.replace(loop, body)
+
+    # Strip a dimension from all affected ALLOCATABLEs
+    allocatables = [ll for ll in source.declarations.longlines
+                    if 'ALLOCATABLE' in ll]
+    for allocatable in allocatables:
+        for vname in vnames:
+            if vname in allocatable:
+                source.declarations.replace({'%s(:,' % vname: '%s(' % vname})
 
     print("Writing to %s" % output)
     source.write(output)
