@@ -87,7 +87,7 @@ class FortranSourceFile(object):
         self.body = SourceSection(name='body', source=self._raw_source)
 
         # First break source into: <pre> <SUBROUTINE ... END SUBROUTINE> <post>
-        re_subroutine = re.compile('(?P<pre>.*)'
+        re_subroutine = re.compile('(?P<pre>.*?)'
                                    '(?P<routine>SUBROUTINE.*?END SUBROUTINE)'
                                    '(?P<post>.*)', re.DOTALL)
         source = re_subroutine.search(self._raw_source).groupdict()
