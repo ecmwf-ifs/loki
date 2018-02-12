@@ -1,8 +1,20 @@
 import click as cli
 import re
-from collections import OrderedDict
+from collections import OrderedDict, Iterable
 
 from ecir import FortranSourceFile
+
+def flatten(l):
+    """Flatten a hierarchy of nested lists into a plain list."""
+    newlist = []
+    for el in l:
+        if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
+            for sub in flatten(el):
+                newlist.append(sub)
+        else:
+            newlist.append(el)
+    return newlist
+
 
 @cli.command()
 @cli.option('--file', '-f', help='Source file to convert.')
@@ -23,9 +35,14 @@ def convert(file, output):
     re_allocs = re.compile('ALLOCATE\(.*?\)\)')
     allocs = [l for l in re_allocs.findall(source.body._source) if tdim in l]
 
-    # Extract all variables that use the target dimensions from decls and allocs
-    re_vnames = re.compile('::\W*(?P<name>[a-zA-Z0-9\_]*)')
-    vnames = [re_vnames.search(l).groupdict()['name'] for l in decls]
+    # Extract all variables that use the target dimensions from declarations
+    re_vars = re.compile('::(?P<vars>.*)')
+    varlists = [re_vars.search(l).groupdict()['vars'] for l in decls]
+    re_vname = re.compile('(?P<name>[a-zA-Z0-9\_]*)\(.*?\)')
+    vnames = flatten([re_vname.findall(vl) for vl in varlists])
+    vnames = [v for v in vnames if len(v) > 0]
+
+    # Add all ALLOCATABLE variables that use target dimension
     re_valloc = re.compile('ALLOCATE\((?P<var>[a-zA-Z0-9\_]*)\(')
     vnames += [re_valloc.search(l).groupdict()['var'] for l in allocs]
 
@@ -41,6 +58,15 @@ def convert(file, output):
         # Strip all colon indices for leading dimensions
         source.body.replace({'%s(:,' % var: '%s(' % var,
                              '%s(:)' % var: '%s' % var})
+        # TODO: This one is hacky and assumes we always process FULL BLOCKS!
+        # We effectively treat block_start:block_end variables as (:)
+        source.body.replace({'%s(JL-KIDIA+1,' % var: '%s(' % var,
+                             '%s(JL-KIDIA+1)' % var: '%s' % var,
+                             '%s(KIDIA:KFDIA,' % var: '%s(' % var,
+                             '%s(KIDIA:KFDIA)' % var: '%s' % var,
+                             '%s(KIDIA,' % var: '%s(' % var,
+                             '%s(KIDIA)' % var: '%s' % var,
+                         })
 
     # Super-hacky regex replacement for the target loops,
     # assuming that we only ever replace the inner (fast) loop!
