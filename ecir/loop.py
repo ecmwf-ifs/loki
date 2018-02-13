@@ -63,7 +63,4 @@ class IRGenerator(GenericVisitor):
         lstart = int(o.attrib['line_begin'])
         lend = int(o.attrib['line_end'])
         return Loop(children=self.visit(o.find('body')),
-                    source=self._raw_source[lstart:lend])
-
-    def visit_statement(self, o):
-        print("STMT %s::%s" % (o.tag, o.attrib.items()))
+                    source=''.join(self._raw_source[lstart-1:lend]))
