@@ -2,7 +2,7 @@ import click as cli
 import re
 from collections import OrderedDict, Iterable
 
-from ecir import FortranSourceFile, decompose_loops
+from ecir import FortranSourceFile
 
 def flatten(l):
     """Flatten a hierarchy of nested lists into a plain list."""

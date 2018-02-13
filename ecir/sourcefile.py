@@ -39,7 +39,8 @@ class FortranSourceFile(object):
         self._pre = Section(name='pre', source=''.join(self.lines[:r_start]))
         self._post = Section(name='post', source=''.join(self.lines[r_end:]))
         self.routines = [Subroutine(name=routines[0].attrib['name'], ast=routines[0],
-                                    source=''.join(self.lines[r_start:r_end]))]
+                                    source=''.join(self.lines[r_start:r_end]),
+                                    raw_source=self.lines)]
 
     @property
     def source(self):

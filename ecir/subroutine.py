@@ -1,3 +1,6 @@
+from ecir.loop import IRGenerator  #generate
+
+
 class Section(object):
     """
     Class to handle and manipulate a source code section.
@@ -49,28 +52,38 @@ class Section(object):
 
 class Subroutine(Section):
 
-    def __init__(self, name, ast, source):
+    def __init__(self, name, ast, source, raw_source):
         self.name = name
         self._ast = ast
         self._source = source
+        # The original source string in the file
+        self._raw_source = raw_source
 
         # Separate body and declaration sections
-        body = self._ast.find('body')
-        b_start = int(body.attrib['line_begin'])
-        b_end = int(body.attrib['line_end'])
+        body_ast = self._ast.find('body')
+        bstart = int(body_ast.attrib['line_begin'])
+        bend = int(body_ast.attrib['line_end'])
 
-        spec = self._ast.find('body/specification')
-        s_start = int(spec.attrib['line_begin'])
-        s_end = int(spec.attrib['line_end'])
+        spec_ast = self._ast.find('body/specification')
+        sstart = int(spec_ast.attrib['line_begin'])
+        send = int(spec_ast.attrib['line_end'])
         
         # A few small shortcuts:
         # We assume every routine starts with declarations, which might also
         # include a comment block. This will be refined soonish...
-        self._pre = Section(name='pre', source=''.join(self.lines[:b_start]))
-        self._post = Section(name='post', source=''.join(self.lines[b_end:]))
+        self._pre = Section(name='pre', source=''.join(self.lines[:bstart]))
+        self._post = Section(name='post', source=''.join(self.lines[bend:]))
         self.declarations = Section(name='declarations', 
-                                    source=''.join(self.lines[b_start:s_end]))
-        self.body = Section(name='body', source=''.join(self.lines[s_end:b_end]))
+                                    source=''.join(self.lines[bstart:send]))
+        self.body = Section(name='body', source=''.join(self.lines[send:bend]))
+
+        # Create a separate IR for the statements and loops in the body
+        if self._ast.find('body/associate'):
+            routine_body = self._ast.find('body/associate/body')
+        else:
+            routine_body = self._ast.find('body')
+
+        self._ir = IRGenerator(self._raw_source).visit(routine_body)
 
     @property
     def source(self):
