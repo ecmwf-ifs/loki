@@ -38,25 +38,6 @@ def convert(file, output):
     tdim = 'KLON'  # Name of the target dimension
     tvar = 'JL'  # Name of the target iteration variable
 
-    # Get list of all declarations involving the target dimension
-    decls = [l for l in routine.declarations.longlines if tdim in l]
-    decls = [l for l in decls if not l.startswith('!')]  # Strip comments
-
-    # Get list of all allocations involving the target dimension
-    re_allocs = re.compile('ALLOCATE\(.*?\)\)')
-    allocs = [l for l in re_allocs.findall(routine.body._source) if tdim in l]
-
-    # Extract all variables that use the target dimensions from declarations
-    re_vars = re.compile('::(?P<vars>.*)')
-    varlists = [re_vars.search(l).groupdict()['vars'] for l in decls]
-    re_vname = re.compile('(?P<name>[a-zA-Z0-9\_]*)\(.*?\)')
-    vnames = flatten([re_vname.findall(vl) for vl in varlists])
-    vnames = [v for v in vnames if len(v) > 0]
-
-    # Add all ALLOCATABLE variables that use target dimension
-    re_valloc = re.compile('ALLOCATE\((?P<var>[a-zA-Z0-9\_]*)\(')
-    vnames += [re_valloc.search(l).groupdict()['var'] for l in allocs]
-
     # First, let's strip the target loops. It's important to do this
     # first, as the IR on the `routine` object is not updated when the
     # source changes...
@@ -78,27 +59,24 @@ def convert(file, output):
     # Strip all target iteration indices
     routine.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
 
-    for var in vnames:
+    # Find all variables affected by the transformation
+    variables = [v for v in routine.variables if tdim in ','.join(v.dimensions)]
+    for v in variables:
         # Strip all colon indices for leading dimensions
-        routine.body.replace({'%s(:,' % var: '%s(' % var,
-                              '%s(:)' % var: '%s' % var})
+        routine.body.replace({'%s(:,' % v.name: '%s(' % v.name,
+                              '%s(:)' % v.name: '%s' % v.name})
         # TODO: This one is hacky and assumes we always process FULL BLOCKS!
-        # We effectively treat block_start:block_end variables as (:)
-        routine.body.replace({'%s(JL-KIDIA+1,' % var: '%s(' % var,
-                              '%s(JL-KIDIA+1)' % var: '%s' % var,
-                              '%s(KIDIA:KFDIA,' % var: '%s(' % var,
-                              '%s(KIDIA:KFDIA)' % var: '%s' % var,
-                              '%s(KIDIA,' % var: '%s(' % var,
-                              '%s(KIDIA)' % var: '%s' % var,
+        # We effectively treat block_start:block_end v.nameiables as (:)
+        routine.body.replace({'%s(JL-KIDIA+1,' % v.name: '%s(' % v.name,
+                              '%s(JL-KIDIA+1)' % v.name: '%s' % v.name,
+                              '%s(KIDIA:KFDIA,' % v.name: '%s(' % v.name,
+                              '%s(KIDIA:KFDIA)' % v.name: '%s' % v.name,
+                              '%s(KIDIA,' % v.name: '%s(' % v.name,
+                              '%s(KIDIA)' % v.name: '%s' % v.name,
                          })
 
-    # Strip a dimension from all affected ALLOCATABLEs
-    allocatables = [ll for ll in routine.declarations.longlines
-                    if 'ALLOCATABLE' in ll]
-    for allocatable in allocatables:
-        for vname in vnames:
-            if vname in allocatable:
-                routine.declarations.replace({'%s(:,' % vname: '%s(' % vname})
+        if v.allocatable:
+            routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
 
     print("Writing to %s" % output)
     source.write(output)
