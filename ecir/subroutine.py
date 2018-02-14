@@ -1,8 +1,8 @@
 import re
 from collections import OrderedDict
 
-from ecir.loop import IRGenerator  #generate
-
+from ecir.loop import IRGenerator
+from ecir.helpers import assemble_continued_statement_from_list
 
 class Section(object):
     """
@@ -69,13 +69,14 @@ class Variable(object):
             # identically (matching each character) from an AST, we
             # now simply pull out the strings from the source.
             lstart = int(ast.attrib['line_begin'])
-            lend = int(ast.attrib['line_end'])
-            assert(lstart == lend)
-            line = source[lstart-1]
-            search = self.name
-            re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n)' % self.name, re.DOTALL)
-            dims = re_dims.search(line).groupdict()['dims']
-            self.dimensions = tuple(dims.split(','))
+            _, line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)
+            re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n|\)\s*\!)' % self.name, re.DOTALL)
+            match = re_dims.search(line)
+            if match is None:
+                print("Failed to derive dimensions for variable %s" % self.name)
+                print("Declaration line: %s" % line)
+                raise ValueError("Could not derive variable dimensions for %s" % self.name)
+            self.dimensions = tuple(match.groupdict()['dims'].split(','))
 
     def __repr__(self):
         return "Variable::%s(type=%s, kind=%s, dims=%s)" % (
