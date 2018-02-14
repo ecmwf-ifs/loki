@@ -1,3 +1,6 @@
+import re
+from collections import OrderedDict
+
 from ecir.loop import IRGenerator  #generate
 
 
@@ -49,6 +52,35 @@ class Section(object):
             rawlines = [line.replace(k, v) for line in rawlines]
         self._source = ''.join(rawlines)
 
+class Variable(object):
+    """
+    Object representing a variable of arbitrary dimension.
+    """
+
+    def __init__(self, name, type, kind, ast, source):
+        self.name = name
+        self.type = type
+        self.kind = kind
+
+        self.dimensions = None
+        if ast.find('dimensions'):
+            # Extract dimensions for mulit-dimensional arrays
+            # Note: Since complex expressions cannot be re-created
+            # identically (matching each character) from an AST, we
+            # now simply pull out the strings from the source.
+            lstart = int(ast.attrib['line_begin'])
+            lend = int(ast.attrib['line_end'])
+            assert(lstart == lend)
+            line = source[lstart-1]
+            search = self.name
+            re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n)' % self.name, re.DOTALL)
+            dims = re_dims.search(line).groupdict()['dims']
+            self.dimensions = tuple(dims.split(','))
+
+    def __repr__(self):
+        return "Variable::%s(type=%s, kind=%s, dims=%s)" % (
+            self.name, self.type, self.kind, str(self.dimensions))
+
 
 class Subroutine(Section):
 
@@ -56,7 +88,7 @@ class Subroutine(Section):
         self.name = name
         self._ast = ast
         self._source = source
-        # The original source string in the file
+        # The original source string in the file, split into lines
         self._raw_source = raw_source
 
         # Separate body and declaration sections
@@ -82,8 +114,24 @@ class Subroutine(Section):
             routine_body = self._ast.find('body/associate/body')
         else:
             routine_body = self._ast.find('body')
-
         self._ir = IRGenerator(self._raw_source).visit(routine_body)
+
+        # Record variable definitions as a name->variable dict
+        self._variables = OrderedDict()
+        spec = self._ast.find('body/specification')
+        decls = [d for d in spec.findall('declaration')
+                 if 'type' in d.attrib and d.attrib['type'] == 'variable']
+        for d in decls:
+            # Get type information from the declaration node
+            vtype = d.find('type').attrib['name']
+            has_kind = d.find('type').attrib['hasKind'] in ['true', 'True']
+            kind = d.find('type/kind/name').attrib['id'] if has_kind else None
+            # Create internal :class:`Variable` objects that store definitions
+            var_asts = [v for v in d.findall('variables/variable') if 'name' in v.attrib]
+            for v in var_asts:
+                vname = v.attrib['name']
+                self._variables[vname] = Variable(name=vname, type=vtype, kind=kind,
+                                                  ast=v, source=self._raw_source)
 
     @property
     def source(self):
@@ -92,3 +140,18 @@ class Subroutine(Section):
         """
         content = [self._pre, self.declarations, self.body, self._post]
         return ''.join(s.source for s in content)        
+
+    @property
+    def arguments(self):
+        """
+        List of argument names as defined in the subroutine signature.
+        """
+        argnames = [arg.attrib['name'] for arg in self._ast.findall('header/arguments/argument')]
+        return [self._variables[name] for name in argnames]
+
+    @property
+    def variables(self):
+        """
+        List of all declared variables
+        """
+        return list(self._variables.values())
