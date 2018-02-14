@@ -27,13 +27,14 @@ class FindLoops(GenericVisitor):
 
 
 @cli.command()
-@cli.option('--file', '-f', help='Source file to convert.')
-@cli.option('--output', '-o', help='Source file to convert.')
-def convert(file, output):
+@cli.option('--source', '-s', help='Source file to convert.')
+@cli.option('--source-out', '-so', help='Path for generated source output.')
+@cli.option('--driver', '-d', default=None, help='Driver file to convert.')
+@cli.option('--driver-out', '-do', default=None, help='Path for generated driver output.')
+def convert(source, source_out, driver, driver_out):
 
-    print('Processing %s ...' % file)
-    source = FortranSourceFile(file)
-    routine = source.routines[0]
+    f_source = FortranSourceFile(source)
+    routine = f_source.routines[0]
 
     tdim = 'KLON'  # Name of the target dimension
     tvar = 'JL'  # Name of the target iteration variable
@@ -85,9 +86,15 @@ def convert(file, output):
         if v.allocatable:
             routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
 
-    print("Writing to %s" % output)
-    source.write(output)
+    print("Writing to %s" % source_out)
+    f_source.write(source_out)
 
+    # Now let's process the driver/caller side
+    if driver is not None:
+        f_driver = FortranSourceFile(driver)
+
+        print("Writing to %s" % driver_out)
+        f_driver.write(driver_out)
 
 if __name__ == "__main__":
     convert()

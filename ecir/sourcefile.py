@@ -4,6 +4,7 @@ Fortran source code file.
 """
 from open_fortran_parser import parse
 import re
+import time
 from collections import Iterable
 
 from ecir.subroutine import Section, Subroutine
@@ -27,20 +28,27 @@ class FortranSourceFile(object):
 
         # Parse the file content into a Fortran AST
         print("Parsing %s..." % filename)
+        t0 = time.time()
         self._ast = parse(filename)
-        print("Parsed %s!" % filename)
+        t1 = time.time() - t0
+        print("Parsing done! (time: %.2fs)" % t1)
 
         # Extract subroutines and pre/post sections from file
-        routines = self._ast.findall('file/subroutine')
-        assert(len(routines) == 1)  # For now only one routine
-        r_start = int(routines[0].attrib['line_begin'])
-        r_end = int(routines[0].attrib['line_end'])
+        ast_routines = self._ast.findall('file/subroutine')
 
+        # Extract pre/post sections
+        r_start = int(ast_routines[0].attrib['line_begin'])
+        r_end = int(ast_routines[-1].attrib['line_end'])
         self._pre = Section(name='pre', source=''.join(self.lines[:r_start]))
         self._post = Section(name='post', source=''.join(self.lines[r_end:]))
-        self.routines = [Subroutine(name=routines[0].attrib['name'], ast=routines[0],
-                                    source=''.join(self.lines[r_start:r_end]),
-                                    raw_source=self.lines)]
+
+        self.routines = []
+        for r in ast_routines:
+            lstart = int(r.attrib['line_begin'])
+            lend = int(r.attrib['line_end'])
+            source = ''.join(self.lines[lstart:lend])
+            self.routines.append(Subroutine(name=r.attrib['name'], ast=r,
+                                            source=source, raw_source=self.lines))
 
     @property
     def source(self):

@@ -67,7 +67,7 @@ class Variable(object):
         if self.allocatable:
             # Allocatable dimensions are defined further down in the source
             for line in source:
-                if 'ALLOCATE' in line and self.name in line:
+                if 'ALLOCATE(%s(' % self.name in line:
                     # We have the allocation line, pick out the dimensions
                     re_dims = re.compile('ALLOCATE\(%s\((?P<dims>.*)\)\)' % self.name)
                     match = re_dims.search(line)
