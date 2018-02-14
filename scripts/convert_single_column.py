@@ -2,18 +2,7 @@ import click as cli
 import re
 from collections import OrderedDict, Iterable
 
-from ecir import FortranSourceFile, GenericVisitor
-
-def flatten(l):
-    """Flatten a hierarchy of nested lists into a plain list."""
-    newlist = []
-    for el in l:
-        if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
-            for sub in flatten(el):
-                newlist.append(sub)
-        else:
-            newlist.append(el)
-    return newlist
+from ecir import FortranSourceFile, GenericVisitor, flatten
 
 
 class FindLoops(GenericVisitor):
