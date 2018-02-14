@@ -64,7 +64,6 @@ class Variable(object):
         self.allocatable = allocatable
 
         # If the variable has dimensions, record them
-        self.dimensions = None
         if self.allocatable:
             # Allocatable dimensions are defined further down in the source
             for line in source:
@@ -93,6 +92,10 @@ class Variable(object):
                 print("Declaration line: %s" % line)
                 raise ValueError("Could not derive variable dimensions for %s" % self.name)
             self.dimensions = tuple(match.groupdict()['dims'].split(','))
+
+        else:
+            # No dimensions? Store an empty tuple.
+            self.dimensions = ()
 
     def __repr__(self):
         return "Variable::%s(type=%s, kind=%s, dims=%s)" % (

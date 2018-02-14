@@ -51,18 +51,25 @@ def convert(file, output):
             lines = ''.join([line.replace('  ', '', 1) for line in lines])
             routine.body._source = routine.body._source.replace(target._source, lines)
 
-    # Note: We assume that KLON is always the leading dimension(!)
-    # Strip target dimension from declarations and body (for ALLOCATEs)
-    routine.declarations.replace({'(%s,' % tdim: '(', '(%s)' % tdim: ''})
-    routine.body.replace({'(%s,' % tdim: '(', '(%s)' % tdim: ''})
-
     # Strip all target iteration indices
     routine.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
 
     # Find all variables affected by the transformation
-    variables = [v for v in routine.variables if tdim in ','.join(v.dimensions)]
+    variables = [v for v in routine.variables if tdim in v.dimensions]
     for v in variables:
+        # Target is a vector, we now promote it to a scalar
+        promote_to_scalar = len(v.dimensions) == 1
+        new_dimensions = list(v.dimensions)
+        new_dimensions.remove(tdim)
+
+        # Strip target dimension from declarations and body (for ALLOCATEs)
+        old_dims = '(%s)' % ','.join(v.dimensions)
+        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(new_dimensions)
+        routine.declarations.replace({old_dims: new_dims})
+        routine.body.replace({old_dims: new_dims})
+
         # Strip all colon indices for leading dimensions
+        # TODO: Could do this in a smarter, more generic way...
         routine.body.replace({'%s(:,' % v.name: '%s(' % v.name,
                               '%s(:)' % v.name: '%s' % v.name})
         # TODO: This one is hacky and assumes we always process FULL BLOCKS!
