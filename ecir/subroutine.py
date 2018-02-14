@@ -57,13 +57,29 @@ class Variable(object):
     Object representing a variable of arbitrary dimension.
     """
 
-    def __init__(self, name, type, kind, ast, source):
+    def __init__(self, name, type, kind, allocatable, ast, source):
         self.name = name
         self.type = type
         self.kind = kind
+        self.allocatable = allocatable
 
+        # If the variable has dimensions, record them
         self.dimensions = None
-        if ast.find('dimensions'):
+        if self.allocatable:
+            # Allocatable dimensions are defined further down in the source
+            for line in source:
+                if 'ALLOCATE' in line and self.name in line:
+                    # We have the allocation line, pick out the dimensions
+                    re_dims = re.compile('ALLOCATE\(%s\((?P<dims>.*)\)\)' % self.name)
+                    match = re_dims.search(line)
+                    if match is None:
+                        print("Failed to derive dimensions for allocatable variable %s" % self.name)
+                        print("Allocation line: %s" % line)
+                        raise ValueError("Could not derive variable dimensions for %s" % self.name)
+                    self.dimensions = tuple(match.groupdict()['dims'].split(','))
+                    break
+
+        elif ast.find('dimensions'):
             # Extract dimensions for mulit-dimensional arrays
             # Note: Since complex expressions cannot be re-created
             # identically (matching each character) from an AST, we
@@ -127,11 +143,13 @@ class Subroutine(Section):
             vtype = d.find('type').attrib['name']
             has_kind = d.find('type').attrib['hasKind'] in ['true', 'True']
             kind = d.find('type/kind/name').attrib['id'] if has_kind else None
+            allocatable = d.find('attribute-allocatable') is not None
             # Create internal :class:`Variable` objects that store definitions
             var_asts = [v for v in d.findall('variables/variable') if 'name' in v.attrib]
             for v in var_asts:
                 vname = v.attrib['name']
                 self._variables[vname] = Variable(name=vname, type=vtype, kind=kind,
+                                                  allocatable=allocatable,
                                                   ast=v, source=self._raw_source)
 
     @property
