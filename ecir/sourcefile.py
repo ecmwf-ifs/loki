@@ -37,14 +37,14 @@ class FortranSourceFile(object):
         ast_routines = self._ast.findall('file/subroutine')
 
         # Extract pre/post sections
-        r_start = int(ast_routines[0].attrib['line_begin'])
+        r_start = int(ast_routines[0].attrib['line_begin']) - 1
         r_end = int(ast_routines[-1].attrib['line_end'])
         self._pre = Section(name='pre', source=''.join(self.lines[:r_start]))
         self._post = Section(name='post', source=''.join(self.lines[r_end:]))
 
         self.routines = []
         for r in ast_routines:
-            lstart = int(r.attrib['line_begin'])
+            lstart = int(r.attrib['line_begin']) - 1
             lend = int(r.attrib['line_end'])
             source = ''.join(self.lines[lstart:lend])
             self.routines.append(Subroutine(name=r.attrib['name'], ast=r,
