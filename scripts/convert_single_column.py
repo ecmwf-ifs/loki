@@ -40,6 +40,8 @@ def convert(source, source_out, driver, driver_out, mode):
     tdim = 'KLON'  # Name of the target dimension
     tvar = 'JL'  # Name of the target iteration variable
 
+    dummy_variables = ['KIDIA', 'KFDIA', 'KLON']
+
     # First, let's strip the target loops. It's important to do this
     # first, as the IR on the `routine` object is not updated when the
     # source changes...
@@ -57,6 +59,8 @@ def convert(source, source_out, driver, driver_out, mode):
     routine.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
 
     # Find all variables affected by the transformation
+    # Note: We assume here that the target dimenion is match exactly
+    # in v.dimensions!
     variables = [v for v in routine.variables if tdim in v.dimensions]
     for v in variables:
         # Target is a vector, we now promote it to a scalar
@@ -74,6 +78,20 @@ def convert(source, source_out, driver, driver_out, mode):
         # TODO: Could do this in a smarter, more generic way...
         routine.body.replace({'%s(:,' % v.name: '%s(' % v.name,
                               '%s(:)' % v.name: '%s' % v.name})
+
+        if v.allocatable:
+            routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
+
+    # Hacks, hacks, nothing but hacks... (for CUADJTQ and CLOUDSC)
+    variables = [v for v in routine.variables
+                 if 'KFDIA' in ','.join(v.dimensions)
+                 or 'KLON' in ','.join(v.dimensions)]
+    for v in variables:
+        routine.declarations.replace({'%s(KFDIA-KIDIA+1)' % v.name: '%s' % v.name,
+                                      '%s(KFDIA-KIDIA+1,' % v.name: '%s(' % v.name,
+                                      '%s(2*(KFDIA-KIDIA+1))' % v.name: '%s(2)' % v.name,
+                                      '%s(2*KLON)' % v.name: '%s(2)' % v.name,
+                                  })
         # TODO: This one is hacky and assumes we always process FULL BLOCKS!
         # We effectively treat block_start:block_end v.nameiables as (:)
         routine.body.replace({'%s(JL-KIDIA+1,' % v.name: '%s(' % v.name,
@@ -82,10 +100,28 @@ def convert(source, source_out, driver, driver_out, mode):
                               '%s(KIDIA:KFDIA)' % v.name: '%s' % v.name,
                               '%s(KIDIA,' % v.name: '%s(' % v.name,
                               '%s(KIDIA)' % v.name: '%s' % v.name,
+                              'Z_TMPK(1,JK)': 'Z_TMPK(JK)'  # <= Dirty little hobbitses!!!
                          })
 
-        if v.allocatable:
-            routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
+    # Strip dummy variables from signature
+    re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
+    signature = re_sig.findall(routine._source)[0]
+    new_signature = signature[:]
+    re_sig_args = re.compile('\((?P<args>.*?)\)', re.DOTALL)
+    sig_args = re_sig_args.search(signature).groupdict()['args']
+    dummy_args = sig_args.split(',')
+    for dummy in dummy_variables:
+        for arg in dummy_args:
+            if dummy in arg:
+                dummy_args.remove(arg)
+    # Reconstruct args in new_signature and replace in the routine source
+    new_signature = new_signature.replace(sig_args, ','.join(dummy_args))
+    routine.declarations._source = routine.declarations._source.replace(signature, new_signature)
+
+    # Strip dummy variables from declarations
+    for v in routine.arguments:
+        if v.name in dummy_variables:
+            routine.declarations._source = routine.declarations._source.replace(v._line, '')
 
     if mode == 'claw':
         # Prepend CLAW directives to subroutine body

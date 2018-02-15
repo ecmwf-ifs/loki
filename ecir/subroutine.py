@@ -63,6 +63,10 @@ class Variable(object):
         self.kind = kind
         self.allocatable = allocatable
 
+        # Find and store the original declaration this variable
+        lstart = int(ast.attrib['line_begin'])
+        _, self._line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)
+
         # If the variable has dimensions, record them
         if self.allocatable:
             # Allocatable dimensions are defined further down in the source
@@ -83,10 +87,8 @@ class Variable(object):
             # Note: Since complex expressions cannot be re-created
             # identically (matching each character) from an AST, we
             # now simply pull out the strings from the source.
-            lstart = int(ast.attrib['line_begin'])
-            _, line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)
             re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n|\)\s*\!)' % self.name, re.DOTALL)
-            match = re_dims.search(line)
+            match = re_dims.search(self._line)
             if match is None:
                 print("Failed to derive dimensions for variable %s" % self.name)
                 print("Declaration line: %s" % line)
@@ -112,21 +114,17 @@ class Subroutine(Section):
         self._raw_source = raw_source
 
         # Separate body and declaration sections
+        # Note: The declaration includes the SUBROUTINE key and dummy
+        # variable list, so no _pre section is required.
         body_ast = self._ast.find('body')
-        bstart = int(body_ast.attrib['line_begin'])
+        bstart = int(body_ast.attrib['line_begin']) - 1
         bend = int(body_ast.attrib['line_end'])
-
         spec_ast = self._ast.find('body/specification')
-        sstart = int(spec_ast.attrib['line_begin'])
+        sstart = int(spec_ast.attrib['line_begin']) - 1
         send = int(spec_ast.attrib['line_end'])
-        
-        # A few small shortcuts:
-        # We assume every routine starts with declarations, which might also
-        # include a comment block. This will be refined soonish...
-        self._pre = Section(name='pre', source=''.join(self.lines[:bstart]))
         self._post = Section(name='post', source=''.join(self.lines[bend:]))
         self.declarations = Section(name='declarations', 
-                                    source=''.join(self.lines[bstart:send]))
+                                    source=''.join(self.lines[:send]))
         self.body = Section(name='body', source=''.join(self.lines[send:bend]))
 
         # Create a separate IR for the statements and loops in the body
@@ -160,7 +158,7 @@ class Subroutine(Section):
         """
         The raw source code contained in this section.
         """
-        content = [self._pre, self.declarations, self.body, self._post]
+        content = [self.declarations, self.body, self._post]
         return ''.join(s.source for s in content)        
 
     @property
