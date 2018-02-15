@@ -31,7 +31,8 @@ class FindLoops(GenericVisitor):
 @cli.option('--source-out', '-so', help='Path for generated source output.')
 @cli.option('--driver', '-d', default=None, help='Driver file to convert.')
 @cli.option('--driver-out', '-do', default=None, help='Path for generated driver output.')
-def convert(source, source_out, driver, driver_out):
+@cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
+def convert(source, source_out, driver, driver_out, mode):
 
     f_source = FortranSourceFile(source)
     routine = f_source.routines[0]
@@ -85,6 +86,15 @@ def convert(source, source_out, driver, driver_out):
 
         if v.allocatable:
             routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
+
+    if mode == 'claw':
+        # Prepend CLAW directives to subroutine body
+        scalars = [v.name.lower() for v in routine.arguments
+                   if len(v.dimensions) == 1]
+        directives = '!$claw define dimension jl(1:klon) &\n'
+        directives += '!$claw parallelize &\n'
+        directives += '!$claw scalar(%s)\n\n\n' % ', '.join(scalars)
+        routine.body._source = directives + routine.body._source
 
     print("Writing to %s" % source_out)
     f_source.write(source_out)
