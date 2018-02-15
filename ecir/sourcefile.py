@@ -2,12 +2,13 @@
 Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
-from open_fortran_parser import parse
 import re
 import time
+import open_fortran_parser
 from collections import Iterable
 
 from ecir.subroutine import Section, Subroutine
+from ecir.tools import disk_cached
 
 __all__ =['FortranSourceFile']
 
@@ -29,7 +30,7 @@ class FortranSourceFile(object):
         # Parse the file content into a Fortran AST
         print("Parsing %s..." % filename)
         t0 = time.time()
-        self._ast = parse(filename)
+        self._ast = self.parse_ast(filename=filename)
         t1 = time.time() - t0
         print("Parsing done! (time: %.2fs)" % t1)
 
@@ -49,6 +50,15 @@ class FortranSourceFile(object):
             source = ''.join(self.lines[lstart:lend])
             self.routines.append(Subroutine(name=r.attrib['name'], ast=r,
                                             source=source, raw_source=self.lines))
+
+    @disk_cached(argname='filename')
+    def parse_ast(self, filename):
+        """
+        Read and parse a source file usign the Open Fortran Parser.
+
+        Note: The parsing is cached on disk in ``<filename>.cache``.
+        """
+        return open_fortran_parser.parse(filename)
 
     @property
     def source(self):
