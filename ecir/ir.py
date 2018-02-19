@@ -2,7 +2,7 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop']
+__all__ = ['Node', 'Loop', 'InlineComment']
 
 class Node(object):
 
@@ -27,9 +27,9 @@ class Node(object):
         return ()
 
 
-class CodeBlock(Node):
+class InlineComment(Node):
     """
-    Internal representation of an arbitrary piec of source code.
+    Internal representation of a single comment line.
     """
 
     def __init__(self, source):

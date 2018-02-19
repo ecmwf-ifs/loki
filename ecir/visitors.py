@@ -132,6 +132,10 @@ class PrintAST(GenericVisitor):
         self._depth -= 2
         return self.indent + "<Loop>\n%s" % body
 
+    def visit_InlineComment(self, o):
+        body = ':: %s' % o._source if self.verbose else ''
+        return self.indent + '<Comment%s>' % body
 
-def pprint(ir):
-    print(PrintAST().visit(ir))
+
+def pprint(ir, verbose=False):
+    print(PrintAST(verbose=verbose).visit(ir))

@@ -1,5 +1,7 @@
 import pytest
+import click as cli
 from os import path
+import open_fortran_parser as ofp
 
 from ecir import generate, pprint
 
@@ -14,3 +16,17 @@ def test_parsing(filename):
         print(file.read())
     ir = generate(filename)
     pprint(ir)
+
+
+@cli.command()
+@cli.option('--filename', '-f', help='Source file to parse.')
+def parse_ofp(filename):
+    with open(filename) as file:
+        source = file.read()
+    ast = ofp.parse(filename)
+    ir = generate(ast, source)
+    pprint(ir)
+
+
+if __name__ == "__main__":
+    parse_ofp()
