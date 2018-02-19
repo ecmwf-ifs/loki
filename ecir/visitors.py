@@ -101,13 +101,37 @@ class GenericVisitor(object):
         return self.default_retval()
 
 
-class PrintASTVisitor(GenericVisitor):
+class PrintAST(GenericVisitor):
 
     _depth = 0
 
-    def visit_Node(self, node):
-        return str("%s::%s" % (type(node), node.children))
+    def __init__(self, verbose=True):
+        super(PrintAST, self).__init__()
+        self.verbose = verbose
+
+    @classmethod
+    def default_retval(cls):
+        return "<>"
+
+    @property
+    def indent(self):
+        return '  ' * self._depth
+
+    def visit_Node(self, o):
+        return self.indent + '<%s>' % o.__class__.__name__
+
+    def visit_list(self, o):
+        return ('\n').join([self.visit(i) for i in o])
+
+    def visit_tuple(self, o):
+        return '\n'.join([self.visit(i) for i in o])
+
+    def visit_Loop(self, o):
+        self._depth += 2
+        body = self.visit(o.children)
+        self._depth -= 2
+        return self.indent + "<Loop>\n%s" % body
 
 
 def pprint(ir):
-    print(PrintASTVisitor().visit(ir))
+    print(PrintAST().visit(ir))

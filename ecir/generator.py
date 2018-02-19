@@ -5,31 +5,10 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 import re
 from collections import deque
 
+from ecir.ir import Loop
 from ecir.visitors import GenericVisitor
 
-__all__ = ['CodeBlock', 'Loop', 'IRGenerator']
-
-
-class CodeBlock(object):
-    """
-    Internal representation of an arbitrary piec of source code.
-    """
-
-    def __init__(self, source):
-        self._source = source
-
-
-class Loop(CodeBlock):
-    """
-    Internal representation of a loop in source code.
-
-    Importantly, this object will carry around an exact copy of the
-    source string that defines it's body.
-    """
-
-    def __init__(self, source, children=None):
-        self._source = source
-        self._children = children
+__all__ = ['IRGenerator']
 
 
 class IRGenerator(GenericVisitor):

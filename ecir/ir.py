@@ -2,6 +2,8 @@ from collections import OrderedDict
 import inspect
 
 
+__all__ = ['Node', 'Loop']
+
 class Node(object):
 
     def __new__(cls, *args, **kwargs):
@@ -23,3 +25,29 @@ class Node(object):
     @property
     def children(self):
         return ()
+
+
+class CodeBlock(Node):
+    """
+    Internal representation of an arbitrary piec of source code.
+    """
+
+    def __init__(self, source):
+        self._source = source
+
+
+class Loop(Node):
+    """
+    Internal representation of a loop in source code.
+
+    Importantly, this object will carry around an exact copy of the
+    source string that defines it's body.
+    """
+
+    def __init__(self, source, children=None):
+        self._source = source
+        self._children = children
+
+    @property
+    def children(self):
+        return self._children
