@@ -44,9 +44,12 @@ class Loop(Node):
     source string that defines it's body.
     """
 
-    def __init__(self, source, children=None):
+    def __init__(self, variable, source, children=None, bounds=None):
         self._source = source
         self._children = children
+
+        self.variable = variable
+        self.bounds = bounds
 
     @property
     def children(self):
@@ -64,7 +67,7 @@ class Statement(Node):
         self.expr = expr
 
 
-class Variable(Node):
+class Variable(object):
 
     def __init__(self, name, indices=None):
         self.name = name

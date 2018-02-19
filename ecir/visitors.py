@@ -130,7 +130,11 @@ class PrintAST(GenericVisitor):
         self._depth += 2
         body = self.visit(o.children)
         self._depth -= 2
-        return self.indent + "<Loop>\n%s" % body
+        if self.verbose and o.bounds is not None:
+            bounds = ' :: %s' % (', '.join(str(b) for b in o.bounds))
+        else:
+            bounds = ''
+        return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)
 
     def visit_Statement(self, o):
         expr = ' = %s' % o.expr if self.verbose else ''

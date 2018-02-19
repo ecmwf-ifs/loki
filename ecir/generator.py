@@ -12,7 +12,7 @@ from ecir.helpers import assemble_continued_statement_from_list
 __all__ = ['IRGenerator']
 
 
-def extract_lines(attrib, source):
+def extract_lines(attrib, source, full_lines=False):
     """
     Extract the marked string from source text.
     """
@@ -23,6 +23,9 @@ def extract_lines(attrib, source):
 
     if isinstance(source, str):
         source = source.splitlines(keepends=False)
+
+    if full_lines:
+        return ''.join(source[lstart-1:lend])
 
     if lstart == lend:
         if len(source[lstart-1]) < cend-1:
@@ -36,7 +39,7 @@ def extract_lines(attrib, source):
         lines = source[lstart-1:lend]
         firstline = lines[0][cstart:]
         lastline = lines[-1][:cend]
-        return '\n'.join([firstline] + lines[:-2] + [lastline])
+        return ''.join([firstline] + lines[1:-1] + [lastline])
 
 
 class IRGenerator(GenericVisitor):
@@ -66,8 +69,17 @@ class IRGenerator(GenericVisitor):
     visit_body = visit_Element
 
     def visit_loop(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
-        return Loop(children=self.visit(o.find('body')), source=''.join(source))
+        source = extract_lines(o.attrib, self._raw_source, full_lines=True)
+        variable = o.find('header/index-variable').attrib['name']
+        try:
+            lower = self.visit(o.find('header/index-variable/lower-bound'))[0]
+            upper = self.visit(o.find('header/index-variable/upper-bound'))[0]
+        except:
+            lower = None
+            upper = None
+        body = self.visit(o.find('body'))
+        return Loop(variable=variable, children=body, source=source,
+                    bounds=(lower, upper))
 
     def visit_comment(self, o):
         # This seems to refer to inline-comment only...
@@ -86,7 +98,6 @@ class IRGenerator(GenericVisitor):
                         indices=indices if len(indices) > 0 else None)
 
     def visit_value(self, o):
-        # FIXME: Line extraction broken at this granularity!
         return extract_lines(o.attrib, self._raw_source)
 
 
