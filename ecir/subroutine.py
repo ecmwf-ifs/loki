@@ -91,7 +91,7 @@ class Variable(object):
             match = re_dims.search(self._line)
             if match is None:
                 print("Failed to derive dimensions for variable %s" % self.name)
-                print("Declaration line: %s" % line)
+                print("Declaration line: %s" % self._line)
                 raise ValueError("Could not derive variable dimensions for %s" % self.name)
             self.dimensions = tuple(match.groupdict()['dims'].split(','))
 

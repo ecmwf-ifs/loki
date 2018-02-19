@@ -82,6 +82,11 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
             if v.name in dummy_variables:
                 routine.declarations._source = routine.declarations._source.replace(v._line, '')
 
+        # Strip target loop variable
+        line = routine._variables[tvar]._line
+        new_line = line.replace('%s, ' % tvar, '')
+        routine.declarations._source = routine.declarations._source.replace(line, new_line)
+
     ####  Index replacements  ####
 
     # Strip all target iteration indices
@@ -105,8 +110,10 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
 
         # Strip all colon indices for leading dimensions
         # TODO: Could do this in a smarter, more generic way...
-        routine.body.replace({'%s(:,' % v.name: '%s(' % v.name,
-                              '%s(:)' % v.name: '%s' % v.name})
+        if promote_to_scalar:
+            routine.body.replace({'%s(:)' % v.name: '%s' % v.name})
+        else:
+            routine.body.replace({'%s(:,' % v.name: '%s(' % v.name})
 
         if v.allocatable:
             routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
@@ -149,6 +156,10 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
         directives += '!$claw parallelize &\n'
         directives += '!$claw scalar(%s)\n\n\n' % ', '.join(scalars)
         routine.body._source = directives + routine.body._source
+
+        # Wrap subroutine in a module
+        f_source._pre._source += 'MODULE cloudsc_mod\ncontains\n'
+        f_source._post._source += 'END MODULE'
 
     print("Writing to %s" % source_out)
     f_source.write(source_out)
