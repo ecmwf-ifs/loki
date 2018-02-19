@@ -1,6 +1,6 @@
 import inspect
 
-__all__ = ['pprint', 'GenericVisitor', 'IRGenerator']
+__all__ = ['pprint', 'GenericVisitor']
 
 
 class GenericVisitor(object):
@@ -99,33 +99,6 @@ class GenericVisitor(object):
 
     def visit_object(self, o, **kwargs):
         return self.default_retval()
-
-
-class IRGenerator(GenericVisitor):
-
-    def lookup_method(self, instance):
-        """
-        Alternative lookup method for XML element types, identified by ``element.tag``
-        """
-        if instance.tag in self._handlers:
-            return self._handlers[instance.tag]
-        else:
-            return super(IRGenerator, self).lookup_method(instance)
-
-    def visit_Element(self, o):
-        """
-        Universal default for XML element types
-        """
-        print("ELEMENT %s" % o.tag)
-        children = tuple(self.visit(c) for c in o.getchildren())
-        children = tuple(c for c in children if c is not None)
-        return children if len(children) > 0 else None
-
-    def visit_program(self, o):
-        print("PROGRAM %s" % o.tag)
-
-    def visit_body(self, o):
-        print("BODY %s" % o.tag)
 
 
 class PrintASTVisitor(GenericVisitor):
