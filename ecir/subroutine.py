@@ -132,7 +132,7 @@ class Subroutine(Section):
             routine_body = self._ast.find('body/associate/body')
         else:
             routine_body = self._ast.find('body')
-        self._ir = generate(routine_body)
+        self._ir = generate(routine_body, self._raw_source)
 
         # Record variable definitions as a name->variable dict
         self._variables = OrderedDict()

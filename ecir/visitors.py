@@ -132,9 +132,17 @@ class PrintAST(GenericVisitor):
         self._depth -= 2
         return self.indent + "<Loop>\n%s" % body
 
+    def visit_Statement(self, o):
+        expr = ' = %s' % o.expr if self.verbose else ''
+        return self.indent + '<Stmt %s%s>' % (str(o.target), expr)
+
     def visit_InlineComment(self, o):
-        body = ':: %s' % o._source if self.verbose else ''
+        body = '::%s::' % o._source if self.verbose else ''
         return self.indent + '<Comment%s>' % body
+
+    def visit_Variable(self, o):
+        indices = ('(%s)' % ','.join([v.name for v in o.indices])) if o.indices0 else ''
+        return 'V<%s%s>' % (o.name, indices)
 
 
 def pprint(ir, verbose=False):

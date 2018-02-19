@@ -5,26 +5,38 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 import re
 from collections import deque
 
-from ecir.ir import Loop, InlineComment
+from ecir.ir import Loop, Statement, InlineComment, Variable
 from ecir.visitors import GenericVisitor
+from ecir.helpers import assemble_continued_statement_from_list
 
 __all__ = ['IRGenerator']
 
 
-def extract_lines(attrib, lines, single_line=False):
+def extract_lines(attrib, source):
     """
     Extract the marked string from source text.
     """
     lstart = int(attrib['line_begin'])
     lend = int(attrib['line_end'])
-    if single_line:
-        assert(lstart==lend)
-        cstart = int(attrib['col_begin'])
-        cend = int(attrib['col_end'])
-        line = lines[lstart-1]
-        return line[cstart-1:cend]
+    cstart = int(attrib['col_begin'])
+    cend = int(attrib['col_end'])
+
+    if isinstance(source, str):
+        source = source.splitlines(keepends=False)
+
+    if lstart == lend:
+        if len(source[lstart-1]) < cend-1:
+            # Final line has line continuations (&), assemble it
+            # Note: We trim the final character, since the utility adds a newline
+            line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)[1][:-1]
+        else:
+            line = source[lstart-1]
+        return line[cstart:cend+1]
     else:
-        return lines[lstart-1:lend]
+        lines = source[lstart-1:lend]
+        firstline = lines[0][cstart:]
+        lastline = lines[-1][:cend]
+        return '\n'.join([firstline] + lines[:-2] + [lastline])
 
 
 class IRGenerator(GenericVisitor):
@@ -54,13 +66,28 @@ class IRGenerator(GenericVisitor):
     visit_body = visit_Element
 
     def visit_loop(self, o):
-        source = extract_lines(o.attrib, self._raw_source, single_line=False)
+        source = extract_lines(o.attrib, self._raw_source)
         return Loop(children=self.visit(o.find('body')), source=''.join(source))
 
     def visit_comment(self, o):
         # This seems to refer to inline-comment only...
-        source = extract_lines(o.attrib, self._raw_source, single_line=True)
+        source = extract_lines(o.attrib, self._raw_source)
         return InlineComment(source=source)
+
+    def visit_assignment(self, o):
+        source = extract_lines(o.attrib, self._raw_source)
+        target = self.visit(o.find('target'))
+        expr = self.visit(o.find('value'))
+        return Statement(target=target, expr=expr, source=source)
+
+    def visit_name(self, o):
+        indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript/name'))
+        return Variable(name=o.attrib['id'],
+                        indices=indices if len(indices) > 0 else None)
+
+    def visit_value(self, o):
+        # FIXME: Line extraction broken at this granularity!
+        return extract_lines(o.attrib, self._raw_source)
 
 
 def generate(ofp_ast, raw_source):

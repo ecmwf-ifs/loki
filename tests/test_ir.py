@@ -25,7 +25,8 @@ def parse_ofp(filename):
         source = file.read()
     ast = ofp.parse(filename)
     ir = generate(ast, source)
-    pprint(ir)
+
+    pprint(ir, verbose=True)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop', 'InlineComment']
+__all__ = ['Node', 'Loop', 'Statement', 'InlineComment']
 
 class Node(object):
 
@@ -51,3 +51,25 @@ class Loop(Node):
     @property
     def children(self):
         return self._children
+
+
+class Statement(Node):
+    """
+    Internal representation of a variable assignment
+    """
+    def __init__(self, target, expr, source):
+        self._source = source
+
+        self.target = target
+        self.expr = expr
+
+
+class Variable(Node):
+
+    def __init__(self, name, indices=None):
+        self.name = name
+        self.indices = indices
+
+    def __repr__(self):
+        idx = '(%s)' % ','.join([str(i) for i in self.indices]) if self.indices else ''
+        return '%s%s' % (self.name, idx)
