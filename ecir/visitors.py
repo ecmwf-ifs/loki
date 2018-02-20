@@ -136,16 +136,28 @@ class PrintAST(GenericVisitor):
             bounds = ''
         return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)
 
+    def visit_Conditional(self, o):
+        self._depth += 2
+        bodies = [self.visit(b) for b in o.bodies]
+        self._depth -= 2
+        out = self.indent + '<Cond %s>\n%s' % (o.conditions[0], bodies[0])
+        ncond = len(o.conditions) - 1
+        for i, cond in enumerate(o.conditions[1:]):
+            out += '\n%s' % self.indent + '<Else-If %s>\n%s' % (o.conditions[1+i], bodies[1+i])
+        if len(bodies) > len(o.conditions):
+            out += '\n%s' % self.indent + '<Else>\n%s' % bodies[-1]
+        return out
+
     def visit_Statement(self, o):
         expr = ' = %s' % o.expr if self.verbose else ''
         return self.indent + '<Stmt %s%s>' % (str(o.target), expr)
 
-    def visit_InlineComment(self, o):
+    def visit_Comment(self, o):
         body = '::%s::' % o._source if self.verbose else ''
         return self.indent + '<Comment%s>' % body
 
     def visit_Variable(self, o):
-        indices = ('(%s)' % ','.join([v.name for v in o.indices])) if o.indices0 else ''
+        indices = ('(%s)' % ','.join([v.name for v in o.indices])) if o.indices else ''
         return 'V<%s%s>' % (o.name, indices)
 
 

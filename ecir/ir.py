@@ -2,7 +2,8 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'InlineComment']
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment',
+           'Variable', 'Expression']
 
 class Node(object):
 
@@ -27,7 +28,7 @@ class Node(object):
         return ()
 
 
-class InlineComment(Node):
+class Comment(Node):
     """
     Internal representation of a single comment line.
     """
@@ -44,7 +45,7 @@ class Loop(Node):
     source string that defines it's body.
     """
 
-    def __init__(self, variable, source, children=None, bounds=None):
+    def __init__(self, variable, source=None, children=None, bounds=None):
         self._source = source
         self._children = children
 
@@ -54,6 +55,24 @@ class Loop(Node):
     @property
     def children(self):
         return self._children
+
+
+class Conditional(Node):
+    """
+    Internal representation of a conditional branching construct.
+    """
+
+    def __init__(self, conditions, bodies, default=None, source=None):
+        self._source = source
+
+        self.conditions = conditions
+        self.bodies = bodies
+        assert(len(conditions) == len(bodies) or len(conditions) + 1 == len(bodies))
+
+    @property
+    def children(self):
+        # Note that we currently ignore the if conditions
+        return self._bodies
 
 
 class Statement(Node):
@@ -67,6 +86,10 @@ class Statement(Node):
         self.expr = expr
 
 
+############################################################
+## Utility classes that are not (yet) part of the hierachy
+############################################################
+
 class Variable(object):
 
     def __init__(self, name, indices=None):
@@ -76,3 +99,12 @@ class Variable(object):
     def __repr__(self):
         idx = '(%s)' % ','.join([str(i) for i in self.indices]) if self.indices else ''
         return '%s%s' % (self.name, idx)
+
+
+class Expression(object):
+
+    def __init__(self, source):
+        self.expr = source
+
+    def __repr__(self):
+        return '<Expr::%s>' % (self.expr)

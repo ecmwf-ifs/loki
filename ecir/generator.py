@@ -5,7 +5,7 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 import re
 from collections import deque
 
-from ecir.ir import Loop, Statement, InlineComment, Variable
+from ecir.ir import Loop, Statement, Conditional, Comment, Variable, Expression
 from ecir.visitors import GenericVisitor
 from ecir.helpers import assemble_continued_statement_from_list
 
@@ -34,7 +34,7 @@ def extract_lines(attrib, source, full_lines=False):
             line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)[1][:-1]
         else:
             line = source[lstart-1]
-        return line[cstart:cend+1]
+        return line[cstart:cend]
     else:
         lines = source[lstart-1:lend]
         firstline = lines[0][cstart:]
@@ -64,7 +64,10 @@ class IRGenerator(GenericVisitor):
         """
         children = tuple(self.visit(c) for c in o.getchildren())
         children = tuple(c for c in children if c is not None)
-        return children if len(children) > 0 else None
+        if len(children) == 1:
+            return children[0]  # Flatten hierarchy if possible
+        else:
+            return children if len(children) > 0 else None
 
     visit_body = visit_Element
 
@@ -81,10 +84,15 @@ class IRGenerator(GenericVisitor):
         return Loop(variable=variable, children=body, source=source,
                     bounds=(lower, upper))
 
-    def visit_comment(self, o):
-        # This seems to refer to inline-comment only...
+    def visit_if(self, o):
         source = extract_lines(o.attrib, self._raw_source)
-        return InlineComment(source=source)
+        conditions = tuple(self.visit(h) for h in o.findall('header'))
+        bodies = tuple(self.visit(b) for b in o.findall('body'))
+        return Conditional(source=source, conditions=conditions, bodies=bodies)
+
+    def visit_comment(self, o):
+        source = extract_lines(o.attrib, self._raw_source)
+        return Comment(source=source)
 
     def visit_assignment(self, o):
         source = extract_lines(o.attrib, self._raw_source)
@@ -97,8 +105,16 @@ class IRGenerator(GenericVisitor):
         return Variable(name=o.attrib['id'],
                         indices=indices if len(indices) > 0 else None)
 
+    def visit_literal(self, o):
+        return o.attrib['value']
+
     def visit_value(self, o):
-        return extract_lines(o.attrib, self._raw_source)
+        source = extract_lines(o.attrib, self._raw_source)
+        return Expression(source=source)
+
+    def visit_operation(self, o):
+        source = extract_lines(o.attrib, self._raw_source)
+        return Expression(source=source)
 
 
 def generate(ofp_ast, raw_source):
