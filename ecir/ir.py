@@ -93,19 +93,19 @@ class Conditional(Node):
     Internal representation of a conditional branching construct.
     """
 
-    _traversable = ['then_body', 'else_body']
+    _traversable = ['bodies', 'else_body']
 
-    def __init__(self, condition, then_body, else_body, source=None):
+    def __init__(self, conditions, bodies, else_body, source=None):
         self._source = source
 
-        self.condition = condition
-        self.then_body = then_body
+        self.conditions = conditions
+        self.bodies = bodies
         self.else_body = else_body
 
     @property
     def children(self):
         # Note that we currently ignore the condition itself
-        return tuple([self.then_body, self.else_body])
+        return tuple(tuple([self.bodies]) + tuple([self.else_body]))
 
 
 class Statement(Node):

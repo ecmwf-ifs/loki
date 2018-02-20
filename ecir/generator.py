@@ -88,13 +88,11 @@ class IRGenerator(Visitor):
     def visit_if(self, o):
         source = extract_lines(o.attrib, self._raw_source)
         conditions = tuple(self.visit(h) for h in o.findall('header'))
-        bodies = tuple(self.visit(b) for b in o.findall('body'))
-        if len(bodies) > 2:
-            raise NotImplementedError('Else-if conditionals not yet supported')
-        then_body = bodies[0]
-        else_body = bodies[-1] if len(bodies) > 1 else None
-        return Conditional(source=source, condition=conditions[0],
-                           then_body=then_body, else_body=else_body)
+        bodies = tuple([self.visit(b)] for b in o.findall('body'))
+        ncond = len(conditions)
+        else_body = bodies[-1] if len(bodies) > ncond else None
+        return Conditional(source=source, conditions=conditions,
+                           bodies=bodies[:ncond], else_body=else_body)
 
     def visit_comment(self, o):
         source = extract_lines(o.attrib, self._raw_source)
@@ -137,16 +135,13 @@ class SequenceFinder(Visitor):
         groups = []
         for c in o:
             subgroups = self.visit(c)
-            # print("SUB-GROUPS %s" % str(subgroups))
             if subgroups is not None and len(subgroups) > 0:
                 groups += subgroups
-        # print("pre-GROUPS %s" % str(groups))
         for t, group in groupby(o, lambda o: type(o)):
             g = tuple(group)
             if t is self.node_type and len(g) > 1:
                 groups.append(g)
-        # print("final-GROUPS %s" % str(groups))
-        return groups# if len(groups) > 0 else None
+        return groups
 
     visit_list = visit_tuple
 
@@ -173,6 +168,7 @@ def generate(ofp_ast, raw_source):
         comment_mapper[comments[0]] = block
         for c in comments[1:]:
             comment_mapper[c] = None
+
     ir = NestedTransformer(comment_mapper).visit(ir)
 
     return ir

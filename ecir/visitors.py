@@ -242,9 +242,11 @@ class PrintAST(Visitor):
 
     def visit_Conditional(self, o):
         self._depth += 2
-        then_body = self.visit(o.then_body)
+        bodies = tuple(self.visit(b) for b in o.bodies)
         self._depth -= 2
-        out = self.indent + '<Cond %s>\n%s' % (o.condition, then_body)
+        out = self.indent + '<Cond %s>\n%s' % (o.conditions[0], bodies[0])
+        for b, c in zip(bodies[1:], o.conditions[1:]):
+            out += '\n%s' % self.indent + '<Else-If %s>\n%s' % (c, b)
         if o.else_body is not None:
             self._depth += 2
             else_body = self.visit(o.else_body) #[self.visit(b) for b in o.else_body]
