@@ -7,6 +7,13 @@ __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment',
 
 class Node(object):
 
+    """
+    :attr:`_traversable`. The traversable fields of the Node; that is, fields
+    walked over by a :class:`Visitor`. All arguments in __init__ whose name
+    appears in this list are treated as traversable fields.
+    """
+    _traversable = []
+
     def __new__(cls, *args, **kwargs):
         obj = super(Node, cls).__new__(cls)
         argnames = inspect.getargspec(cls.__init__).args
@@ -16,12 +23,22 @@ class Node(object):
         return obj
 
     def _rebuild(self, *args, **kwargs):
-        """Reconstruct self. None of the embedded Sympy expressions are rebuilt."""
         handle = self._args.copy()  # Original constructor arguments
         argnames = [i for i in self._traversable if i not in kwargs]
         handle.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
         handle.update(kwargs)
         return type(self)(**handle)
+
+    @property
+    def args(self):
+        """Arguments used to construct the Node."""
+        return self._args.copy()
+
+
+    @property
+    def args_frozen(self):
+        """Arguments used to construct the Node that cannot be traversed."""
+        return {k: v for k, v in self.args.items() if k not in self._traversable}
 
     @property
     def children(self):
@@ -37,6 +54,17 @@ class Comment(Node):
         self._source = source
 
 
+class CommentBlock(Node):
+    """
+    Internal representation of a block comment.
+    """
+
+    def __init__(self, comments, source=None):
+        self._source = source
+
+        self.comments = comments
+
+
 class Loop(Node):
     """
     Internal representation of a loop in source code.
@@ -45,16 +73,19 @@ class Loop(Node):
     source string that defines it's body.
     """
 
-    def __init__(self, variable, source=None, children=None, bounds=None):
+    _traversable = ['body']
+
+    def __init__(self, variable, source=None, body=None, bounds=None):
         self._source = source
-        self._children = children
+        self.body = body
 
         self.variable = variable
         self.bounds = bounds
 
     @property
     def children(self):
-        return self._children
+        # Note: Needs to be one tuple per `traversable`
+        return tuple([self.body])
 
 
 class Conditional(Node):
@@ -62,17 +93,19 @@ class Conditional(Node):
     Internal representation of a conditional branching construct.
     """
 
-    def __init__(self, conditions, bodies, default=None, source=None):
+    _traversable = ['then_body', 'else_body']
+
+    def __init__(self, condition, then_body, else_body, source=None):
         self._source = source
 
-        self.conditions = conditions
-        self.bodies = bodies
-        assert(len(conditions) == len(bodies) or len(conditions) + 1 == len(bodies))
+        self.condition = condition
+        self.then_body = then_body
+        self.else_body = else_body
 
     @property
     def children(self):
-        # Note that we currently ignore the if conditions
-        return self._bodies
+        # Note that we currently ignore the condition itself
+        return tuple([self.then_body, self.else_body])
 
 
 class Statement(Node):

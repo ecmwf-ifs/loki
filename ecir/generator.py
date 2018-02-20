@@ -4,10 +4,12 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 
 import re
 from collections import deque
+from itertools import groupby
 
-from ecir.ir import Loop, Statement, Conditional, Comment, Variable, Expression
-from ecir.visitors import GenericVisitor
+from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Variable, Expression
+from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
+from ecir.tools import as_tuple
 
 __all__ = ['IRGenerator']
 
@@ -42,7 +44,7 @@ def extract_lines(attrib, source, full_lines=False):
         return ''.join([firstline] + lines[1:-1] + [lastline])
 
 
-class IRGenerator(GenericVisitor):
+class IRGenerator(Visitor):
 
     def __init__(self, raw_source):
         super(IRGenerator, self).__init__()
@@ -80,15 +82,19 @@ class IRGenerator(GenericVisitor):
         except:
             lower = None
             upper = None
-        body = self.visit(o.find('body'))
-        return Loop(variable=variable, children=body, source=source,
-                    bounds=(lower, upper))
+        body = as_tuple(self.visit(o.find('body')))
+        return Loop(variable=variable, body=body, source=source, bounds=(lower, upper))
 
     def visit_if(self, o):
         source = extract_lines(o.attrib, self._raw_source)
         conditions = tuple(self.visit(h) for h in o.findall('header'))
         bodies = tuple(self.visit(b) for b in o.findall('body'))
-        return Conditional(source=source, conditions=conditions, bodies=bodies)
+        if len(bodies) > 2:
+            raise NotImplementedError('Else-if conditionals not yet supported')
+        then_body = bodies[0]
+        else_body = bodies[-1] if len(bodies) > 1 else None
+        return Conditional(source=source, condition=conditions[0],
+                           then_body=then_body, else_body=else_body)
 
     def visit_comment(self, o):
         source = extract_lines(o.attrib, self._raw_source)
@@ -117,6 +123,34 @@ class IRGenerator(GenericVisitor):
         return Expression(source=source)
 
 
+class SequenceFinder(Visitor):
+    """
+    Utility visitor that finds repeated nodes of the same type in
+    lists/tuples within a given tree.
+    """
+
+    def __init__(self, node_type):
+        super(SequenceFinder, self).__init__()
+        self.node_type = node_type
+
+    def visit_tuple(self, o):
+        groups = []
+        for c in o:
+            subgroups = self.visit(c)
+            # print("SUB-GROUPS %s" % str(subgroups))
+            if subgroups is not None and len(subgroups) > 0:
+                groups += subgroups
+        # print("pre-GROUPS %s" % str(groups))
+        for t, group in groupby(o, lambda o: type(o)):
+            g = tuple(group)
+            if t is self.node_type and len(g) > 1:
+                groups.append(g)
+        # print("final-GROUPS %s" % str(groups))
+        return groups# if len(groups) > 0 else None
+
+    visit_list = visit_tuple
+
+
 def generate(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
@@ -129,6 +163,16 @@ def generate(ofp_ast, raw_source):
     # Parse the OFP AST into a raw IR
     ir = IRGenerator(raw_source).visit(ofp_ast)
 
-    # TODO: Post-process, like clustering comments, etc...
+    # Cluster comments into comment blocks
+    comment_mapper = {}
+    comment_groups = SequenceFinder(node_type=Comment).visit(ir)
+    for comments in comment_groups:
+        # Build a CommentBlock and map it to first comment
+        # and map remaining comments to None for removal
+        block = CommentBlock(comments)
+        comment_mapper[comments[0]] = block
+        for c in comments[1:]:
+            comment_mapper[c] = None
+    ir = NestedTransformer(comment_mapper).visit(ir)
 
     return ir
