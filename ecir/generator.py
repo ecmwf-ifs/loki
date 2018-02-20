@@ -104,6 +104,29 @@ class IRGenerator(Visitor):
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, source=source)
 
+    def visit_statement(self, o):
+        if len(o.attrib) == 0:
+            # Dud statement, skip
+            return None
+        elif o.find('name'):
+            # Note: KIND literals confuse the parser, so the structure is
+            # slightly odd here. The `name` ode is actually the target and
+            # the `target` node is actually the KIND identifier
+            source = extract_lines(o.attrib, self._raw_source)
+            target = self.visit(o.find('name'))
+            expr = self.visit(o.find('assignment/value'))
+            return Statement(target=target, expr=expr, source=source)
+        elif o.find('assignment'):
+            return self.visit(o.find('assignment'))
+        elif o.find('call'):
+            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR A CALL>'), source='')
+        elif o.find('allocate'):
+            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR ALLOCATE>'), source='')
+        elif o.find('deallocate'):
+            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR DEALLOCATE>'), source='')
+        else:
+            raise NotimplementedError('Unknown statement type encountered: %s' % o)
+
     def visit_name(self, o):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         return Variable(name=o.attrib['id'],
