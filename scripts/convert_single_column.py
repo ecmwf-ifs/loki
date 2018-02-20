@@ -2,10 +2,10 @@ import click as cli
 import re
 from collections import OrderedDict, Iterable
 
-from ecir import FortranSourceFile, GenericVisitor, flatten
+from ecir import FortranSourceFile, Visitor, flatten
 
 
-class FindLoops(GenericVisitor):
+class FindLoops(Visitor):
 
     def __init__(self, target_var):
         super(FindLoops, self).__init__()
@@ -27,9 +27,9 @@ class FindLoops(GenericVisitor):
         if self.target_var == o.variable:
             # Loop is over target dimension
             return (o, )
-        elif o._children is not None:
+        elif o.body is not None:
             # Recurse over children to find target
-            children = tuple(self.visit(c) for c in flatten(o._children))
+            children = tuple(self.visit(c) for c in flatten(o.body))
             children = tuple(c for c in flatten(children) if c is not None)
             return children
         else:

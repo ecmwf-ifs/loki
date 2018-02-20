@@ -3,7 +3,7 @@ import inspect
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment',
-           'Variable', 'Expression']
+           'Variable', 'Expression', 'Index']
 
 class Node(object):
 
@@ -133,6 +133,17 @@ class Variable(object):
         idx = '(%s)' % ','.join([str(i) for i in self.indices]) if self.indices else ''
         return '%s%s' % (self.name, idx)
 
+class Index(object):
+
+    def __init__(self, expr):
+        self.expr = expr
+
+    def __eq__(self, other):
+        # TODO: Extend for smart index equivalences
+        self.expr == expr
+
+    def __repr__(self):
+        return '%s' % self.expr
 
 class Expression(object):
 

@@ -6,7 +6,7 @@ import re
 from collections import deque
 from itertools import groupby
 
-from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Variable, Expression
+from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Variable, Expression, Index
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
 from ecir.tools import as_tuple
@@ -105,7 +105,7 @@ class IRGenerator(Visitor):
         return Statement(target=target, expr=expr, source=source)
 
     def visit_name(self, o):
-        indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript/name'))
+        indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         return Variable(name=o.attrib['id'],
                         indices=indices if len(indices) > 0 else None)
 
@@ -115,6 +115,20 @@ class IRGenerator(Visitor):
     def visit_value(self, o):
         source = extract_lines(o.attrib, self._raw_source)
         return Expression(source=source)
+
+    def visit_subscript(self, o):
+        if o.find('range'):
+            lower = self.visit(o.find('range/lower-bound'))
+            upper = self.visit(o.find('range/upper-bound'))
+            return Index(expr='%s:%s' % (lower, upper))
+        elif o.find('name'):
+            var = self.visit(o.find('name'))
+            return Index(expr='%s' % var)
+        elif o.find('operation'):
+            op = self.visit(o.find('operation'))
+            return Index(expr='%s' % op)
+        else:
+            return Index(expr=':')
 
     def visit_operation(self, o):
         source = extract_lines(o.attrib, self._raw_source)
