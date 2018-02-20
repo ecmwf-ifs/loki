@@ -34,11 +34,16 @@ def disk_cached(argname):
             that needs to be cached, and the cache will be put next
             to that file with the suffix ``.cache``.
             """
-            cachefile = '%s.cache' % kwargs[argname]
+            filename = kwargs[argname]
+            cachefile = '%s.cache' % filename
             if os.path.exists(cachefile):
-                with open(cachefile, 'rb') as cachehandle:
-                    print("Loading cache: '%s'" % cachefile)
-                    return pickle.load(cachehandle)
+                # Only use cache if it is newer than the file
+                filetime = os.path.getmtime(filename)
+                cachetime = os.path.getmtime(cachefile)
+                if cachetime >= filetime:
+                    with open(cachefile, 'rb') as cachehandle:
+                        print("Loading cache: '%s'" % cachefile)
+                        return pickle.load(cachehandle)
 
             # Execute the function with all arguments passed
             res = fn(*args, **kwargs)
