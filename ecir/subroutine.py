@@ -1,7 +1,7 @@
 import re
 from collections import OrderedDict
 
-from ecir.loop import IRGenerator
+from ecir.generator import generate
 from ecir.helpers import assemble_continued_statement_from_list
 
 class Section(object):
@@ -132,7 +132,7 @@ class Subroutine(Section):
             routine_body = self._ast.find('body/associate/body')
         else:
             routine_body = self._ast.find('body')
-        self._ir = IRGenerator(self._raw_source).visit(routine_body)
+        self._ir = generate(routine_body, self._raw_source)
 
         # Record variable definitions as a name->variable dict
         self._variables = OrderedDict()
