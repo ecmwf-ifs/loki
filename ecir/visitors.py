@@ -199,6 +199,48 @@ class NestedTransformer(Transformer):
             return handle._rebuild(*rebuilt, **handle.args_frozen)
 
 
+class FindNodes(Visitor):
+
+    @classmethod
+    def default_retval(cls):
+        return []
+
+    """
+    Find :class:`Node` instances.
+    :param match: Pattern to look for.
+    :param mode: Drive the search. Accepted values are: ::
+        * 'type' (default): Collect all instances of type ``match``.
+        * 'scope': Return the scope in which the object ``match`` appears.
+    """
+
+    rules = {
+        'type': lambda match, o: isinstance(o, match),
+        'scope': lambda match, o: match in flatten(o.children)
+    }
+
+    def __init__(self, match, mode='type'):
+        super(FindNodes, self).__init__()
+        self.match = match
+        self.rule = self.rules[mode]
+
+    def visit_object(self, o, ret=None):
+        return ret
+
+    def visit_tuple(self, o, ret=None):
+        for i in o:
+            ret = self.visit(i, ret=ret)
+        return ret
+
+    def visit_Node(self, o, ret=None):
+        if ret is None:
+            ret = self.default_retval()
+        if self.rule(self.match, o):
+            ret.append(o)
+        for i in o.children:
+            ret = self.visit(i, ret=ret)
+        return ret
+
+
 class PrintAST(Visitor):
 
     _depth = 0
