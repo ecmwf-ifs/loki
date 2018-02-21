@@ -2,7 +2,7 @@ import click as cli
 import re
 from collections import OrderedDict, Iterable
 
-from ecir import FortranSourceFile, Visitor, flatten
+from ecir import FortranSourceFile, Visitor, flatten, chunks, Variable
 
 
 class FindLoops(Visitor):
@@ -46,15 +46,62 @@ def remove_dummy_variables(signature, variables):
                 arguments.remove(arg)
     return signature.replace(sig_args, ','.join(arguments))
 
+def generate_interface(filename, name, arguments, imports):
+    """
+    Generate the interface file for a given Subroutine.
+    """
+
+    # Generate subroutine signature file from modified arguments
+    arg_names = list(chunks([a.name for a in arguments], 6))
+    dummies = ', &\n & '.join(', '.join(c) for c in arg_names)
+    interface = 'INTERFACE\nSUBROUTINE %s &\n & (%s)\n' % (name, dummies)
+
+    # Collect unknown symbols that we might need to import
+    undefined = set()
+    anames = [a.name for a in arguments]
+    for a in arguments:
+        # Add potentially unkown TYPE and KIND symbols to 'undefined'
+        if a.type.upper() not in ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']:
+            undefined.add(a.type)
+        if a.kind and not a.kind.isdigit():
+            undefined.add(a.kind)
+        # Add (pure) variable dimensions that might be defined elsewhere
+        undefined.update([str(d) for d in a.dimensions
+                          if isinstance(d, Variable) and d not in anames])
+
+    # Write imports for undefined symbols from external modules
+    for use in imports:
+        symbols = [s for s in use.symbols if s in undefined]
+        if len(symbols) > 0:
+            interface += 'USE %s, ONLY: %s\n' % (use.module, ', '.join(symbols))
+
+    # Add type declarations for all arguments
+    for arg in arguments:
+        interface += '%s%s, INTENT(%s) :: %s\n' % (
+            arg.type, ('(KIND=%s)' % arg.kind) if arg.kind else '',
+            arg.intent.upper(), str(arg))
+    interface += 'END SUBROUTINE %s\nEND INTERFACE\n' % name
+
+    # And finally dump the generated string to file
+    print("Writing interface to %s" % filename)
+    with open(filename, 'w') as file:
+        file.write(interface)
+
 
 @cli.command()
-@cli.option('--source', '-s', help='Source file to convert.')
-@cli.option('--source-out', '-so', help='Path for generated source output.')
-@cli.option('--driver', '-d', default=None, help='Driver file to convert.')
-@cli.option('--driver-out', '-do', default=None, help='Path for generated driver output.')
+@cli.option('--source', '-s', type=cli.Path(),
+            help='Source file to convert.')
+@cli.option('--source-out', '-so', type=cli.Path(),
+            help='Path for generated source output.')
+@cli.option('--driver', '-d', type=cli.Path(), default=None,
+            help='Driver file to convert.')
+@cli.option('--driver-out', '-do', type=cli.Path(), default=None,
+            help='Path for generated driver output.')
+@cli.option('--interface', '-intfb', type=cli.Path(), default=None,
+            help='Path for auto-generate and interface file')
 @cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
 @cli.option('--strip-signature/--no-strip-signature', default=True)
-def convert(source, source_out, driver, driver_out, mode, strip_signature):
+def convert(source, source_out, driver, driver_out, interface, mode, strip_signature):
 
     f_source = FortranSourceFile(source)
     routine = f_source.routines[0]
@@ -172,6 +219,18 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
 
     print("Writing to %s" % source_out)
     f_source.write(source_out)
+
+    if interface:
+        # Copy arguments and remove target variables and dimensions
+        arguments = routine.arguments.copy()
+        if strip_signature:
+            arguments = [a for a in arguments if a.name not in dummy_variables]
+        for a in arguments:
+            a.dimensions = tuple(d for d in a.dimensions if tdim not in str(d))
+
+        # Generate the interface file associated with this routine
+        generate_interface(filename=interface, name=routine.name,
+                           arguments=arguments, imports=routine.imports)
 
     # Now let's process the driver/caller side
     if driver is not None:

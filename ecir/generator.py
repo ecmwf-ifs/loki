@@ -7,7 +7,7 @@ from collections import deque
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock,
-                     Declaration, Allocation, Variable, Expression, Index)
+                     Declaration, Allocation, Variable, Expression, Index, Import)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
 from ecir.tools import as_tuple
@@ -109,9 +109,9 @@ class IRGenerator(Visitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('name'):
-            # Note: KIND literals confuse the parser, so the structure is
-            # slightly odd here. The `name` ode is actually the target and
-            # the `target` node is actually the KIND identifier
+            # Note: KIND literals confuse the parser, so the structure
+            # is slightly odd here. The `name` node is actually the target
+            # and the `target` node is actually the KIND identifier.
             source = extract_lines(o.attrib, self._raw_source)
             target = self.visit(o.find('name'))
             expr = self.visit(o.find('assignment/value'))
@@ -128,6 +128,7 @@ class IRGenerator(Visitor):
             source = extract_lines(o.attrib, self._raw_source)
             type = o.find('type').attrib['name']
             kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
+            intent = o.find('intent').attrib['type'] if o.find('intent') else None
             allocatable = o.find('attribute-allocatable') is not None
             variables = [self.visit(v) for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
@@ -135,6 +136,7 @@ class IRGenerator(Visitor):
             for v in variables:
                 v.type = type
                 v.kind = kind
+                v.intent = intent
                 v.allocatable = allocatable
                 v._source = source
             return Declaration(variables=variables, source=source)
@@ -184,6 +186,10 @@ class IRGenerator(Visitor):
         source = extract_lines(o.attrib, self._raw_source)
         return Expression(source=source)
 
+    def visit_use(self, o):
+        source = extract_lines(o.attrib, self._raw_source)
+        symbols = [n.attrib['id'] for n in o.findall('only/name')]
+        return Import(module=o.attrib['name'], symbols=symbols, source=source)
 
 class SequenceFinder(Visitor):
     """

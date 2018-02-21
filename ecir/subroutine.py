@@ -2,7 +2,7 @@ import re
 from collections import OrderedDict
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation
+from ecir.ir import Declaration, Allocation, Import
 from ecir.visitors import FindNodes
 from ecir.tools import flatten
 from ecir.helpers import assemble_continued_statement_from_list
@@ -122,3 +122,10 @@ class Subroutine(Section):
         List of all declared variables
         """
         return list(self._variables.values())
+
+    @property
+    def imports(self):
+        """
+        List of all module imports via USE statements
+        """
+        return [i for i in self._spec if isinstance(i, Import)]

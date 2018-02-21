@@ -2,7 +2,7 @@ import os
 import pickle
 from collections import Iterable
 
-__all__ = ['flatten', 'as_tuple', 'disk_cached']
+__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple']
 
 
 def flatten(l):
@@ -17,6 +17,12 @@ def flatten(l):
         else:
             newlist.append(el)
     return newlist
+
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
 
 
 def disk_cached(argname):
