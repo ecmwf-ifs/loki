@@ -2,6 +2,8 @@ import re
 from collections import OrderedDict
 
 from ecir.generator import generate
+from ecir.ir import Declaration
+from ecir.tools import flatten
 from ecir.helpers import assemble_continued_statement_from_list
 
 class Section(object):
@@ -126,6 +128,12 @@ class Subroutine(Section):
         self.declarations = Section(name='declarations', 
                                     source=''.join(self.lines[:send]))
         self.body = Section(name='body', source=''.join(self.lines[send:bend]))
+
+        # Parse declarations and derive variables
+        self._spec = generate(spec_ast, self._raw_source)
+        variables = flatten([d.variables for d in self._spec
+                             if isinstance(d, Declaration)])
+        # self._variables = OrderedDict([(v.name, v) for v in variables])
 
         # Create a separate IR for the statements and loops in the body
         if self._ast.find('body/associate'):

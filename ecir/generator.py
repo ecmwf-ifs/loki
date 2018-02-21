@@ -6,7 +6,7 @@ import re
 from collections import deque
 from itertools import groupby
 
-from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Variable, Expression, Index
+from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Declaration, Variable, Expression, Index
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
 from ecir.tools import as_tuple
@@ -106,8 +106,7 @@ class IRGenerator(Visitor):
 
     def visit_statement(self, o):
         if len(o.attrib) == 0:
-            # Dud statement, skip
-            return None
+            return None  # Empty element, skip
         elif o.find('name'):
             # Note: KIND literals confuse the parser, so the structure is
             # slightly odd here. The `name` ode is actually the target and
@@ -127,10 +126,38 @@ class IRGenerator(Visitor):
         else:
             raise NotimplementedError('Unknown statement type encountered: %s' % o)
 
+    def visit_declaration(self, o):
+        if len(o.attrib) == 0:
+            return None  # Empty element, skip
+        elif o.attrib['type'] == 'variable':
+            source = extract_lines(o.attrib, self._raw_source)
+            type = o.find('type').attrib['name']
+            kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
+            allocatable = o.find('allocatable') is not None
+            variables = [self.visit(v) for v in o.findall('variables/variable')]
+            variables = [v for v in variables if v is not None]
+            # Hacky but who cares...
+            for v in variables:
+                v.type = type
+                v.kind = kind
+                v.allocatable = allocatable
+                v._source = source
+            return Declaration(variables=variables, source=source)
+        elif o.attrib['type'] == 'implicit':
+            return None  # IMPLICIT marker, skip
+        else:
+            raise NotimplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+
+    def visit_variable(self, o):
+        if len(o.attrib) == 0:
+            return None  # Empty element, skip
+        else:
+            dimensions = tuple(self.visit(i) for i in o.findall('dimensions/dimension'))
+            return Variable(name=o.attrib['name'], dimensions=dimensions)
+
     def visit_name(self, o):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
-        return Variable(name=o.attrib['id'],
-                        indices=indices if len(indices) > 0 else None)
+        return Variable(name=o.attrib['id'], dimensions=indices)
 
     def visit_literal(self, o):
         return o.attrib['value']

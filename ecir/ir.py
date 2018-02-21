@@ -3,7 +3,7 @@ import inspect
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment',
-           'Variable', 'Expression', 'Index']
+           'Declaration', 'Variable', 'Expression', 'Index']
 
 class Node(object):
 
@@ -119,18 +119,31 @@ class Statement(Node):
         self.expr = expr
 
 
+class Declaration(Node):
+    """
+    Internal representation of a variable declaration
+    """
+    def __init__(self, variables, source=None):
+        self._source = source
+
+        self.variables = variables
+
+
 ############################################################
 ## Utility classes that are not (yet) part of the hierachy
 ############################################################
 
 class Variable(object):
 
-    def __init__(self, name, indices=None):
+    def __init__(self, name, dimensions=None, type=None, kind=None, allocatable=False):
         self.name = name
-        self.indices = indices
+        self.dimensions = dimensions if len(dimensions) > 0 else None
+        self.type = type
+        self.kind = kind
+        self.allocatable = allocatable
 
     def __repr__(self):
-        idx = '(%s)' % ','.join([str(i) for i in self.indices]) if self.indices else ''
+        idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if self.dimensions else ''
         return '%s%s' % (self.name, idx)
 
 class Index(object):

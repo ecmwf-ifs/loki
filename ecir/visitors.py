@@ -267,7 +267,7 @@ class PrintAST(Visitor):
         return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
 
     def visit_Variable(self, o):
-        indices = ('(%s)' % ','.join([str(v) for v in o.indices])) if o.indices else ''
+        indices = ('(%s)' % ','.join([str(v) for v in o.indices])) if o.dimensions else ''
         return 'V<%s%s>' % (o.name, indices)
 
 
