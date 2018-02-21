@@ -117,14 +117,8 @@ class IRGenerator(Visitor):
             return Statement(target=target, expr=expr, source=source)
         elif o.find('assignment'):
             return self.visit(o.find('assignment'))
-        elif o.find('call'):
-            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR A CALL>'), source='')
-        elif o.find('allocate'):
-            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR ALLOCATE>'), source='')
-        elif o.find('deallocate'):
-            return Statement(target='PLACEHOLDER', expr=Expression(source='<FOR DEALLOCATE>'), source='')
         else:
-            raise NotimplementedError('Unknown statement type encountered: %s' % o)
+            return self.visit_Element(o)
 
     def visit_declaration(self, o):
         if len(o.attrib) == 0:
@@ -146,7 +140,7 @@ class IRGenerator(Visitor):
         elif o.attrib['type'] == 'implicit':
             return None  # IMPLICIT marker, skip
         else:
-            raise NotimplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+            raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
     def visit_variable(self, o):
         if len(o.attrib) == 0:
