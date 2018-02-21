@@ -89,10 +89,10 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
         # Strip dummy variables from declarations
         for v in routine.arguments:
             if v.name in dummy_variables:
-                routine.declarations._source = routine.declarations._source.replace(v._line, '')
+                routine.declarations._source = routine.declarations._source.replace(v._source, '')
 
         # Strip target loop variable
-        line = routine._variables[tvar]._line
+        line = routine._variables[tvar]._source
         new_line = line.replace('%s, ' % tvar, '')
         routine.declarations._source = routine.declarations._source.replace(line, new_line)
 
@@ -102,8 +102,8 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
     routine.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
 
     # Find all variables affected by the transformation
-    # Note: We assume here that the target dimenion is match exactly
-    # in v.dimensions!
+    # Note: We assume here that the target dimension is matched
+    # exactly in v.dimensions!
     variables = [v for v in routine.variables if tdim in v.dimensions]
     for v in variables:
         # Target is a vector, we now promote it to a scalar
@@ -112,8 +112,8 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
         new_dimensions.remove(tdim)
 
         # Strip target dimension from declarations and body (for ALLOCATEs)
-        old_dims = '(%s)' % ','.join(v.dimensions)
-        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(new_dimensions)
+        old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
+        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d)for d in new_dimensions)
         routine.declarations.replace({old_dims: new_dims})
         routine.body.replace({old_dims: new_dims})
 
@@ -130,8 +130,8 @@ def convert(source, source_out, driver, driver_out, mode, strip_signature):
     ####  Hacks that for specific annoyances in the CLOUDSC dwarf  ####
 
     variables = [v for v in routine.variables
-                 if 'KFDIA' in ','.join(v.dimensions)
-                 or 'KLON' in ','.join(v.dimensions)]
+                 if 'KFDIA' in ','.join(str(d) for d in v.dimensions)
+                 or 'KLON' in ','.join(str(d) for d in v.dimensions)]
     for v in variables:
         routine.declarations.replace({'%s(KFDIA-KIDIA+1)' % v.name: '%s' % v.name,
                                       '%s(KFDIA-KIDIA+1,' % v.name: '%s(' % v.name,

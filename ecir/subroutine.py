@@ -2,7 +2,8 @@ import re
 from collections import OrderedDict
 
 from ecir.generator import generate
-from ecir.ir import Declaration
+from ecir.ir import Declaration, Allocation
+from ecir.visitors import FindNodes
 from ecir.tools import flatten
 from ecir.helpers import assemble_continued_statement_from_list
 
@@ -54,57 +55,6 @@ class Section(object):
             rawlines = [line.replace(k, v) for line in rawlines]
         self._source = ''.join(rawlines)
 
-class Variable(object):
-    """
-    Object representing a variable of arbitrary dimension.
-    """
-
-    def __init__(self, name, type, kind, allocatable, ast, source):
-        self.name = name
-        self.type = type
-        self.kind = kind
-        self.allocatable = allocatable
-
-        # Find and store the original declaration this variable
-        lstart = int(ast.attrib['line_begin'])
-        _, self._line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)
-
-        # If the variable has dimensions, record them
-        if self.allocatable:
-            # Allocatable dimensions are defined further down in the source
-            for line in source:
-                if 'ALLOCATE(%s(' % self.name in line:
-                    # We have the allocation line, pick out the dimensions
-                    re_dims = re.compile('ALLOCATE\(%s\((?P<dims>.*)\)\)' % self.name)
-                    match = re_dims.search(line)
-                    if match is None:
-                        print("Failed to derive dimensions for allocatable variable %s" % self.name)
-                        print("Allocation line: %s" % line)
-                        raise ValueError("Could not derive variable dimensions for %s" % self.name)
-                    self.dimensions = tuple(match.groupdict()['dims'].split(','))
-                    break
-
-        elif ast.find('dimensions'):
-            # Extract dimensions for mulit-dimensional arrays
-            # Note: Since complex expressions cannot be re-created
-            # identically (matching each character) from an AST, we
-            # now simply pull out the strings from the source.
-            re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n|\)\s*\!)' % self.name, re.DOTALL)
-            match = re_dims.search(self._line)
-            if match is None:
-                print("Failed to derive dimensions for variable %s" % self.name)
-                print("Declaration line: %s" % self._line)
-                raise ValueError("Could not derive variable dimensions for %s" % self.name)
-            self.dimensions = tuple(match.groupdict()['dims'].split(','))
-
-        else:
-            # No dimensions? Store an empty tuple.
-            self.dimensions = ()
-
-    def __repr__(self):
-        return "Variable::%s(type=%s, kind=%s, dims=%s)" % (
-            self.name, self.type, self.kind, str(self.dimensions))
-
 
 class Subroutine(Section):
 
@@ -129,37 +79,26 @@ class Subroutine(Section):
                                     source=''.join(self.lines[:send]))
         self.body = Section(name='body', source=''.join(self.lines[send:bend]))
 
-        # Parse declarations and derive variables
+        # Create a IRs for declarations section and the loop body
         self._spec = generate(spec_ast, self._raw_source)
-        variables = flatten([d.variables for d in self._spec
-                             if isinstance(d, Declaration)])
-        # self._variables = OrderedDict([(v.name, v) for v in variables])
-
-        # Create a separate IR for the statements and loops in the body
         if self._ast.find('body/associate'):
             routine_body = self._ast.find('body/associate/body')
         else:
             routine_body = self._ast.find('body')
         self._ir = generate(routine_body, self._raw_source)
 
-        # Record variable definitions as a name->variable dict
-        self._variables = OrderedDict()
-        spec = self._ast.find('body/specification')
-        decls = [d for d in spec.findall('declaration')
-                 if 'type' in d.attrib and d.attrib['type'] == 'variable']
-        for d in decls:
-            # Get type information from the declaration node
-            vtype = d.find('type').attrib['name']
-            has_kind = d.find('type').attrib['hasKind'] in ['true', 'True']
-            kind = d.find('type/kind/name').attrib['id'] if has_kind else None
-            allocatable = d.find('attribute-allocatable') is not None
-            # Create internal :class:`Variable` objects that store definitions
-            var_asts = [v for v in d.findall('variables/variable') if 'name' in v.attrib]
-            for v in var_asts:
-                vname = v.attrib['name']
-                self._variables[vname] = Variable(name=vname, type=vtype, kind=kind,
-                                                  allocatable=allocatable,
-                                                  ast=v, source=self._raw_source)
+        # Create a map of all internally used variables
+        decls = FindNodes(Declaration).visit(self._spec)
+        allocs = FindNodes(Allocation).visit(self._ir)
+        variables = flatten([d.variables for d in decls])
+        self._variables = OrderedDict([(v.name, v) for v in variables])
+
+        # Try to infer variable dimensions for ALLOCATABLEs
+        for v in self.variables:
+            if v.allocatable:
+                alloc = [a for a in allocs if a.variable.name == v.name]
+                if len(alloc) > 0:
+                    v.dimensions = alloc[0].variable.dimensions
 
     @property
     def source(self):

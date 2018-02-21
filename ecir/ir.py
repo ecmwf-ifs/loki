@@ -129,6 +129,15 @@ class Declaration(Node):
         self.variables = variables
 
 
+class Allocation(Node):
+    """
+    Internal representation of a variable allocation
+    """
+    def __init__(self, variable, source=None):
+        self._source = source
+        self.variable = variable
+
+
 ############################################################
 ## Utility classes that are not (yet) part of the hierachy
 ############################################################
@@ -137,26 +146,42 @@ class Variable(object):
 
     def __init__(self, name, dimensions=None, type=None, kind=None, allocatable=False):
         self.name = name
-        self.dimensions = dimensions if len(dimensions) > 0 else None
+        self.dimensions = dimensions
         self.type = type
         self.kind = kind
         self.allocatable = allocatable
 
     def __repr__(self):
-        idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if self.dimensions else ''
+        idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
         return '%s%s' % (self.name, idx)
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Variable objects
+        if isinstance(other, str):
+            return self.name == other
+        elif isinstance(other, Variable):
+            return (self.name == other.name and all(self.dimensions == other.dimensions)
+                    and self.type == other.type and self.kind == other.kind
+                    and self.allocatable == other.allocatable)
+        else:
+            self == other
 
 class Index(object):
 
-    def __init__(self, expr):
-        self.expr = expr
+    def __init__(self, name):
+        self.name = name
 
     def __eq__(self, other):
-        # TODO: Extend for smart index equivalences
-        self.expr == expr
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.name == other
+        elif isinstance(other, Index):
+            return self.name == other.name
+        else:
+            self == other
 
     def __repr__(self):
-        return '%s' % self.expr
+        return '%s' % self.name
 
 class Expression(object):
 
@@ -164,4 +189,4 @@ class Expression(object):
         self.expr = source
 
     def __repr__(self):
-        return '<Expr::%s>' % (self.expr)
+        return '%s' % (self.expr)

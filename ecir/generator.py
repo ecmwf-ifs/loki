@@ -6,7 +6,8 @@ import re
 from collections import deque
 from itertools import groupby
 
-from ecir.ir import Loop, Statement, Conditional, Comment, CommentBlock, Declaration, Variable, Expression, Index
+from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock,
+                     Declaration, Allocation, Variable, Expression, Index)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
 from ecir.tools import as_tuple
@@ -127,7 +128,7 @@ class IRGenerator(Visitor):
             source = extract_lines(o.attrib, self._raw_source)
             type = o.find('type').attrib['name']
             kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
-            allocatable = o.find('allocatable') is not None
+            allocatable = o.find('attribute-allocatable') is not None
             variables = [self.visit(v) for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
             # Hacky but who cares...
@@ -141,6 +142,11 @@ class IRGenerator(Visitor):
             return None  # IMPLICIT marker, skip
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+
+    def visit_allocate(self, o):
+        source = extract_lines(o.attrib, self._raw_source)
+        variable = self.visit(o.find('expressions/expression/name'))
+        return Allocation(variable=variable, source=source)
 
     def visit_variable(self, o):
         if len(o.attrib) == 0:
@@ -164,15 +170,15 @@ class IRGenerator(Visitor):
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
-            return Index(expr='%s:%s' % (lower, upper))
+            return Index(name='%s:%s' % (lower, upper))
         elif o.find('name'):
             var = self.visit(o.find('name'))
-            return Index(expr='%s' % var)
+            return Index(name='%s' % var)
         elif o.find('operation'):
             op = self.visit(o.find('operation'))
-            return Index(expr='%s' % op)
+            return Index(name='%s' % op)
         else:
-            return Index(expr=':')
+            return Index(name=':')
 
     def visit_operation(self, o):
         source = extract_lines(o.attrib, self._raw_source)
