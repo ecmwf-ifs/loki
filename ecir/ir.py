@@ -2,8 +2,8 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment',
-           'Declaration', 'Variable', 'Expression', 'Index']
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment', 'CommentBlock',
+           'Pragma', 'Declaration', 'Variable', 'Expression', 'Index']
 
 class Node(object):
 
@@ -66,6 +66,16 @@ class CommentBlock(Node):
 
         self.comments = comments
 
+class Pragma(Node):
+    """
+    Internal representation of a EcIR-specific pragma
+    """
+
+    def __init__(self, keyword, source=None, line=None):
+        super(Pragma, self).__init__(source=source, line=line)
+
+        self.keyword = keyword
+
 
 class Loop(Node):
     """
@@ -126,11 +136,12 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, comment=None, source=None, line=None):
+    def __init__(self, variables, comment=None, pragma=None, source=None, line=None):
         super(Declaration, self).__init__(source=source, line=line)
 
         self.variables = variables
         self.comment = comment
+        self.pragma = pragma
 
 
 class Allocation(Node):

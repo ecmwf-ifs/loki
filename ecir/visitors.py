@@ -308,13 +308,18 @@ class PrintAST(Visitor):
 
     def visit_Declaration(self, o):
         variables = ' :: %s' % ', '.join(v.name for v in o.variables) if self.verbose else ''
+        comment = ''
+        pragma = ''
+
         if self.verbose and o.comment is not None:
             self._depth += 2
             comment = '\n%s' % self.visit(o.comment)
             self._depth -= 2
-        else:
-            comment = ''
-        return self.indent + '<Declaration%s>%s' % (variables, comment)
+        if self.verbose and o.pragma is not None:
+            self._depth += 2
+            pragma = '\n%s' % self.visit(o.pragma)
+            self._depth -= 2
+        return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
 
     def visit_Comment(self, o):
         body = '::%s::' % o._source if self.verbose else ''
@@ -323,6 +328,10 @@ class PrintAST(Visitor):
     def visit_CommentBlock(self, o):
         body = ('\n%s' % self.indent).join([b._source for b in o.comments])
         return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
+
+    def visit_Pragma(self, o):
+        body = ' ::%s::' % o._source if self.verbose else ''
+        return self.indent + '<Pragma %s%s>' % (o.keyword, body)
 
     def visit_Variable(self, o):
         indices = ('(%s)' % ','.join([str(v) for v in o.indices])) if o.dimensions else ''

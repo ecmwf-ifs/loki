@@ -6,7 +6,7 @@ import re
 from collections import deque
 from itertools import groupby
 
-from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock,
+from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock, Pragma,
                      Declaration, Allocation, Variable, Expression, Index, Import)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.helpers import assemble_continued_statement_from_list
@@ -67,7 +67,7 @@ class IRGenerator(Visitor):
         """
         try:
             source = extract_lines(o.attrib, self._raw_source)
-            line = o.attrib['line_begin']  # Get starting line marker
+            line = int(o.attrib['line_begin'])  # Get starting line marker
         except KeyError:
             source = None
             line = None
@@ -106,8 +106,16 @@ class IRGenerator(Visitor):
         return Conditional(conditions=conditions, bodies=bodies[:ncond],
                            else_body=else_body, source=source, line=line)
 
+    _re_pragma = re.compile('\!\$ecir\s+(?P<keyword>\w+)', re.IGNORECASE)
+
     def visit_comment(self, o, source=None, line=None):
-        return Comment(source=source, line=line)
+        match_pragma = self._re_pragma.search(source)
+        if match_pragma:
+            # Found pragma, generate this instead
+            keyword = match_pragma.groupdict()['keyword']
+            return Pragma(keyword=keyword, source=source, line=line)
+        else:
+            return Comment(source=source, line=line)
 
     def visit_assignment(self, o, source=None, line=None):
         target = self.visit(o.find('target'))
@@ -293,5 +301,15 @@ def generate(ofp_ast, raw_source):
         for c in comments[1:]:
             comment_mapper[c] = None
     ir = NestedTransformer(comment_mapper).visit(ir)
+
+    # Find pragmas and merge them onto declarations
+    pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
+    mapper = {}
+    for pair in pairs:
+        if pair[0]._line == pair[1]._line - 1:
+            # Merge pragma with declaration and delete
+            mapper[pair[0]] = None  # Mark for deletion
+            mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
+    ir = NestedTransformer(mapper).visit(ir)
 
     return ir
