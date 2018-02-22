@@ -61,7 +61,19 @@ class IRGenerator(Visitor):
         else:
             return super(IRGenerator, self).lookup_method(instance)
 
-    def visit_Element(self, o):
+    def visit(self, o):
+        """
+        Generic dispatch method that tries to generate meta-data from source.
+        """
+        try:
+            source = extract_lines(o.attrib, self._raw_source)
+            line = o.attrib['line_begin']  # Get starting line marker
+        except KeyError:
+            source = None
+            line = None
+        return super(IRGenerator, self).visit(o, source=source, line=line)
+
+    def visit_Element(self, o, source=None, line=None):
         """
         Universal default for XML element types
         """
@@ -74,8 +86,7 @@ class IRGenerator(Visitor):
 
     visit_body = visit_Element
 
-    def visit_loop(self, o):
-        source = extract_lines(o.attrib, self._raw_source, full_lines=True)
+    def visit_loop(self, o, source=None, line=None):
         variable = o.find('header/index-variable').attrib['name']
         try:
             lower = self.visit(o.find('header/index-variable/lower-bound'))[0]
@@ -84,48 +95,44 @@ class IRGenerator(Visitor):
             lower = None
             upper = None
         body = as_tuple(self.visit(o.find('body')))
-        return Loop(variable=variable, body=body, source=source, bounds=(lower, upper))
+        return Loop(variable=variable, body=body, bounds=(lower, upper),
+                    source=source, line=line)
 
-    def visit_if(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_if(self, o, source=None, line=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
-        return Conditional(source=source, conditions=conditions,
-                           bodies=bodies[:ncond], else_body=else_body)
+        return Conditional(conditions=conditions, bodies=bodies[:ncond],
+                           else_body=else_body, source=source, line=line)
 
-    def visit_comment(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
-        return Comment(source=source)
+    def visit_comment(self, o, source=None, line=None):
+        return Comment(source=source, line=line)
 
-    def visit_assignment(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_assignment(self, o, source=None, line=None):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
-        return Statement(target=target, expr=expr, source=source)
+        return Statement(target=target, expr=expr, source=source, line=line)
 
-    def visit_statement(self, o):
+    def visit_statement(self, o, source=None, line=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('name'):
             # Note: KIND literals confuse the parser, so the structure
             # is slightly odd here. The `name` node is actually the target
             # and the `target` node is actually the KIND identifier.
-            source = extract_lines(o.attrib, self._raw_source)
             target = self.visit(o.find('name'))
             expr = self.visit(o.find('assignment/value'))
-            return Statement(target=target, expr=expr, source=source)
+            return Statement(target=target, expr=expr, source=source, line=line)
         elif o.find('assignment'):
             return self.visit(o.find('assignment'))
         else:
             return self.visit_Element(o)
 
-    def visit_declaration(self, o):
+    def visit_declaration(self, o, source=None, line=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.attrib['type'] == 'variable':
-            source = extract_lines(o.attrib, self._raw_source)
             type = o.find('type').attrib['name']
             kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
             intent = o.find('intent').attrib['type'] if o.find('intent') else None
@@ -139,36 +146,34 @@ class IRGenerator(Visitor):
                 v.intent = intent
                 v.allocatable = allocatable
                 v._source = source
-            return Declaration(variables=variables, source=source)
+            return Declaration(variables=variables, source=source, line=line)
         elif o.attrib['type'] == 'implicit':
             return None  # IMPLICIT marker, skip
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
-    def visit_allocate(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_allocate(self, o, source=None, line=None):
         variable = self.visit(o.find('expressions/expression/name'))
-        return Allocation(variable=variable, source=source)
+        return Allocation(variable=variable, source=source, line=line)
 
-    def visit_variable(self, o):
+    def visit_variable(self, o, source=None, line=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         else:
             dimensions = tuple(self.visit(i) for i in o.findall('dimensions/dimension'))
             return Variable(name=o.attrib['name'], dimensions=dimensions)
 
-    def visit_name(self, o):
+    def visit_name(self, o, source=None, line=None):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         return Variable(name=o.attrib['id'], dimensions=indices)
 
-    def visit_literal(self, o):
+    def visit_literal(self, o, source=None, line=None):
         return o.attrib['value']
 
-    def visit_value(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_value(self, o, source=None, line=None):
         return Expression(source=source)
 
-    def visit_subscript(self, o):
+    def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
@@ -182,14 +187,13 @@ class IRGenerator(Visitor):
         else:
             return Index(name=':')
 
-    def visit_operation(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_operation(self, o, source=None, line=None):
         return Expression(source=source)
 
-    def visit_use(self, o):
-        source = extract_lines(o.attrib, self._raw_source)
+    def visit_use(self, o, source=None, line=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
+
 
 class SequenceFinder(Visitor):
     """

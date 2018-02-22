@@ -22,6 +22,10 @@ class Node(object):
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
 
+    def __init__(self, source=None, line=None):
+        self._source = source
+        self._line = line
+
     def _rebuild(self, *args, **kwargs):
         handle = self._args.copy()  # Original constructor arguments
         argnames = [i for i in self._traversable if i not in kwargs]
@@ -49,9 +53,7 @@ class Comment(Node):
     """
     Internal representation of a single comment line.
     """
-
-    def __init__(self, source):
-        self._source = source
+    pass
 
 
 class CommentBlock(Node):
@@ -59,8 +61,8 @@ class CommentBlock(Node):
     Internal representation of a block comment.
     """
 
-    def __init__(self, comments, source=None):
-        self._source = source
+    def __init__(self, comments, source=None, line=None):
+        super(CommentBlock, self).__init__(source=source, line=line)
 
         self.comments = comments
 
@@ -75,11 +77,11 @@ class Loop(Node):
 
     _traversable = ['body']
 
-    def __init__(self, variable, source=None, body=None, bounds=None):
-        self._source = source
-        self.body = body
+    def __init__(self, variable, body=None, bounds=None, source=None, line=None):
+        super(Loop, self).__init__(source=source, line=line)
 
         self.variable = variable
+        self.body = body
         self.bounds = bounds
 
     @property
@@ -95,8 +97,8 @@ class Conditional(Node):
 
     _traversable = ['bodies', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, source=None):
-        self._source = source
+    def __init__(self, conditions, bodies, else_body, source=None, line=None):
+        super(Conditional, self).__init__(source=source, line=line)
 
         self.conditions = conditions
         self.bodies = bodies
@@ -112,8 +114,8 @@ class Statement(Node):
     """
     Internal representation of a variable assignment
     """
-    def __init__(self, target, expr, source):
-        self._source = source
+    def __init__(self, target, expr, source=None, line=None):
+        super(Statement, self).__init__(source=source, line=line)
 
         self.target = target
         self.expr = expr
@@ -123,8 +125,8 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, source=None):
-        self._source = source
+    def __init__(self, variables, source=None, line=None):
+        super(Declaration, self).__init__(source=source, line=line)
 
         self.variables = variables
 
@@ -133,8 +135,9 @@ class Allocation(Node):
     """
     Internal representation of a variable allocation
     """
-    def __init__(self, variable, source=None):
-        self._source = source
+    def __init__(self, variable, source=None, line=None):
+        super(Allocation, self).__init__(source=source, line=line)
+
         self.variable = variable
 
 
