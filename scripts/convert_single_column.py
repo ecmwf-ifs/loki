@@ -104,7 +104,7 @@ def generate_interface(filename, name, arguments, imports):
 def convert(source, source_out, driver, driver_out, interface, mode, strip_signature):
 
     f_source = FortranSourceFile(source)
-    routine = f_source.routines[0]
+    routine = f_source.subroutines[0]
 
     tdim = 'KLON'  # Name of the target dimension
     tvar = 'JL'  # Name of the target iteration variable

@@ -4,7 +4,7 @@ from collections import OrderedDict
 from ecir.generator import generate
 from ecir.ir import Declaration, Allocation, Import
 from ecir.visitors import FindNodes
-from ecir.tools import flatten
+from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
 
 class Section(object):
@@ -57,13 +57,22 @@ class Section(object):
 
 
 class Subroutine(Section):
+    """
+    Class to handle and manipulate a single subroutine.
 
-    def __init__(self, name, ast, source, raw_source):
-        self.name = name
+    :param name: Name of the subroutine
+    :param ast: OFP parser node for this subroutine
+    :param raw_source: Raw source string, broken into lines(!), as it
+                       appeared in the parsed source file.
+    """
+
+    def __init__(self, ast, raw_source, name=None):
+        self.name = name or ast.attrib['name']
         self._ast = ast
-        self._source = source
-        # The original source string in the file, split into lines
         self._raw_source = raw_source
+
+        # The actual lines in the source for this subroutine
+        self._source = extract_lines(self._ast.attrib, raw_source)
 
         # Separate body and declaration sections
         # Note: The declaration includes the SUBROUTINE key and dummy

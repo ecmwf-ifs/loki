@@ -9,40 +9,9 @@ from itertools import groupby
 from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock, Pragma,
                      Declaration, Allocation, Variable, Expression, Index, Import)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
-from ecir.helpers import assemble_continued_statement_from_list
-from ecir.tools import as_tuple
+from ecir.tools import as_tuple, extract_lines
 
 __all__ = ['IRGenerator']
-
-
-def extract_lines(attrib, source, full_lines=False):
-    """
-    Extract the marked string from source text.
-    """
-    lstart = int(attrib['line_begin'])
-    lend = int(attrib['line_end'])
-    cstart = int(attrib['col_begin'])
-    cend = int(attrib['col_end'])
-
-    if isinstance(source, str):
-        source = source.splitlines(keepends=False)
-
-    if full_lines:
-        return ''.join(source[lstart-1:lend])
-
-    if lstart == lend:
-        if len(source[lstart-1]) < cend-1:
-            # Final line has line continuations (&), assemble it
-            # Note: We trim the final character, since the utility adds a newline
-            line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)[1][:-1]
-        else:
-            line = source[lstart-1]
-        return line[cstart:cend]
-    else:
-        lines = source[lstart-1:lend]
-        firstline = lines[0][cstart:]
-        lastline = lines[-1][:cend]
-        return ''.join([firstline] + lines[1:-1] + [lastline])
 
 
 class IRGenerator(Visitor):
@@ -95,6 +64,8 @@ class IRGenerator(Visitor):
             lower = None
             upper = None
         body = as_tuple(self.visit(o.find('body')))
+        # Store full lines with loop body for easy replacement
+        source = extract_lines(o.attrib, self._raw_source, full_lines=True)
         return Loop(variable=variable, body=body, bounds=(lower, upper),
                     source=source, line=line)
 

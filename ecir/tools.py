@@ -2,7 +2,9 @@ import os
 import pickle
 from collections import Iterable
 
-__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple']
+from ecir.helpers import assemble_continued_statement_from_list
+
+__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple', 'extract_lines']
 
 
 def flatten(l):
@@ -87,3 +89,33 @@ def as_tuple(item, type=None, length=None):
     if type and not all(isinstance(i, type) for i in t):
         raise TypeError("Items need to be of type %s" % type)
     return t
+
+
+def extract_lines(attrib, source, full_lines=False):
+    """
+    Extract the marked string from source text.
+    """
+    lstart = int(attrib['line_begin'])
+    lend = int(attrib['line_end'])
+    cstart = int(attrib['col_begin'])
+    cend = int(attrib['col_end'])
+
+    if isinstance(source, str):
+        source = source.splitlines(keepends=False)
+
+    if full_lines:
+        return ''.join(source[lstart-1:lend])
+
+    if lstart == lend:
+        if len(source[lstart-1]) < cend-1:
+            # Final line has line continuations (&), assemble it
+            # Note: We trim the final character, since the utility adds a newline
+            line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)[1][:-1]
+        else:
+            line = source[lstart-1]
+        return line[cstart:cend]
+    else:
+        lines = source[lstart-1:lend]
+        firstline = lines[0][cstart:]
+        lastline = lines[-1][:cend]
+        return ''.join([firstline] + lines[1:-1] + [lastline])
