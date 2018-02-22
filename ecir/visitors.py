@@ -298,7 +298,23 @@ class PrintAST(Visitor):
 
     def visit_Statement(self, o):
         expr = ' = %s' % o.expr if self.verbose else ''
-        return self.indent + '<Stmt %s%s>' % (str(o.target), expr)
+        if self.verbose and o.comment is not None:
+            self._depth += 2
+            comment = '\n%s' % self.visit(o.comment)
+            self._depth -= 2
+        else:
+            comment = ''
+        return self.indent + '<Stmt %s%s>%s' % (str(o.target), expr, comment)
+
+    def visit_Declaration(self, o):
+        variables = ' :: %s' % ', '.join(v.name for v in o.variables) if self.verbose else ''
+        if self.verbose and o.comment is not None:
+            self._depth += 2
+            comment = '\n%s' % self.visit(o.comment)
+            self._depth -= 2
+        else:
+            comment = ''
+        return self.indent + '<Declaration%s>%s' % (variables, comment)
 
     def visit_Comment(self, o):
         body = '::%s::' % o._source if self.verbose else ''

@@ -114,21 +114,23 @@ class Statement(Node):
     """
     Internal representation of a variable assignment
     """
-    def __init__(self, target, expr, source=None, line=None):
+    def __init__(self, target, expr, comment=None, source=None, line=None):
         super(Statement, self).__init__(source=source, line=line)
 
         self.target = target
         self.expr = expr
+        self.comment = comment
 
 
 class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, source=None, line=None):
+    def __init__(self, variables, comment=None, source=None, line=None):
         super(Declaration, self).__init__(source=source, line=line)
 
         self.variables = variables
+        self.comment = comment
 
 
 class Allocation(Node):
