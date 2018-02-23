@@ -2,8 +2,9 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Comment', 'CommentBlock',
-           'Pragma', 'Declaration', 'Variable', 'Expression', 'Index']
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call',
+           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'Type',
+           'DerivedType', 'Variable', 'Expression', 'Index']
 
 class Node(object):
 
@@ -152,6 +153,17 @@ class Allocation(Node):
         super(Allocation, self).__init__(source=source, line=line)
 
         self.variable = variable
+
+
+class Call(Node):
+    """
+    Internal representation of a function call
+    """
+    def __init__(self, name, arguments, source=None, line=None):
+        super(Call, self).__init__(source=source, line=line)
+
+        self.name = name
+        self.arguments = arguments
 
 
 ############################################################

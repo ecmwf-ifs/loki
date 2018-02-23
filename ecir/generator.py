@@ -6,8 +6,9 @@ import re
 from collections import deque, Iterable
 from itertools import groupby
 
-from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock, Pragma,
-                     Declaration, Allocation, Variable, Type, DerivedType, Expression, Index, Import)
+from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
+                     Pragma, Declaration, Allocation, Variable, Type, DerivedType,
+                     Expression, Index, Import)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -214,6 +215,13 @@ class IRGenerator(Visitor):
     def visit_use(self, o, source=None, line=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
+
+    def visit_call(self, o, source=None, line=None):
+        # Need to re-think this: the 'name' node already creates
+        # a 'Variable', which in this case is wrong...
+        name = o.find('name').attrib['id']
+        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
+        return Call(name=name, arguments=args)
 
 
 class SequenceFinder(Visitor):

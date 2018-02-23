@@ -321,6 +321,10 @@ class PrintAST(Visitor):
             self._depth -= 2
         return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
 
+    def visit_Call(self, o):
+        args = '(%s)' % (', '.join(str(a) for a in o.arguments)) if self.verbose else ''
+        return self.indent + '<Call %s%s>' % (o.name, args)
+
     def visit_Comment(self, o):
         body = '::%s::' % o._source if self.verbose else ''
         return self.indent + '<Comment%s>' % body
