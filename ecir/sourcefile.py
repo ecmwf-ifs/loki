@@ -7,7 +7,7 @@ import time
 import open_fortran_parser
 from collections import Iterable
 
-from ecir.subroutine import Section, Subroutine
+from ecir.subroutine import Section, Subroutine, Module
 from ecir.tools import disk_cached
 
 __all__ =['FortranSourceFile']
@@ -37,7 +37,8 @@ class FortranSourceFile(object):
         # Extract subroutines and pre/post sections from file
         self.subroutines = [Subroutine(ast=r, raw_source=self.lines)
                             for r in self._ast.findall('file/subroutine')]
-        self.modules = []
+        self.modules = [Module(ast=m, raw_source=self.lines)
+                        for m in self._ast.findall('file/module')]
 
     @disk_cached(argname='filename')
     def parse_ast(self, filename):

@@ -122,15 +122,27 @@ class IRGenerator(Visitor):
                 # hierarchy of 'type' nodes.
                 derived_name = o.find('end-type-stmt').attrib['id']
                 derived_vars = []
+                pragmas = []
+                comments = []
 
                 t = o  # We explicitly recurse on t
                 while t.find('type') is not None:
+                    # Process any associated comments or pragams
+                    if t.find('type/comment') is not None:
+                        comment = self.visit(t.find('type/comment'))
+                        if isinstance(comment, Pragma):
+                            pragmas.insert(0, comment)
+                        else:
+                            comments.insert(0, comment)
+
                     # Derive type and variables for this entry
                     variables = []
                     attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
                     kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
                     type = Type(typename, kind=kind, pointer='pointer' in attributes)
+                    v_source = extract_lines(t.attrib, self._raw_source)
+                    v_line = int(t.find('type').attrib['line_end'])
                     for v in t.findall('component-decl'):
                         if 'dimension' in attributes:
                             dim_count = int(t.find('deferred-shape-spec-list').attrib['count'])
@@ -138,12 +150,14 @@ class IRGenerator(Visitor):
                         else:
                             dimensions = None
                         variables.append(Variable(name=v.attrib['id'], type=type,
-                                                  dimensions=dimensions, source=source))
+                                                  dimensions=dimensions, source=v_source,
+                                                  line=v_line))
                     # Pre-pend current variables to list for this DerivedType
                     derived_vars = variables + derived_vars
                     # Recurse on 'type' nodes
                     t = t.find('type')
-                return DerivedType(name=derived_name, variables=derived_vars)
+                return DerivedType(name=derived_name, variables=derived_vars,
+                                   pragmas=pragmas, comments=comments, source=source)
             else:
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
@@ -302,6 +316,8 @@ def generate(ofp_ast, raw_source):
     ir = NestedTransformer(comment_mapper).visit(ir)
 
     # Find pragmas and merge them onto declarations
+    # Note: Pragmas in derived types are already associated with the
+    # declaration due to way we parse derived types.
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
     mapper = {}
     for pair in pairs:

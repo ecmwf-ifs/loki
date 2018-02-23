@@ -160,8 +160,9 @@ class Allocation(Node):
 
 class Variable(object):
 
-    def __init__(self, name, type=None, dimensions=None, source=None):
+    def __init__(self, name, type=None, dimensions=None, source=None, line=None):
         self._source = source
+        self._line = line
 
         self.name = name
         self.type = type
@@ -201,11 +202,13 @@ class Type(object):
 
 class DerivedType(object):
 
-    def __init__(self, name, variables, source=None):
+    def __init__(self, name, variables, comments=None, pragmas=None, source=None):
         self._source = source
 
         self.name = name
         self.variables = variables
+        self.comments = comments
+        self.pragmas = pragmas
 
 
 class Index(object):

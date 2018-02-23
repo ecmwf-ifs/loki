@@ -2,10 +2,13 @@ import re
 from collections import OrderedDict
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import
+from ecir.ir import Declaration, Allocation, Import, DerivedType
 from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
+
+
+__all__ = ['Section', 'Subroutine', 'Module']
 
 class Section(object):
     """
@@ -56,6 +59,46 @@ class Section(object):
         self._source = ''.join(rawlines)
 
 
+class Module(Section):
+    """
+    Class to handle and manipulate source modules.
+
+    :param name: Name of the module
+    :param ast: OFP parser node for this module
+    :param raw_source: Raw source string, broken into lines(!), as it
+                       appeared in the parsed source file.
+    """
+
+    def __init__(self, ast, raw_source, name=None):
+        self.name = name or ast.attrib['name']
+        self._ast = ast
+        self._raw_source = raw_source
+
+        # The actual lines in the source for this subroutine
+        self._source = extract_lines(self._ast.attrib, raw_source)
+
+        # Process module-level type specifications
+        spec_ast = self._ast.find('body/specification')
+        self._spec = generate(spec_ast, self._raw_source)
+
+        # Process 'dimension' pragmas to override deferred dimensions
+        derived_types = [d for d in self._spec if isinstance(d, DerivedType)]
+        for derived in derived_types:
+            pragmas = {p._line: p for p in derived.pragmas}
+            for v in derived.variables:
+                if v._line-1 in pragmas:
+                    pragma = pragmas[v._line-1]
+                    if pragma.keyword == 'dimension':
+                        # Found dimension override for variable
+                        dims = pragma._source.split('dimension(')[-1]
+                        dims = dims.split(')')[0].split(',')
+                        dims = [d.strip() for d in dims]
+                        # Override dimensions (hacky: not transformer-safe!)
+                        v.dimensions = dims
+
+        # TODO: Process subroutines in modules, I guess...
+
+
 class Subroutine(Section):
     """
     Class to handle and manipulate a single subroutine.
@@ -104,7 +147,7 @@ class Subroutine(Section):
 
         # Try to infer variable dimensions for ALLOCATABLEs
         for v in self.variables:
-            if v.allocatable:
+            if v.type.allocatable:
                 alloc = [a for a in allocs if a.variable.name == v.name]
                 if len(alloc) > 0:
                     v.dimensions = alloc[0].variable.dimensions

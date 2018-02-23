@@ -339,10 +339,22 @@ class PrintAST(Visitor):
         return self.indent + 'Var<%s%s%s>' % (o.name, dimensions, pointer)
 
     def visit_DerivedType(self, o):
-        self._depth += 2
-        variables = '\n%s' % self.visit(o.variables)
-        self._depth -= 2
-        return self.indent + '<DerivedType %s>%s' % (o.name, variables)
+        variables = ''
+        comments = ''
+        pragmas = ''
+        if self.verbose:
+            self._depth += 2
+            variables = '\n%s' % self.visit(o.variables)
+            self._depth -= 2
+        if self.verbose and o.comments is not None:
+            self._depth += 2
+            comments = '\n%s' % self.visit(o.comments)
+            self._depth -= 2
+        if self.verbose and o.pragmas is not None:
+            self._depth += 2
+            pragmas = '\n%s' % self.visit(o.pragmas)
+            self._depth -= 2
+        return self.indent + '<DerivedType %s>%s%s%s' % (o.name, variables, pragmas, comments)
 
 
 def pprint(ir, verbose=False):
