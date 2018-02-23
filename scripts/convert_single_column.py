@@ -1,6 +1,7 @@
 import click as cli
 import re
 from collections import OrderedDict, Iterable
+from copy import deepcopy
 
 from ecir import FortranSourceFile, Visitor, flatten, chunks, Variable
 
@@ -36,25 +37,21 @@ class FindLoops(Visitor):
             return ()
 
 
-def remove_dummy_variables(signature, variables):
-    re_sig_args = re.compile('\((?P<args>.*?)\)', re.DOTALL)
-    sig_args = re_sig_args.search(signature).groupdict()['args']
-    arguments = sig_args.split(',')
-    for var in variables:
-        for arg in arguments:
-            if var == arg.strip():
-                arguments.remove(arg)
-    return signature.replace(sig_args, ','.join(arguments))
+def generate_signature(name, arguments):
+    """
+    Generate subroutine signature from a given list of arguments
+    """
+    arg_names = list(chunks([a.name for a in arguments], 6))
+    dummies = ', &\n & '.join(', '.join(c) for c in arg_names)
+    return 'SUBROUTINE %s &\n & (%s)\n' % (name, dummies)
+
 
 def generate_interface(filename, name, arguments, imports):
     """
     Generate the interface file for a given Subroutine.
     """
-
-    # Generate subroutine signature file from modified arguments
-    arg_names = list(chunks([a.name for a in arguments], 6))
-    dummies = ', &\n & '.join(', '.join(c) for c in arg_names)
-    interface = 'INTERFACE\nSUBROUTINE %s &\n & (%s)\n' % (name, dummies)
+    signature = generate_signature(name, arguments)
+    interface = 'INTERFACE\n%s' % signature
 
     # Collect unknown symbols that we might need to import
     undefined = set()
@@ -98,25 +95,26 @@ def generate_interface(filename, name, arguments, imports):
 @cli.option('--driver-out', '-do', type=cli.Path(), default=None,
             help='Path for generated driver output.')
 @cli.option('--interface', '-intfb', type=cli.Path(), default=None,
-            help='Path for auto-generate and interface file')
+            help='Path to auto-generate and interface file')
 @cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
 @cli.option('--strip-signature/--no-strip-signature', default=True)
 def convert(source, source_out, driver, driver_out, interface, mode, strip_signature):
 
+    # Read the primary source routine
     f_source = FortranSourceFile(source)
     routine = f_source.subroutines[0]
 
-    tdim = 'KLON'  # Name of the target dimension
-    tvar = 'JL'  # Name of the target iteration variable
-
-    dummy_variables = ['KIDIA', 'KFDIA', 'KLON']  # Variables to strip from signatures
+    target_dim = 'KLON'  # Name of the target dimension
+    target_var = 'JL'  # Name of the target iteration variable
+    target_sizes = ['KIDIA', 'KFDIA', 'KLON']  # Variables to strip from signatures
+    target_variables = [target_dim] + target_sizes
 
     ####  Remove target loops  ####
 
     # It's important to do this first, as the IR on the `routine`
     # object is not updated when the source changes...
     # TODO: Fully integrate IR with source changes...
-    finder = FindLoops(target_var=tvar)
+    finder = FindLoops(target_var=target_var)
     target_loops = flatten(finder.visit(routine._ir))
     for target in target_loops:
         # Get loop body and drop two leading chars for unindentation
@@ -124,39 +122,55 @@ def convert(source, source_out, driver, driver_out, interface, mode, strip_signa
         lines = ''.join([line.replace('  ', '', 1) for line in lines])
         routine.body._source = routine.body._source.replace(target._source, lines)
 
-    ####  Signature adjustments  ####
+    ####  Signature and interface adjustments  ####
+
+    # Deep-copy arguments and remove target variables
+    # The deep-copy makes sure we are not affecting the variable
+    # dimensions used in the later parts for regex replacement.
+    arguments = deepcopy(routine.arguments)
+    if strip_signature:
+        arguments = [a for a in arguments if a.name not in target_variables]
+
+    # Remove the target dimensions from our input arguments
+    for a in arguments:
+        a.dimensions = tuple(d for d in a.dimensions if target_dim not in str(d))
+
+    if interface:
+        # Generate the interface file associated with this routine
+        generate_interface(filename=interface, name=routine.name,
+                           arguments=arguments, imports=routine.imports)
 
     if strip_signature:
-        # Strip dummy variables from signature
+        # Generate new signature and replace the old one in file
         re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
         signature = re_sig.findall(routine._source)[0]
-        new_signature = remove_dummy_variables(signature, dummy_variables)
+        new_signature = generate_signature(routine.name, arguments)
         routine.declarations._source = routine.declarations._source.replace(signature, new_signature)
 
-        # Strip dummy variables from declarations
+        # Strip target sizes from declarations
         for v in routine.arguments:
-            if v.name in dummy_variables:
+            if v.name in target_sizes:
                 routine.declarations._source = routine.declarations._source.replace(v._source, '')
 
         # Strip target loop variable
-        line = routine._variables[tvar]._source
-        new_line = line.replace('%s, ' % tvar, '')
+        line = routine._variables[target_var]._source
+        new_line = line.replace('%s, ' % target_var, '')
         routine.declarations._source = routine.declarations._source.replace(line, new_line)
 
     ####  Index replacements  ####
 
     # Strip all target iteration indices
-    routine.body.replace({'(%s,' % tvar: '(', '(%s)' % tvar: ''})
+    routine.body.replace({'(%s,' % target_var: '(', '(%s)' % target_var: ''})
 
     # Find all variables affected by the transformation
     # Note: We assume here that the target dimension is matched
     # exactly in v.dimensions!
-    variables = [v for v in routine.variables if tdim in v.dimensions]
+    variables = [v for v in routine.variables if target_dim in v.dimensions]
     for v in variables:
         # Target is a vector, we now promote it to a scalar
         promote_to_scalar = len(v.dimensions) == 1
         new_dimensions = list(v.dimensions)
-        new_dimensions.remove(tdim)
+        new_dimensions.remove(target_dim)
 
         # Strip target dimension from declarations and body (for ALLOCATEs)
         old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
@@ -220,23 +234,11 @@ def convert(source, source_out, driver, driver_out, interface, mode, strip_signa
     print("Writing to %s" % source_out)
     f_source.write(source_out)
 
-    if interface:
-        # Copy arguments and remove target variables and dimensions
-        arguments = routine.arguments.copy()
-        if strip_signature:
-            arguments = [a for a in arguments if a.name not in dummy_variables]
-        for a in arguments:
-            a.dimensions = tuple(d for d in a.dimensions if tdim not in str(d))
-
-        # Generate the interface file associated with this routine
-        generate_interface(filename=interface, name=routine.name,
-                           arguments=arguments, imports=routine.imports)
-
     # Now let's process the driver/caller side
     if driver is not None:
         f_driver = FortranSourceFile(driver)
 
-        # # Process individual calls to our target routine
+        # Process individual calls to our target routine
         # re_call = re.compile('CALL %s[\s\&\(].*?\)\s*?\n' % routine.name, re.DOTALL)
         # for call in re_call.findall(f_driver._raw_source):
         #     # Create the outer loop from the first two arguments
