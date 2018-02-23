@@ -334,8 +334,15 @@ class PrintAST(Visitor):
         return self.indent + '<Pragma %s%s>' % (o.keyword, body)
 
     def visit_Variable(self, o):
-        indices = ('(%s)' % ','.join([str(v) for v in o.indices])) if o.dimensions else ''
-        return 'V<%s%s>' % (o.name, indices)
+        dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
+        pointer = ', ptr' if o.type.pointer else ''
+        return self.indent + 'Var<%s%s%s>' % (o.name, dimensions, pointer)
+
+    def visit_DerivedType(self, o):
+        self._depth += 2
+        variables = '\n%s' % self.visit(o.variables)
+        self._depth -= 2
+        return self.indent + '<DerivedType %s>%s' % (o.name, variables)
 
 
 def pprint(ir, verbose=False):

@@ -160,13 +160,12 @@ class Allocation(Node):
 
 class Variable(object):
 
-    def __init__(self, name, dimensions=None, type=None, kind=None, intent=None, allocatable=False):
+    def __init__(self, name, type=None, dimensions=None, source=None):
+        self._source = source
+
         self.name = name
-        self.dimensions = dimensions
         self.type = type
-        self.kind = kind
-        self.intent = intent
-        self.allocatable = allocatable
+        self.dimensions = dimensions
 
     def __repr__(self):
         idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
@@ -182,6 +181,32 @@ class Variable(object):
                     and self.allocatable == other.allocatable)
         else:
             self == other
+
+
+class Type(object):
+    """
+    Basic type of a variable with type, kind, intent, allocatable, etc.
+    """
+
+    def __init__(self, name, kind=None, intent=None, allocatable=False,
+                 pointer=False, source=None):
+        self._source = source
+
+        self.name = name
+        self.kind = kind
+        self.intent = intent
+        self.allocatable = allocatable
+        self.pointer = pointer
+
+
+class DerivedType(object):
+
+    def __init__(self, name, variables, source=None):
+        self._source = source
+
+        self.name = name
+        self.variables = variables
+
 
 class Index(object):
 

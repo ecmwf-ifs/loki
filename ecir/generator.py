@@ -3,11 +3,11 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import deque
+from collections import deque, Iterable
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Comment, CommentBlock, Pragma,
-                     Declaration, Allocation, Variable, Expression, Index, Import)
+                     Declaration, Allocation, Variable, Type, DerivedType, Expression, Index, Import)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -111,21 +111,56 @@ class IRGenerator(Visitor):
     def visit_declaration(self, o, source=None, line=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
+        elif o.find('save-stmt') is not None:
+            return None  # SAVE statement, skip
         elif o.attrib['type'] == 'variable':
-            type = o.find('type').attrib['name']
-            kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
-            intent = o.find('intent').attrib['type'] if o.find('intent') else None
-            allocatable = o.find('attribute-allocatable') is not None
-            variables = [self.visit(v) for v in o.findall('variables/variable')]
-            variables = [v for v in variables if v is not None]
-            # Hacky but who cares...
-            for v in variables:
-                v.type = type
-                v.kind = kind
-                v.intent = intent
-                v.allocatable = allocatable
-                v._source = source
-            return Declaration(variables=variables, source=source, line=line)
+            if o.find('end-type-stmt') is not None:
+                # We are dealing with a derived type:
+                # Things get really messy here, since derived types are
+                # (mis-)handled horribly by the OFP: Effectively, each
+                # component is hidden recursively in a depth-first
+                # hierarchy of 'type' nodes.
+                derived_name = o.find('end-type-stmt').attrib['id']
+                derived_vars = []
+
+                t = o  # We explicitly recurse on t
+                while t.find('type') is not None:
+                    # Derive type and variables for this entry
+                    variables = []
+                    attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
+                    typename = t.find('type').attrib['name']  # :(
+                    kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
+                    type = Type(typename, kind=kind, pointer='pointer' in attributes)
+                    for v in t.findall('component-decl'):
+                        if 'dimension' in attributes:
+                            dim_count = int(t.find('deferred-shape-spec-list').attrib['count'])
+                            dimensions = [':' for _ in range(dim_count)]
+                        else:
+                            dimensions = None
+                        variables.append(Variable(name=v.attrib['id'], type=type,
+                                                  dimensions=dimensions, source=source))
+                    # Pre-pend current variables to list for this DerivedType
+                    derived_vars = variables + derived_vars
+                    # Recurse on 'type' nodes
+                    t = t.find('type')
+                return DerivedType(name=derived_name, variables=derived_vars)
+            else:
+                # We are dealing with a single declaration, so we retrieve
+                # all the declaration-level information first.
+                typename = o.find('type').attrib['name']
+                kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
+                intent = o.find('intent').attrib['type'] if o.find('intent') else None
+                allocatable = o.find('attribute-allocatable') is not None
+                type = Type(name=typename, kind=kind, intent=intent,
+                            allocatable=allocatable, source=source)
+                variables = []
+                for v in o.findall('variables/variable'):
+                    if len(v.attrib) == 0:
+                        continue
+                    dimensions = tuple(self.visit(i) for i in v.findall('dimensions/dimension'))
+                    variables.append(Variable(name=v.attrib['name'], type=type,
+                                              dimensions=dimensions, source=source))
+                return Declaration(variables=variables, source=source, line=line)
         elif o.attrib['type'] == 'implicit':
             return None  # IMPLICIT marker, skip
         else:
@@ -134,13 +169,6 @@ class IRGenerator(Visitor):
     def visit_allocate(self, o, source=None, line=None):
         variable = self.visit(o.find('expressions/expression/name'))
         return Allocation(variable=variable, source=source, line=line)
-
-    def visit_variable(self, o, source=None, line=None):
-        if len(o.attrib) == 0:
-            return None  # Empty element, skip
-        else:
-            dimensions = tuple(self.visit(i) for i in o.findall('dimensions/dimension'))
-            return Variable(name=o.attrib['name'], dimensions=dimensions)
 
     def visit_name(self, o, source=None, line=None):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
