@@ -185,7 +185,7 @@ class Variable(object):
         return '%s%s' % (self.name, idx)
 
     def __eq__(self, other):
-        # Allow direct comparisong to string and other Variable objects
+        # Allow direct comparison to string and other Variable objects
         if isinstance(other, str):
             return self.name == other
         elif isinstance(other, Variable):
@@ -210,6 +210,12 @@ class Type(object):
         self.intent = intent
         self.allocatable = allocatable
         self.pointer = pointer
+
+    def __repr__(self):
+        return '<Type %s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
+                                      ', intent=%s' % self.intent if self.intent else '',
+                                      ', all' if self.allocatable else '',
+                                      ', ptr' if self.pointer else '')
 
 
 class DerivedType(object):

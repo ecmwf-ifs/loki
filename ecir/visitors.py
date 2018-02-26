@@ -3,7 +3,7 @@ from collections import Iterable
 
 from ecir.ir import Node
 
-__all__ = ['pprint', 'Visitor', 'Transformer', 'NestedTransformer']
+__all__ = ['pprint', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
 
 class Visitor(object):

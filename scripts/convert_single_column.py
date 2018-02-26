@@ -1,9 +1,10 @@
 import click as cli
 import re
-from collections import OrderedDict, Iterable
+from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 
-from ecir import FortranSourceFile, Visitor, flatten, chunks, Variable
+from ecir import (FortranSourceFile, Visitor, flatten, chunks,
+                  Variable, Type, DerivedType, FindNodes, Statement)
 
 
 class FindLoops(Visitor):
@@ -96,9 +97,21 @@ def generate_interface(filename, name, arguments, imports):
             help='Path for generated driver output.')
 @cli.option('--interface', '-intfb', type=cli.Path(), default=None,
             help='Path to auto-generate and interface file')
+@cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
 @cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
 @cli.option('--strip-signature/--no-strip-signature', default=True)
-def convert(source, source_out, driver, driver_out, interface, mode, strip_signature):
+def convert(source, source_out, driver, driver_out, interface, typedef, mode, strip_signature):
+
+    # Read additional derived types from typedef modules
+    derived_types = {}
+    for tfile in typedef:
+        t_source = FortranSourceFile(tfile)
+        t_mod = t_source.modules[0]
+        for derived in t_mod._spec:
+            if isinstance(derived, DerivedType):
+                # TODO: Need better __hash__ for (derived) types
+                derived_types[derived.name.upper()] = derived
 
     # Read the primary source routine
     f_source = FortranSourceFile(source)
@@ -124,10 +137,31 @@ def convert(source, source_out, driver, driver_out, interface, mode, strip_signa
 
     ####  Signature and interface adjustments  ####
 
-    # Deep-copy arguments and remove target variables
-    # The deep-copy makes sure we are not affecting the variable
-    # dimensions used in the later parts for regex replacement.
+    # We deep-copy arguments to make sure we are not affecting the
+    # variable dimensions used in the later parts for regex replacement.
     arguments = deepcopy(routine.arguments)
+
+    # Detect argument variables with derived types in the signature
+    # that use the target diemnsion. For those types we explicitly unroll
+    # the subtypes used in the signature and adjust caller and callee.
+    for arg in arguments:
+        if arg.type.name.upper() in derived_types:
+            new_vars = []
+            # TODO: Need to define __key/__hash__ for Variables and (Derived)Types
+            derived = derived_types[arg.type.name.upper()]
+            for type_var in derived.variables:
+                # Check if variable has the target dimension and is used in routine
+                t_str = '%s%%%s' % (arg.name, type_var.name)
+                if target_dim in type_var.dimensions and t_str in routine.body._source:
+                    new_type = Type(name=type_var.type.name, kind=type_var.type.kind,
+                                    intent=arg.type.intent)
+                    new_vars.append(Variable(name='%s_%s' % (arg.name, type_var.name),
+                                             type=new_type, dimensions=type_var.dimensions))
+            # Derive index on-the-fly (multi-element inserions change indices!)
+            # and update the argument list with unrolled arguments.
+            idx = arguments.index(arg)
+            arguments[idx:idx+1] = new_vars
+    # Strip the target dimension from arguments
     if strip_signature:
         arguments = [a for a in arguments if a.name not in target_variables]
 
