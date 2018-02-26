@@ -206,7 +206,7 @@ class Type(object):
     """
 
     def __init__(self, name, kind=None, intent=None, allocatable=False,
-                 pointer=False, source=None):
+                 pointer=False, optional=None, source=None):
         self._source = source
 
         self.name = name
@@ -214,15 +214,17 @@ class Type(object):
         self.intent = intent
         self.allocatable = allocatable
         self.pointer = pointer
+        self.optional = optional
 
     def __repr__(self):
-        return '<Type %s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
-                                      ', intent=%s' % self.intent if self.intent else '',
-                                      ', all' if self.allocatable else '',
-                                      ', ptr' if self.pointer else '')
+        return '<Type %s%s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
+                                        ', intent=%s' % self.intent if self.intent else '',
+                                        ', all' if self.allocatable else '',
+                                        ', ptr' if self.pointer else '',
+                                        ', opt' if self.optional else '')
 
     def __key(self):
-        return (self.name, self.kind, self.intent, self.allocatable, self.pointer)
+        return (self.name, self.kind, self.intent, self.allocatable, self.pointer, self.optional)
 
     def __hash__(self):
         return hash(self.__key())

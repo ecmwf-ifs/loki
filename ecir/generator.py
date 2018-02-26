@@ -166,8 +166,9 @@ class IRGenerator(Visitor):
                 kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
+                optional = o.find('attribute-optional') is not None
                 type = Type(name=typename, kind=kind, intent=intent,
-                            allocatable=allocatable, source=source)
+                            allocatable=allocatable, optional=optional, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
                     if len(v.attrib) == 0:

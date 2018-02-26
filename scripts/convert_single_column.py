@@ -55,13 +55,15 @@ def generate_interface(filename, name, arguments, imports):
     signature = generate_signature(name, arguments)
     interface = 'INTERFACE\n%s' % signature
 
+    base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
+
     # Collect unknown symbols that we might need to import
     undefined = set()
     anames = [a.name for a in arguments]
     for a in arguments:
         # Add potentially unkown TYPE and KIND symbols to 'undefined'
-        if a.type.name.upper() not in ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']:
-            undefined.add(a.type)
+        if a.type.name.upper() not in base_types:
+            undefined.add(a.type.name)
         if a.type.kind and not a.type.kind.isdigit():
             undefined.add(a.type.kind)
         # Add (pure) variable dimensions that might be defined elsewhere
@@ -76,9 +78,10 @@ def generate_interface(filename, name, arguments, imports):
 
     # Add type declarations for all arguments
     for arg in arguments:
-        interface += '%s%s, INTENT(%s) :: %s\n' % (
-            arg.type.name, ('(KIND=%s)' % arg.type.kind) if arg.type.kind else '',
-            arg.type.intent.upper(), str(arg))
+        interface += '%s%s, INTENT(%s) %s:: %s\n' % (
+            'TYPE(%s)' % arg.type.name if arg.type.name not in base_types else arg.type.name,
+            ('(KIND=%s)' % arg.type.kind) if arg.type.kind else '',
+            arg.type.intent.upper(), ', OPTIONAL ' if arg.type.optional else '', str(arg))
     interface += 'END SUBROUTINE %s\nEND INTERFACE\n' % name
 
     # And finally dump the generated string to file
@@ -285,6 +288,8 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     routine.body.replace({'Z_TMPK(1,JK)': 'Z_TMPK(JK)',
                           '& (KIDIA,    KFDIA,   KLON,     KLEV,    IK,&':
                           '& (    1,        1,      1,     KLEV,    IK,&',
+                          'CALL CUADJTQ(YDEPHLI,KIDIA,KFDIA,KLON,':
+                          'CALL CUADJTQ(YDEPHLI,    1,    1,   1,',
                           'JLEN=KFDIA-KIDIA+1': 'JLEN=1',
                           'KFDIA-KIDIA+1)': '1)',
                       })
