@@ -3,40 +3,9 @@ import re
 from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 
-from ecir import (FortranSourceFile, Visitor, flatten, chunks,
+from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
                   Statement)
-
-
-class FindLoops(Visitor):
-
-    def __init__(self, target_var):
-        super(FindLoops, self).__init__()
-
-        self.target_var = target_var
-
-    def visit_Node(self, o):
-        children = tuple(self.visit(c) for c in o.children)
-        return tuple(c for c in children if c is not None)
-
-    def visit_tuple(self, o):
-        children = tuple(self.visit(c) for c in o)
-        return tuple(c for c in children if c is not None)
-
-    visit_list = visit_Node
-
-    def visit_Loop(self, o):
-        lines = o._source.splitlines(keepends=True)
-        if self.target_var == o.variable:
-            # Loop is over target dimension
-            return (o, )
-        elif o.body is not None:
-            # Recurse over children to find target
-            children = tuple(self.visit(c) for c in flatten(o.body))
-            children = tuple(c for c in flatten(children) if c is not None)
-            return children
-        else:
-            return ()
 
 
 def generate_signature(name, arguments):
@@ -131,13 +100,12 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     # It's important to do this first, as the IR on the `routine`
     # object is not updated when the source changes...
     # TODO: Fully integrate IR with source changes...
-    finder = FindLoops(target_var=target_var)
-    target_loops = flatten(finder.visit(routine._ir))
-    for target in target_loops:
-        # Get loop body and drop two leading chars for unindentation
-        lines = target._source.splitlines(keepends=True)[1:-1]
-        lines = ''.join([line.replace('  ', '', 1) for line in lines])
-        routine.body._source = routine.body._source.replace(target._source, lines)
+    for loop in FindNodes(Loop).visit(routine._ir):
+        if loop.variable == target_var:
+            # Get loop body and drop two leading chars for unindentation
+            lines = loop._source.splitlines(keepends=True)[1:-1]
+            lines = ''.join([line.replace('  ', '', 1) for line in lines])
+            routine.body._source = routine.body._source.replace(loop._source, lines)
 
     ####  Signature and interface adjustments  ####
 
