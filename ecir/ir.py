@@ -184,14 +184,18 @@ class Variable(object):
         idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
         return '%s%s' % (self.name, idx)
 
+    def __key(self):
+        return (self.name, self.type, self.dimensions)
+
+    def __hash__(self):
+        return hash(self.__key())
+
     def __eq__(self, other):
         # Allow direct comparison to string and other Variable objects
         if isinstance(other, str):
             return self.name == other
         elif isinstance(other, Variable):
-            return (self.name == other.name and all(self.dimensions == other.dimensions)
-                    and self.type == other.type and self.kind == other.kind
-                    and self.allocatable == other.allocatable)
+            return self.__key() == other.__key()
         else:
             self == other
 
@@ -216,6 +220,21 @@ class Type(object):
                                       ', intent=%s' % self.intent if self.intent else '',
                                       ', all' if self.allocatable else '',
                                       ', ptr' if self.pointer else '')
+
+    def __key(self):
+        return (self.name, self.kind, self.intent, self.allocatable, self.pointer)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparison to string and other Variable objects
+        if isinstance(other, str):
+            return self.name == other
+        elif isinstance(other, Type):
+            return self.__key() == other.__key()
+        else:
+            self == other
 
 
 class DerivedType(object):

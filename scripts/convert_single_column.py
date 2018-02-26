@@ -4,7 +4,8 @@ from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks,
-                  Variable, Type, DerivedType, FindNodes, Statement)
+                  Variable, Type, DerivedType, Declaration, FindNodes,
+                  Statement)
 
 
 class FindLoops(Visitor):
@@ -144,6 +145,8 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     # Detect argument variables with derived types in the signature
     # that use the target diemnsion. For those types we explicitly unroll
     # the subtypes used in the signature and adjust caller and callee.
+    derived_arg_map = OrderedDict()
+    derived_arg_repl = {}
     for arg in arguments:
         if arg.type.name.upper() in derived_types:
             new_vars = []
@@ -153,14 +156,50 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                 # Check if variable has the target dimension and is used in routine
                 t_str = '%s%%%s' % (arg.name, type_var.name)
                 if target_dim in type_var.dimensions and t_str in routine.body._source:
+                    new_name = '%s_%s' % (arg.name, type_var.name)
                     new_type = Type(name=type_var.type.name, kind=type_var.type.kind,
                                     intent=arg.type.intent)
-                    new_vars.append(Variable(name='%s_%s' % (arg.name, type_var.name),
-                                             type=new_type, dimensions=type_var.dimensions))
-            # Derive index on-the-fly (multi-element inserions change indices!)
+                    new_vars.append(Variable(name=new_name, type=new_type,
+                                             dimensions=type_var.dimensions))
+
+                    # Record the string-replacement for the body
+                    derived_arg_repl[t_str] = new_name
+
+            # Derive index on-the-fly (multi-element insertions change indices!)
             # and update the argument list with unrolled arguments.
             idx = arguments.index(arg)
+            # Store replacement for later declaration adjustment
+            derived_arg_map[arg] = new_vars
             arguments[idx:idx+1] = new_vars
+
+    # Now we replace the declarations for the previously derived arguments
+    # Note: Re-generation from AST would probably be cleaner...
+    declarations = FindNodes(Declaration).visit(routine._spec)
+    for derived_arg, new_args in derived_arg_map.items():
+        for decl in declarations:
+            if derived_arg in decl.variables:
+                # A simple sanity check...
+                decl.variables.remove(derived_arg)
+                if len(decl.variables) > 0:
+                    raise NotImplementedError('More than one derived argument per declaration found!')
+
+                # Replace derived argument declaration with new declarations
+                new_decls = []
+                for arg in new_args:
+                    new_decl = '%s%s' % (arg.type.name,
+                                         '(KIND=%s)' % arg.type.kind.upper() if arg.type.kind else '')
+                    new_decl += ', INTENT(%s)' % arg.type.intent.upper() if arg.type.intent else ''
+                    new_decl += ' :: %s' % str(arg)
+                    # Assemble new declarations
+                    new_decls.append(new_decl)
+
+                new_string = '\n'.join(new_decls) + '\n'
+                routine.declarations._source = routine.declarations._source.replace(decl._source,
+                                                                                    new_string)
+
+    # And finally, replace all occurences of derived sub-types with unrolled ones
+    routine.body.replace(derived_arg_repl)
+
     # Strip the target dimension from arguments
     if strip_signature:
         arguments = [a for a in arguments if a.name not in target_variables]

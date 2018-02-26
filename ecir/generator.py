@@ -140,7 +140,7 @@ class IRGenerator(Visitor):
                     variables = []
                     attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
-                    kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
+                    kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
                     type = Type(typename, kind=kind, pointer='pointer' in attributes)
                     v_source = extract_lines(t.attrib, self._raw_source)
                     v_line = int(t.find('type').attrib['line_end'])
