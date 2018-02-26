@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
-                  Statement)
+                  Statement, fgen)
 
 
 def generate_signature(name, arguments):
@@ -155,18 +155,10 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                     raise NotImplementedError('More than one derived argument per declaration found!')
 
                 # Replace derived argument declaration with new declarations
-                new_decls = []
-                for arg in new_args:
-                    new_decl = '%s%s' % (arg.type.name,
-                                         '(KIND=%s)' % arg.type.kind.upper() if arg.type.kind else '')
-                    new_decl += ', INTENT(%s)' % arg.type.intent.upper() if arg.type.intent else ''
-                    new_decl += ' :: %s' % str(arg)
-                    # Assemble new declarations
-                    new_decls.append(new_decl)
-
-                new_string = '\n'.join(new_decls) + '\n'
+                new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
                 routine.declarations._source = routine.declarations._source.replace(decl._source,
                                                                                     new_string)
+
 
     # And finally, replace all occurences of derived sub-types with unrolled ones
     routine.body.replace(derived_arg_repl)

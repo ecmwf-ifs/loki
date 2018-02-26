@@ -260,11 +260,10 @@ class PrintAST(Visitor):
     def visit_Node(self, o):
         return self.indent + '<%s>' % o.__class__.__name__
 
-    def visit_list(self, o):
-        return ('\n').join([self.visit(i) for i in o])
-
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
+
+    visit_list = visit_tuple
 
     def visit_Block(self, o):
         self._depth += 2
