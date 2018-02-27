@@ -202,8 +202,13 @@ class IRGenerator(Visitor):
             upper = self.visit(o.find('range/upper-bound'))
             return Index(name='%s:%s' % (lower, upper))
         elif o.find('name'):
-            var = self.visit(o.find('name'))
-            return Index(name='%s' % var)
+            # TODO: If the index is a variable,
+            # simply return it. This shows that we
+            # need a better expression hierachy.
+            return self.visit(o.find('name'))
+        elif o.find('literal'):
+            val = self.visit(o.find('literal'))
+            return Index(name='%s' % val)
         elif o.find('operation'):
             op = self.visit(o.find('operation'))
             return Index(name='%s' % op)
