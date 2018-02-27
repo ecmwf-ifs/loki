@@ -126,10 +126,10 @@ class Subroutine(Section):
         spec_ast = self._ast.find('body/specification')
         sstart = int(spec_ast.attrib['line_begin']) - 1
         send = int(spec_ast.attrib['line_end'])
-        self._post = Section(name='post', source=''.join(self.lines[bend:]))
-        self.declarations = Section(name='declarations', 
-                                    source=''.join(self.lines[:send]))
+        self.header = Section(name='header', source=''.join(self.lines[:sstart]))
+        self.declarations = Section(name='declarations', source=''.join(self.lines[sstart:send]))
         self.body = Section(name='body', source=''.join(self.lines[send:bend]))
+        self._post = Section(name='post', source=''.join(self.lines[bend:]))
 
         # Create a IRs for declarations section and the loop body
         self._spec = generate(spec_ast, self._raw_source)
@@ -157,7 +157,7 @@ class Subroutine(Section):
         """
         The raw source code contained in this section.
         """
-        content = [self.declarations, self.body, self._post]
+        content = [self.header, self.declarations, self.body, self._post]
         return ''.join(s.source for s in content)        
 
     @property

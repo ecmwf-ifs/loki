@@ -181,7 +181,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
         signature = re_sig.findall(routine._source)[0]
         new_signature = generate_signature(routine.name, arguments)
-        routine.declarations._source = routine.declarations._source.replace(signature, new_signature)
+        routine.header._source = routine.header._source.replace(signature, new_signature)
 
         # Strip target sizes from declarations
         for v in routine.arguments:
