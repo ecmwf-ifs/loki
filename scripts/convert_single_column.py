@@ -59,6 +59,27 @@ def generate_interface(filename, name, arguments, imports):
         file.write(interface)
 
 
+class Dimension(object):
+    """
+    Dimension that defines a one-dimensional iteration space.
+
+    :param name: Name of the dimension, as used in data array declarations
+    :param variable: Name of the iteration variable used in loops in this
+                     dimension.
+    :param iteration: Tuple defining the start/end variable names or values for
+                      loops in this dimension.
+    """
+
+    def __init__(self, name=None, variable=None, iteration=None):
+        self.name = name
+        self.variable = variable
+        self.iteration = iteration
+
+    @property
+    def variables(self):
+        return (self.name, self.variable) + self.iteration
+
+
 @cli.command()
 @cli.option('--source', '-s', type=cli.Path(),
             help='Source file to convert.')
@@ -76,12 +97,14 @@ def generate_interface(filename, name, arguments, imports):
 @cli.option('--strip-signature/--no-strip-signature', default=True)
 def convert(source, source_out, driver, driver_out, interface, typedef, mode, strip_signature):
 
+    # Define the target dimension to strip from kernel and caller
+    target = Dimension(name='KLON', variable='JL', iteration=('KIDIA', 'KFDIA'))
+
     # Read additional derived types from typedef modules
     derived_types = {}
     for tfile in typedef:
-        t_source = FortranSourceFile(tfile)
-        t_mod = t_source.modules[0]
-        for derived in t_mod._spec:
+        module = FortranSourceFile(tfile).modules[0]
+        for derived in module._spec:
             if isinstance(derived, DerivedType):
                 # TODO: Need better __hash__ for (derived) types
                 derived_types[derived.name.upper()] = derived
@@ -90,18 +113,12 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     f_source = FortranSourceFile(source)
     routine = f_source.subroutines[0]
 
-    target_dim = 'KLON'  # Name of the target dimension
-    target_var = 'JL'  # Name of the target iteration variable
-    target_sizes = ['KIDIA', 'KFDIA', 'KLON']  # Variables to strip from signatures
-    target_variables = [target_dim] + target_sizes
-
     ####  Remove target loops  ####
-
     # It's important to do this first, as the IR on the `routine`
     # object is not updated when the source changes...
     # TODO: Fully integrate IR with source changes...
     for loop in FindNodes(Loop).visit(routine._ir):
-        if loop.variable == target_var:
+        if loop.variable == target.variable:
             # Get loop body and drop two leading chars for unindentation
             lines = loop._source.splitlines(keepends=True)[1:-1]
             lines = ''.join([line.replace('  ', '', 1) for line in lines])
@@ -126,7 +143,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
             for type_var in derived.variables:
                 # Check if variable has the target dimension and is used in routine
                 t_str = '%s%%%s' % (arg.name, type_var.name)
-                if target_dim in type_var.dimensions and t_str in routine.body._source:
+                if target.name in type_var.dimensions and t_str in routine.body._source:
                     new_name = '%s_%s' % (arg.name, type_var.name)
                     new_type = Type(name=type_var.type.name, kind=type_var.type.kind,
                                     intent=arg.type.intent)
@@ -159,17 +176,16 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                 routine.declarations._source = routine.declarations._source.replace(decl._source,
                                                                                     new_string)
 
-
     # And finally, replace all occurences of derived sub-types with unrolled ones
     routine.body.replace(derived_arg_repl)
 
     # Strip the target dimension from arguments
     if strip_signature:
-        arguments = [a for a in arguments if a.name not in target_variables]
+        arguments = [a for a in arguments if a.name not in target.variables]
 
     # Remove the target dimensions from our input arguments
     for a in arguments:
-        a.dimensions = tuple(d for d in a.dimensions if target_dim not in str(d))
+        a.dimensions = tuple(d for d in a.dimensions if target.name not in str(d))
 
     if interface:
         # Generate the interface file associated with this routine
@@ -185,28 +201,28 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
 
         # Strip target sizes from declarations
         for v in routine.arguments:
-            if v.name in target_sizes:
+            if v.name in target.variables:
                 routine.declarations._source = routine.declarations._source.replace(v._source, '')
 
         # Strip target loop variable
-        line = routine._variables[target_var]._source
-        new_line = line.replace('%s, ' % target_var, '')
+        line = routine._variables[target.variable]._source
+        new_line = line.replace('%s, ' % target.variable, '')
         routine.declarations._source = routine.declarations._source.replace(line, new_line)
 
     ####  Index replacements  ####
 
     # Strip all target iteration indices
-    routine.body.replace({'(%s,' % target_var: '(', '(%s)' % target_var: ''})
+    routine.body.replace({'(%s,' % target.variable: '(', '(%s)' % target.variable: ''})
 
     # Find all variables affected by the transformation
     # Note: We assume here that the target dimension is matched
     # exactly in v.dimensions!
-    variables = [v for v in routine.variables if target_dim in v.dimensions]
+    variables = [v for v in routine.variables if target.name in v.dimensions]
     for v in variables:
         # Target is a vector, we now promote it to a scalar
         promote_to_scalar = len(v.dimensions) == 1
         new_dimensions = list(v.dimensions)
-        new_dimensions.remove(target_dim)
+        new_dimensions.remove(target.name)
 
         # Strip target dimension from declarations and body (for ALLOCATEs)
         old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
