@@ -1,4 +1,5 @@
 from ecir.visitors import Visitor
+from ecir.tools import chunks
 
 __all__ = ['fgen', 'FortranCodegen']
 
@@ -20,6 +21,11 @@ class FortranCodegen(Visitor):
     @property
     def indent(self):
         return '  ' * self._depth
+
+    def segment(self, arguments, block_size=6):
+        delim = ', &\n%s & ' % self.indent
+        args = list(chunks([self.visit(a) for a in arguments], block_size))
+        return '%s & ' % self.indent + delim.join(', '.join(c) for c in args)
 
     def visit(self, o):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
@@ -50,10 +56,26 @@ class FortranCodegen(Visitor):
     def visit_Import(self, o):
         return 'USE %s, ONLY: %s' % (o.module, ', '.join(o.symbols))
 
+    def visit_Loop(self, o):
+        self._depth += 1
+        body = self.visit(o.children)
+        self._depth -= 1
+        header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
+        return self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+
+    def visit_Call(self, o):
+        if len(o.arguments) > 6:
+            self._depth += 2
+            arguments = self.segment(o.arguments, block_size=6)
+            self._depth -= 2
+            signature = 'CALL %s( &\n%s )' % (o.name, arguments)
+        else:
+            signature = 'CALL %s(%s)' % (o.name, ', '.join(o.arguments))
+        return self.indent + signature
+
     def visit_Variable(self, o):
         dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
-        return '%s(%s)' % (o.name, dims)
-
+        return '%s%s' % (o.name, dims)
 
     def visit_Type(self, o):
         return '%s%s%s%s%s%s' % (o.name, '(KIND=%s)' % o.kind if o.kind else '',

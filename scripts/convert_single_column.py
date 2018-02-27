@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
-                  Statement, fgen)
+                  Statement, Call, fgen)
 
 
 def generate_signature(name, arguments):
@@ -99,6 +99,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
 
     # Define the target dimension to strip from kernel and caller
     target = Dimension(name='KLON', variable='JL', iteration=('KIDIA', 'KFDIA'))
+    target_routine = 'CLOUDSC'
 
     # Read additional derived types from typedef modules
     derived_types = {}
@@ -291,12 +292,30 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     # Now let's process the driver/caller side
     if driver is not None:
         f_driver = FortranSourceFile(driver)
+        driver_routine = f_driver.subroutines[0]
 
         # Process individual calls to our target routine
-        # re_call = re.compile('CALL %s[\s\&\(].*?\)\s*?\n' % routine.name, re.DOTALL)
-        # for call in re_call.findall(f_driver._raw_source):
-        #     # Create the outer loop from the first two arguments
-        #     pass
+        for call in FindNodes(Call).visit(driver_routine._ir):
+            if call.name == target_routine:
+                new_args = list(deepcopy(call.arguments))
+                for arg, k_arg in zip(new_args, routine.arguments):
+                    if k_arg.name.strip() in target.variables:
+                        new_args.remove(arg)
+                    elif len(k_arg.dimensions) > len(arg.dimensions):
+                        # TODO: Expand calling-side arg dimensions...
+                        # Note: Currently wrong...
+                        arg.dimensions = tuple(':' if a != target.name else target.variable
+                                               for a in k_arg.dimensions)
+                    else:
+                        # TODO: This doesn't quite make sense...
+                        arg.dimensions = tuple(d if kd != target.name else target.variable
+                                               for d, kd in zip(arg.dimensions, k_arg.dimensions))
+
+                # Create new call, wrap it in a loop and replace the old code
+                new_call = Call(name=call.name, arguments=new_args)
+                new_loop = Loop(body=[new_call], variable=target.variable,
+                                bounds=target.iteration)
+                driver_routine.body.replace(call._source, fgen(new_loop))
             
         print("Writing to %s" % driver_out)
         f_driver.write(driver_out)

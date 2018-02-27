@@ -12,7 +12,7 @@ from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
-__all__ = ['IRGenerator']
+__all__ = ['generate']
 
 
 class IRGenerator(Visitor):
@@ -222,7 +222,7 @@ class IRGenerator(Visitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        return Call(name=name, arguments=args)
+        return Call(name=name, arguments=args, source=source, line=line)
 
 
 class SequenceFinder(Visitor):
