@@ -122,7 +122,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
             # Get loop body and drop two leading chars for unindentation
             lines = loop._source.splitlines(keepends=True)[1:-1]
             lines = ''.join([line.replace('  ', '', 1) for line in lines])
-            routine.body._source = routine.body._source.replace(loop._source, lines)
+            routine.body.replace(loop._source, lines)
 
     ####  Signature and interface adjustments  ####
 
@@ -173,8 +173,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
 
                 # Replace derived argument declaration with new declarations
                 new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
-                routine.declarations._source = routine.declarations._source.replace(decl._source,
-                                                                                    new_string)
+                routine.declarations.replace(decl._source, new_string)
 
     # And finally, replace all occurences of derived sub-types with unrolled ones
     routine.body.replace(derived_arg_repl)
@@ -197,22 +196,23 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
         signature = re_sig.findall(routine._source)[0]
         new_signature = generate_signature(routine.name, arguments)
-        routine.header._source = routine.header._source.replace(signature, new_signature)
+        routine.header.replace(signature, new_signature)
 
         # Strip target sizes from declarations
         for v in routine.arguments:
             if v.name in target.variables:
-                routine.declarations._source = routine.declarations._source.replace(v._source, '')
+                routine.declarations.replace(v._source, '')
 
         # Strip target loop variable
         line = routine._variables[target.variable]._source
         new_line = line.replace('%s, ' % target.variable, '')
-        routine.declarations._source = routine.declarations._source.replace(line, new_line)
+        routine.declarations.replace(line, new_line)
 
     ####  Index replacements  ####
 
     # Strip all target iteration indices
-    routine.body.replace({'(%s,' % target.variable: '(', '(%s)' % target.variable: ''})
+    routine.body.replace({'(%s,' % target.variable: '(',
+                          '(%s)' % target.variable: ''})
 
     # Find all variables affected by the transformation
     # Note: We assume here that the target dimension is matched
@@ -227,18 +227,18 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         # Strip target dimension from declarations and body (for ALLOCATEs)
         old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
         new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d)for d in new_dimensions)
-        routine.declarations.replace({old_dims: new_dims})
-        routine.body.replace({old_dims: new_dims})
+        routine.declarations.replace(old_dims, new_dims)
+        routine.body.replace(old_dims, new_dims)
 
         # Strip all colon indices for leading dimensions
         # TODO: Could do this in a smarter, more generic way...
         if promote_to_scalar:
-            routine.body.replace({'%s(:)' % v.name: '%s' % v.name})
+            routine.body.replace('%s(:)' % v.name, '%s' % v.name)
         else:
-            routine.body.replace({'%s(:,' % v.name: '%s(' % v.name})
+            routine.body.replace('%s(:,' % v.name, '%s(' % v.name)
 
         if v.type.allocatable:
-            routine.declarations.replace({'%s(:,' % v.name: '%s(' % v.name})
+            routine.declarations.replace('%s(:,' % v.name, '%s(' % v.name)
 
     ####  Hacks that for specific annoyances in the CLOUDSC dwarf  ####
 

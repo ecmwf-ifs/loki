@@ -1,5 +1,5 @@
 import re
-from collections import OrderedDict
+from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
 from ecir.ir import Declaration, Allocation, Import, DerivedType
@@ -45,7 +45,7 @@ class Section(object):
         srciter = iter(self.lines)
         return [assemble_continued_statement_from_iterator(line, srciter)[0] for line in srciter]
 
-    def replace(self, mapping):
+    def replace(self, repl, new=None):
         """
         Performs a line-by-line string-replacement from a given mapping
 
@@ -53,10 +53,11 @@ class Section(object):
         need to improve this later to unpick linebreaks in the search
         keys.
         """
-        rawlines = self.lines
-        for k, v in mapping.items():
-            rawlines = [line.replace(k, v) for line in rawlines]
-        self._source = ''.join(rawlines)
+        if isinstance(repl, Mapping):
+            for old, new in repl.items():
+                self._source = self._source.replace(old, new)
+        else:
+            self._source = self._source.replace(repl, new)
 
 
 class Module(Section):
