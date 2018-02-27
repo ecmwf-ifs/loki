@@ -91,31 +91,35 @@ def as_tuple(item, type=None, length=None):
     return t
 
 
-def extract_lines(attrib, source, full_lines=False):
+def extract_lines(ast, source, full_lines=False):
     """
     Extract the marked string from source text.
     """
+    attrib = ast.attrib if hasattr(ast, 'attrib') else ast
     lstart = int(attrib['line_begin'])
     lend = int(attrib['line_end'])
     cstart = int(attrib['col_begin'])
     cend = int(attrib['col_end'])
 
-    if isinstance(source, str):
-        source = source.splitlines(keepends=False)
+    source = source.splitlines(keepends=True)
 
     if full_lines:
         return ''.join(source[lstart-1:lend])
 
     if lstart == lend:
-        if len(source[lstart-1]) < cend-1:
-            # Final line has line continuations (&), assemble it
-            # Note: We trim the final character, since the utility adds a newline
-            line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)[1][:-1]
-        else:
-            line = source[lstart-1]
-        return line[cstart:cend]
+        lines = [source[lstart-1][cstart:cend]]
     else:
         lines = source[lstart-1:lend]
         firstline = lines[0][cstart:]
         lastline = lines[-1][:cend]
-        return ''.join([firstline] + lines[1:-1] + [lastline])
+        lines = [firstline] + lines[1:-1] + [lastline]
+
+    # Scan for line continuations and honour inline
+    # comments in between continued lines
+    added_comment = False
+    while lines[-1].strip().endswith('&') or added_comment:
+        lend += 1
+        lines.append(source[lend-1])
+        added_comment = lines[-1].strip().startswith('!')
+
+    return ''.join(lines)

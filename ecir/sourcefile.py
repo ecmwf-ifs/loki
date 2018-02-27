@@ -35,9 +35,9 @@ class FortranSourceFile(object):
         print("Parsing done! (time: %.2fs)" % t1)
 
         # Extract subroutines and pre/post sections from file
-        self.subroutines = [Subroutine(ast=r, raw_source=self.lines)
+        self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source)
                             for r in self._ast.findall('file/subroutine')]
-        self.modules = [Module(ast=m, raw_source=self.lines)
+        self.modules = [Module(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]
 
     @disk_cached(argname='filename')
