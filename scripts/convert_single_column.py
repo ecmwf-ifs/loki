@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
-                  Statement, Call, fgen)
+                  Statement, Call, Pragma, fgen)
 
 
 def generate_signature(name, arguments):
@@ -272,7 +272,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                          })
     # And finally we have no shame left... :(
     routine.body.replace({'Z_TMPK(1,JK)': 'Z_TMPK(JK)',
-                          'CALL CUADJTQ': 'CALL CUADJTQ_%s' % mode.upper(),
+                          'CALL CUADJTQ': 'CALL CUADJTQ_ONECOL',
                           '& (KIDIA,    KFDIA,   KLON,     KLEV,    IK,&':
                           '& (KLEV,    IK,&',
                           'CALL CUADJTQ(YDEPHLI,KIDIA,KFDIA,KLON,':
@@ -293,8 +293,9 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         routine.body._source = directives + routine.body._source
 
         # Wrap subroutine in a module
-        f_source._pre._source += 'MODULE cloudsc_mod\ncontains\n'
-        f_source._post._source += 'END MODULE'
+        new_module = '%s_%s_MOD' % (routine.name.upper(), mode.upper())
+        routine.header._source = 'MODULE %s\ncontains\n' % new_module + routine.header._source
+        routine._post._source += 'END MODULE'
 
     print("Writing to %s" % source_out)
     f_source.write(source_out)
@@ -350,8 +351,10 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                 new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
                                    if k in target.iteration)
                 new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
+                new_pragma = Pragma(keyword='parallelize',
+                                    source='!$claw parallelize forward') if mode =='claw' else None
                 new_loop = Loop(body=[new_call], variable=target.variable,
-                                bounds=new_bounds)
+                                bounds=new_bounds, pragma=new_pragma)
                 driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
 
         # Finally, add the loop counter variable to declarations
@@ -359,9 +362,14 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         new_decl = Declaration(variables=[new_var])
         driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
 
-        # Add the include statement for the new header
-        new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
-        driver_routine.declarations._source += new_include
+        if mode == 'onecol':
+            # Add the include statement for the new header
+            new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
+            driver_routine.declarations._source += new_include
+        elif mode == 'claw':
+            kernel_name = '%s_%s' % (routine.name.upper(), mode.upper())
+            new_import = 'USE %s_%s_MOD, ONLY: %s\n' % (routine.name.upper(), mode.upper(), kernel_name)
+            driver_routine.declarations._source = new_import + driver_routine.declarations._source
             
         print("Writing to %s" % driver_out)
         f_driver.write(driver_out)

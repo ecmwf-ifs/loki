@@ -88,12 +88,14 @@ class Loop(Node):
 
     _traversable = ['body']
 
-    def __init__(self, variable, body=None, bounds=None, source=None, line=None):
+    def __init__(self, variable, body=None, bounds=None, pragma=None,
+                 source=None, line=None):
         super(Loop, self).__init__(source=source, line=line)
 
         self.variable = variable
         self.body = body
         self.bounds = bounds
+        self.pragma = pragma
 
     @property
     def children(self):

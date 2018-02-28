@@ -46,6 +46,9 @@ class FortranCodegen(Visitor):
     def visit_Comment(self, o):
         return self.indent + o._source
 
+    def visit_Pragma(self, o):
+        return self.indent + o._source
+
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]
         return '\n'.join(comments)
@@ -58,11 +61,12 @@ class FortranCodegen(Visitor):
         return 'USE %s, ONLY: %s' % (o.module, ', '.join(o.symbols))
 
     def visit_Loop(self, o):
+        pragma = self.visit(o.pragma) if o.pragma else ''
         self._depth += 1
         body = self.visit(o.children)
         self._depth -= 1
         header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
-        return self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+        return pragma + '\n%s' % self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
     def visit_Call(self, o):
         if len(o.arguments) > 6:
