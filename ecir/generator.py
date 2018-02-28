@@ -329,10 +329,11 @@ def generate(ofp_ast, raw_source):
             comment_mapper[c] = None
     ir = NestedTransformer(comment_mapper).visit(ir)
 
-    # Find pragmas and merge them onto declarations
+    # Find pragmas and merge them onto declarations and subroutine calls
     # Note: Pragmas in derived types are already associated with the
     # declaration due to way we parse derived types.
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
+    pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
     mapper = {}
     for pair in pairs:
         if pair[0]._line == pair[1]._line - 1:

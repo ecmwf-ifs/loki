@@ -159,12 +159,12 @@ class Call(Node):
     """
     Internal representation of a function call
     """
-    def __init__(self, name, arguments, source=None, line=None):
+    def __init__(self, name, arguments, pragma=None, source=None, line=None):
         super(Call, self).__init__(source=source, line=line)
 
         self.name = name
         self.arguments = arguments
-
+        self.pragma = pragma
 
 ############################################################
 ## Utility classes that are not (yet) part of the hierachy

@@ -115,6 +115,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     # Read the primary source routine
     f_source = FortranSourceFile(source)
     routine = f_source.subroutines[0]
+    new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
     ####  Remove target loops  ####
     # It's important to do this first, as the IR on the `routine`
@@ -194,15 +195,18 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
 
     if interface:
         # Generate the interface file associated with this routine
-        generate_interface(filename=interface, name=routine.name,
+        generate_interface(filename=interface, name=new_routine_name,
                            arguments=arguments, imports=routine.imports)
 
     if strip_signature:
         # Generate new signature and replace the old one in file
         re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
         signature = re_sig.findall(routine._source)[0]
-        new_signature = generate_signature(routine.name, arguments)
+        new_signature = generate_signature(new_routine_name, arguments)
         routine.header.replace(signature, new_signature)
+
+        routine._post.replace('END SUBROUTINE %s' % routine.name,
+                              'END SUBROUTINE %s' % new_routine_name)
 
         # Strip target sizes from declarations
         for v in routine.arguments:
@@ -268,10 +272,11 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                          })
     # And finally we have no shame left... :(
     routine.body.replace({'Z_TMPK(1,JK)': 'Z_TMPK(JK)',
+                          'CALL CUADJTQ': 'CALL CUADJTQ_%s' % mode.upper(),
                           '& (KIDIA,    KFDIA,   KLON,     KLEV,    IK,&':
-                          '& (    1,        1,      1,     KLEV,    IK,&',
+                          '& (KLEV,    IK,&',
                           'CALL CUADJTQ(YDEPHLI,KIDIA,KFDIA,KLON,':
-                          'CALL CUADJTQ(YDEPHLI,    1,    1,   1,',
+                          'CALL CUADJTQ(YDEPHLI,',
                           'JLEN=KFDIA-KIDIA+1': 'JLEN=1',
                           'KFDIA-KIDIA+1)': '1)',
                       })
@@ -302,6 +307,10 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         # Process individual calls to our target routine
         for call in FindNodes(Call).visit(driver_routine._ir):
             if call.name == target_routine:
+                # Skip calls marked for reference data collection
+                if call.pragma is not None and call.pragma.keyword == 'reference':
+                    continue
+
                 new_args = []
                 for d_arg, k_arg in zip(call.arguments, routine.arguments):
                     if k_arg.name in target.variables:
@@ -340,7 +349,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                 # the bound variables in the kernel code are used as bounds here.
                 new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
                                    if k in target.iteration)
-                new_call = Call(name=call.name, arguments=new_args)
+                new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
                 new_loop = Loop(body=[new_call], variable=target.variable,
                                 bounds=new_bounds)
                 driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
@@ -349,6 +358,10 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         new_var = Variable(name=target.variable, type=Type(name='INTEGER', kind='JPIM'))
         new_decl = Declaration(variables=[new_var])
         driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
+
+        # Add the include statement for the new header
+        new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
+        driver_routine.declarations._source += new_include
             
         print("Writing to %s" % driver_out)
         f_driver.write(driver_out)
