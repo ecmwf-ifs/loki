@@ -70,8 +70,9 @@ class Dimension(object):
                       loops in this dimension.
     """
 
-    def __init__(self, name=None, variable=None, iteration=None):
+    def __init__(self, name=None, aliases=None, variable=None, iteration=None):
         self.name = name
+        self.aliases = aliases
         self.variable = variable
         self.iteration = iteration
 
@@ -98,7 +99,8 @@ class Dimension(object):
 def convert(source, source_out, driver, driver_out, interface, typedef, mode, strip_signature):
 
     # Define the target dimension to strip from kernel and caller
-    target = Dimension(name='KLON', variable='JL', iteration=('KIDIA', 'KFDIA'))
+    target = Dimension(name='KLON', aliases=['NPROMA'],
+                       variable='JL', iteration=('KIDIA', 'KFDIA'))
     target_routine = 'CLOUDSC'
 
     # Read additional derived types from typedef modules
@@ -136,6 +138,8 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     # the subtypes used in the signature and adjust caller and callee.
     derived_arg_map = OrderedDict()
     derived_arg_repl = {}
+    derived_arg_var = defaultdict(list)
+    # Note: This is getting tedious; there must be a better way...
     for arg in arguments:
         if arg.type.name.upper() in derived_types:
             new_vars = []
@@ -145,6 +149,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
                 # Check if variable has the target dimension and is used in routine
                 t_str = '%s%%%s' % (arg.name, type_var.name)
                 if target.name in type_var.dimensions and t_str in routine.body._source:
+                    derived_arg_var[arg].append(type_var)
                     new_name = '%s_%s' % (arg.name, type_var.name)
                     new_type = Type(name=type_var.type.name, kind=type_var.type.kind,
                                     intent=arg.type.intent)
@@ -297,25 +302,53 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         # Process individual calls to our target routine
         for call in FindNodes(Call).visit(driver_routine._ir):
             if call.name == target_routine:
-                new_args = list(deepcopy(call.arguments))
-                for arg, k_arg in zip(new_args, routine.arguments):
-                    if k_arg.name.strip() in target.variables:
-                        new_args.remove(arg)
-                    elif len(k_arg.dimensions) > len(arg.dimensions):
-                        # TODO: Expand calling-side arg dimensions...
-                        # Note: Currently wrong...
-                        arg.dimensions = tuple(':' if a != target.name else target.variable
-                                               for a in k_arg.dimensions)
+                new_args = []
+                for d_arg, k_arg in zip(call.arguments, routine.arguments):
+                    if k_arg.name in target.variables:
+                        continue
+                    elif k_arg in derived_arg_var:
+                        # Found derived-type argument, unroll according to mapping
+                        for arg_var in derived_arg_var[k_arg]:
+                            new_dims = tuple(target.variable if d == target.name else ':'
+                                             for d in arg_var.dimensions)
+                            new_args.append(Variable(name='%s%%%s' % (d_arg, arg_var.name),
+                                                     type=d_arg.type, dimensions=new_dims))
+                    elif len(d_arg.dimensions) == 0:
+                        # Driver-side relies on implicit dimensions, unroll using ':'
+                        new_dims = tuple(target.variable if d == target.name else ':'
+                                         for d in k_arg.dimensions)
+                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                                 dimensions=new_dims))
+                    elif len(d_arg.dimensions) == len(k_arg.dimensions):
+                        # Driver-side already has dimensions, just replace target
+                        new_dims = tuple(target.variable if d == target.name else d
+                                         for d in k_arg.dimensions)
+                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                                 dimensions=new_dims))
+                    elif len(d_arg.dimensions) > len(k_arg.dimensions):
+                        # Driver-side has additional outer dimensions (eg. for blocking)
+                        d_var = driver_routine._variables[d_arg.name]
+                        new_dims = tuple(target.variable if d_v in target.aliases else d_c
+                                         for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
+                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                                 dimensions=new_dims))
                     else:
-                        # TODO: This doesn't quite make sense...
-                        arg.dimensions = tuple(d if kd != target.name else target.variable
-                                               for d, kd in zip(arg.dimensions, k_arg.dimensions))
+                        # Something has gone terribly wrong if we reach this
+                        raise ValueError('Unknown driver-side call argument')
 
-                # Create new call, wrap it in a loop and replace the old code
+                # Create new call and wrap it in a loop. The arguments used for
+                # the bound variables in the kernel code are used as bounds here.
+                new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
+                                   if k in target.iteration)
                 new_call = Call(name=call.name, arguments=new_args)
                 new_loop = Loop(body=[new_call], variable=target.variable,
-                                bounds=target.iteration)
-                driver_routine.body.replace(call._source, fgen(new_loop))
+                                bounds=new_bounds)
+                driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
+
+        # Finally, add the loop counter variable to declarations
+        new_var = Variable(name=target.variable, type=Type(name='INTEGER', kind='JPIM'))
+        new_decl = Declaration(variables=[new_var])
+        driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
             
         print("Writing to %s" % driver_out)
         f_driver.write(driver_out)

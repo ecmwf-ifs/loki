@@ -178,7 +178,7 @@ class Variable(object):
 
         self.name = name
         self.type = type
-        self.dimensions = dimensions
+        self.dimensions = dimensions or ()
 
     def __repr__(self):
         idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''

@@ -9,9 +9,10 @@ class FortranCodegen(Visitor):
     Tree visitor to generate standardized Fortran code from IR.
     """
 
-    def __init__(self, conservative=True, depth=0):
+    def __init__(self, depth=0, chunking=6, conservative=True):
         super(FortranCodegen, self).__init__()
         self.conservative = conservative
+        self.chunking = chunking
         self._depth = 0
 
     @classmethod
@@ -22,9 +23,9 @@ class FortranCodegen(Visitor):
     def indent(self):
         return '  ' * self._depth
 
-    def segment(self, arguments, block_size=6):
+    def segment(self, arguments):
         delim = ', &\n%s & ' % self.indent
-        args = list(chunks([self.visit(a) for a in arguments], block_size))
+        args = list(chunks([self.visit(a) for a in arguments], self.chunking))
         return '%s & ' % self.indent + delim.join(', '.join(c) for c in args)
 
     def visit(self, o):
@@ -66,7 +67,7 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if len(o.arguments) > 6:
             self._depth += 2
-            arguments = self.segment(o.arguments, block_size=6)
+            arguments = self.segment(o.arguments)
             self._depth -= 2
             signature = 'CALL %s( &\n%s )' % (o.name, arguments)
         else:
@@ -84,8 +85,9 @@ class FortranCodegen(Visitor):
                                  ', POINTER' if o.pointer else '',
                                  ', OPTIONAL' if o.optional else '')
 
-def fgen(ir, depth=0, conservative=True):
+def fgen(ir, depth=0, chunking=6, conservative=True):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    return FortranCodegen(depth=depth, conservative=conservative).visit(ir)
+    return FortranCodegen(depth=depth, chunking=chunking,
+                          conservative=conservative).visit(ir)
