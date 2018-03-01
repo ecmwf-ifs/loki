@@ -2,7 +2,9 @@ import os
 import pickle
 from collections import Iterable
 
-__all__ = ['flatten', 'as_tuple', 'disk_cached']
+from ecir.helpers import assemble_continued_statement_from_list
+
+__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple', 'extract_lines']
 
 
 def flatten(l):
@@ -17,6 +19,12 @@ def flatten(l):
         else:
             newlist.append(el)
     return newlist
+
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
 
 
 def disk_cached(argname):
@@ -81,3 +89,37 @@ def as_tuple(item, type=None, length=None):
     if type and not all(isinstance(i, type) for i in t):
         raise TypeError("Items need to be of type %s" % type)
     return t
+
+
+def extract_lines(ast, source, full_lines=False):
+    """
+    Extract the marked string from source text.
+    """
+    attrib = ast.attrib if hasattr(ast, 'attrib') else ast
+    lstart = int(attrib['line_begin'])
+    lend = int(attrib['line_end'])
+    cstart = int(attrib['col_begin'])
+    cend = int(attrib['col_end'])
+
+    source = source.splitlines(keepends=True)
+
+    if full_lines:
+        return ''.join(source[lstart-1:lend])
+
+    if lstart == lend:
+        lines = [source[lstart-1][cstart:cend]]
+    else:
+        lines = source[lstart-1:lend]
+        firstline = lines[0][cstart:]
+        lastline = lines[-1][:cend]
+        lines = [firstline] + lines[1:-1] + [lastline]
+
+    # Scan for line continuations and honour inline
+    # comments in between continued lines
+    added_comment = False
+    while lines[-1].strip().endswith('&') or added_comment:
+        lend += 1
+        lines.append(source[lend-1])
+        added_comment = lines[-1].strip().startswith('!')
+
+    return ''.join(lines)

@@ -3,7 +3,7 @@ from collections import Iterable
 
 from ecir.ir import Node
 
-__all__ = ['pprint', 'Visitor', 'Transformer', 'NestedTransformer']
+__all__ = ['pprint', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
 
 class Visitor(object):
@@ -199,6 +199,48 @@ class NestedTransformer(Transformer):
             return handle._rebuild(*rebuilt, **handle.args_frozen)
 
 
+class FindNodes(Visitor):
+
+    @classmethod
+    def default_retval(cls):
+        return []
+
+    """
+    Find :class:`Node` instances.
+    :param match: Pattern to look for.
+    :param mode: Drive the search. Accepted values are: ::
+        * 'type' (default): Collect all instances of type ``match``.
+        * 'scope': Return the scope in which the object ``match`` appears.
+    """
+
+    rules = {
+        'type': lambda match, o: isinstance(o, match),
+        'scope': lambda match, o: match in flatten(o.children)
+    }
+
+    def __init__(self, match, mode='type'):
+        super(FindNodes, self).__init__()
+        self.match = match
+        self.rule = self.rules[mode]
+
+    def visit_object(self, o, ret=None):
+        return ret
+
+    def visit_tuple(self, o, ret=None):
+        for i in o:
+            ret = self.visit(i, ret=ret)
+        return ret
+
+    def visit_Node(self, o, ret=None):
+        if ret is None:
+            ret = self.default_retval()
+        if self.rule(self.match, o):
+            ret.append(o)
+        for i in o.children:
+            ret = self.visit(i, ret=ret)
+        return ret
+
+
 class PrintAST(Visitor):
 
     _depth = 0
@@ -218,11 +260,10 @@ class PrintAST(Visitor):
     def visit_Node(self, o):
         return self.indent + '<%s>' % o.__class__.__name__
 
-    def visit_list(self, o):
-        return ('\n').join([self.visit(i) for i in o])
-
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
+
+    visit_list = visit_tuple
 
     def visit_Block(self, o):
         self._depth += 2
@@ -256,7 +297,32 @@ class PrintAST(Visitor):
 
     def visit_Statement(self, o):
         expr = ' = %s' % o.expr if self.verbose else ''
-        return self.indent + '<Stmt %s%s>' % (str(o.target), expr)
+        if self.verbose and o.comment is not None:
+            self._depth += 2
+            comment = '\n%s' % self.visit(o.comment)
+            self._depth -= 2
+        else:
+            comment = ''
+        return self.indent + '<Stmt %s%s>%s' % (str(o.target), expr, comment)
+
+    def visit_Declaration(self, o):
+        variables = ' :: %s' % ', '.join(v.name for v in o.variables) if self.verbose else ''
+        comment = ''
+        pragma = ''
+
+        if self.verbose and o.comment is not None:
+            self._depth += 2
+            comment = '\n%s' % self.visit(o.comment)
+            self._depth -= 2
+        if self.verbose and o.pragma is not None:
+            self._depth += 2
+            pragma = '\n%s' % self.visit(o.pragma)
+            self._depth -= 2
+        return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
+
+    def visit_Call(self, o):
+        args = '(%s)' % (', '.join(str(a) for a in o.arguments)) if self.verbose else ''
+        return self.indent + '<Call %s%s>' % (o.name, args)
 
     def visit_Comment(self, o):
         body = '::%s::' % o._source if self.verbose else ''
@@ -266,9 +332,32 @@ class PrintAST(Visitor):
         body = ('\n%s' % self.indent).join([b._source for b in o.comments])
         return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
 
+    def visit_Pragma(self, o):
+        body = ' ::%s::' % o._source if self.verbose else ''
+        return self.indent + '<Pragma %s%s>' % (o.keyword, body)
+
     def visit_Variable(self, o):
-        indices = ('(%s)' % ','.join([str(v) for v in o.indices])) if o.indices else ''
-        return 'V<%s%s>' % (o.name, indices)
+        dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
+        pointer = ', ptr' if o.type.pointer else ''
+        return self.indent + 'Var<%s%s%s>' % (o.name, dimensions, pointer)
+
+    def visit_DerivedType(self, o):
+        variables = ''
+        comments = ''
+        pragmas = ''
+        if self.verbose:
+            self._depth += 2
+            variables = '\n%s' % self.visit(o.variables)
+            self._depth -= 2
+        if self.verbose and o.comments is not None:
+            self._depth += 2
+            comments = '\n%s' % self.visit(o.comments)
+            self._depth -= 2
+        if self.verbose and o.pragmas is not None:
+            self._depth += 2
+            pragmas = '\n%s' % self.visit(o.pragmas)
+            self._depth -= 2
+        return self.indent + '<DerivedType %s>%s%s%s' % (o.name, variables, pragmas, comments)
 
 
 def pprint(ir, verbose=False):

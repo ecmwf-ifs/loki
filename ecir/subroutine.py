@@ -1,8 +1,14 @@
 import re
-from collections import OrderedDict
+from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
+from ecir.ir import Declaration, Allocation, Import, DerivedType
+from ecir.visitors import FindNodes
+from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
+
+
+__all__ = ['Section', 'Subroutine', 'Module']
 
 class Section(object):
     """
@@ -39,7 +45,7 @@ class Section(object):
         srciter = iter(self.lines)
         return [assemble_continued_statement_from_iterator(line, srciter)[0] for line in srciter]
 
-    def replace(self, mapping):
+    def replace(self, repl, new=None):
         """
         Performs a line-by-line string-replacement from a given mapping
 
@@ -47,71 +53,70 @@ class Section(object):
         need to improve this later to unpick linebreaks in the search
         keys.
         """
-        rawlines = self.lines
-        for k, v in mapping.items():
-            rawlines = [line.replace(k, v) for line in rawlines]
-        self._source = ''.join(rawlines)
-
-class Variable(object):
-    """
-    Object representing a variable of arbitrary dimension.
-    """
-
-    def __init__(self, name, type, kind, allocatable, ast, source):
-        self.name = name
-        self.type = type
-        self.kind = kind
-        self.allocatable = allocatable
-
-        # Find and store the original declaration this variable
-        lstart = int(ast.attrib['line_begin'])
-        _, self._line = assemble_continued_statement_from_list(lstart-1, source, return_orig=False)
-
-        # If the variable has dimensions, record them
-        if self.allocatable:
-            # Allocatable dimensions are defined further down in the source
-            for line in source:
-                if 'ALLOCATE(%s(' % self.name in line:
-                    # We have the allocation line, pick out the dimensions
-                    re_dims = re.compile('ALLOCATE\(%s\((?P<dims>.*)\)\)' % self.name)
-                    match = re_dims.search(line)
-                    if match is None:
-                        print("Failed to derive dimensions for allocatable variable %s" % self.name)
-                        print("Allocation line: %s" % line)
-                        raise ValueError("Could not derive variable dimensions for %s" % self.name)
-                    self.dimensions = tuple(match.groupdict()['dims'].split(','))
-                    break
-
-        elif ast.find('dimensions'):
-            # Extract dimensions for mulit-dimensional arrays
-            # Note: Since complex expressions cannot be re-created
-            # identically (matching each character) from an AST, we
-            # now simply pull out the strings from the source.
-            re_dims = re.compile('%s\((?P<dims>.*?)(?:\)\s*,|\)\s*\n|\)\s*\!)' % self.name, re.DOTALL)
-            match = re_dims.search(self._line)
-            if match is None:
-                print("Failed to derive dimensions for variable %s" % self.name)
-                print("Declaration line: %s" % self._line)
-                raise ValueError("Could not derive variable dimensions for %s" % self.name)
-            self.dimensions = tuple(match.groupdict()['dims'].split(','))
-
+        if isinstance(repl, Mapping):
+            for old, new in repl.items():
+                self._source = self._source.replace(old, new)
         else:
-            # No dimensions? Store an empty tuple.
-            self.dimensions = ()
+            self._source = self._source.replace(repl, new)
 
-    def __repr__(self):
-        return "Variable::%s(type=%s, kind=%s, dims=%s)" % (
-            self.name, self.type, self.kind, str(self.dimensions))
+
+class Module(Section):
+    """
+    Class to handle and manipulate source modules.
+
+    :param name: Name of the module
+    :param ast: OFP parser node for this module
+    :param raw_source: Raw source string, broken into lines(!), as it
+                       appeared in the parsed source file.
+    """
+
+    def __init__(self, ast, raw_source, name=None):
+        self.name = name or ast.attrib['name']
+        self._ast = ast
+        self._raw_source = raw_source
+
+        # The actual lines in the source for this subroutine
+        self._source = extract_lines(self._ast.attrib, raw_source)
+
+        # Process module-level type specifications
+        spec_ast = self._ast.find('body/specification')
+        self._spec = generate(spec_ast, self._raw_source)
+
+        # Process 'dimension' pragmas to override deferred dimensions
+        derived_types = [d for d in self._spec if isinstance(d, DerivedType)]
+        for derived in derived_types:
+            pragmas = {p._line: p for p in derived.pragmas}
+            for v in derived.variables:
+                if v._line-1 in pragmas:
+                    pragma = pragmas[v._line-1]
+                    if pragma.keyword == 'dimension':
+                        # Found dimension override for variable
+                        dims = pragma._source.split('dimension(')[-1]
+                        dims = dims.split(')')[0].split(',')
+                        dims = [d.strip() for d in dims]
+                        # Override dimensions (hacky: not transformer-safe!)
+                        v.dimensions = dims
+
+        # TODO: Process subroutines in modules, I guess...
 
 
 class Subroutine(Section):
+    """
+    Class to handle and manipulate a single subroutine.
 
-    def __init__(self, name, ast, source, raw_source):
-        self.name = name
+    :param name: Name of the subroutine
+    :param ast: OFP parser node for this subroutine
+    :param raw_source: Raw source string, broken into lines(!), as it
+                       appeared in the parsed source file.
+    """
+
+    def __init__(self, ast, raw_source, name=None):
+        self.name = name or ast.attrib['name']
         self._ast = ast
-        self._source = source
-        # The original source string in the file, split into lines
         self._raw_source = raw_source
+
+        # The actual lines in the source for this subroutine
+        self._source = extract_lines(self._ast.attrib, raw_source)
 
         # Separate body and declaration sections
         # Note: The declaration includes the SUBROUTINE key and dummy
@@ -122,43 +127,38 @@ class Subroutine(Section):
         spec_ast = self._ast.find('body/specification')
         sstart = int(spec_ast.attrib['line_begin']) - 1
         send = int(spec_ast.attrib['line_end'])
-        self._post = Section(name='post', source=''.join(self.lines[bend:]))
-        self.declarations = Section(name='declarations', 
-                                    source=''.join(self.lines[:send]))
+        self.header = Section(name='header', source=''.join(self.lines[:sstart]))
+        self.declarations = Section(name='declarations', source=''.join(self.lines[sstart:send]))
         self.body = Section(name='body', source=''.join(self.lines[send:bend]))
+        self._post = Section(name='post', source=''.join(self.lines[bend:]))
 
-        # Create a separate IR for the statements and loops in the body
+        # Create a IRs for declarations section and the loop body
+        self._spec = generate(spec_ast, self._raw_source)
         if self._ast.find('body/associate'):
             routine_body = self._ast.find('body/associate/body')
         else:
             routine_body = self._ast.find('body')
         self._ir = generate(routine_body, self._raw_source)
 
-        # Record variable definitions as a name->variable dict
-        self._variables = OrderedDict()
-        spec = self._ast.find('body/specification')
-        decls = [d for d in spec.findall('declaration')
-                 if 'type' in d.attrib and d.attrib['type'] == 'variable']
-        for d in decls:
-            # Get type information from the declaration node
-            vtype = d.find('type').attrib['name']
-            has_kind = d.find('type').attrib['hasKind'] in ['true', 'True']
-            kind = d.find('type/kind/name').attrib['id'] if has_kind else None
-            allocatable = d.find('attribute-allocatable') is not None
-            # Create internal :class:`Variable` objects that store definitions
-            var_asts = [v for v in d.findall('variables/variable') if 'name' in v.attrib]
-            for v in var_asts:
-                vname = v.attrib['name']
-                self._variables[vname] = Variable(name=vname, type=vtype, kind=kind,
-                                                  allocatable=allocatable,
-                                                  ast=v, source=self._raw_source)
+        # Create a map of all internally used variables
+        decls = FindNodes(Declaration).visit(self._spec)
+        allocs = FindNodes(Allocation).visit(self._ir)
+        variables = flatten([d.variables for d in decls])
+        self._variables = OrderedDict([(v.name, v) for v in variables])
+
+        # Try to infer variable dimensions for ALLOCATABLEs
+        for v in self.variables:
+            if v.type.allocatable:
+                alloc = [a for a in allocs if a.variable.name == v.name]
+                if len(alloc) > 0:
+                    v.dimensions = alloc[0].variable.dimensions
 
     @property
     def source(self):
         """
         The raw source code contained in this section.
         """
-        content = [self.declarations, self.body, self._post]
+        content = [self.header, self.declarations, self.body, self._post]
         return ''.join(s.source for s in content)        
 
     @property
@@ -175,3 +175,10 @@ class Subroutine(Section):
         List of all declared variables
         """
         return list(self._variables.values())
+
+    @property
+    def imports(self):
+        """
+        List of all module imports via USE statements
+        """
+        return [i for i in self._spec if isinstance(i, Import)]
