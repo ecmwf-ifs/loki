@@ -94,7 +94,7 @@ class Dimension(object):
             help='Path to auto-generate and interface file')
 @cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-@cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
+@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Define the target dimension to strip from kernel and caller
@@ -269,7 +269,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
                          })
     # And finally we have no shame left... :(
     routine.body.replace({'Z_TMPK(1,JK)': 'Z_TMPK(JK)',
-                          'CALL CUADJTQ': 'CALL CUADJTQ_ONECOL',
+                          'CALL CUADJTQ': 'CALL CUADJTQ_SCA',
                           '& (KIDIA,    KFDIA,   KLON,     KLEV,    IK,&':
                           '& (KLEV,    IK,&',
                           'CALL CUADJTQ(YDEPHLI,KIDIA,KFDIA,KLON,':
@@ -359,7 +359,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         new_decl = Declaration(variables=[new_var])
         driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
 
-        if mode == 'onecol':
+        if mode == 'sca':
             # Add the include statement for the new header
             new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
             driver_routine.declarations._source += new_include
