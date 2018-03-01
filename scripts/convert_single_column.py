@@ -95,8 +95,7 @@ class Dimension(object):
 @cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
 @cli.option('--mode', '-m', type=cli.Choice(['onecol', 'claw']), default='onecol')
-@cli.option('--strip-signature/--no-strip-signature', default=True)
-def convert(source, source_out, driver, driver_out, interface, typedef, mode, strip_signature):
+def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Define the target dimension to strip from kernel and caller
     target = Dimension(name='KLON', aliases=['NPROMA'],
@@ -186,8 +185,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
     routine.body.replace(derived_arg_repl)
 
     # Strip the target dimension from arguments
-    if strip_signature:
-        arguments = [a for a in arguments if a.name not in target.variables]
+    arguments = [a for a in arguments if a.name not in target.variables]
 
     # Remove the target dimensions from our input arguments
     for a in arguments:
@@ -198,25 +196,24 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode, st
         generate_interface(filename=interface, name=new_routine_name,
                            arguments=arguments, imports=routine.imports)
 
-    if strip_signature:
-        # Generate new signature and replace the old one in file
-        re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
-        signature = re_sig.findall(routine._source)[0]
-        new_signature = generate_signature(new_routine_name, arguments)
-        routine.header.replace(signature, new_signature)
+    # Generate new signature and replace the old one in file
+    re_sig = re.compile('SUBROUTINE\s+%s.*?\(.*?\)' % routine.name, re.DOTALL)
+    signature = re_sig.findall(routine._source)[0]
+    new_signature = generate_signature(new_routine_name, arguments)
+    routine.header.replace(signature, new_signature)
 
-        routine._post.replace('END SUBROUTINE %s' % routine.name,
-                              'END SUBROUTINE %s' % new_routine_name)
+    routine._post.replace('END SUBROUTINE %s' % routine.name,
+                          'END SUBROUTINE %s' % new_routine_name)
 
-        # Strip target sizes from declarations
-        for v in routine.arguments:
-            if v.name in target.variables:
-                routine.declarations.replace(v._source, '')
+    # Strip target sizes from declarations
+    for v in routine.arguments:
+        if v.name in target.variables:
+            routine.declarations.replace(v._source, '')
 
-        # Strip target loop variable
-        line = routine._variables[target.variable]._source
-        new_line = line.replace('%s, ' % target.variable, '')
-        routine.declarations.replace(line, new_line)
+    # Strip target loop variable
+    line = routine._variables[target.variable]._source
+    new_line = line.replace('%s, ' % target.variable, '')
+    routine.declarations.replace(line, new_line)
 
     ####  Index replacements  ####
 
