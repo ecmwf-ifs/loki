@@ -284,7 +284,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         # Prepend CLAW directives to subroutine body
         scalars = [v.name.lower() for v in routine.arguments
                    if len(v.dimensions) == 1]
-        directives = '!$claw define dimension jl(1:klon) &\n'
+        directives = '!$claw define dimension jl(1:nproma) &\n'
         directives += '!$claw parallelize &\n'
         directives += '!$claw scalar(%s)\n\n\n' % ', '.join(scalars)
         routine.body._source = directives + routine.body._source
