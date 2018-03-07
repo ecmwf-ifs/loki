@@ -295,7 +295,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         routine._post._source += 'END MODULE'
 
     print("Writing to %s" % source_out)
-    f_source.write(source_out)
+    f_source.write(filename=source_out)
 
     # Now let's process the driver/caller side
     if driver is not None:
@@ -369,7 +369,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
             driver_routine.declarations._source = new_import + driver_routine.declarations._source
             
         print("Writing to %s" % driver_out)
-        f_driver.write(driver_out)
+        f_driver.write(filename=driver_out)
 
 if __name__ == "__main__":
     convert()

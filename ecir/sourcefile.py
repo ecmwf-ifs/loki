@@ -54,15 +54,17 @@ class FortranSourceFile(object):
         content = self.modules + self.subroutines
         return '\n\n'.join(s.source for s in content)
 
-    def write(self, filename=None):
+    def write(self, source=None, filename=None):
         """
         Write content to file
 
-        :param filename: Optional filename. If not provided, `self.name` is used
+        :param source: Optional source string; if not provided `self.source` is used
+        :param filename: Optional filename; if not provided, `self.name` is used
         """
         filename = filename or self.name
+        source = self.source if source is None else source
         with open(filename, 'w') as f:
-            f.write(self.source)
+            f.write(source)
 
     @property
     def lines(self):
