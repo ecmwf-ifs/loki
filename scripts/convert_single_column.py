@@ -2,6 +2,7 @@ import click as cli
 import re
 from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
+import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
@@ -94,8 +95,20 @@ class Dimension(object):
             help='Path to auto-generate and interface file')
 @cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw']), default='sca')
+@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
+
+    if mode == 'idem':
+        # Do-nothing debug mode: parse-unparse source and exit
+        f_source = FortranSourceFile(source)
+        routine = f_source.subroutines[0]
+
+        # from IPython import embed; embed()
+
+        out_file = '%s%s' % (source.split('.')[-2], '.idem.F90')
+        print("Writing to %s" % out_file)
+        f_source.write(source=fgen(routine, conservative=False), filename=out_file)
+        sys.exit(0)
 
     # Define the target dimension to strip from kernel and caller
     target = Dimension(name='KLON', aliases=['NPROMA'],

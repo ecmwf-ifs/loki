@@ -43,6 +43,9 @@ class FortranCodegen(Visitor):
 
     visit_list = visit_tuple
 
+    def visit_Subroutine(self, o):
+        return self.visit(o.ir)
+
     def visit_Comment(self, o):
         return self.indent + o._source
 
