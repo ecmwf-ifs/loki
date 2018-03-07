@@ -133,16 +133,11 @@ class Subroutine(Section):
         self._post = Section(name='post', source=''.join(self.lines[bend:]))
 
         # Create a IRs for declarations section and the loop body
-        self._spec = generate(spec_ast, self._raw_source)
-        if self._ast.find('body/associate'):
-            routine_body = self._ast.find('body/associate/body')
-        else:
-            routine_body = self._ast.find('body')
-        self._ir = generate(routine_body, self._raw_source)
+        self._ir = generate(self._ast.find('body'), self._raw_source)
 
         # Create a map of all internally used variables
-        decls = FindNodes(Declaration).visit(self._spec)
-        allocs = FindNodes(Allocation).visit(self._ir)
+        decls = FindNodes(Declaration).visit(self.ir)
+        allocs = FindNodes(Allocation).visit(self.ir)
         variables = flatten([d.variables for d in decls])
         self._variables = OrderedDict([(v.name, v) for v in variables])
 
@@ -160,6 +155,13 @@ class Subroutine(Section):
         """
         content = [self.header, self.declarations, self.body, self._post]
         return ''.join(s.source for s in content)        
+
+    @property
+    def ir(self):
+        """
+        Intermediate representation (AST) of the body in this subroutine
+        """
+        return self._ir
 
     @property
     def arguments(self):
@@ -181,4 +183,4 @@ class Subroutine(Section):
         """
         List of all module imports via USE statements
         """
-        return [i for i in self._spec if isinstance(i, Import)]
+        return FindNodes(Import).visit(self.ir)

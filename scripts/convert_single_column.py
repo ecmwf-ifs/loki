@@ -168,7 +168,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Now we replace the declarations for the previously derived arguments
     # Note: Re-generation from AST would probably be cleaner...
-    declarations = FindNodes(Declaration).visit(routine._spec)
+    declarations = FindNodes(Declaration).visit(routine.ir)
     for derived_arg, new_args in derived_arg_map.items():
         for decl in declarations:
             if derived_arg in decl.variables:

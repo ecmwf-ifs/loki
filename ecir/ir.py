@@ -147,6 +147,15 @@ class Declaration(Node):
         self.pragma = pragma
 
 
+class Import(Node):
+
+    def __init__(self, module, symbols, source=None):
+        self._source = source
+
+        self.module = module
+        self.symbols = symbols
+
+
 class Allocation(Node):
     """
     Internal representation of a variable allocation
@@ -277,12 +286,3 @@ class Expression(object):
 
     def __repr__(self):
         return '%s' % (self.expr)
-
-
-class Import(object):
-
-    def __init__(self, module, symbols, source=None):
-        self._source = source
-
-        self.module = module
-        self.symbols = symbols
