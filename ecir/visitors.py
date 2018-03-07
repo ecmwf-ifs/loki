@@ -305,6 +305,12 @@ class PrintAST(Visitor):
             comment = ''
         return self.indent + '<Stmt %s%s>%s' % (str(o.target), expr, comment)
 
+    def visit_Scope(self, o):
+        self._depth += 2
+        body = self.visit(o.body)
+        self._depth -= 2
+        return self.indent + "<Scope>\n%s" % body
+
     def visit_Declaration(self, o):
         variables = ' :: %s' % ', '.join(v.name for v in o.variables) if self.verbose else ''
         comment = ''

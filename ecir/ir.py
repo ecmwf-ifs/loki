@@ -135,6 +135,26 @@ class Statement(Node):
         self.comment = comment
 
 
+class Scope(Node):
+    """
+    Internal representation of a code region with specific properties,
+    eg. variable associations.
+    """
+
+    _traversable = ['body']
+
+    def __init__(self, body=None, associations=None, source=None, line=None):
+        super(Scope, self).__init__(source=source, line=line)
+
+        self.body = body
+        self.associations = associations
+
+    @property
+    def children(self):
+        # Note: Needs to be one tuple per `traversable`
+        return tuple([self.body])
+
+
 class Declaration(Node):
     """
     Internal representation of a variable declaration

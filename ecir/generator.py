@@ -3,12 +3,12 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import deque, Iterable
+from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Variable, Type, DerivedType,
-                     Expression, Index, Import)
+                     Expression, Index, Import, Scope)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -181,6 +181,19 @@ class IRGenerator(Visitor):
             return None  # IMPLICIT marker, skip
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+
+    def visit_associate(self, o, source=None, line=None):
+        associations = OrderedDict()
+        for a in o.findall('header/keyword-arguments/keyword-argument'):
+            var_name = '%'.join(i.attrib['id'] for i in a.findall('name/part-ref'))
+            assoc_name = a.find('association').attrib['associate-name']
+            associations[var_name] = Variable(name=assoc_name)
+        body = self.visit(o.find('body'))
+        return Scope(body=body, associations=associations)
+
+    def visit_keyword_argument(self, o, source=None, line=None):
+        """Extract a single name => association mapping."""
+        return (variable, assoc)
 
     def visit_allocate(self, o, source=None, line=None):
         variable = self.visit(o.find('expressions/expression/name'))

@@ -23,9 +23,10 @@ class FortranCodegen(Visitor):
     def indent(self):
         return '  ' * self._depth
 
-    def segment(self, arguments):
+    def segment(self, arguments, chunking=None):
+        chunking = chunking or self.chunking
         delim = ', &\n%s & ' % self.indent
-        args = list(chunks([self.visit(a) for a in arguments], self.chunking))
+        args = list(chunks(arguments, chunking))
         return '%s & ' % self.indent + delim.join(', '.join(c) for c in args)
 
     def visit(self, o):
@@ -71,10 +72,16 @@ class FortranCodegen(Visitor):
         header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
         return pragma + '\n%s' % self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
+    def visit_Scope(self, o):
+        associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
+        associates = self.segment(associates, chunking=3)
+        body = self.visit(o.body)
+        return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
+
     def visit_Call(self, o):
         if len(o.arguments) > 6:
             self._depth += 2
-            arguments = self.segment(o.arguments)
+            arguments = self.segment(self.visit(a) for a in o.arguments)
             self._depth -= 2
             signature = 'CALL %s( &\n%s )' % (o.name, arguments)
         else:
