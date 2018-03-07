@@ -349,7 +349,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
                                    if k in target.iteration)
                 new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
                 new_pragma = Pragma(keyword='parallelize',
-                                    source='!$claw parallelize forward') if mode =='claw' else None
+                                    source='!$claw parallelize forward create update') if mode =='claw' else None
                 new_loop = Loop(body=[new_call], variable=target.variable,
                                 bounds=new_bounds, pragma=new_pragma)
                 driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
