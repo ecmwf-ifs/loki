@@ -240,6 +240,10 @@ class SequenceFinder(Visitor):
         super(SequenceFinder, self).__init__()
         self.node_type = node_type
 
+    @classmethod
+    def default_retval(cls):
+        return []
+
     def visit_tuple(self, o):
         groups = []
         for c in o:
@@ -266,6 +270,10 @@ class PatternFinder(Visitor):
     def __init__(self, pattern):
         super(PatternFinder, self).__init__()
         self.pattern = pattern
+
+    @classmethod
+    def default_retval(cls):
+        return []
 
     def match_indices(self, pattern, sequence):
         """ Return indices of matched patterns in sequence. """
