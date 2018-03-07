@@ -67,10 +67,15 @@ class FortranCodegen(Visitor):
     def visit_Loop(self, o):
         pragma = self.visit(o.pragma) if o.pragma else ''
         self._depth += 1
-        body = self.visit(o.children)
+        body = self.visit(o.body)
         self._depth -= 1
         header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
         return pragma + '\n%s' % self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+
+    def visit_Statement(self, o):
+        target = self.visit(o.target)
+        expr = self.visit(o.expr)
+        return self.indent + '%s = %s' % (target, expr)
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
@@ -87,6 +92,10 @@ class FortranCodegen(Visitor):
         else:
             signature = 'CALL %s(%s)' % (o.name, ', '.join(o.arguments))
         return self.indent + signature
+
+    def visit_Expression(self, o):
+        # TODO: Expressions are currently purely treated as strings
+        return str(o.expr)
 
     def visit_Variable(self, o):
         dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
