@@ -45,7 +45,10 @@ class FortranCodegen(Visitor):
     visit_list = visit_tuple
 
     def visit_Subroutine(self, o):
-        return self.visit(o.ir)
+        arguments = self.segment([a.name for a in o.arguments])
+        body = self.visit(o.ir)
+        header = 'SUBROUTINE %s &\n & (%s)\n' % (o.name, arguments)
+        return header + body + '\nEND SUBROUTINE %s\n' % o.name
 
     def visit_Comment(self, o):
         return self.indent + o._source
@@ -116,6 +119,7 @@ class FortranCodegen(Visitor):
                                  ', ALLOCATE' if o.allocatable else '',
                                  ', POINTER' if o.pointer else '',
                                  ', OPTIONAL' if o.optional else '')
+
 
 def fgen(ir, depth=0, chunking=6, conservative=True):
     """
