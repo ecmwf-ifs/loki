@@ -9,7 +9,9 @@ class FortranCodegen(Visitor):
     Tree visitor to generate standardized Fortran code from IR.
     """
 
-    def __init__(self, depth=0, chunking=6, conservative=True):
+    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
+
+    def __init__(self, depth=0, chunking=4, conservative=True):
         super(FortranCodegen, self).__init__()
         self.conservative = conservative
         self.chunking = chunking
@@ -39,6 +41,9 @@ class FortranCodegen(Visitor):
     def visit_Node(self, o):
         return self.indent + '! <%s>' % o.__class__.__name__
 
+    def visit_Intrinsic(self, o):
+        return o._source
+
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
 
@@ -62,7 +67,8 @@ class FortranCodegen(Visitor):
 
     def visit_Declaration(self, o):
         type = self.visit(o.variables[0].type)
-        return self.indent + '%s :: %s' % (type, ', '.join(str(v) for v in o.variables))
+        variables = self.segment([str(v) for v in o.variables])
+        return self.indent + '%s :: %s' % (type, variables)
 
     def visit_Import(self, o):
         return 'USE %s, ONLY: %s' % (o.module, self.segment(o.symbols))
@@ -97,7 +103,7 @@ class FortranCodegen(Visitor):
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
     def visit_Call(self, o):
-        if len(o.arguments) > 6:
+        if len(o.arguments) > self.chunking:
             self._depth += 2
             signature = self.segment(self.visit(a) for a in o.arguments)
             self._depth -= 2
@@ -114,14 +120,15 @@ class FortranCodegen(Visitor):
         return '%s%s' % (o.name, dims)
 
     def visit_Type(self, o):
-        return '%s%s%s%s%s%s' % (o.name, '(KIND=%s)' % o.kind if o.kind else '',
+        tname = o.name if o.name in self._base_types else 'TYPE(%s)' % o.name
+        return '%s%s%s%s%s%s' % (tname, '(KIND=%s)' % o.kind if o.kind else '',
                                  ', INTENT(%s)' % o.intent.upper() if o.intent else '',
                                  ', ALLOCATE' if o.allocatable else '',
                                  ', POINTER' if o.pointer else '',
                                  ', OPTIONAL' if o.optional else '')
 
 
-def fgen(ir, depth=0, chunking=6, conservative=True):
+def fgen(ir, depth=0, chunking=4, conservative=True):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """

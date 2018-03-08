@@ -50,6 +50,13 @@ class Node(object):
         return ()
 
 
+class Intrinsic(Node):
+    """
+    Catch-all generic node for corner-cases.
+    """
+    pass
+
+
 class Comment(Node):
     """
     Internal representation of a single comment line.
@@ -168,9 +175,11 @@ class Declaration(Node):
 
 
 class Import(Node):
-
-    def __init__(self, module, symbols, source=None):
-        self._source = source
+    """
+    Internal representation of a module import.
+    """
+    def __init__(self, module, symbols, source=None, line=None):
+        super(Import, self).__init__(source=source, line=line)
 
         self.module = module
         self.symbols = symbols

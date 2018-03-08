@@ -8,7 +8,7 @@ from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Variable, Type, DerivedType,
-                     Expression, Index, Import, Scope)
+                     Expression, Index, Import, Scope, Intrinsic)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -120,7 +120,8 @@ class IRGenerator(Visitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            return None  # SAVE statement, skip
+            # SAVE statement
+            return Intrinsic(source=source, line=line)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type:
@@ -185,7 +186,8 @@ class IRGenerator(Visitor):
                                               dimensions=dimensions, source=source))
                 return Declaration(variables=variables, source=source, line=line)
         elif o.attrib['type'] == 'implicit':
-            return None  # IMPLICIT marker, skip
+            # IMPLICIT marker
+            return Intrinsic(source=source, line=line)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
@@ -238,11 +240,19 @@ class IRGenerator(Visitor):
             return Index(name=':')
 
     def visit_operation(self, o, source=None, line=None):
+        # HACK around OFP bug (see tools.py:extract_lines):
+        # Strip the additional ')' from the source.
+        if len(source) > 0 and source[-1] == ')':
+            source = source[:-1]
         return Expression(source=source)
 
     def visit_use(self, o, source=None, line=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
+
+    def visit_directive(self, o, source=None, line=None):
+        # Straight pipe-through node for header includes (#include ...)
+        return Intrinsic(source=source, line=line)
 
     def visit_call(self, o, source=None, line=None):
         # Need to re-think this: the 'name' node already creates
