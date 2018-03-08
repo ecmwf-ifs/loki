@@ -65,7 +65,7 @@ class FortranCodegen(Visitor):
         return self.indent + '%s :: %s' % (type, ', '.join(str(v) for v in o.variables))
 
     def visit_Import(self, o):
-        return 'USE %s, ONLY: %s' % (o.module, ', '.join(o.symbols))
+        return 'USE %s, ONLY: %s' % (o.module, self.segment(o.symbols))
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
