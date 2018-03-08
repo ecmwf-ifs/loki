@@ -26,8 +26,8 @@ class FortranCodegen(Visitor):
     def segment(self, arguments, chunking=None):
         chunking = chunking or self.chunking
         delim = ', &\n%s & ' % self.indent
-        args = list(chunks(arguments, chunking))
-        return '%s & ' % self.indent + delim.join(', '.join(c) for c in args)
+        args = list(chunks(list(arguments), chunking))
+        return delim.join(', '.join(c) for c in args)
 
     def visit(self, o):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
@@ -72,6 +72,16 @@ class FortranCodegen(Visitor):
         header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
+    def visit_Conditional(self, o):
+        self._depth += 1
+        bodies = [self.visit(b) for b in o.bodies]
+        else_body = self.visit(o.else_body)
+        self._depth -= 1
+        headers = ['IF (%s) THEN' % str(c) for c in  o.conditions]
+        main_branch = ('\n%sELSE'%self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+        else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
+        return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+
     def visit_Statement(self, o):
         target = self.visit(o.target)
         expr = self.visit(o.expr)
@@ -86,12 +96,11 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if len(o.arguments) > 6:
             self._depth += 2
-            arguments = self.segment(self.visit(a) for a in o.arguments)
+            signature = self.segment(self.visit(a) for a in o.arguments)
             self._depth -= 2
-            signature = 'CALL %s( &\n%s )' % (o.name, arguments)
         else:
-            signature = 'CALL %s(%s)' % (o.name, ', '.join(o.arguments))
-        return self.indent + signature
+            signature = ', '.join(str(a) for a in o.arguments)
+        return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
