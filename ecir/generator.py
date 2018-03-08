@@ -72,6 +72,13 @@ class IRGenerator(Visitor):
 
     def visit_if(self, o, source=None, line=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
+        # HACK around OFP bug (see tools.py:extract_lines):
+        # We need t ostrip the additional closing bracked from the
+        # expression source.
+        for c in conditions:
+            if isinstance(c, Expression):
+                c.expr = c.expr[:-1]
+
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
