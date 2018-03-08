@@ -59,8 +59,8 @@ class IRGenerator(Visitor):
     def visit_loop(self, o, source=None, line=None):
         variable = o.find('header/index-variable').attrib['name']
         try:
-            lower = self.visit(o.find('header/index-variable/lower-bound'))[0]
-            upper = self.visit(o.find('header/index-variable/upper-bound'))[0]
+            lower = self.visit(o.find('header/index-variable/lower-bound'))
+            upper = self.visit(o.find('header/index-variable/upper-bound'))
         except:
             lower = None
             upper = None
@@ -185,9 +185,9 @@ class IRGenerator(Visitor):
     def visit_associate(self, o, source=None, line=None):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
-            var_name = '%'.join(i.attrib['id'] for i in a.findall('name/part-ref'))
+            var = self.visit(a.find('name'))
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var_name] = Variable(name=assoc_name)
+            associations[var.name] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
         return Scope(body=body, associations=associations)
 
@@ -201,7 +201,9 @@ class IRGenerator(Visitor):
 
     def visit_name(self, o, source=None, line=None):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
-        return Variable(name=o.attrib['id'], dimensions=indices)
+        vrefs = o.findall('part-ref')
+        vname = '%'.join(i.attrib['id'] for i in vrefs)
+        return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
         return o.attrib['value']

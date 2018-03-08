@@ -65,12 +65,12 @@ class FortranCodegen(Visitor):
         return 'USE %s, ONLY: %s' % (o.module, ', '.join(o.symbols))
 
     def visit_Loop(self, o):
-        pragma = self.visit(o.pragma) if o.pragma else ''
+        pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
         header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
-        return pragma + '\n%s' % self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+        return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
     def visit_Statement(self, o):
         target = self.visit(o.target)
