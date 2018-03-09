@@ -128,7 +128,7 @@ class FortranCodegen(Visitor):
                                  ', OPTIONAL' if o.optional else '')
 
 
-def fgen(ir, depth=0, chunking=4, conservative=True):
+def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """

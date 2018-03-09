@@ -245,8 +245,9 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         new_dimensions.remove(target.name)
 
         # Strip target dimension from declarations and body (for ALLOCATEs)
-        old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
-        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d)for d in new_dimensions)
+        old_dims = '(%s)' % ','.join(str(d).replace(' ', '') for d in v.dimensions)
+        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d).replace(' ', '')
+                                                                  for d in new_dimensions)
         routine.declarations.replace(old_dims, new_dims)
         routine.body.replace(old_dims, new_dims)
 

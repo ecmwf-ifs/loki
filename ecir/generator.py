@@ -72,13 +72,6 @@ class IRGenerator(Visitor):
 
     def visit_if(self, o, source=None, line=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
-        # HACK around OFP bug (see tools.py:extract_lines):
-        # We need t ostrip the additional closing bracked from the
-        # expression source.
-        for c in conditions:
-            if isinstance(c, Expression):
-                c.expr = c.expr[:-1]
-
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
@@ -208,6 +201,23 @@ class IRGenerator(Visitor):
         variable = self.visit(o.find('expressions/expression/name'))
         return Allocation(variable=variable, source=source, line=line)
 
+    def visit_use(self, o, source=None, line=None):
+        symbols = [n.attrib['id'] for n in o.findall('only/name')]
+        return Import(module=o.attrib['name'], symbols=symbols, source=source)
+
+    def visit_directive(self, o, source=None, line=None):
+        # Straight pipe-through node for header includes (#include ...)
+        return Intrinsic(source=source, line=line)
+
+    def visit_call(self, o, source=None, line=None):
+        # Need to re-think this: the 'name' node already creates
+        # a 'Variable', which in this case is wrong...
+        name = o.find('name').attrib['id']
+        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
+        return Call(name=name, arguments=args, source=source, line=line)
+
+    # Expression parsing below; maye move to its own parser..?
+
     def visit_name(self, o, source=None, line=None):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         vrefs = o.findall('part-ref')
@@ -215,10 +225,7 @@ class IRGenerator(Visitor):
         return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
-        return o.attrib['value']
-
-    def visit_value(self, o, source=None, line=None):
-        return Expression(source=source)
+        return Expression(expr=o.attrib['value'])
 
     def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
@@ -240,26 +247,15 @@ class IRGenerator(Visitor):
             return Index(name=':')
 
     def visit_operation(self, o, source=None, line=None):
-        # HACK around OFP bug (see tools.py:extract_lines):
-        # Strip the additional ')' from the source.
-        if len(source) > 0 and source[-1] == ')':
-            source = source[:-1]
-        return Expression(source=source)
+        exprs = [self.visit(c) for c in o.getchildren()]
+        exprs = [e for e in exprs if e is not None]
+        # Concatenate subexpression strings
+        exprs = [e.expr if isinstance(e, Expression) else str(e) for e in exprs]
+        parenthesized = o.find('parenthesized_expr') is not None
+        return Expression(expr='(%s)' % ''.join(exprs) if parenthesized else ''.join(exprs))
 
-    def visit_use(self, o, source=None, line=None):
-        symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return Import(module=o.attrib['name'], symbols=symbols, source=source)
-
-    def visit_directive(self, o, source=None, line=None):
-        # Straight pipe-through node for header includes (#include ...)
-        return Intrinsic(source=source, line=line)
-
-    def visit_call(self, o, source=None, line=None):
-        # Need to re-think this: the 'name' node already creates
-        # a 'Variable', which in this case is wrong...
-        name = o.find('name').attrib['id']
-        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        return Call(name=name, arguments=args, source=source, line=line)
+    def visit_operator(self, o, source=None, line=None):
+        return o.attrib['operator']
 
 
 class SequenceFinder(Visitor):

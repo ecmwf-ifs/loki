@@ -207,10 +207,20 @@ class Call(Node):
         self.pragma = pragma
 
 ############################################################
-## Utility classes that are not (yet) part of the hierachy
+## Expression and variables hierachy
 ############################################################
 
-class Variable(object):
+
+class Expression(object):
+
+    def __init__(self, expr):
+        self.expr = expr
+
+    def __repr__(self):
+        return self.expr
+
+
+class Variable(Expression):
 
     def __init__(self, name, type=None, dimensions=None, source=None, line=None):
         self._source = source
@@ -219,6 +229,10 @@ class Variable(object):
         self.name = name
         self.type = type
         self.dimensions = dimensions or ()
+
+    @property
+    def expr(self):
+        return self.__repr__()
 
     def __repr__(self):
         idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
@@ -239,6 +253,31 @@ class Variable(object):
         else:
             self == other
 
+
+class Index(Expression):
+
+    def __init__(self, name):
+        self.name = name
+
+    @property
+    def expr(self):
+        return self.__repr__()
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.name == other
+        elif isinstance(other, Index):
+            return self.name == other.name
+        else:
+            self == other
+
+    def __repr__(self):
+        return '%s' % self.name
+
+############################################################
+####  Type hiearchy
+############################################################
 
 class Type(object):
     """
@@ -288,30 +327,3 @@ class DerivedType(object):
         self.variables = variables
         self.comments = comments
         self.pragmas = pragmas
-
-
-class Index(object):
-
-    def __init__(self, name):
-        self.name = name
-
-    def __eq__(self, other):
-        # Allow direct comparisong to string and other Index objects
-        if isinstance(other, str):
-            return self.name == other
-        elif isinstance(other, Index):
-            return self.name == other.name
-        else:
-            self == other
-
-    def __repr__(self):
-        return '%s' % self.name
-
-
-class Expression(object):
-
-    def __init__(self, source):
-        self.expr = source
-
-    def __repr__(self):
-        return '%s' % (self.expr)

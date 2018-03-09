@@ -108,11 +108,6 @@ def extract_lines(ast, source, full_lines=False):
 
     if lstart == lend:
         lines = [source[lstart-1][cstart:cend]]
-        # OFP seems to ignore closing brackets when counting up 'cend'
-        while cend < len(source[lstart-1]) and source[lstart-1][cend] == ')':
-            lines[-1] += source[lstart-1][cend]
-            cend += 1
-        # print("LINES (%s-%s)::%s::" % (cstart, cend, lines))
     else:
         lines = source[lstart-1:lend]
         firstline = lines[0][cstart:]
