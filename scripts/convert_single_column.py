@@ -100,12 +100,12 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     if mode == 'idem':
         # Do-nothing debug mode: parse-unparse source and exit
-        f_source = FortranSourceFile(source)
+        f_source = FortranSourceFile(source, preprocess=True)
         routine = f_source.subroutines[0]
 
         # from IPython import embed; embed()
 
-        out_file = '%s%s' % (source.split('.')[-2], '.idem.F90')
+        out_file = '%s.idem.F90' % f_source.basename
         print("Writing to %s" % out_file)
         f_source.write(source=fgen(routine, conservative=False), filename=out_file)
         sys.exit(0)
@@ -125,7 +125,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
                 derived_types[derived.name.upper()] = derived
 
     # Read the primary source routine
-    f_source = FortranSourceFile(source)
+    f_source = FortranSourceFile(source, preprocess=False)
     routine = f_source.subroutines[0]
     new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
@@ -313,7 +313,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Now let's process the driver/caller side
     if driver is not None:
-        f_driver = FortranSourceFile(driver)
+        f_driver = FortranSourceFile(driver, preprocess=False)
         driver_routine = f_driver.subroutines[0]
 
         # Process individual calls to our target routine
