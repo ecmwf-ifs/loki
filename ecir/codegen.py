@@ -1,6 +1,8 @@
 from ecir.visitors import Visitor
 from ecir.tools import chunks
 
+from textwrap import wrap
+
 __all__ = ['fgen', 'FortranCodegen']
 
 
@@ -94,7 +96,9 @@ class FortranCodegen(Visitor):
     def visit_Statement(self, o):
         target = self.visit(o.target)
         expr = self.visit(o.expr)
-        return self.indent + '%s = %s' % (target, expr)
+        stmt = self.indent + '%s = %s' % (target, expr)
+        wrapped = wrap(stmt, width=90, break_long_words=False)
+        return (' &\n%s   & ' % self.indent).join(wrapped)
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]

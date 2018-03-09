@@ -225,7 +225,13 @@ class IRGenerator(Visitor):
         return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
-        return Expression(expr=o.attrib['value'])
+        expr = o.attrib['value']
+        # Override Fortran BOOL keywords
+        if expr == 'false':
+            expr = '.FALSE.'
+        if expr == 'true':
+            expr = '.TRUE.'
+        return Expression(expr=expr)
 
     def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
@@ -252,7 +258,7 @@ class IRGenerator(Visitor):
         # Concatenate subexpression strings
         exprs = [e.expr if isinstance(e, Expression) else str(e) for e in exprs]
         parenthesized = o.find('parenthesized_expr') is not None
-        return Expression(expr='(%s)' % ''.join(exprs) if parenthesized else ''.join(exprs))
+        return Expression(expr='(%s)' % ' '.join(exprs) if parenthesized else ' '.join(exprs))
 
     def visit_operator(self, o, source=None, line=None):
         return o.attrib['operator']
