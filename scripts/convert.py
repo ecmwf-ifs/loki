@@ -1,4 +1,4 @@
-import click as cli
+import click
 import re
 from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
@@ -82,38 +82,87 @@ class Dimension(object):
         return (self.name, self.variable) + self.iteration
 
 
-@cli.command()
-@cli.option('--source', '-s', type=cli.Path(),
-            help='Source file to convert.')
-@cli.option('--source-out', '-so', type=cli.Path(),
-            help='Path for generated source output.')
-@cli.option('--driver', '-d', type=cli.Path(), default=None,
-            help='Driver file to convert.')
-@cli.option('--driver-out', '-do', type=cli.Path(), default=None,
-            help='Path for generated driver output.')
-@cli.option('--interface', '-intfb', type=cli.Path(), default=None,
-            help='Path to auto-generate and interface file')
-@cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
-            help='Path for additional source file(s) containing type definitions')
-@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw', 'idem']), default='sca')
-def convert(source, source_out, driver, driver_out, interface, typedef, mode):
+# Define the target dimension to strip from kernel and caller
+target = Dimension(name='KLON', aliases=['NPROMA'],
+                   variable='JL', iteration=('KIDIA', 'KFDIA'))
+target_routine = 'CLOUDSC'
 
-    if mode == 'idem':
-        # Do-nothing debug mode: parse-unparse source and exit
-        f_source = FortranSourceFile(source, preprocess=True)
-        routine = f_source.subroutines[0]
 
-        # from IPython import embed; embed()
+def process_driver(driver, driver_out, routine, derived_arg_var, mode):
+    f_driver = FortranSourceFile(driver, preprocess=False)
+    driver_routine = f_driver.subroutines[0]
 
-        out_file = '%s.idem.F90' % f_source.basename
-        print("Writing to %s" % out_file)
-        f_source.write(source=fgen(routine, conservative=False), filename=out_file)
-        sys.exit(0)
+    # Process individual calls to our target routine
+    for call in FindNodes(Call).visit(driver_routine._ir):
+        if call.name == target_routine:
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
 
-    # Define the target dimension to strip from kernel and caller
-    target = Dimension(name='KLON', aliases=['NPROMA'],
-                       variable='JL', iteration=('KIDIA', 'KFDIA'))
-    target_routine = 'CLOUDSC'
+            new_args = []
+            for d_arg, k_arg in zip(call.arguments, routine.arguments):
+                if k_arg.name in target.variables:
+                    continue
+                elif k_arg in derived_arg_var:
+                    # Found derived-type argument, unroll according to mapping
+                    for arg_var in derived_arg_var[k_arg]:
+                        new_dims = tuple(target.variable if d == target.name else ':'
+                                         for d in arg_var.dimensions)
+                        new_args.append(Variable(name='%s%%%s' % (d_arg, arg_var.name),
+                                                 type=d_arg.type, dimensions=new_dims))
+                elif len(d_arg.dimensions) == 0:
+                    # Driver-side relies on implicit dimensions, unroll using ':'
+                    new_dims = tuple(target.variable if d == target.name else ':'
+                                     for d in k_arg.dimensions)
+                    new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                             dimensions=new_dims))
+                elif len(d_arg.dimensions) == len(k_arg.dimensions):
+                    # Driver-side already has dimensions, just replace target
+                    new_dims = tuple(target.variable if d == target.name else d
+                                     for d in k_arg.dimensions)
+                    new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                             dimensions=new_dims))
+                elif len(d_arg.dimensions) > len(k_arg.dimensions):
+                    # Driver-side has additional outer dimensions (eg. for blocking)
+                    d_var = driver_routine._variables[d_arg.name]
+                    new_dims = tuple(target.variable if d_v in target.aliases else d_c
+                                     for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
+                    new_args.append(Variable(name=d_arg.name, type=d_arg.type,
+                                             dimensions=new_dims))
+                else:
+                    # Something has gone terribly wrong if we reach this
+                    raise ValueError('Unknown driver-side call argument')
+
+            # Create new call and wrap it in a loop. The arguments used for
+            # the bound variables in the kernel code are used as bounds here.
+            new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
+                               if k in target.iteration)
+            new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
+            new_pragma = Pragma(keyword='parallelize',
+                                source='!$claw parallelize forward create update') if mode =='claw' else None
+            new_loop = Loop(body=[new_call], variable=target.variable,
+                            bounds=new_bounds, pragma=new_pragma)
+            driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
+
+    # Finally, add the loop counter variable to declarations
+    new_var = Variable(name=target.variable, type=Type(name='INTEGER', kind='JPIM'))
+    new_decl = Declaration(variables=[new_var])
+    driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
+
+    if mode == 'sca':
+        # Add the include statement for the new header
+        new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
+        driver_routine.declarations._source += new_include
+    elif mode == 'claw':
+        kernel_name = '%s_%s' % (routine.name.upper(), mode.upper())
+        new_import = 'USE %s_%s_MOD, ONLY: %s\n' % (routine.name.upper(), mode.upper(), kernel_name)
+        driver_routine.declarations._source = new_import + driver_routine.declarations._source
+
+    print("Writing to %s" % driver_out)
+    f_driver.write(filename=driver_out)
+
+
+def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Read additional derived types from typedef modules
     derived_types = {}
@@ -313,77 +362,70 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Now let's process the driver/caller side
     if driver is not None:
-        f_driver = FortranSourceFile(driver, preprocess=False)
-        driver_routine = f_driver.subroutines[0]
+        process_driver(driver, driver_out, routine, derived_arg_var, mode)
 
-        # Process individual calls to our target routine
-        for call in FindNodes(Call).visit(driver_routine._ir):
-            if call.name == target_routine:
-                # Skip calls marked for reference data collection
-                if call.pragma is not None and call.pragma.keyword == 'reference':
-                    continue
+@click.group()
+def cli():
+    pass
 
-                new_args = []
-                for d_arg, k_arg in zip(call.arguments, routine.arguments):
-                    if k_arg.name in target.variables:
-                        continue
-                    elif k_arg in derived_arg_var:
-                        # Found derived-type argument, unroll according to mapping
-                        for arg_var in derived_arg_var[k_arg]:
-                            new_dims = tuple(target.variable if d == target.name else ':'
-                                             for d in arg_var.dimensions)
-                            new_args.append(Variable(name='%s%%%s' % (d_arg, arg_var.name),
-                                                     type=d_arg.type, dimensions=new_dims))
-                    elif len(d_arg.dimensions) == 0:
-                        # Driver-side relies on implicit dimensions, unroll using ':'
-                        new_dims = tuple(target.variable if d == target.name else ':'
-                                         for d in k_arg.dimensions)
-                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
-                                                 dimensions=new_dims))
-                    elif len(d_arg.dimensions) == len(k_arg.dimensions):
-                        # Driver-side already has dimensions, just replace target
-                        new_dims = tuple(target.variable if d == target.name else d
-                                         for d in k_arg.dimensions)
-                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
-                                                 dimensions=new_dims))
-                    elif len(d_arg.dimensions) > len(k_arg.dimensions):
-                        # Driver-side has additional outer dimensions (eg. for blocking)
-                        d_var = driver_routine._variables[d_arg.name]
-                        new_dims = tuple(target.variable if d_v in target.aliases else d_c
-                                         for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
-                        new_args.append(Variable(name=d_arg.name, type=d_arg.type,
-                                                 dimensions=new_dims))
-                    else:
-                        # Something has gone terribly wrong if we reach this
-                        raise ValueError('Unknown driver-side call argument')
+@cli.command('idem')
+@click.option('--source', '-s', type=click.Path(),
+            help='Source file to convert.')
+@click.option('--source-out', '-so', type=click.Path(),
+            help='Path for generated source output.')
+@click.option('--driver', '-d', type=click.Path(), default=None,
+            help='Driver file to convert.')
+@click.option('--driver-out', '-do', type=click.Path(), default=None,
+            help='Path for generated driver output.')
+@click.option('--interface', '-intfb', type=click.Path(), default=None,
+            help='Path to auto-generate and interface file')
+def idempotence(source, source_out, driver, driver_out, interface):
+    """
+    Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
+    """
+    f_source = FortranSourceFile(source, preprocess=True)
+    routine = f_source.subroutines[0]
+    routine.name = '%s_IDEM' % routine.name
 
-                # Create new call and wrap it in a loop. The arguments used for
-                # the bound variables in the kernel code are used as bounds here.
-                new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
-                                   if k in target.iteration)
-                new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
-                new_pragma = Pragma(keyword='parallelize',
-                                    source='!$claw parallelize forward create update') if mode =='claw' else None
-                new_loop = Loop(body=[new_call], variable=target.variable,
-                                bounds=new_bounds, pragma=new_pragma)
-                driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
+    # Generate the interface file associated with this routine
+    generate_interface(filename=interface, name=routine.name,
+                       arguments=routine.arguments, imports=routine.imports)
 
-        # Finally, add the loop counter variable to declarations
-        new_var = Variable(name=target.variable, type=Type(name='INTEGER', kind='JPIM'))
-        new_decl = Declaration(variables=[new_var])
-        driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
+    print("Writing to %s" % source_out)
+    f_source.write(source=fgen(routine, conservative=False), filename=source_out)
 
-        if mode == 'sca':
-            # Add the include statement for the new header
-            new_include = '#include "%s.%s.intfb.h"\n\n' % (routine.name.lower(), mode.lower())
-            driver_routine.declarations._source += new_include
-        elif mode == 'claw':
-            kernel_name = '%s_%s' % (routine.name.upper(), mode.upper())
-            new_import = 'USE %s_%s_MOD, ONLY: %s\n' % (routine.name.upper(), mode.upper(), kernel_name)
-            driver_routine.declarations._source = new_import + driver_routine.declarations._source
-            
-        print("Writing to %s" % driver_out)
-        f_driver.write(filename=driver_out)
+    # Replace the non-reference call in the driver for evaluation
+    f_driver = FortranSourceFile(driver, preprocess=False)
+    driver_routine = f_driver.subroutines[0]
+    for call in FindNodes(Call).visit(driver_routine._ir):
+        if call.name == target_routine:
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            call.name = '%s_IDEM' % call.name
+            driver_routine.body.replace(call._source, fgen(call, chunking=4))
+
+    print("Writing to %s" % driver_out)
+    f_driver.write(filename=driver_out)
+
+
+@cli.command()
+@click.option('--source', '-s', type=click.Path(),
+            help='Source file to convert.')
+@click.option('--source-out', '-so', type=click.Path(),
+            help='Path for generated source output.')
+@click.option('--driver', '-d', type=click.Path(), default=None,
+            help='Driver file to convert.')
+@click.option('--driver-out', '-do', type=click.Path(), default=None,
+            help='Path for generated driver output.')
+@click.option('--interface', '-intfb', type=click.Path(), default=None,
+            help='Path to auto-generate and interface file')
+@click.option('--typedef', '-t', type=click.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
+@click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
+def convert(source, source_out, driver, driver_out, interface, typedef, mode):
+    convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
 
 if __name__ == "__main__":
-    convert()
+    cli()
