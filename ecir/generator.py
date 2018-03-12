@@ -258,6 +258,10 @@ class IRGenerator(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
+        if len(exprs) == 1:
+            if isinstance(exprs[0], Literal) and op == '-':
+                # Literal negation can happen within symbol
+                exprs[0].value = op + exprs[0].value
         return Operation(op=op, operands=exprs, parenthesis=parenthesis)
 
     def visit_operator(self, o, source=None, line=None):
