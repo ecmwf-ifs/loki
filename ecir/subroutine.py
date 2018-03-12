@@ -2,7 +2,8 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import, DerivedType
+from ecir.ir import Declaration, Allocation, Import
+from ecir.expression import DerivedType
 from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list

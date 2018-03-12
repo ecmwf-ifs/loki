@@ -7,8 +7,9 @@ from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Variable, Type, DerivedType,
-                     Expression, Index, Import, Scope, Intrinsic)
+                     Pragma, Declaration, Allocation, Import, Scope, Intrinsic)
+from ecir.expression import (Variable, Literal, Operation, Index, Expression,
+                             Type, DerivedType)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -225,13 +226,13 @@ class IRGenerator(Visitor):
         return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
-        expr = o.attrib['value']
+        value = o.attrib['value']
         # Override Fortran BOOL keywords
-        if expr == 'false':
-            expr = '.FALSE.'
-        if expr == 'true':
-            expr = '.TRUE.'
-        return Expression(expr=expr)
+        if value == 'false':
+            value = '.FALSE.'
+        if value == 'true':
+            value = '.TRUE.'
+        return Literal(value=value)
 
     def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
@@ -253,12 +254,13 @@ class IRGenerator(Visitor):
             return Index(name=':')
 
     def visit_operation(self, o, source=None, line=None):
-        exprs = [self.visit(c) for c in o.getchildren()]
+        op = self.visit(o.find('operator'))
+        exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]
         # Concatenate subexpression strings
         exprs = [e.expr if isinstance(e, Expression) else str(e) for e in exprs]
-        parenthesized = o.find('parenthesized_expr') is not None
-        return Expression(expr='(%s)' % ' '.join(exprs) if parenthesized else ' '.join(exprs))
+        parenthesis = o.find('parenthesized_expr') is not None
+        return Operation(op=op, operands=exprs, parenthesis=parenthesis)
 
     def visit_operator(self, o, source=None, line=None):
         return o.attrib['operator']
