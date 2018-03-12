@@ -248,17 +248,15 @@ class IRGenerator(Visitor):
             val = self.visit(o.find('literal'))
             return Index(name='%s' % val)
         elif o.find('operation'):
-            op = self.visit(o.find('operation'))
-            return Index(name='%s' % op)
+            expr = self.visit(o.find('operation'))
+            return Index(name=str(expr))
         else:
             return Index(name=':')
 
     def visit_operation(self, o, source=None, line=None):
         op = self.visit(o.find('operator'))
         exprs = [self.visit(c) for c in o.findall('operand')]
-        exprs = [e for e in exprs if e is not None]
-        # Concatenate subexpression strings
-        exprs = [e.expr if isinstance(e, Expression) else str(e) for e in exprs]
+        exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
         return Operation(op=op, operands=exprs, parenthesis=parenthesis)
 

@@ -44,7 +44,7 @@ class Operation(Expression):
 
     @property
     def expr(self):
-        operands = (' %s ' % self.op).join(self.operands)
+        operands = ('%s' % self.op).join(str(o) for o in self.operands)
         return '(%s)' % operands if self.parenthesis else operands
 
     @property

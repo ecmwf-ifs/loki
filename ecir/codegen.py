@@ -1,10 +1,8 @@
 from ecir.visitors import Visitor
 from ecir.tools import chunks
-from ecir.expression import FType
+from ecir.expression import FType, DataType
 
-from textwrap import wrap
-
-__all__ = ['fgen', 'FortranCodegen']
+__all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
 
 class FortranCodegen(Visitor):
@@ -12,8 +10,9 @@ class FortranCodegen(Visitor):
     Tree visitor to generate standardized Fortran code from IR.
     """
 
-    def __init__(self, depth=0, chunking=4, conservative=True):
+    def __init__(self, depth=0, linewidth=90, chunking=4, conservative=True):
         super(FortranCodegen, self).__init__()
+        self.linewidth = linewidth
         self.conservative = conservative
         self.chunking = chunking
         self._depth = 0
@@ -93,11 +92,9 @@ class FortranCodegen(Visitor):
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_Statement(self, o):
-        target = self.visit(o.target)
-        expr = self.visit(o.expr)
-        stmt = self.indent + '%s = %s' % (target, expr)
-        wrapped = wrap(stmt, width=90, break_long_words=False)
-        return (' &\n%s   & ' % self.indent).join(wrapped)
+        linewidth = self.linewidth - len(self.indent)
+        lines = fexprgen(o, linewidth=linewidth).split('\n')
+        return self.indent + (' &\n%s   & ' % self.indent).join(lines)
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
@@ -137,3 +134,80 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
+
+class FExprCodegen(Visitor):
+    """
+    Tree visitor to generate a single Fortran assignment expression
+    from a tree of sub-expressions.
+
+    :param linewidth: Maximum width to after which to insert linebreaks.
+    :param op_spaces: Flag indicating whether to use spaces around operators.
+    """
+
+    def __init__(self, linewidth=90, op_spaces=False):
+        super(FExprCodegen, self).__init__()
+        self.linewidth = linewidth
+        self.op_spaces = op_spaces
+
+        # We ignore outer indents and count from 0
+        self._width = 0
+
+    def append(self, line, txt):
+        """Insert linebreaks when requested width is hit."""
+        if self._width + len(txt) > self.linewidth:
+            self._width = len(txt)
+            line += '\n' + txt
+        else:
+            self._width += len(txt)
+            line += txt
+        return line
+
+    @classmethod
+    def default_retval(cls):
+        return ""
+
+    def visit(self, o, line):
+        """
+        Overriding base `.visit()` to auto-count width and enforce
+        line breaks.
+        """
+        meth = self.lookup_method(o)
+        return meth(o, line)
+
+    def visit_str(self, o, line):
+        return self.append(line, str(o))
+
+    def visit_Statement(self, o, line):
+        line = self.visit(o.target, line=line)
+        line = self.append(line, ' = ')
+        line = self.visit(o.expr, line=line)
+        return line
+
+    def visit_Operation(self, o, line):
+        if o.parenthesis:
+            line = self.append(line, '(')
+        line = self.visit(o.operands[0], line=line)
+        for operand in o.operands[1:]:
+            op = (' %s ' % o.op) if self.op_spaces else o.op
+            line = self.append(line, op)
+            line = self.visit(operand, line=line)
+        if o.parenthesis:
+            line = self.append(line, ')')
+        return line
+
+    def visit_Literal(self, o, line):
+        if o.type in [DataType.JPRB, DataType.JPRM]:
+            value = '%s_%s' % (str(o), o.type.name)
+        else:
+            value = str(o)
+        return self.append(line, value)
+
+    def visit_Variable(self, o, line):
+        return self.append(line, str(o))
+
+
+def fexprgen(expr, linewidth=90, op_spaces=False):
+    """
+    Generate Fortran expression code from a tree of sub-expressions.
+    """
+    return FExprCodegen(linewidth=linewidth, op_spaces=op_spaces).visit(expr, line='')
