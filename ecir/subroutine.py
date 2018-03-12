@@ -3,8 +3,8 @@ from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
 from ecir.ir import Declaration, Allocation, Import, Statement
-from ecir.expression import DerivedType
-from ecir.visitors import FindNodes, Visitor
+from ecir.expression import DerivedType, ExpressionVisitor
+from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
 
@@ -12,7 +12,7 @@ from ecir.helpers import assemble_continued_statement_from_list
 __all__ = ['Section', 'Subroutine', 'Module']
 
 
-class InferDataType(Visitor):
+class InferDataType(ExpressionVisitor):
     """
     Top-down visitor to insert type information into individual
     sub-expression leaves.
@@ -28,7 +28,7 @@ class InferDataType(Visitor):
             print("Mismatching data type: %s (not %s))" % (o.type.dtype, self.dtype))
 
     def visit_Literal(self, o):
-        if o._type is None:
+        if o.type is None:
             o._type = self.dtype
         else:
             if o._type != self.dtype:

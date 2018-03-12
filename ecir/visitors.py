@@ -3,10 +3,10 @@ from collections import Iterable
 
 from ecir.ir import Node
 
-__all__ = ['pprint', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
+__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
 
-class Visitor(object):
+class GenericVisitor(object):
 
     """
     A generic visitor class, shamelessly copied from:
@@ -102,6 +102,14 @@ class Visitor(object):
 
     def visit_object(self, o, **kwargs):
         return self.default_retval()
+
+
+class Visitor(GenericVisitor):
+
+    def visit_tuple(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o)
+
+    visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
         return self.visit(o.children, **kwargs)

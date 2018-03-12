@@ -10,13 +10,13 @@ from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Import, Scope, Intrinsic)
 from ecir.expression import (Variable, Literal, Operation, Index, Expression,
                              FType, DerivedType)
-from ecir.visitors import Visitor, Transformer, NestedTransformer
+from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
 __all__ = ['generate']
 
 
-class IRGenerator(Visitor):
+class IRGenerator(GenericVisitor):
 
     def __init__(self, raw_source):
         super(IRGenerator, self).__init__()

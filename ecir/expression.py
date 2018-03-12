@@ -1,7 +1,19 @@
 from abc import ABCMeta, abstractproperty
 from enum import Enum
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index', 'FType', 'DerivedType']
+from ecir.visitors import GenericVisitor
+
+__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
+           'FType', 'DerivedType', 'ExpressionVisitor']
+
+
+class ExpressionVisitor(GenericVisitor):
+
+    def visit_Statement(self, o, **kwargs):
+        return tuple([self.visit(o.target, **kwargs), self.visit(o.expr, **kwargs)])
+
+    def visit_Expression(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o.children)
 
 
 class Expression(object):
@@ -32,6 +44,10 @@ class Expression(object):
     def __repr__(self):
         return self.expr
 
+    @property
+    def children(self):
+        return ()
+
 
 class Operation(Expression):
 
@@ -52,6 +68,10 @@ class Operation(Expression):
         types = [o.type for o in self.operands]
         assert(all(types == types[0]))
         return types[0]
+
+    @property
+    def children(self):
+        return self.operands
 
 
 class Literal(Expression):
@@ -162,7 +182,7 @@ class FType(object):
         self.optional = optional
 
     def __repr__(self):
-        return '<Type %s%s%s%s%s%s>' % (self.type.type, '(kind=%s)' % self.type.kind if self.type.kind else '',
+        return '<Type %s%s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
                                         ', intent=%s' % self.intent if self.intent else '',
                                         ', all' if self.allocatable else '',
                                         ', ptr' if self.pointer else '',
