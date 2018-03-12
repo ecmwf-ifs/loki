@@ -5,7 +5,7 @@ from copy import deepcopy
 import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
-                  Variable, Type, DerivedType, Declaration, FindNodes,
+                  Variable, FType, DerivedType, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen)
 
 

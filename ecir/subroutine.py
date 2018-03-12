@@ -2,14 +2,38 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import
+from ecir.ir import Declaration, Allocation, Import, Statement
 from ecir.expression import DerivedType
-from ecir.visitors import FindNodes
+from ecir.visitors import FindNodes, Visitor
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
+
+
+class InferDataType(Visitor):
+    """
+    Top-down visitor to insert type information into individual
+    sub-expression leaves.
+    """
+
+    def __init__(self, dtype):
+        super(InferDataType, self).__init__()
+
+        self.dtype = dtype
+
+    def visit_Variable(self, o):
+        if o.type is not None and o.type.dtype != self.dtype:
+            print("Mismatching data type: %s (not %s))" % (o.type.dtype, self.dtype))
+
+    def visit_Literal(self, o):
+        if o._type is None:
+            o._type = self.dtype
+        else:
+            if o._type != self.dtype:
+                print("Mismatching data type: %s (not %s))" % (o._type, self.dtype))
+
 
 class Section(object):
     """
@@ -148,6 +172,15 @@ class Subroutine(Section):
                 alloc = [a for a in allocs if a.variable.name == v.name]
                 if len(alloc) > 0:
                     v.dimensions = alloc[0].variable.dimensions
+
+        # Set the basic data type on all expression components
+        # Note, that this is needed to get accurate data type for
+        # literal values, as these have been stripped in a
+        # preprocessing step to avoid OFP bugs.
+        for stmt in FindNodes(Statement).visit(self.ir):
+            if stmt.target.name in self._variables:
+                v = self._variables[stmt.target.name]
+                InferDataType(dtype=v.type.dtype).visit(stmt.expr)
 
     @property
     def source(self):

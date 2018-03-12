@@ -9,7 +9,7 @@ from itertools import groupby
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Import, Scope, Intrinsic)
 from ecir.expression import (Variable, Literal, Operation, Index, Expression,
-                             Type, DerivedType)
+                             FType, DerivedType)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -143,7 +143,7 @@ class IRGenerator(Visitor):
                     attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
                     kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
-                    type = Type(typename, kind=kind, pointer='pointer' in attributes)
+                    type = FType(typename, kind=kind, pointer='pointer' in attributes)
                     v_source = extract_lines(t.attrib, self._raw_source)
                     v_line = int(t.find('type').attrib['line_end'])
                     for v in t.findall('component-decl'):
@@ -169,8 +169,8 @@ class IRGenerator(Visitor):
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
                 optional = o.find('attribute-optional') is not None
-                type = Type(name=typename, kind=kind, intent=intent,
-                            allocatable=allocatable, optional=optional, source=source)
+                type = FType(name=typename, kind=kind, intent=intent,
+                             allocatable=allocatable, optional=optional, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
                     if len(v.attrib) == 0:

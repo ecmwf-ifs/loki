@@ -1,20 +1,32 @@
 from abc import ABCMeta, abstractproperty
+from enum import Enum
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index', 'Type', 'DerivedType']
+__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index', 'FType', 'DerivedType']
 
 
 class Expression(object):
 
     __metaclass__ = ABCMeta
 
+    _traversable = []
+
     @abstractproperty
     def expr(self):
-        """Symbolic representation - might be used for cde generation"""
+        """
+        Symbolic representation - might be used in this raw form
+        for code generation.
+        """
         pass
 
     @abstractproperty
     def type(self):
-        """Data type of (sub-)expression"""
+        """
+        Data type of (sub-)expressions.
+
+        Note, that this is the pure data type (eg. int32, float64),
+        not the full variable declaration type (allocatable, pointer,
+        etc.). This is so that we may reason about it recursively.
+        """
         pass
 
     def __repr__(self):
@@ -22,6 +34,8 @@ class Expression(object):
 
 
 class Operation(Expression):
+
+    _traversable = ['operands']
 
     def __init__(self, op, operands, parenthesis=False):
         self.op = op
@@ -35,8 +49,9 @@ class Operation(Expression):
 
     @property
     def type(self):
-        # TODO
-        return None
+        types = [o.type for o in self.operands]
+        assert(all(types == types[0]))
+        return types[0]
 
 
 class Literal(Expression):
@@ -51,7 +66,7 @@ class Literal(Expression):
 
     @property
     def type(self):
-        return self._value
+        return self._type
 
 
 class Variable(Expression):
@@ -116,10 +131,24 @@ class Index(Expression):
 ####  Type hiearchy
 ############################################################
 
-class Type(object):
+class DataType(Enum):
+
+    LOGICAL = ('LOGICAL', None)  # bool
+    JPRM = ('REAL', 'JPRM')  # float32
+    JPRB = ('REAL', 'JPRB')  # float64
+    JPIM = ('INTEGER', 'JPIM')  # int32
+
+    def __init__(self, type, kind):
+        self.type = type
+        self.kind = kind
+
+
+class FType(object):
     """
-    Basic type of a variable with type, kind, intent, allocatable, etc.
+    Basic Fortran variable type with data type, kind, intent, allocatable, etc.
     """
+
+    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
 
     def __init__(self, name, kind=None, intent=None, allocatable=False,
                  pointer=False, optional=None, source=None):
@@ -133,7 +162,7 @@ class Type(object):
         self.optional = optional
 
     def __repr__(self):
-        return '<Type %s%s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
+        return '<Type %s%s%s%s%s%s>' % (self.type.type, '(kind=%s)' % self.type.kind if self.type.kind else '',
                                         ', intent=%s' % self.intent if self.intent else '',
                                         ', all' if self.allocatable else '',
                                         ', ptr' if self.pointer else '',
@@ -153,6 +182,10 @@ class Type(object):
             return self.__key() == other.__key()
         else:
             self == other
+
+    @property
+    def dtype(self):
+        return DataType((self.name, self.kind))
 
 
 class DerivedType(object):
