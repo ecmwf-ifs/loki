@@ -2,7 +2,7 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef, Call
+from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef, Call, Conditional
 from ecir.expression import ExpressionVisitor
 from ecir.types import DerivedType, DataType
 from ecir.visitors import FindNodes
@@ -226,6 +226,11 @@ class Subroutine(Section):
             # Infer data type of expression components from target variable
             if stmt.target.type is not None:
                 InferDataType(dtype=stmt.target.type.dtype).visit(stmt.expr)
+
+        for cnd in FindNodes(Conditional).visit(self.ir):
+            for c in cnd.conditions:
+                InjectFortranType(self._variables).visit(c)
+                InferDataType(dtype=DataType.JPRB).visit(c)
 
     @property
     def source(self):

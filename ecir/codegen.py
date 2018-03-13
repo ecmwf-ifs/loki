@@ -86,7 +86,7 @@ class FortranCodegen(Visitor):
         bodies = [self.visit(b) for b in o.bodies]
         else_body = self.visit(o.else_body)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % str(c) for c in  o.conditions]
+        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in  o.conditions]
         main_branch = ('\n%sELSE'%self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
@@ -187,6 +187,11 @@ class FExprCodegen(Visitor):
         return line
 
     def visit_Operation(self, o, line):
+        if len(o.ops) == 1 and len(o.operands) == 1:
+            # Special case: a unary operator
+            line = self.append(line, o.ops[0])
+            return self.visit(o.operands[0], line=line)
+
         if o.parenthesis:
             line = self.append(line, '(')
         line = self.visit(o.operands[0], line=line)

@@ -224,7 +224,7 @@ class IRGenerator(GenericVisitor):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         vrefs = o.findall('part-ref')
         vname = '%'.join(i.attrib['id'] for i in vrefs)
-        if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT']:
+        if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
             return InlineCall(name=vname, arguments=indices)
         else:
             return Variable(name=vname, dimensions=indices)
@@ -258,11 +258,6 @@ class IRGenerator(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
-        if len(exprs) == 1 and len(ops) == 1:
-            if isinstance(exprs[0], Literal) and ops[0] == '-':
-                # Literal negation can happen within symbol
-                exprs[0].value = ops[0] + exprs[0].value
-                return exprs[0]
         return Operation(ops=ops, operands=exprs, parenthesis=parenthesis)
 
     def visit_operator(self, o, source=None, line=None):
