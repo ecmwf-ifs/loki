@@ -2,8 +2,8 @@ from collections import OrderedDict
 import inspect
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call',
-           'Comment', 'CommentBlock', 'Pragma', 'Declaration']
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
+           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef']
 
 class Node(object):
 
@@ -203,3 +203,17 @@ class Call(Node):
         self.name = name
         self.arguments = arguments
         self.pragma = pragma
+
+
+class TypeDef(Node):
+    """
+    Internal representation of derived type definition
+    """
+
+    def __init__(self, name, variables, comments=None, pragmas=None, source=None, line=None):
+        super(TypeDef, self).__init__(source=source, line=line)
+
+        self.name = name
+        self.variables = variables
+        self.comments = comments
+        self.pragmas = pragmas

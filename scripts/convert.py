@@ -5,8 +5,8 @@ from copy import deepcopy
 import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
-                  Variable, FType, DerivedType, Declaration, FindNodes,
-                  Statement, Call, Pragma, fgen)
+                  Variable, TypeDef, Declaration, FindNodes,
+                  Statement, Call, Pragma, fgen, BaseType)
 
 
 def generate_signature(name, arguments):
@@ -145,7 +145,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
             driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
 
     # Finally, add the loop counter variable to declarations
-    new_var = Variable(name=target.variable, type=Type(name='INTEGER', kind='JPIM'))
+    new_var = Variable(name=target.variable, type=BaseType(name='INTEGER', kind='JPIM'))
     new_decl = Declaration(variables=[new_var])
     driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
 
@@ -169,7 +169,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     for tfile in typedef:
         module = FortranSourceFile(tfile).modules[0]
         for derived in module._spec:
-            if isinstance(derived, DerivedType):
+            if isinstance(derived, TypeDef):
                 # TODO: Need better __hash__ for (derived) types
                 derived_types[derived.name.upper()] = derived
 
@@ -213,8 +213,8 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
                 if target.name in type_var.dimensions and t_str in routine.body._source:
                     derived_arg_var[arg].append(type_var)
                     new_name = '%s_%s' % (arg.name, type_var.name)
-                    new_type = Type(name=type_var.type.name, kind=type_var.type.kind,
-                                    intent=arg.type.intent)
+                    new_type = BaseType(name=type_var.type.name, kind=type_var.type.kind,
+                                        intent=arg.type.intent)
                     new_vars.append(Variable(name=new_name, type=new_type,
                                              dimensions=type_var.dimensions))
 

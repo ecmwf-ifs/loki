@@ -2,8 +2,8 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import, Statement
-from ecir.expression import DerivedType, ExpressionVisitor
+from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef
+from ecir.expression import ExpressionVisitor
 from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
@@ -128,7 +128,7 @@ class Module(Section):
         self._spec = generate(spec_ast, self._raw_source)
 
         # Process 'dimension' pragmas to override deferred dimensions
-        derived_types = [d for d in self._spec if isinstance(d, DerivedType)]
+        derived_types = [d for d in self._spec if isinstance(d, TypeDef)]
         for derived in derived_types:
             pragmas = {p._line: p for p in derived.pragmas}
             for v in derived.variables:

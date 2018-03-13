@@ -4,7 +4,7 @@ from enum import Enum
 from ecir.visitors import GenericVisitor
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
-           'FType', 'DerivedType', 'ExpressionVisitor']
+           'ExpressionVisitor']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -147,74 +147,3 @@ class Index(Expression):
             return self.name == other.name
         else:
             self == other
-
-############################################################
-####  Type hiearchy
-############################################################
-
-class DataType(Enum):
-
-    LOGICAL = ('LOGICAL', None)  # bool
-    JPRM = ('REAL', 'JPRM')  # float32
-    JPRB = ('REAL', 'JPRB')  # float64
-    JPIM = ('INTEGER', 'JPIM')  # int32
-
-    def __init__(self, type, kind):
-        self.type = type
-        self.kind = kind
-
-
-class FType(object):
-    """
-    Basic Fortran variable type with data type, kind, intent, allocatable, etc.
-    """
-
-    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
-
-    def __init__(self, name, kind=None, intent=None, allocatable=False,
-                 pointer=False, optional=None, source=None):
-        self._source = source
-
-        self.name = name
-        self.kind = kind
-        self.intent = intent
-        self.allocatable = allocatable
-        self.pointer = pointer
-        self.optional = optional
-
-    def __repr__(self):
-        return '<Type %s%s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
-                                        ', intent=%s' % self.intent if self.intent else '',
-                                        ', all' if self.allocatable else '',
-                                        ', ptr' if self.pointer else '',
-                                        ', opt' if self.optional else '')
-
-    def __key(self):
-        return (self.name, self.kind, self.intent, self.allocatable, self.pointer, self.optional)
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other):
-        # Allow direct comparison to string and other Variable objects
-        if isinstance(other, str):
-            return self.name == other
-        elif isinstance(other, Type):
-            return self.__key() == other.__key()
-        else:
-            self == other
-
-    @property
-    def dtype(self):
-        return DataType((self.name, self.kind))
-
-
-class DerivedType(object):
-
-    def __init__(self, name, variables, comments=None, pragmas=None, source=None):
-        self._source = source
-
-        self.name = name
-        self.variables = variables
-        self.comments = comments
-        self.pragmas = pragmas

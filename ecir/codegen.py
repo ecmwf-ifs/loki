@@ -1,6 +1,6 @@
 from ecir.visitors import Visitor
 from ecir.tools import chunks
-from ecir.expression import FType, DataType
+from ecir.types import BaseType, DataType
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
@@ -119,8 +119,8 @@ class FortranCodegen(Visitor):
         dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
         return '%s%s' % (o.name, dims)
 
-    def visit_FType(self, o):
-        tname = o.name if o.name in FType._base_types else 'TYPE(%s)' % o.name
+    def visit_BaseType(self, o):
+        tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
         return '%s%s%s%s%s%s' % (tname, '(KIND=%s)' % o.kind if o.kind else '',
                                  ', INTENT(%s)' % o.intent.upper() if o.intent else '',
                                  ', ALLOCATE' if o.allocatable else '',

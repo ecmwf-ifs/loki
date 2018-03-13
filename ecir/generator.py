@@ -7,9 +7,10 @@ from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Import, Scope, Intrinsic)
-from ecir.expression import (Variable, Literal, Operation, Index, Expression,
-                             FType, DerivedType)
+                     Pragma, Declaration, Allocation, Import, Scope, Intrinsic,
+                     TypeDef)
+from ecir.expression import (Variable, Literal, Operation, Index, Expression)
+from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -143,7 +144,7 @@ class IRGenerator(GenericVisitor):
                     attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
                     kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
-                    type = FType(typename, kind=kind, pointer='pointer' in attributes)
+                    type = BaseType(typename, kind=kind, pointer='pointer' in attributes)
                     v_source = extract_lines(t.attrib, self._raw_source)
                     v_line = int(t.find('type').attrib['line_end'])
                     for v in t.findall('component-decl'):
@@ -159,8 +160,8 @@ class IRGenerator(GenericVisitor):
                     derived_vars = variables + derived_vars
                     # Recurse on 'type' nodes
                     t = t.find('type')
-                return DerivedType(name=derived_name, variables=derived_vars,
-                                   pragmas=pragmas, comments=comments, source=source)
+                return TypeDef(name=derived_name, variables=derived_vars,
+                               pragmas=pragmas, comments=comments, source=source)
             else:
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
@@ -169,7 +170,7 @@ class IRGenerator(GenericVisitor):
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
                 optional = o.find('attribute-optional') is not None
-                type = FType(name=typename, kind=kind, intent=intent,
+                type = BaseType(name=typename, kind=kind, intent=intent,
                              allocatable=allocatable, optional=optional, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
