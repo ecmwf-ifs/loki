@@ -187,9 +187,9 @@ class FExprCodegen(Visitor):
         if o.parenthesis:
             line = self.append(line, '(')
         line = self.visit(o.operands[0], line=line)
-        for operand in o.operands[1:]:
-            op = (' %s ' % o.op) if self.op_spaces else o.op
-            line = self.append(line, op)
+        for op, operand in zip(o.ops, o.operands[1:]):
+            s_op = (' %s ' % op) if self.op_spaces else str(op)
+            line = self.append(line, s_op)
             line = self.visit(operand, line=line)
         if o.parenthesis:
             line = self.append(line, ')')

@@ -53,15 +53,16 @@ class Operation(Expression):
 
     _traversable = ['operands']
 
-    def __init__(self, op, operands, parenthesis=False):
-        self.op = op
+    def __init__(self, ops, operands, parenthesis=False):
+        self.ops = ops
         self.operands = operands
         self.parenthesis = parenthesis
 
     @property
     def expr(self):
-        operands = ('%s' % self.op).join(str(o) for o in self.operands)
-        return '(%s)' % operands if self.parenthesis else operands
+        s = str(self.operands[0])
+        s += ''.join(['%s%s' % (o, str(e)) for o, e in zip(self.ops, self.operands[1:])])
+        return ('(%s)' % s) if self.parenthesis else s
 
     @property
     def type(self):
