@@ -9,7 +9,7 @@ from itertools import groupby
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Import, Scope, Intrinsic,
                      TypeDef)
-from ecir.expression import (Variable, Literal, Operation, Index, Expression)
+from ecir.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
 from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
@@ -224,7 +224,10 @@ class IRGenerator(GenericVisitor):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
         vrefs = o.findall('part-ref')
         vname = '%'.join(i.attrib['id'] for i in vrefs)
-        return Variable(name=vname, dimensions=indices)
+        if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT']:
+            return InlineCall(name=vname, arguments=indices)
+        else:
+            return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
         value = o.attrib['value']
@@ -241,16 +244,11 @@ class IRGenerator(GenericVisitor):
             upper = self.visit(o.find('range/upper-bound'))
             return Index(name='%s:%s' % (lower, upper))
         elif o.find('name'):
-            # TODO: If the index is a variable,
-            # simply return it. This shows that we
-            # need a better expression hierachy.
             return self.visit(o.find('name'))
         elif o.find('literal'):
-            val = self.visit(o.find('literal'))
-            return Index(name='%s' % val)
+            return self.visit(o.find('literal'))
         elif o.find('operation'):
-            expr = self.visit(o.find('operation'))
-            return Index(name=str(expr))
+            return self.visit(o.find('operation'))
         else:
             return Index(name=':')
 

@@ -177,6 +177,9 @@ class FExprCodegen(Visitor):
     def visit_str(self, o, line):
         return self.append(line, str(o))
 
+    visit_Expression = visit_str
+    visit_Variable = visit_str
+
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
         line = self.append(line, ' = ')
@@ -202,8 +205,13 @@ class FExprCodegen(Visitor):
             value = str(o)
         return self.append(line, value)
 
-    def visit_Variable(self, o, line):
-        return self.append(line, str(o))
+    def visit_InlineCall(self, o, line):
+        line = self.append(line, '%s(' % o.name)
+        line = self.visit(o.arguments[0], line=line)
+        for arg in o.arguments[1:]:
+            line = self.append(line, ',')
+            line = self.visit(arg, line=line)
+        return self.append(line, ')')
 
 
 def fexprgen(expr, linewidth=90, op_spaces=False):

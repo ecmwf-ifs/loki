@@ -125,6 +125,27 @@ class Variable(Expression):
             self == other
 
 
+class InlineCall(Expression):
+    """
+    Internal representation of an in-line function call
+    """
+    def __init__(self, name, arguments):
+        self.name = name
+        self.arguments = arguments
+
+    @property
+    def expr(self):
+        return '%s(%s)' % (self.name, ','.join(str(a) for a in self.arguments))
+
+    @property
+    def type(self):
+        return self._type
+
+    @property
+    def children(self):
+        return self.arguments
+
+
 class Index(Expression):
 
     def __init__(self, name):

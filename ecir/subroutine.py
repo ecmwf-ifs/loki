@@ -2,9 +2,9 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef
+from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef, Call
 from ecir.expression import ExpressionVisitor
-from ecir.types import DerivedType
+from ecir.types import DerivedType, DataType
 from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
@@ -52,8 +52,13 @@ class InferDataType(ExpressionVisitor):
 
     def visit_Literal(self, o):
         if o.type is None:
-            # Shouldn't really set things this way...
-            o._type = self.dtype
+            if '.' in o.value:  # skip INTs
+                # Shouldn't really set things this way...
+                o._type = self.dtype
+
+    def visit_InlineCall(self, o):
+        for c in o.children:
+            self.visit(c)
 
 
 class Section(object):
