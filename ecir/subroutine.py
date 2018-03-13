@@ -12,9 +12,35 @@ from ecir.helpers import assemble_continued_statement_from_list
 __all__ = ['Section', 'Subroutine', 'Module']
 
 
+class InjectFortranType(ExpressionVisitor):
+    """
+    Inject the full Fortran type from declarations into variable occurences.
+    """
+
+    def __init__(self, variable_list):
+        super(InjectFortranType, self).__init__()
+
+        self.variable_list = variable_list
+
+    def visit_Variable(self, o):
+        if o.type is None:
+            if o.name in self.variable_list:
+                # TODO: Shouldn't really set things this way...
+                o._type = self.variable_list[o.name].type
+            elif '%' in o.name:
+                # We are dealing with a derived-type member
+                base_name = o.name.split('%')[0]
+                var_name = o.name.split('%')[1]
+                if base_name in self.variable_list:
+                    derived = self.variable_list[base_name]
+                    # from IPython import embed; embed()
+                    # TODO: Shouldn't really set things this way...
+                    # o._type = derived.variables[var_name].type
+
+
 class InferDataType(ExpressionVisitor):
     """
-    Top-down visitor to insert type information into individual
+    Top-down visitor to insert data type information into individual
     sub-expression leaves.
     """
 
@@ -23,16 +49,10 @@ class InferDataType(ExpressionVisitor):
 
         self.dtype = dtype
 
-    def visit_Variable(self, o):
-        if o.type is not None and o.type.dtype != self.dtype:
-            print("Mismatching data type: %s (not %s))" % (o.type.dtype, self.dtype))
-
     def visit_Literal(self, o):
         if o.type is None:
+            # Shouldn't really set things this way...
             o._type = self.dtype
-        else:
-            if o._type != self.dtype:
-                print("Mismatching data type: %s (not %s))" % (o._type, self.dtype))
 
 
 class Section(object):
@@ -178,9 +198,12 @@ class Subroutine(Section):
         # literal values, as these have been stripped in a
         # preprocessing step to avoid OFP bugs.
         for stmt in FindNodes(Statement).visit(self.ir):
-            if stmt.target.name in self._variables:
-                v = self._variables[stmt.target.name]
-                InferDataType(dtype=v.type.dtype).visit(stmt.expr)
+            # Inject declaration type information into expression variables
+            InjectFortranType(self._variables).visit(stmt)
+
+            # Infer data type of expression components from target variable
+            if stmt.target.type is not None:
+                InferDataType(dtype=stmt.target.type.dtype).visit(stmt.expr)
 
     @property
     def source(self):
