@@ -24,7 +24,7 @@ class FortranSourceFile(object):
     # Default custom KIND identifiers to use for pre-processing
     _kinds = ['JPIM', 'JPRB']
 
-    def __init__(self, filename, preprocess=True):
+    def __init__(self, filename, preprocess=True, typedefs=None):
         self.basename = path.splitext(filename)[0]
 
         # Unfortunately we need a pre-processing step to sanitize
@@ -47,7 +47,7 @@ class FortranSourceFile(object):
         print("Parsing done! (time: %.2fs)" % t1)
 
         # Extract subroutines and pre/post sections from file
-        self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source)
+        self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source, typedefs=typedefs)
                             for r in self._ast.findall('file/subroutine')]
         self.modules = [Module(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]

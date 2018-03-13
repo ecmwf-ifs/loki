@@ -66,6 +66,25 @@ class DerivedType(BaseType):
     multiple variables.
     """
 
-    def __init__(self, name, variables):
+    def __init__(self, name, variables, **kwargs):
+        super(DerivedType, self).__init__(name=name, **kwargs)
         self.name = name
-        self.variables = variables
+        self._variables = variables
+
+    def __key(self):
+        return (self.name, (v.__key for v in self.variables), self.intent,
+                            self.allocatable, self.pointer, self.optional)
+
+    def __repr__(self):
+        return '<DerivedType %s%s%s%s%s>' % (self.name,
+                                             ', intent=%s' % self.intent if self.intent else '',
+                                             ', all' if self.allocatable else '',
+                                             ', ptr' if self.pointer else '',
+                                             ', opt' if self.optional else '')
+
+    @property
+    def variables(self):
+        """
+        Map of variable names to variable objects.
+        """
+        return {v.name: v for v in self._variables}

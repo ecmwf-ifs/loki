@@ -4,6 +4,7 @@ from collections import OrderedDict, Mapping
 from ecir.generator import generate
 from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef
 from ecir.expression import ExpressionVisitor
+from ecir.types import DerivedType
 from ecir.visitors import FindNodes
 from ecir.tools import flatten, extract_lines
 from ecir.helpers import assemble_continued_statement_from_list
@@ -33,9 +34,9 @@ class InjectFortranType(ExpressionVisitor):
                 var_name = o.name.split('%')[1]
                 if base_name in self.variable_list:
                     derived = self.variable_list[base_name]
-                    # from IPython import embed; embed()
-                    # TODO: Shouldn't really set things this way...
-                    # o._type = derived.variables[var_name].type
+                    if isinstance(derived.type, DerivedType):
+                        # TODO: Shouldn't really set things this way...
+                        o._type = derived.type.variables[var_name].type
 
 
 class InferDataType(ExpressionVisitor):
@@ -128,10 +129,10 @@ class Module(Section):
         self._spec = generate(spec_ast, self._raw_source)
 
         # Process 'dimension' pragmas to override deferred dimensions
-        derived_types = [d for d in self._spec if isinstance(d, TypeDef)]
-        for derived in derived_types:
-            pragmas = {p._line: p for p in derived.pragmas}
-            for v in derived.variables:
+        self._typedefs = FindNodes(TypeDef).visit(self._spec)
+        for typedef in self._typedefs:
+            pragmas = {p._line: p for p in typedef.pragmas}
+            for v in typedef.variables:
                 if v._line-1 in pragmas:
                     pragma = pragmas[v._line-1]
                     if pragma.keyword == 'dimension':
@@ -142,7 +143,12 @@ class Module(Section):
                         # Override dimensions (hacky: not transformer-safe!)
                         v.dimensions = dims
 
-        # TODO: Process subroutines in modules, I guess...
+    @property
+    def typedefs(self):
+        """
+        Map of names and :class:`DerivedType`s defined in this module.
+        """
+        return {td.name.upper(): td for td in self._typedefs}
 
 
 class Subroutine(Section):
@@ -153,9 +159,11 @@ class Subroutine(Section):
     :param ast: OFP parser node for this subroutine
     :param raw_source: Raw source string, broken into lines(!), as it
                        appeared in the parsed source file.
+    :param typedefs: Optional list of external definitions for derived
+                     types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None):
+    def __init__(self, ast, raw_source, name=None, typedefs=None):
         self.name = name or ast.attrib['name']
         self._ast = ast
         self._raw_source = raw_source
@@ -192,6 +200,15 @@ class Subroutine(Section):
                 alloc = [a for a in allocs if a.variable.name == v.name]
                 if len(alloc) > 0:
                     v.dimensions = alloc[0].variable.dimensions
+
+        # Attach derived-type information to variables from given typedefs
+        for v in self.variables:
+            if typedefs is not None and v.type.name in typedefs:
+                typedef = typedefs[v.type.name]
+                derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
+                                           intent=v.type.intent, allocatable=v.type.allocatable,
+                                           pointer=v.type.pointer, optional=v.type.optional)
+                v._type = derived_type
 
         # Set the basic data type on all expression components
         # Note, that this is needed to get accurate data type for

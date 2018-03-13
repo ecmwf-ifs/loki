@@ -60,6 +60,15 @@ def generate_interface(filename, name, arguments, imports):
         file.write(interface)
 
 
+def get_typedefs(typedef):
+    # Read derived type definitions from typedef modules
+    definitions = {}
+    for tfile in typedef:
+        module = FortranSourceFile(tfile).modules[0]
+        definitions.update(module.typedefs)
+    return definitions
+
+
 class Dimension(object):
     """
     Dimension that defines a one-dimensional iteration space.
@@ -164,17 +173,10 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
 
 def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode):
 
-    # Read additional derived types from typedef modules
-    derived_types = {}
-    for tfile in typedef:
-        module = FortranSourceFile(tfile).modules[0]
-        for derived in module._spec:
-            if isinstance(derived, TypeDef):
-                # TODO: Need better __hash__ for (derived) types
-                derived_types[derived.name.upper()] = derived
+    typedefs = get_typedefs(typedef)
 
     # Read the primary source routine
-    f_source = FortranSourceFile(source, preprocess=False)
+    f_source = FortranSourceFile(source, preprocess=False, typedefs=typedefs)
     routine = f_source.subroutines[0]
     new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
@@ -379,13 +381,17 @@ def cli():
             help='Path for generated driver output.')
 @click.option('--interface', '-intfb', type=click.Path(), default=None,
             help='Path to auto-generate and interface file')
+@click.option('--typedef', '-t', type=click.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
 @click.option('--conservative/--no-conservative', default=False,
             help='Force conservative re-generation')
-def idempotence(source, source_out, driver, driver_out, interface, conservative):
+def idempotence(source, source_out, driver, driver_out, typedef, interface, conservative):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    f_source = FortranSourceFile(source, preprocess=True)
+    typedefs = get_typedefs(typedef)
+
+    f_source = FortranSourceFile(source, preprocess=True, typedefs=typedefs)
     routine = f_source.subroutines[0]
     routine.name = '%s_IDEM' % routine.name
 
