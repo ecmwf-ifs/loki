@@ -78,7 +78,8 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
+        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
+                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
     def visit_Conditional(self, o):

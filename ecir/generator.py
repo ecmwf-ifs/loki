@@ -60,16 +60,19 @@ class IRGenerator(GenericVisitor):
 
     def visit_loop(self, o, source=None, line=None):
         variable = o.find('header/index-variable').attrib['name']
+        step = None
         try:
             lower = self.visit(o.find('header/index-variable/lower-bound'))
             upper = self.visit(o.find('header/index-variable/upper-bound'))
+            if o.find('header/index-variable/step') is not None:
+                step = self.visit(o.find('header/index-variable/step'))
         except:
             lower = None
             upper = None
         body = as_tuple(self.visit(o.find('body')))
         # Store full lines with loop body for easy replacement
         source = extract_lines(o.attrib, self._raw_source, full_lines=True)
-        return Loop(variable=variable, body=body, bounds=(lower, upper),
+        return Loop(variable=variable, body=body, bounds=(lower, upper, step),
                     source=source, line=line)
 
     def visit_if(self, o, source=None, line=None):

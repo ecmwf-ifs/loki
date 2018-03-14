@@ -60,6 +60,10 @@ class Operation(Expression):
 
     @property
     def expr(self):
+        if len(self.ops) == 1 and len(self.operands) == 1:
+            # Special case: a unary operator
+            return '%s%s' % (self.ops[0], self.operands[0])
+
         s = str(self.operands[0])
         s += ''.join(['%s%s' % (o, str(e)) for o, e in zip(self.ops, self.operands[1:])])
         return ('(%s)' % s) if self.parenthesis else s
