@@ -232,6 +232,11 @@ class Subroutine(Section):
                 InjectFortranType(self._variables).visit(c)
                 InferDataType(dtype=DataType.JPRB).visit(c)
 
+        # Infer data types for initial parameter values
+        for v in self.variables:
+            if v.type.parameter:
+                InferDataType(dtype=v.type.dtype).visit(v.initial)
+
     @property
     def source(self):
         """
