@@ -23,7 +23,7 @@ class BaseType(object):
     _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
 
     def __init__(self, name, kind=None, intent=None, allocatable=False,
-                 pointer=False, optional=None, source=None):
+                 pointer=False, optional=None, parameter=None, source=None):
         self._source = source
 
         self.name = name
@@ -32,16 +32,20 @@ class BaseType(object):
         self.allocatable = allocatable
         self.pointer = pointer
         self.optional = optional
+        self.parameter = parameter
 
     def __repr__(self):
-        return '<Type %s%s%s%s%s%s>' % (self.name, '(kind=%s)' % self.kind if self.kind else '',
-                                        ', intent=%s' % self.intent if self.intent else '',
-                                        ', all' if self.allocatable else '',
-                                        ', ptr' if self.pointer else '',
-                                        ', opt' if self.optional else '')
+        return '<Type %s%s%s%s%s%s%s>' % (
+            self.name, '(kind=%s)' % self.kind if self.kind else '',
+            ', intent=%s' % self.intent if self.intent else '',
+            ', all' if self.allocatable else '',
+            ', ptr' if self.pointer else '',
+            ', opt' if self.optional else '',
+            ', param' if self.parameter else '')
 
     def __key(self):
-        return (self.name, self.kind, self.intent, self.allocatable, self.pointer, self.optional)
+        return (self.name, self.kind, self.intent, self.allocatable, self.pointer,
+                self.optional, self.parameter)
 
     def __hash__(self):
         return hash(self.__key())

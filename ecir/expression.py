@@ -92,13 +92,14 @@ class Literal(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, dimensions=None, source=None, line=None):
+    def __init__(self, name, type=None, dimensions=None, initial=None, source=None, line=None):
         self._source = source
         self._line = line
 
         self.name = name
         self._type = type
         self.dimensions = dimensions or ()
+        self.initial = initial
 
     @property
     def expr(self):

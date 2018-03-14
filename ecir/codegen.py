@@ -67,7 +67,7 @@ class FortranCodegen(Visitor):
 
     def visit_Declaration(self, o):
         type = self.visit(o.variables[0].type)
-        variables = self.segment([str(v) for v in o.variables])
+        variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s :: %s' % (type, variables)
 
     def visit_Import(self, o):
@@ -117,15 +117,18 @@ class FortranCodegen(Visitor):
 
     def visit_Variable(self, o):
         dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
-        return '%s%s' % (o.name, dims)
+        initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
+        return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
         tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s' % (tname, '(KIND=%s)' % o.kind if o.kind else '',
-                                 ', INTENT(%s)' % o.intent.upper() if o.intent else '',
-                                 ', ALLOCATE' if o.allocatable else '',
-                                 ', POINTER' if o.pointer else '',
-                                 ', OPTIONAL' if o.optional else '')
+        return '%s%s%s%s%s%s%s' % (
+            tname, '(KIND=%s)' % o.kind if o.kind else '',
+            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
+            ', ALLOCATE' if o.allocatable else '',
+            ', POINTER' if o.pointer else '',
+            ', OPTIONAL' if o.optional else '',
+            ', PARAMETER' if o.parameter else '')
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):

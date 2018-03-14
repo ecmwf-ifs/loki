@@ -169,16 +169,20 @@ class IRGenerator(GenericVisitor):
                 kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
+                parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
                 type = BaseType(name=typename, kind=kind, intent=intent,
-                             allocatable=allocatable, optional=optional, source=source)
+                                allocatable=allocatable, optional=optional,
+                                parameter=parameter, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
                     if len(v.attrib) == 0:
                         continue
                     dimensions = tuple(self.visit(i) for i in v.findall('dimensions/dimension'))
+                    initial = self.visit(v.find('initial-value')) if parameter else None
                     variables.append(Variable(name=v.attrib['name'], type=type,
-                                              dimensions=dimensions, source=source))
+                                              dimensions=dimensions, source=source,
+                                              initial=initial))
                 return Declaration(variables=variables, source=source, line=line)
         elif o.attrib['type'] == 'implicit':
             # IMPLICIT marker
