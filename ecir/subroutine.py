@@ -12,53 +12,23 @@ from ecir.helpers import assemble_continued_statement_from_list
 
 __all__ = ['Section', 'Subroutine', 'Module']
 
-
-class InjectFortranType(ExpressionVisitor):
+class InsertLiteralKinds(ExpressionVisitor):
     """
-    Inject the full Fortran type from declarations into variable occurences.
-    """
+    Re-insert explicit _KIND casts for literals dropped during pre-processing.
 
-    def __init__(self, variable_list):
-        super(InjectFortranType, self).__init__()
-
-        self.variable_list = variable_list
-
-    def visit_Variable(self, o):
-        if o.type is None:
-            if o.name in self.variable_list:
-                # TODO: Shouldn't really set things this way...
-                o._type = self.variable_list[o.name].type
-            elif '%' in o.name:
-                # We are dealing with a derived-type member
-                base_name = o.name.split('%')[0]
-                var_name = o.name.split('%')[1]
-                if base_name in self.variable_list:
-                    derived = self.variable_list[base_name]
-                    if isinstance(derived.type, DerivedType):
-                        # TODO: Shouldn't really set things this way...
-                        o._type = derived.type.variables[var_name].type
-
-
-class InferDataType(ExpressionVisitor):
-    """
-    Top-down visitor to insert data type information into individual
-    sub-expression leaves.
+    :param pp_info: List of `(literal, kind)` tuples to be inserted
     """
 
-    def __init__(self, dtype):
-        super(InferDataType, self).__init__()
+    def __init__(self, pp_info):
+        super(InsertLiteralKinds, self).__init__()
 
-        self.dtype = dtype
+        self.pp_info = dict(pp_info)
 
     def visit_Literal(self, o):
-        if o.type is None:
-            if '.' in o.value:  # skip INTs
-                # Shouldn't really set things this way...
-                o._type = self.dtype
-
-    def visit_InlineCall(self, o):
-        for c in o.children:
-            self.visit(c)
+        if o._line in self.pp_info:
+            literals = dict(self.pp_info[o._line])
+            if o.value in literals:
+                o.value = '%s_%s' % (o.value, literals[o.value])
 
 
 class Section(object):
@@ -168,7 +138,7 @@ class Subroutine(Section):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None, typedefs=None):
+    def __init__(self, ast, raw_source, name=None, typedefs=None, pp_info=None):
         self.name = name or ast.attrib['name']
         self._ast = ast
         self._raw_source = raw_source
@@ -215,27 +185,24 @@ class Subroutine(Section):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-        # Set the basic data type on all expression components
-        # Note, that this is needed to get accurate data type for
-        # literal values, as these have been stripped in a
-        # preprocessing step to avoid OFP bugs.
-        for stmt in FindNodes(Statement).visit(self.ir):
-            # Inject declaration type information into expression variables
-            InjectFortranType(self._variables).visit(stmt)
+        # Re-insert literal _KIND type casts from pre-processing info
+        # Note, that this is needed to get accurate data _KIND
+        # attributes for literal values, as these have been stripped
+        # in a preprocessing step to avoid OFP bugs.
+        if pp_info is not None:
+            insert_kind = InsertLiteralKinds(pp_info)
 
-            # Infer data type of expression components from target variable
-            if stmt.target.type is not None:
-                InferDataType(dtype=stmt.target.type.dtype).visit(stmt.expr)
+            for decl in FindNodes(Declaration).visit(self.ir):
+                for v in decl.variables:
+                    if v.initial is not None:
+                        insert_kind.visit(v.initial)
 
-        for cnd in FindNodes(Conditional).visit(self.ir):
-            for c in cnd.conditions:
-                InjectFortranType(self._variables).visit(c)
-                InferDataType(dtype=DataType.JPRB).visit(c)
+            for stmt in FindNodes(Statement).visit(self.ir):
+                insert_kind.visit(stmt)
 
-        # Infer data types for initial parameter values
-        for v in self.variables:
-            if v.type.parameter:
-                InferDataType(dtype=v.type.dtype).visit(v.initial)
+            for cnd in FindNodes(Conditional).visit(self.ir):
+                for c in cnd.conditions:
+                    insert_kind.visit(c)
 
     @property
     def source(self):

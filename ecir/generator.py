@@ -243,7 +243,7 @@ class IRGenerator(GenericVisitor):
             value = '.FALSE.'
         if value == 'true':
             value = '.TRUE.'
-        return Literal(value=value)
+        return Literal(value=value, source=source, line=line)
 
     def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
@@ -265,7 +265,8 @@ class IRGenerator(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
-        return Operation(ops=ops, operands=exprs, parenthesis=parenthesis)
+        return Operation(ops=ops, operands=exprs, parenthesis=parenthesis,
+                         source=source, line=line)
 
     def visit_operator(self, o, source=None, line=None):
         return o.attrib['operator']
