@@ -81,7 +81,7 @@ class FortranSourceFile(object):
             return m['number'] if m['kind'] in self._kinds else m['all']
 
         ll_kind_map = defaultdict(list)
-        re_number = re.compile('(?P<all>(?P<number>[0-9.\-eE]+)_(?P<kind>[a-zA-Z]+))')
+        re_number = re.compile('(?P<all>(?P<number>[0-9.]+[eE]?[0-9\-]*)_(?P<kind>[a-zA-Z]+))')
         source = ''
         with open(filename) as f:
             for ll, line in enumerate(f):
