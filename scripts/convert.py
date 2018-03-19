@@ -6,7 +6,7 @@ import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
-                  Statement, Call, Pragma, fgen, BaseType)
+                  Statement, Call, Pragma, fgen, BaseType, Source)
 
 
 def generate_signature(name, arguments):
@@ -147,8 +147,12 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
             new_bounds = tuple(d for d, k in zip(call.arguments, routine.arguments)
                                if k in target.iteration)
             new_call = Call(name='%s_%s' % (call.name, mode.upper()), arguments=new_args)
-            new_pragma = Pragma(keyword='parallelize',
-                                source='!$claw parallelize forward create update') if mode =='claw' else None
+            if mode == 'claw':
+                pragma_string = '!$claw parallelize forward create update'
+                new_pragma = Pragma(keyword='parallelize',
+                                    source=Source(string=pragma_string, lines=None))
+            else:
+                new_pragma = None
             new_loop = Loop(body=[new_call], variable=target.variable,
                             bounds=new_bounds, pragma=new_pragma)
             driver_routine.body.replace(call._source.string, fgen(new_loop, chunking=4))

@@ -14,7 +14,7 @@ from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple
 
-__all__ = ['generate', 'extract_source']
+__all__ = ['generate', 'extract_source', 'Source']
 
 
 class Source(object):
