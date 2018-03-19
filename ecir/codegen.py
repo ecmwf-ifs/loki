@@ -95,7 +95,9 @@ class FortranCodegen(Visitor):
     def visit_Statement(self, o):
         linewidth = self.linewidth - len(self.indent)
         lines = fexprgen(o, linewidth=linewidth).split('\n')
-        return self.indent + (' &\n%s   & ' % self.indent).join(lines)
+        stmt = (' &\n%s   & ' % self.indent).join(lines)
+        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
+        return self.indent + stmt + comment
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
