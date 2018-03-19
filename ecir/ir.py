@@ -22,9 +22,8 @@ class Node(object):
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
 
-    def __init__(self, source=None, line=None):
+    def __init__(self, source=None):
         self._source = source
-        self._line = line
 
     def _rebuild(self, *args, **kwargs):
         handle = self._args.copy()  # Original constructor arguments
@@ -67,8 +66,8 @@ class CommentBlock(Node):
     Internal representation of a block comment.
     """
 
-    def __init__(self, comments, source=None, line=None):
-        super(CommentBlock, self).__init__(source=source, line=line)
+    def __init__(self, comments, source=None):
+        super(CommentBlock, self).__init__(source=source)
 
         self.comments = comments
 
@@ -77,8 +76,8 @@ class Pragma(Node):
     Internal representation of a EcIR-specific pragma
     """
 
-    def __init__(self, keyword, source=None, line=None):
-        super(Pragma, self).__init__(source=source, line=line)
+    def __init__(self, keyword, source=None):
+        super(Pragma, self).__init__(source=source)
 
         self.keyword = keyword
 
@@ -94,8 +93,8 @@ class Loop(Node):
     _traversable = ['body']
 
     def __init__(self, variable, body=None, bounds=None, pragma=None,
-                 source=None, line=None):
-        super(Loop, self).__init__(source=source, line=line)
+                 source=None):
+        super(Loop, self).__init__(source=source)
 
         self.variable = variable
         self.body = body
@@ -115,8 +114,8 @@ class Conditional(Node):
 
     _traversable = ['bodies', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, source=None, line=None):
-        super(Conditional, self).__init__(source=source, line=line)
+    def __init__(self, conditions, bodies, else_body, source=None):
+        super(Conditional, self).__init__(source=source)
 
         self.conditions = conditions
         self.bodies = bodies
@@ -132,8 +131,8 @@ class Statement(Node):
     """
     Internal representation of a variable assignment
     """
-    def __init__(self, target, expr, comment=None, source=None, line=None):
-        super(Statement, self).__init__(source=source, line=line)
+    def __init__(self, target, expr, comment=None, source=None):
+        super(Statement, self).__init__(source=source)
 
         self.target = target
         self.expr = expr
@@ -148,8 +147,8 @@ class Scope(Node):
 
     _traversable = ['body']
 
-    def __init__(self, body=None, associations=None, source=None, line=None):
-        super(Scope, self).__init__(source=source, line=line)
+    def __init__(self, body=None, associations=None, source=None):
+        super(Scope, self).__init__(source=source)
 
         self.body = body
         self.associations = associations
@@ -164,8 +163,8 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, comment=None, pragma=None, source=None, line=None):
-        super(Declaration, self).__init__(source=source, line=line)
+    def __init__(self, variables, comment=None, pragma=None, source=None):
+        super(Declaration, self).__init__(source=source)
 
         self.variables = variables
         self.comment = comment
@@ -176,8 +175,8 @@ class Import(Node):
     """
     Internal representation of a module import.
     """
-    def __init__(self, module, symbols, source=None, line=None):
-        super(Import, self).__init__(source=source, line=line)
+    def __init__(self, module, symbols, source=None):
+        super(Import, self).__init__(source=source)
 
         self.module = module
         self.symbols = symbols
@@ -187,8 +186,8 @@ class Allocation(Node):
     """
     Internal representation of a variable allocation
     """
-    def __init__(self, variable, source=None, line=None):
-        super(Allocation, self).__init__(source=source, line=line)
+    def __init__(self, variable, source=None):
+        super(Allocation, self).__init__(source=source)
 
         self.variable = variable
 
@@ -197,8 +196,8 @@ class Call(Node):
     """
     Internal representation of a function call
     """
-    def __init__(self, name, arguments, pragma=None, source=None, line=None):
-        super(Call, self).__init__(source=source, line=line)
+    def __init__(self, name, arguments, pragma=None, source=None):
+        super(Call, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
@@ -210,8 +209,8 @@ class TypeDef(Node):
     Internal representation of derived type definition
     """
 
-    def __init__(self, name, variables, comments=None, pragmas=None, source=None, line=None):
-        super(TypeDef, self).__init__(source=source, line=line)
+    def __init__(self, name, variables, comments=None, pragmas=None, source=None):
+        super(TypeDef, self).__init__(source=source)
 
         self.name = name
         self.variables = variables

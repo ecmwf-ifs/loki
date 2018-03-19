@@ -2,7 +2,8 @@ import re
 from collections import OrderedDict, Mapping
 
 from ecir.generator import generate, extract_source
-from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef, Call, Conditional
+from ecir.ir import (Declaration, Allocation, Import, Statement, TypeDef,
+                     Call, Conditional, CommentBlock)
 from ecir.expression import ExpressionVisitor
 from ecir.types import DerivedType, DataType
 from ecir.visitors import FindNodes
@@ -29,6 +30,15 @@ class InsertLiteralKinds(ExpressionVisitor):
             literals = dict(self.pp_info[o._source.lines[0]])
             if o.value in literals:
                 o.value = '%s_%s' % (o.value, literals[o.value])
+
+    def visit_CommentBlock(self, o):
+        for c in o.comments:
+            self.visit(c)
+
+    def visit_Comment(self, o):
+        if o._source.lines[0] in self.pp_info:
+            for val, kind in self.pp_info[o._source.lines[0]]:
+                o._source.string = o._source.string.replace(val, '%s_%s' % (val, kind))
 
 
 class Section(object):
@@ -204,6 +214,9 @@ class Subroutine(Section):
             for cnd in FindNodes(Conditional).visit(self.ir):
                 for c in cnd.conditions:
                     insert_kind.visit(c)
+
+            for cmt in FindNodes(CommentBlock).visit(self.ir):
+                insert_kind.visit(cmt)
 
     @property
     def source(self):
