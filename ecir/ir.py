@@ -98,7 +98,9 @@ class Loop(Node):
 
         self.variable = variable
         self.body = body
-        self.bounds = bounds
+        # Ensure three-entry tuple
+        self.bounds = tuple(bounds[i] if len(bounds) > i else None
+                            for i in range(3))
         self.pragma = pragma
 
     @property
