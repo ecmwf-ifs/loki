@@ -22,9 +22,8 @@ class Expression(object):
 
     _traversable = []
 
-    def __init__(self, source=None, line=None):
+    def __init__(self, source=None):
         self._source = source
-        self._line = line
 
     @abstractproperty
     def expr(self):
@@ -57,8 +56,8 @@ class Operation(Expression):
 
     _traversable = ['operands']
 
-    def __init__(self, ops, operands, parenthesis=False, source=None, line=None):
-        super(Operation, self).__init__(source=source, line=line)
+    def __init__(self, ops, operands, parenthesis=False, source=None):
+        super(Operation, self).__init__(source=source)
         self.ops = ops
         self.operands = operands
         self.parenthesis = parenthesis
@@ -86,8 +85,8 @@ class Operation(Expression):
 
 class Literal(Expression):
 
-    def __init__(self, value, type=None, source=None, line=None):
-        super(Literal, self).__init__(source=source, line=line)
+    def __init__(self, value, type=None, source=None):
+        super(Literal, self).__init__(source=source)
         self.value = value
         self._type = type
 
@@ -102,10 +101,9 @@ class Literal(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, dimensions=None, initial=None, source=None, line=None):
-        super(Variable, self).__init__(source=source, line=line)
+    def __init__(self, name, type=None, dimensions=None, initial=None, source=None):
+        super(Variable, self).__init__(source=source)
         self._source = source
-        self._line = line
 
         self.name = name
         self._type = type

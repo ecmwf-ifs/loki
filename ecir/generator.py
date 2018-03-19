@@ -23,6 +23,8 @@ class Source(object):
         self.string = string
         self.lines = lines
 
+    def __repr__(self):
+        return 'Source<lines %s-%s>' % (self.lines[0], self.lines[1])
 
 def extract_source(ast, text, full_lines=False):
     """
@@ -40,14 +42,7 @@ def extract_source(ast, text, full_lines=False):
         return Source(string=''.join(text[lstart-1:lend]),
                       lines=(lstart, lend))
 
-    if lstart == lend:
-        lines = [text[lstart-1][cstart:cend]]
-    else:
-        lines = text[lstart-1:lend]
-        firstline = lines[0][cstart:]
-        lastline = lines[-1][:cend]
-        lines = [firstline] + lines[1:-1] + [lastline]
-
+    lines = text[lstart-1:lend]
 
     # Scan for line continuations and honour inline
     # comments in between continued lines
@@ -57,16 +52,27 @@ def extract_source(ast, text, full_lines=False):
         return line.strip().startswith('!')
 
     # We only honour line continuation if we're not parsing a comment
-
-    ##############################################################
-    ##  TODO: Keep track of line numbers, especially for sub-parts
-    ##  that are wholly on a new line (eg. second operand/literal)
-    ##############################################################
-
     if not is_comment(lines[-1]):
         while continued(lines[-1]) or is_comment(lines[-1]):
             lend += 1
+            # TODO: Strip the leading empty space before the '&'
             lines.append(text[lend-1])
+
+    # If line continuation is used, move column index to the relevant parts
+    while cstart >= len(lines[0]):
+        if not is_comment(lines[0]):
+            cstart -= len(lines[0])
+            cend -= len(lines[0])
+        lines = lines[1:]
+        lstart += 1
+
+    # TODO: The column indexes are still not right, so source strings
+    # for sub-expressions are likely wrong!
+    if lstart == lend:
+        lines[0] = lines[0][cstart:cend]
+    else:
+        lines[0] = lines[0][cstart:]
+        lines[-1] = lines[-1][:cend]
 
     return Source(string=''.join(lines), lines=(lstart, lend))
 
@@ -284,7 +290,7 @@ class IRGenerator(GenericVisitor):
         if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
             return InlineCall(name=vname, arguments=indices)
         else:
-            return Variable(name=vname, dimensions=indices)
+            return Variable(name=vname, dimensions=indices, source=source)
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
@@ -315,6 +321,7 @@ class IRGenerator(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
+        
         return Operation(ops=ops, operands=exprs, parenthesis=parenthesis,
                          source=source)
 

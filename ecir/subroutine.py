@@ -25,8 +25,8 @@ class InsertLiteralKinds(ExpressionVisitor):
         self.pp_info = dict(pp_info)
 
     def visit_Literal(self, o):
-        if o._line in self.pp_info:
-            literals = dict(self.pp_info[o._line])
+        if o._source.lines[0] in self.pp_info:
+            literals = dict(self.pp_info[o._source.lines[0]])
             if o.value in literals:
                 o.value = '%s_%s' % (o.value, literals[o.value])
 
@@ -109,7 +109,7 @@ class Module(Section):
             pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
             for v in typedef.variables:
                 if v._source.lines[0]-1 in pragmas:
-                    pragma = pragmas[v._line-1]
+                    pragma = pragmas[v._source.lines[0]-1]
                     if pragma.keyword == 'dimension':
                         # Found dimension override for variable
                         dims = pragma._source.string.split('dimension(')[-1]
