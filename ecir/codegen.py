@@ -34,7 +34,7 @@ class FortranCodegen(Visitor):
     def visit(self, o):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
             # Re-use original source associated with node
-            return o._source
+            return o._source.string
         else:
             return super(FortranCodegen, self).visit(o)
 
@@ -42,7 +42,7 @@ class FortranCodegen(Visitor):
         return self.indent + '! <%s>' % o.__class__.__name__
 
     def visit_Intrinsic(self, o):
-        return o._source
+        return o._source.string
 
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
@@ -56,10 +56,10 @@ class FortranCodegen(Visitor):
         return header + body + '\nEND SUBROUTINE %s\n' % o.name
 
     def visit_Comment(self, o):
-        return self.indent + o._source
+        return self.indent + o._source.string
 
     def visit_Pragma(self, o):
-        return self.indent + o._source
+        return self.indent + o._source.string
 
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]

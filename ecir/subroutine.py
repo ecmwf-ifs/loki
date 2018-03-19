@@ -1,12 +1,12 @@
 import re
 from collections import OrderedDict, Mapping
 
-from ecir.generator import generate
+from ecir.generator import generate, extract_source
 from ecir.ir import Declaration, Allocation, Import, Statement, TypeDef, Call, Conditional
 from ecir.expression import ExpressionVisitor
 from ecir.types import DerivedType, DataType
 from ecir.visitors import FindNodes
-from ecir.tools import flatten, extract_lines
+from ecir.tools import flatten
 from ecir.helpers import assemble_continued_statement_from_list
 
 
@@ -97,7 +97,7 @@ class Module(Section):
         self._raw_source = raw_source
 
         # The actual lines in the source for this subroutine
-        self._source = extract_lines(self._ast.attrib, raw_source)
+        self._source = extract_source(self._ast.attrib, raw_source).string
 
         # Process module-level type specifications
         spec_ast = self._ast.find('body/specification')
@@ -106,13 +106,13 @@ class Module(Section):
         # Process 'dimension' pragmas to override deferred dimensions
         self._typedefs = FindNodes(TypeDef).visit(self._spec)
         for typedef in self._typedefs:
-            pragmas = {p._line: p for p in typedef.pragmas}
+            pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
             for v in typedef.variables:
-                if v._line-1 in pragmas:
+                if v._source.lines[0]-1 in pragmas:
                     pragma = pragmas[v._line-1]
                     if pragma.keyword == 'dimension':
                         # Found dimension override for variable
-                        dims = pragma._source.split('dimension(')[-1]
+                        dims = pragma._source.string.split('dimension(')[-1]
                         dims = dims.split(')')[0].split(',')
                         dims = [d.strip() for d in dims]
                         # Override dimensions (hacky: not transformer-safe!)
@@ -144,7 +144,8 @@ class Subroutine(Section):
         self._raw_source = raw_source
 
         # The actual lines in the source for this subroutine
-        self._source = extract_lines(self._ast.attrib, raw_source)
+        # TODO: Turn Section._source into a real `Source` object
+        self._source = extract_source(self._ast.attrib, raw_source).string
 
         # Separate body and declaration sections
         # Note: The declaration includes the SUBROUTINE key and dummy

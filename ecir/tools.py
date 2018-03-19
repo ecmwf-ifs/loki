@@ -4,7 +4,7 @@ from collections import Iterable
 
 from ecir.helpers import assemble_continued_statement_from_list
 
-__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple', 'extract_lines']
+__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple']
 
 
 def flatten(l):
@@ -89,43 +89,3 @@ def as_tuple(item, type=None, length=None):
     if type and not all(isinstance(i, type) for i in t):
         raise TypeError("Items need to be of type %s" % type)
     return t
-
-
-def extract_lines(ast, source, full_lines=False):
-    """
-    Extract the marked string from source text.
-    """
-    attrib = ast.attrib if hasattr(ast, 'attrib') else ast
-    lstart = int(attrib['line_begin'])
-    lend = int(attrib['line_end'])
-    cstart = int(attrib['col_begin'])
-    cend = int(attrib['col_end'])
-
-    source = source.splitlines(keepends=True)
-
-    if full_lines:
-        return ''.join(source[lstart-1:lend])
-
-    if lstart == lend:
-        lines = [source[lstart-1][cstart:cend]]
-    else:
-        lines = source[lstart-1:lend]
-        firstline = lines[0][cstart:]
-        lastline = lines[-1][:cend]
-        lines = [firstline] + lines[1:-1] + [lastline]
-
-
-    # Scan for line continuations and honour inline
-    # comments in between continued lines
-    def continued(line):
-        return line.strip().endswith('&')
-    def is_comment(line):
-        return line.strip().startswith('!')
-
-    # We only honour line continuation if we're not parsing a comment
-    if not is_comment(lines[-1]):
-        while continued(lines[-1]) or is_comment(lines[-1]):
-            lend += 1
-            lines.append(source[lend-1])
-
-    return ''.join(lines)

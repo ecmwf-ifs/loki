@@ -151,7 +151,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
                                 source='!$claw parallelize forward create update') if mode =='claw' else None
             new_loop = Loop(body=[new_call], variable=target.variable,
                             bounds=new_bounds, pragma=new_pragma)
-            driver_routine.body.replace(call._source, fgen(new_loop, chunking=4))
+            driver_routine.body.replace(call._source.string, fgen(new_loop, chunking=4))
 
     # Finally, add the loop counter variable to declarations
     new_var = Variable(name=target.variable, type=BaseType(name='INTEGER', kind='JPIM'))
@@ -187,9 +187,9 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     for loop in FindNodes(Loop).visit(routine._ir):
         if loop.variable == target.variable:
             # Get loop body and drop two leading chars for unindentation
-            lines = loop._source.splitlines(keepends=True)[1:-1]
+            lines = loop._source.string.splitlines(keepends=True)[1:-1]
             lines = ''.join([line.replace('  ', '', 1) for line in lines])
-            routine.body.replace(loop._source, lines)
+            routine.body.replace(loop._source.string, lines)
 
     ####  Signature and interface adjustments  ####
 
@@ -205,10 +205,10 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     derived_arg_var = defaultdict(list)
     # Note: This is getting tedious; there must be a better way...
     for arg in arguments:
-        if arg.type.name.upper() in derived_types:
+        if arg.type.name.upper() in typedefs:
             new_vars = []
             # TODO: Need to define __key/__hash__ for Variables and (Derived)Types
-            derived = derived_types[arg.type.name.upper()]
+            derived = typedefs[arg.type.name.upper()]
             for type_var in derived.variables:
                 # Check if variable has the target dimension and is used in routine
                 t_str = '%s%%%s' % (arg.name, type_var.name)
@@ -243,7 +243,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
 
                 # Replace derived argument declaration with new declarations
                 new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
-                routine.declarations.replace(decl._source, new_string)
+                routine.declarations.replace(decl._source.string, new_string)
 
     # And finally, replace all occurences of derived sub-types with unrolled ones
     routine.body.replace(derived_arg_repl)
@@ -272,10 +272,10 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     # Strip target sizes from declarations
     for v in routine.arguments:
         if v.name in target.variables:
-            routine.declarations.replace(v._source, '')
+            routine.declarations.replace(v._source.string, '')
 
     # Strip target loop variable
-    line = routine._variables[target.variable]._source
+    line = routine._variables[target.variable]._source.string
     new_line = line.replace('%s, ' % target.variable, '')
     routine.declarations.replace(line, new_line)
 
@@ -417,7 +417,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, interface, cons
                 continue
 
             call.name = '%s_IDEM' % call.name
-            driver_routine.body.replace(call._source, fgen(call, chunking=4))
+            driver_routine.body.replace(call._source.string, fgen(call, chunking=4))
 
     print("Writing to %s" % driver_out)
     f_driver.write(filename=driver_out)
