@@ -383,9 +383,7 @@ def cli():
             help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-@click.option('--conservative/--no-conservative', default=False,
-            help='Force conservative re-generation')
-def idempotence(source, source_out, driver, driver_out, typedef, interface, conservative):
+def idempotence(source, source_out, driver, driver_out, typedef, interface):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -399,13 +397,8 @@ def idempotence(source, source_out, driver, driver_out, typedef, interface, cons
     generate_interface(filename=interface, name=routine.name,
                        arguments=routine.arguments, imports=routine.imports)
 
-    print("Writing to %s" % source_out)
-    if conservative:
-        # Debug hack to get 'conservative' mode happening
-        routine._source = routine._source.replace('SUBROUTINE CLOUDSC', 'SUBROUTINE CLOUDSC_IDEM')
-        f_source.write(source=fgen(routine, conservative=True), filename=source_out)
-    else:
-        f_source.write(source=fgen(routine, conservative=False), filename=source_out)
+    # Re-generate the target routine with the updated name
+    f_source.write(source=fgen(routine, conservative=False), filename=source_out)
 
     # Replace the non-reference call in the driver for evaluation
     f_driver = FortranSourceFile(driver, preprocess=False)
