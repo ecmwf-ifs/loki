@@ -207,6 +207,8 @@ class IRGenerator(GenericVisitor):
                     kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
                     type = BaseType(typename, kind=kind, pointer='pointer' in attributes)
                     v_source = extract_source(t.attrib, self._raw_source)
+                    v_line = int(t.find('type').attrib['line_end'])
+                    v_source.lines = (v_line, v_line)  # HACK!!!
                     for v in t.findall('component-decl'):
                         if 'dimension' in attributes:
                             dim_count = int(t.find('deferred-shape-spec-list').attrib['count'])
