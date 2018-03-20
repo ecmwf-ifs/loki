@@ -10,7 +10,9 @@ from os import path
 from collections import Iterable, defaultdict
 
 from ecir.subroutine import Section, Subroutine, Module
-from ecir.tools import disk_cached
+from ecir.tools import disk_cached, timeit
+from ecir.logging import info, INFO
+
 
 __all__ =['FortranSourceFile']
 
@@ -42,11 +44,8 @@ class FortranSourceFile(object):
             self._raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        print("Parsing %s..." % filename)
-        t0 = time.time()
+        info("Parsing %s" % filename)
         self._ast = self.parse_ast(filename=filename)
-        t1 = time.time() - t0
-        print("Parsing done! (time: %.2fs)" % t1)
 
         # Extract subroutines and pre/post sections from file
         pp_info = None
@@ -74,7 +73,7 @@ class FortranSourceFile(object):
             if path.getmtime(pp_name) > path.getmtime(filename):
                 # Already pre-processed this one, skip!
                 return
-        print("Pre-processing %s => %s" % (filename, pp_name))
+        info("Pre-processing %s => %s" % (filename, pp_name))
 
         def repl_number_kind(match):
             m = match.groupdict()
@@ -99,6 +98,7 @@ class FortranSourceFile(object):
         with open(info_name, 'wb') as f:
             pickle.dump(ll_kind_map, f)
 
+    @timeit()
     @disk_cached(argname='filename')
     def parse_ast(self, filename):
         """

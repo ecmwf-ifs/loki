@@ -12,7 +12,7 @@ from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
 from ecir.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
 from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
-from ecir.tools import as_tuple
+from ecir.tools import as_tuple, timeit
 
 __all__ = ['generate', 'extract_source', 'Source']
 
@@ -401,6 +401,7 @@ class PatternFinder(Visitor):
     visit_list = visit_tuple
 
 
+@timeit()
 def generate(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
