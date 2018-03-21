@@ -57,7 +57,7 @@ class BaseType(object):
         elif isinstance(other, BaseType):
             return self.__key() == other.__key()
         else:
-            self == other
+            return super(BaseType, self).__eq__(other)
 
     @property
     def dtype(self):

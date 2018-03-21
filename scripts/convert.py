@@ -7,7 +7,8 @@ import sys
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
-                  Module, info)
+                  Module, info, DerivedType, ExpressionVisitor,
+                  Transformer)
 
 
 def generate_signature(name, arguments):
@@ -61,6 +62,49 @@ def generate_interface(filename, name, arguments, imports):
         file.write(interface)
 
 
+class FindVariables(ExpressionVisitor, Visitor):
+
+    default_retval = set
+
+    def visit_tuple(self, o):
+        vars = set()
+        for c in o:
+            vars.update(flatten(self.visit(c)))
+        return  vars
+
+    visit_list = visit_tuple
+
+    def visit_Variable(self, o):
+        return set([o])
+
+    def visit_Expression(self, o):
+        vars = set()
+        for c in o.children:
+            vars.update(flatten(self.visit(c)))
+        return  vars
+
+    def visit_Statement(self, o, **kwargs):
+        vars = self.visit(o.expr, **kwargs)
+        vars.update(flatten(self.visit(o.target)))
+        return vars
+
+
+class VariableTransformer(ExpressionVisitor, Visitor):
+    """
+    In-place transformer that applies string replacements
+    :class:`Variable`s.
+    """
+
+    def __init__(self, mapper):
+        super(VariableTransformer, self).__init__()
+        self.mapper = mapper
+
+    def visit_Variable(self, o):
+        for old, new in self.mapper.items():
+            if old in o.name:
+                o.name = o.name.replace(old, new)
+
+
 def get_typedefs(typedef):
     # Read derived type definitions from typedef modules
     definitions = {}
@@ -68,6 +112,52 @@ def get_typedefs(typedef):
         module = FortranSourceFile(tfile).modules[0]
         definitions.update(module.typedefs)
     return definitions
+
+
+def flatten_derived_arguments_callee(routine):
+    """
+    Flatten all derived-type argument in the subroutine body,
+    signature and argument declarations.
+
+    The convention used is simply: ``derived%var => derived_var``
+    """
+    variables = FindVariables().visit(routine.ir)
+    declarations = FindNodes(Declaration).visit(routine.ir)
+
+    decl_mapper = defaultdict(list)
+    v_mapper = {}
+    for arg in routine.arguments:
+        if isinstance(arg.type, DerivedType):
+            # Pull the derived-rtype declaration from declaration list
+            old_decl = [d for d in declarations if arg in d.variables][0]
+            new_names = []
+
+            for type_var in arg.type.variables.values():
+                # Check if derived%var is used in routine
+                old_name = '%s%%%s' % (arg.name, type_var.name)
+                if any(old_name in str(v) for v in variables):
+                    # Create new name and add to variable mapper
+                    new_name = '%s_%s' % (arg.name, type_var.name)
+                    new_names += [new_name]
+                    v_mapper[old_name] = new_name
+
+                    # Create new declaration and add to declaration mapper
+                    new_type = BaseType(name=type_var.type.name,
+                                        kind=type_var.type.kind,
+                                        intent=arg.type.intent)
+                    new_var = Variable(name=new_name, type=new_type,
+                                       dimensions=type_var.dimensions)
+                    decl_mapper[old_decl] += [Declaration(variables=[new_var])]
+
+            # Replace variable in dummy signature
+            i = routine.argnames.index(arg.name)
+            routine._argnames[i:i+1] = new_names
+
+    # Replace variable occurences in-place (derived%v => derived_v)
+    VariableTransformer(v_mapper).visit(routine.ir)
+
+    # Replace `Declaration` nodes (re-generates the IR tree)
+    routine._ir = Transformer(decl_mapper).visit(routine.ir)
 
 
 class Dimension(object):

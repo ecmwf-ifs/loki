@@ -2,6 +2,7 @@ import inspect
 from collections import Iterable
 
 from ecir.ir import Node
+from ecir.tools import flatten
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
@@ -142,8 +143,8 @@ class Transformer(Visitor):
 
     In the special case in which ``M[n]`` is None, ``n`` is dropped from T'.
 
-    In the special case in which ``M[n]`` is an iterable of nodes, ``n`` is
-    "extended" by pre-pending to its body the nodes in ``M[n]``.
+    In the special case in which ``M[n]`` is an iterable of nodes,
+    all nodes in ``M[n]`` are inserted into the tuple containing ``n``.
     """
 
     def __init__(self, mapper={}):
@@ -155,6 +156,12 @@ class Transformer(Visitor):
         return o
 
     def visit_tuple(self, o, **kwargs):
+        # For one-to-many mappings check iterables for the replacement
+        # node and insert the sub-list/tuple into the list/tuple.
+        for k, handle in self.mapper.items():
+            if k in o and isinstance(handle, Iterable):
+                i = o.index(k)
+                o = o[:i] + tuple(handle) + o[i+1:]
         visited = tuple(self.visit(i, **kwargs) for i in o)
         return tuple(i for i in visited if i is not None)
 
@@ -167,6 +174,7 @@ class Transformer(Visitor):
                 # None -> drop /o/
                 return None
             elif isinstance(handle, Iterable):
+                # Original implementation to extend o.children:
                 if not o.children:
                     raise VisitorException
                 extended = (tuple(handle) + o.children[0],) + o.children[1:]

@@ -191,13 +191,12 @@ class Subroutine(Section):
         # Create a IRs for declarations section and the loop body
         self._ir = generate(self._ast.find('body'), self._raw_source)
 
-        # Create a map of all internally used variables
-        decls = FindNodes(Declaration).visit(self.ir)
-        allocs = FindNodes(Allocation).visit(self.ir)
-        variables = flatten([d.variables for d in decls])
-        self._variables = OrderedDict([(v.name, v) for v in variables])
+        # Store the names of variables in the subroutine signature
+        arg_ast = self._ast.findall('header/arguments/argument')
+        self._argnames = [arg.attrib['name'] for arg in arg_ast]
 
         # Try to infer variable dimensions for ALLOCATABLEs
+        allocs = FindNodes(Allocation).visit(self.ir)
         for v in self.variables:
             if v.type.allocatable:
                 alloc = [a for a in allocs if a.variable.name == v.name]
@@ -251,19 +250,31 @@ class Subroutine(Section):
         return self._ir
 
     @property
+    def argnames(self):
+        return self._argnames
+
+    @property
     def arguments(self):
         """
         List of argument names as defined in the subroutine signature.
         """
-        argnames = [arg.attrib['name'] for arg in self._ast.findall('header/arguments/argument')]
-        return [self._variables[name] for name in argnames]
+        vmap = self.variable_map
+        return [vmap[name] for name in self.argnames]
 
     @property
     def variables(self):
         """
         List of all declared variables
         """
-        return list(self._variables.values())
+        decls = FindNodes(Declaration).visit(self.ir)
+        return flatten([d.variables for d in decls])
+
+    @property
+    def variable_map(self):
+        """
+        Map of variable names to `Variable` objects
+        """
+        return {v.name: v for v in self.variables}
 
     @property
     def imports(self):

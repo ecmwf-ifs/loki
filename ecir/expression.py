@@ -132,7 +132,7 @@ class Variable(Expression):
         elif isinstance(other, Variable):
             return self.__key() == other.__key()
         else:
-            self == other
+            return super(Variable, self).__eq__(other)
 
 
 class InlineCall(Expression):
@@ -165,6 +165,12 @@ class Index(Expression):
     def expr(self):
         return '%s' % self.name
 
+    def __key(self):
+        return (self.name)
+
+    def __hash__(self):
+        return hash(self.__key())
+
     @property
     def type(self):
         # TODO: Some common form of `INT`, maybe?
@@ -177,4 +183,4 @@ class Index(Expression):
         elif isinstance(other, Index):
             return self.name == other.name
         else:
-            self == other
+            return super(Index, self).__eq__(other)
