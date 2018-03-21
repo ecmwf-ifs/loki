@@ -56,7 +56,7 @@ class FortranSourceFile(object):
         self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source,
                                        typedefs=typedefs, pp_info=pp_info)
                             for r in self._ast.findall('file/subroutine')]
-        self.modules = [Module(ast=m, raw_source=self._raw_source)
+        self.modules = [Module.from_source(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]
 
     def preprocess(self, pp_path, info_path, kinds=None):

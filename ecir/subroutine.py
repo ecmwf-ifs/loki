@@ -101,21 +101,37 @@ class Module(Section):
                        appeared in the parsed source file.
     """
 
-    def __init__(self, ast, raw_source, name=None):
+    def __init__(self, name=None, spec=None, routines=None, ast=None,
+                 raw_source=None):
         self.name = name or ast.attrib['name']
+        self.spec = spec
+        self.routines = routines
+
         self._ast = ast
         self._raw_source = raw_source
 
-        # The actual lines in the source for this subroutine
-        self._source = extract_source(self._ast.attrib, raw_source).string
-
+    @classmethod
+    def from_source(cls, ast, raw_source, name=None):
         # Process module-level type specifications
-        spec_ast = self._ast.find('body/specification')
-        self._spec = generate(spec_ast, self._raw_source)
+        name = name or ast.attrib['name']
 
-        # Process 'dimension' pragmas to override deferred dimensions
-        self._typedefs = FindNodes(TypeDef).visit(self._spec)
-        for typedef in self._typedefs:
+        # Parse type definitions into IR and store
+        spec_ast = ast.find('body/specification')
+        spec = generate(spec_ast, raw_source)
+
+        # TODO: Add routine parsing
+
+        # Process pragmas to override deferred dimensions
+        cls._process_pragmas(spec)
+
+        return cls(name=name, spec=spec, ast=ast, raw_source=raw_source)
+
+    @classmethod
+    def _process_pragmas(self, spec):
+        """
+        Process any '!$ecir dimension' pragmas to override deferred dimensions
+        """
+        for typedef in FindNodes(TypeDef).visit(spec):
             pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
             for v in typedef.variables:
                 if v._source.lines[0]-1 in pragmas:
@@ -133,7 +149,8 @@ class Module(Section):
         """
         Map of names and :class:`DerivedType`s defined in this module.
         """
-        return {td.name.upper(): td for td in self._typedefs}
+        types = FindNodes(TypeDef).visit(self.spec)
+        return {td.name.upper(): td for td in types}
 
 
 class Subroutine(Section):

@@ -49,6 +49,14 @@ class FortranCodegen(Visitor):
 
     visit_list = visit_tuple
 
+    def visit_Module(self, o):
+        body = self.visit(o.routines)
+        spec = self.visit(o.spec)
+        header = 'MODULE %s \n\n' % o.name
+        contains = '\ncontains\n\n'
+        footer = '\nEND MODULE %s\n' % o.name
+        return header + spec + contains + body + footer
+
     def visit_Subroutine(self, o):
         arguments = self.segment([a.name for a in o.arguments])
         body = self.visit(o.ir)
