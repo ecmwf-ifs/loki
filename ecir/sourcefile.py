@@ -121,9 +121,10 @@ class FortranSourceFile(object):
         :param source: Optional source string; if not provided `self.source` is used
         :param filename: Optional filename; if not provided, `self.name` is used
         """
-        filename = filename or '%s.F90' % self.basename
+        path = Path(filename or self.path)
         source = self.source if source is None else source
-        with open(filename, 'w') as f:
+        info("Writing %s" % path)
+        with path.open('w') as f:
             f.write(source)
 
     @property

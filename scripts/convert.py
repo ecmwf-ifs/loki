@@ -6,7 +6,8 @@ import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
-                  Statement, Call, Pragma, fgen, BaseType, Source)
+                  Statement, Call, Pragma, fgen, BaseType, Source,
+                  Module, info)
 
 
 def generate_signature(name, arguments):
@@ -383,11 +384,9 @@ def cli():
             help='Driver file to convert.')
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
             help='Path for generated driver output.')
-@click.option('--interface', '-intfb', type=click.Path(), default=None,
-            help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-def idempotence(source, source_out, driver, driver_out, typedef, interface):
+def idempotence(source, source_out, driver, driver_out, typedef):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -397,26 +396,25 @@ def idempotence(source, source_out, driver, driver_out, typedef, interface):
     routine = f_source.subroutines[0]
     routine.name = '%s_IDEM' % routine.name
 
-    # Generate the interface file associated with this routine
-    generate_interface(filename=interface, name=routine.name,
-                       arguments=routine.arguments, imports=routine.imports)
-
     # Re-generate the target routine with the updated name
-    f_source.write(source=fgen(routine, conservative=False), filename=source_out)
+    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
+    f_source.write(source=fgen(module), filename=source_out)
 
     # Replace the non-reference call in the driver for evaluation
     f_driver = FortranSourceFile(driver, preprocess=False)
-    driver_routine = f_driver.subroutines[0]
-    for call in FindNodes(Call).visit(driver_routine._ir):
+    driver = f_driver.subroutines[0]
+    for call in FindNodes(Call).visit(driver._ir):
         if call.name == target_routine:
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
 
             call.name = '%s_IDEM' % call.name
-            driver_routine.body.replace(call._source.string, fgen(call, chunking=4))
+            driver.body.replace(call._source.string, fgen(call, chunking=4))
 
-    print("Writing to %s" % driver_out)
+    new_import = 'USE %s_MOD, ONLY: %s\n' % (routine.name.upper(), routine.name)
+    driver.declarations._source = new_import + driver.declarations._source
+
     f_driver.write(filename=driver_out)
 
 
