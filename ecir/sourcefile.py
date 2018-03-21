@@ -6,7 +6,7 @@ import re
 import time
 import pickle
 import open_fortran_parser
-from os import path
+from pathlib import Path
 from collections import Iterable, defaultdict
 
 from ecir.subroutine import Section, Subroutine, Module
@@ -28,29 +28,29 @@ class FortranSourceFile(object):
     _kinds = ['JPIM', 'JPRB']
 
     def __init__(self, filename, preprocess=True, typedefs=None):
-        self.basename = path.splitext(filename)[0]
-        info_name = '%s.pp.info' % self.basename
+        self.path = Path(filename)
+        info_path = self.path.with_suffix('.pp.info')
+        file_path = self.path
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the OFP, as it will otherwise drop certain
         # terms due to advanced bugged-ness! :(
         if preprocess:
-            pp_name = '%s.pp.F90' % self.basename
-            self.preprocess(filename, pp_name, info_name)
-            filename = pp_name
+            pp_path = self.path.with_suffix('.pp.F90')
+            self.preprocess(pp_path, info_path)
+            file_path = pp_path
 
         # Import and store the raw file content
-        with open(filename) as f:
+        with file_path.open() as f:
             self._raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        info("Parsing %s" % filename)
-        self._ast = self.parse_ast(filename=filename)
+        self._ast = self.parse_ast(filename=str(file_path))
 
         # Extract subroutines and pre/post sections from file
         pp_info = None
-        if path.exists(info_name):
-            with open(info_name, 'rb') as f:
+        if info_path.exists():
+            with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
         self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source,
@@ -59,7 +59,7 @@ class FortranSourceFile(object):
         self.modules = [Module(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]
 
-    def preprocess(self, filename, pp_name, info_name, kinds=None):
+    def preprocess(self, pp_path, info_path, kinds=None):
         """
         A dedicated pre-processing step to ensure smooth source parsing.
 
@@ -69,11 +69,11 @@ class FortranSourceFile(object):
         their _KINDs, indexed by line. This allows us to the re-insert
         this information after the AST parse when creating `Subroutine`s.
         """
-        if path.exists(pp_name):
-            if path.getmtime(pp_name) > path.getmtime(filename):
+        if pp_path.exists():
+            if pp_path.stat().st_mtime > self.path.stat().st_mtime:
                 # Already pre-processed this one, skip!
                 return
-        info("Pre-processing %s => %s" % (filename, pp_name))
+        info("Pre-processing %s => %s" % (self.path, pp_path))
 
         def repl_number_kind(match):
             m = match.groupdict()
@@ -82,7 +82,7 @@ class FortranSourceFile(object):
         ll_kind_map = defaultdict(list)
         re_number = re.compile('(?P<all>(?P<number>[0-9.]+[eE]?[0-9\-]*)_(?P<kind>[a-zA-Z]+))')
         source = ''
-        with open(filename) as f:
+        with self.path.open() as f:
             for ll, line in enumerate(f):
                 ll += 1  # Correct for Fortran counting
                 matches = re_number.findall(line)
@@ -92,10 +92,10 @@ class FortranSourceFile(object):
                         ll_kind_map[ll] += [(m[1], m[2])]
                 source += line
 
-        with open(pp_name, 'w') as f:
+        with pp_path.open('w') as f:
             f.write(source)
 
-        with open(info_name, 'wb') as f:
+        with info_path.open('wb') as f:
             pickle.dump(ll_kind_map, f)
 
     @timeit()
@@ -106,6 +106,7 @@ class FortranSourceFile(object):
 
         Note: The parsing is cached on disk in ``<filename>.cache``.
         """
+        info("Parsing %s" % filename)
         return open_fortran_parser.parse(filename)
 
     @property
