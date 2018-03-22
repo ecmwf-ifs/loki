@@ -74,9 +74,10 @@ class FortranCodegen(Visitor):
         return '\n'.join(comments)
 
     def visit_Declaration(self, o):
+        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.variables[0].type)
         variables = self.segment([self.visit(v) for v in o.variables])
-        return self.indent + '%s :: %s' % (type, variables)
+        return self.indent + '%s :: %s' % (type, variables) + comment
 
     def visit_Import(self, o):
         return 'USE %s, ONLY: %s' % (o.module, self.segment(o.symbols))
@@ -122,12 +123,20 @@ class FortranCodegen(Visitor):
             signature = ', '.join(str(a) for a in o.arguments)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
+    def visit_Allocation(self, o):
+        variable = self.visit(o.variable)
+        return self.indent + 'ALLOCATE(%s)' % variable
+
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
 
     def visit_Variable(self, o):
-        dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
+        if len(o.dimensions) > 0:
+            dims = [str(d) if d is not None else ':' for d in o.dimensions]
+            dims = '(%s)' % ','.join(dims)
+        else:
+            dims = ''
         initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
         return '%s%s%s' % (o.name, dims, initial)
 
@@ -136,7 +145,7 @@ class FortranCodegen(Visitor):
         return '%s%s%s%s%s%s%s' % (
             tname, '(KIND=%s)' % o.kind if o.kind else '',
             ', INTENT(%s)' % o.intent.upper() if o.intent else '',
-            ', ALLOCATE' if o.allocatable else '',
+            ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '')
