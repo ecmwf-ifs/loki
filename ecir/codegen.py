@@ -127,6 +127,10 @@ class FortranCodegen(Visitor):
         variable = self.visit(o.variable)
         return self.indent + 'ALLOCATE(%s)' % variable
 
+    def visit_Deallocation(self, o):
+        variable = self.visit(o.variable)
+        return self.indent + 'DEALLOCATE(%s)' % variable
+
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
@@ -149,6 +153,12 @@ class FortranCodegen(Visitor):
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '')
+
+    def visit_TypeDef(self, o):
+        self._depth += 2
+        declarations = self.visit(o.declarations)
+        self._depth -= 2
+        return 'TYPE %s\n' % o.name + declarations + '\nEND TYPE %s' % o.name
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):

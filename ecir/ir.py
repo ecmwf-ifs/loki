@@ -1,6 +1,8 @@
 from collections import OrderedDict
 import inspect
 
+from ecir.tools import flatten
+
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
            'CommentBlock', 'Pragma', 'Declaration', 'TypeDef']
@@ -194,6 +196,16 @@ class Allocation(Node):
         self.variable = variable
 
 
+class Deallocation(Node):
+    """
+    Internal representation of a variable deallocation
+    """
+    def __init__(self, variable, source=None):
+        super(Deallocation, self).__init__(source=source)
+
+        self.variable = variable
+
+
 class Call(Node):
     """
     Internal representation of a function call
@@ -211,10 +223,14 @@ class TypeDef(Node):
     Internal representation of derived type definition
     """
 
-    def __init__(self, name, variables, comments=None, pragmas=None, source=None):
+    def __init__(self, name, declarations, comments=None, pragmas=None, source=None):
         super(TypeDef, self).__init__(source=source)
 
         self.name = name
-        self.variables = variables
+        self.declarations = declarations
         self.comments = comments
         self.pragmas = pragmas
+
+    @property
+    def variables(self):
+        return tuple(flatten([decl.variables for decl in self.declarations]))

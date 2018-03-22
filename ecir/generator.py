@@ -7,8 +7,8 @@ from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Import, Scope, Intrinsic,
-                     TypeDef)
+                     Pragma, Declaration, Allocation, Deallocation, Import,
+                     Scope, Intrinsic, TypeDef)
 from ecir.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
 from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
@@ -186,7 +186,7 @@ class IRGenerator(GenericVisitor):
                 # component is hidden recursively in a depth-first
                 # hierarchy of 'type' nodes.
                 derived_name = o.find('end-type-stmt').attrib['id']
-                derived_vars = []
+                declarations = []
                 pragmas = []
                 comments = []
 
@@ -202,26 +202,28 @@ class IRGenerator(GenericVisitor):
 
                     # Derive type and variables for this entry
                     variables = []
-                    attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
+                    attributes = [a.attrib['attrKeyword'].upper()
+                                  for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
                     kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
-                    type = BaseType(typename, kind=kind, pointer='pointer' in attributes)
+                    type = BaseType(typename, kind=kind, pointer='POINTER' in attributes)
                     v_source = extract_source(t.attrib, self._raw_source)
                     v_line = int(t.find('type').attrib['line_end'])
                     v_source.lines = (v_line, v_line)  # HACK!!!
                     for v in t.findall('component-decl'):
-                        if 'dimension' in attributes:
-                            dim_count = int(t.find('deferred-shape-spec-list').attrib['count'])
+                        deferred_shape = t.find('deferred-shape-spec-list')
+                        if deferred_shape is not None:
+                            dim_count = int(deferred_shape.attrib['count'])
                             dimensions = [':' for _ in range(dim_count)]
                         else:
                             dimensions = None
                         variables.append(Variable(name=v.attrib['id'], type=type,
                                                   dimensions=dimensions, source=v_source))
                     # Pre-pend current variables to list for this DerivedType
-                    derived_vars = variables + derived_vars
+                    declarations.insert(0, Declaration(variables=variables))
                     # Recurse on 'type' nodes
                     t = t.find('type')
-                return TypeDef(name=derived_name, variables=derived_vars,
+                return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
             else:
                 # We are dealing with a single declaration, so we retrieve
@@ -267,6 +269,10 @@ class IRGenerator(GenericVisitor):
     def visit_allocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))
         return Allocation(variable=variable, source=source)
+
+    def visit_deallocate(self, o, source=None):
+        variable = self.visit(o.find('expressions/expression/name'))
+        return Deallocation(variable=variable, source=source)
 
     def visit_use(self, o, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
