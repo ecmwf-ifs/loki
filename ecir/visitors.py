@@ -312,7 +312,7 @@ class PrintAST(Visitor):
         return out
 
     def visit_Statement(self, o):
-        expr = ' = %s' % o.expr if self.verbose else ''
+        expr = (' => ' if o.ptr else ' = ') + str(o.expr) if self.verbose else ''
         if self.verbose and o.comment is not None:
             self._depth += 2
             comment = '\n%s' % self.visit(o.comment)

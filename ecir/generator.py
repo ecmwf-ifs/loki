@@ -328,6 +328,8 @@ class IRGenerator(GenericVisitor):
         else:
             return Index(name=':')
 
+    visit_dimension = visit_subscript
+
     def visit_operation(self, o, source=None):
         ops = [self.visit(op) for op in o.findall('operator')]
         ops = [op for op in ops if op is not None]  # Filter empty ops
