@@ -287,6 +287,14 @@ class IRGenerator(GenericVisitor):
         # Straight pipe-through node for header includes (#include ...)
         return Intrinsic(source=source)
 
+    def visit_open(self, o, source=None):
+        return Intrinsic(source=source)
+
+    visit_close = visit_open
+    visit_read = visit_open
+    visit_write = visit_open
+    visit_format = visit_open
+
     def visit_call(self, o, source=None):
         # Need to re-think this: the 'name' node already creates
         # a 'Variable', which in this case is wrong...
