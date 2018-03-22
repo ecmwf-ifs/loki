@@ -88,8 +88,9 @@ class IRGenerator(GenericVisitor):
         """
         Alternative lookup method for XML element types, identified by ``element.tag``
         """
-        if instance.tag in self._handlers:
-            return self._handlers[instance.tag]
+        tag = instance.tag.replace('-', '_')
+        if tag in self._handlers:
+            return self._handlers[tag]
         else:
             return super(IRGenerator, self).lookup_method(instance)
 
@@ -157,6 +158,11 @@ class IRGenerator(GenericVisitor):
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, source=source)
 
+    def visit_pointer_assignment(self, o, source=None):
+        target = self.visit(o.find('target'))
+        expr = self.visit(o.find('value'))
+        return Statement(target=target, expr=expr, ptr=True, source=source)
+
     def visit_statement(self, o, source=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
@@ -169,6 +175,8 @@ class IRGenerator(GenericVisitor):
             return Statement(target=target, expr=expr, source=source)
         elif o.find('assignment'):
             return self.visit(o.find('assignment'))
+        elif o.find('pointer-assignment'):
+            return self.visit(o.find('pointer-assignment'))
         else:
             return self.visit_Element(o)
 
@@ -234,9 +242,10 @@ class IRGenerator(GenericVisitor):
                 allocatable = o.find('attribute-allocatable') is not None
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
+                target = o.find('attribute-target') is not None
                 type = BaseType(name=typename, kind=kind, intent=intent,
                                 allocatable=allocatable, optional=optional,
-                                parameter=parameter, source=source)
+                                parameter=parameter, target=target, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
                     if len(v.attrib) == 0:
@@ -261,10 +270,6 @@ class IRGenerator(GenericVisitor):
             associations[var.name] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
         return Scope(body=body, associations=associations)
-
-    def visit_keyword_argument(self, o, source=None):
-        """Extract a single name => association mapping."""
-        return (variable, assoc)
 
     def visit_allocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))

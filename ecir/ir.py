@@ -135,11 +135,12 @@ class Statement(Node):
     """
     Internal representation of a variable assignment
     """
-    def __init__(self, target, expr, comment=None, source=None):
+    def __init__(self, target, expr, ptr=False, comment=None, source=None):
         super(Statement, self).__init__(source=source)
 
         self.target = target
         self.expr = expr
+        self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
 
