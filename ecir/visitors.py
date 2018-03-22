@@ -347,21 +347,25 @@ class PrintAST(Visitor):
         return self.indent + '<Call %s%s>' % (o.name, args)
 
     def visit_Comment(self, o):
-        body = '::%s::' % o._source if self.verbose else ''
+        body = '::%s::' % o._source.string if self.verbose else ''
         return self.indent + '<Comment%s>' % body
 
     def visit_CommentBlock(self, o):
-        body = ('\n%s' % self.indent).join([b._source for b in o.comments])
+        body = ('\n%s' % self.indent).join([b._source.string for b in o.comments])
         return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
 
     def visit_Pragma(self, o):
-        body = ' ::%s::' % o._source if self.verbose else ''
+        body = ' ::%s::' % o._source.string if self.verbose else ''
         return self.indent + '<Pragma %s%s>' % (o.keyword, body)
 
     def visit_Variable(self, o):
         dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
-        pointer = ', ptr' if o.type.pointer else ''
-        return self.indent + 'Var<%s%s%s>' % (o.name, dimensions, pointer)
+        type = self.visit(o.type) if o.type is not None else ''
+        return self.indent + '<Var %s%s%s>' % (o.name, dimensions, type)
+
+    def visit_BaseType(self, o):
+        ptr = ', ptr' if o.pointer else ''
+        return '<Type %s:%s%s>' % (o.name, o.kind, ptr)
 
     def visit_DerivedType(self, o):
         variables = ''
