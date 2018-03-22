@@ -267,7 +267,7 @@ class IRGenerator(GenericVisitor):
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var.name] = Variable(name=assoc_name)
+            associations[var] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
         return Scope(body=body, associations=associations)
 
@@ -305,16 +305,23 @@ class IRGenerator(GenericVisitor):
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
-        indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
-        vrefs = o.findall('part-ref')
-        vname = '%'.join(i.attrib['id'] for i in vrefs)
-        if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
-            return InlineCall(name=vname, arguments=indices)
-        elif o.find('subscripts') is not None and len(indices) == 0:
-            # HACK: We (most likely) found a call out to a C routine
-            return InlineCall(name=o.attrib['id'], arguments=indices)
-        else:
-            return Variable(name=vname, dimensions=indices, source=source)
+        variable = None
+        subscripts = list(reversed(o.findall('subscripts')))
+        for i, vpart in enumerate(reversed(o.findall('part-ref'))):
+            if len(subscripts) > i:
+                indices = tuple(self.visit(s) for s in subscripts[i].findall('subscript'))
+            else:
+                indices = None
+            vname = vpart.attrib['id']
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
+                return InlineCall(name=vname, arguments=indices)
+            elif indices is not None and len(indices) == 0:
+                # HACK: We (most likely) found a call out to a C routine
+                return InlineCall(name=o.attrib['id'], arguments=indices)
+            else:
+                variable = Variable(name=vname, dimensions=indices,
+                                    subvar=variable, source=source)
+        return variable
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']

@@ -101,26 +101,29 @@ class Literal(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, dimensions=None, initial=None, source=None):
+    def __init__(self, name, type=None, dimensions=None, subvar=None,
+                 initial=None, source=None):
         super(Variable, self).__init__(source=source)
         self._source = source
 
         self.name = name
         self._type = type
+        self.subvar = subvar
         self.dimensions = dimensions or ()
         self.initial = initial
 
     @property
     def expr(self):
         idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
-        return '%s%s' % (self.name, idx)
+        subvar = '' if self.subvar is None else '%%%s' % str(self.subvar)
+        return '%s%s%s' % (self.name, idx, subvar)
 
     @property
     def type(self):
         return self._type
 
     def __key(self):
-        return (self.name, self.type, self.dimensions)
+        return (self.name, self.type, self.dimensions, self.subvar)
 
     def __hash__(self):
         return hash(self.__key())
@@ -128,7 +131,7 @@ class Variable(Expression):
     def __eq__(self, other):
         # Allow direct comparison to string and other Variable objects
         if isinstance(other, str):
-            return self.name == other
+            return str(self) == other
         elif isinstance(other, Variable):
             return self.__key() == other.__key()
         else:

@@ -110,7 +110,7 @@ class FortranCodegen(Visitor):
         return self.indent + stmt + comment
 
     def visit_Scope(self, o):
-        associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
+        associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)
         body = self.visit(o.body)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
