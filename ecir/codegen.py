@@ -80,7 +80,8 @@ class FortranCodegen(Visitor):
         return self.indent + '%s :: %s' % (type, variables) + comment
 
     def visit_Import(self, o):
-        return 'USE %s, ONLY: %s' % (o.module, self.segment(o.symbols))
+        only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
+        return 'USE %s%s' % (o.module, only)
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -246,10 +247,11 @@ class FExprCodegen(Visitor):
 
     def visit_InlineCall(self, o, line):
         line = self.append(line, '%s(' % o.name)
-        line = self.visit(o.arguments[0], line=line)
-        for arg in o.arguments[1:]:
-            line = self.append(line, ',')
-            line = self.visit(arg, line=line)
+        if len(o.arguments) > 0:
+            line = self.visit(o.arguments[0], line=line)
+            for arg in o.arguments[1:]:
+                line = self.append(line, ',')
+                line = self.visit(arg, line=line)
         return self.append(line, ')')
 
 

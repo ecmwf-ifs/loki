@@ -310,6 +310,9 @@ class IRGenerator(GenericVisitor):
         vname = '%'.join(i.attrib['id'] for i in vrefs)
         if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
             return InlineCall(name=vname, arguments=indices)
+        elif o.find('subscripts') is not None and len(indices) == 0:
+            # HACK: We (most likely) found a call out to a C routine
+            return InlineCall(name=o.attrib['id'], arguments=indices)
         else:
             return Variable(name=vname, dimensions=indices, source=source)
 
