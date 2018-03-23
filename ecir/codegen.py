@@ -126,7 +126,7 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if len(o.arguments) > self.chunking:
             self._depth += 2
-            signature = self.segment(self.visit(a) for a in o.arguments)
+            signature = self.segment(str(a) for a in o.arguments)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in o.arguments)
