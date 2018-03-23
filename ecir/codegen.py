@@ -59,8 +59,9 @@ class FortranCodegen(Visitor):
 
     def visit_Subroutine(self, o):
         arguments = self.segment([a.name for a in o.arguments])
+        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
         body = self.visit(o.ir)
-        header = 'SUBROUTINE %s &\n & (%s)\n' % (o.name, arguments)
+        header = 'SUBROUTINE %s%s' % (o.name, argument)
         footer = '\nEND SUBROUTINE %s\n' % o.name
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)

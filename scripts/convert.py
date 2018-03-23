@@ -8,7 +8,7 @@ from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer)
+                  Transformer, Import)
 
 
 def generate_signature(name, arguments):
@@ -491,7 +491,7 @@ def idempotence(source, source_out, driver, driver_out, typedef):
     f_source.write(source=fgen(module), filename=source_out)
 
     # Replace the non-reference call in the driver for evaluation
-    f_driver = FortranSourceFile(driver, preprocess=False)
+    f_driver = FortranSourceFile(driver, preprocess=True)
     driver = f_driver.subroutines[0]
     for call in FindNodes(Call).visit(driver._ir):
         if call.name == target_routine:
@@ -500,12 +500,11 @@ def idempotence(source, source_out, driver, driver_out, typedef):
                 continue
 
             call.name = '%s_IDEM' % call.name
-            driver.body.replace(call._source.string, fgen(call, chunking=4))
 
-    new_import = 'USE %s_MOD, ONLY: %s\n' % (routine.name.upper(), routine.name)
-    driver.declarations._source = new_import + driver.declarations._source
-
-    f_driver.write(filename=driver_out)
+    new_import = Import(module='%s_MOD' % routine.name.upper(),
+                        symbols=[routine.name.upper()])
+    driver._ir = tuple([new_import] + list(driver._ir))
+    f_driver.write(source=fgen(driver), filename=driver_out)
 
 
 @cli.command()

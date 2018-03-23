@@ -5,7 +5,7 @@ from ecir.tools import flatten
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
-           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef']
+           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import']
 
 class Node(object):
 
