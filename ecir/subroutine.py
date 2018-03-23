@@ -233,6 +233,17 @@ class Subroutine(Section):
                                        typedefs=typedefs, pp_info=pp_info)
                             for s in self._ast.findall('members/subroutine')]
 
+    def _infer_variable_dimensions(self):
+        """
+        Try to infer variable dimensions for ALLOCATABLEs
+        """
+        allocs = FindNodes(Allocation).visit(self.ir)
+        for v in self.variables:
+            if v.type.allocatable:
+                alloc = [a for a in allocs if a.variable.name == v.name]
+                if len(alloc) > 0:
+                    v.dimensions = alloc[0].variable.dimensions
+
     @property
     def source(self):
         """

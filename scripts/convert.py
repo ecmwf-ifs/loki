@@ -228,6 +228,8 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
     f_driver = FortranSourceFile(driver, preprocess=False)
     driver_routine = f_driver.subroutines[0]
 
+    driver_routine._infer_variable_dimensions()
+
     # Process individual calls to our target routine
     for call in FindNodes(Call).visit(driver_routine._ir):
         if call.name == target_routine:
@@ -260,7 +262,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
                                              dimensions=new_dims))
                 elif len(d_arg.dimensions) > len(k_arg.dimensions):
                     # Driver-side has additional outer dimensions (eg. for blocking)
-                    d_var = driver_routine._variables[d_arg.name]
+                    d_var = driver_routine.variable_map[d_arg.name]
                     new_dims = tuple(target.variable if d_v in target.aliases else d_c
                                      for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
                     new_args.append(Variable(name=d_arg.name, type=d_arg.type,
@@ -368,9 +370,9 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
         for decl in declarations:
             if derived_arg in decl.variables:
                 # A simple sanity check...
-                decl.variables.remove(derived_arg)
-                if len(decl.variables) > 0:
-                    raise NotImplementedError('More than one derived argument per declaration found!')
+                # decl.variables.remove(derived_arg)
+                # if len(decl.variables) > 0:
+                #     raise NotImplementedError('More than one derived argument per declaration found!')
 
                 # Replace derived argument declaration with new declarations
                 new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
@@ -406,7 +408,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
             routine.declarations.replace(v._source.string, '')
 
     # Strip target loop variable
-    line = routine._variables[target.variable]._source.string
+    line = routine.variable_map[target.variable]._source.string
     new_line = line.replace('%s, ' % target.variable, '')
     routine.declarations.replace(line, new_line)
 
