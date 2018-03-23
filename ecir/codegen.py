@@ -61,7 +61,14 @@ class FortranCodegen(Visitor):
         arguments = self.segment([a.name for a in o.arguments])
         body = self.visit(o.ir)
         header = 'SUBROUTINE %s &\n & (%s)\n' % (o.name, arguments)
-        return header + body + '\nEND SUBROUTINE %s\n' % o.name
+        footer = '\nEND SUBROUTINE %s\n' % o.name
+        if o.members is not None:
+            members = '\n\n'.join(self.visit(s) for s in o.members)
+            contains = '\n\nCONTAINS\n'
+        else:
+            members = ''
+            contains = ''
+        return header + body + footer + contains + members
 
     def visit_Comment(self, o):
         return self.indent + o._source.string

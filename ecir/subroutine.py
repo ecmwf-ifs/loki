@@ -234,6 +234,13 @@ class Subroutine(Section):
             for cmt in FindNodes(CommentBlock).visit(self.ir):
                 insert_kind.visit(cmt)
 
+        # And finally we parse "member" subroutines
+        self.members = None
+        if self._ast.find('members'):
+            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
+                                       typedefs=typedefs, pp_info=pp_info)
+                            for s in self._ast.findall('members/subroutine')]
+
     @property
     def source(self):
         """
