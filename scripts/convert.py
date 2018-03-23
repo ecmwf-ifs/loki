@@ -95,15 +95,18 @@ class VariableTransformer(ExpressionVisitor, Visitor):
     :class:`Variable`s.
     """
 
-    def __init__(self, mapper):
+    def __init__(self, argnames):
         super(VariableTransformer, self).__init__()
-        self.mapper = mapper
+        self.argnames = argnames
 
     def visit_Variable(self, o):
-        for old, new in self.mapper.items():
-            if old in o.name:
-                o.name = o.name.replace(old, new)
-
+        if o.name in self.argnames and o.subvar is not None:
+            # HACK: In-place merging of var with subvar
+            o.name = '%s_%s' % (o.name, o.subvar.name)
+            o._type = o.subvar._type
+            o.dimensions = o.subvar.dimensions
+            o.initial = o.subvar.initial
+            o.subvar = o.subvar.subvar
 
 def get_typedefs(typedef):
     # Read derived type definitions from typedef modules
@@ -125,12 +128,13 @@ def flatten_derived_arguments_callee(routine):
     declarations = FindNodes(Declaration).visit(routine.ir)
 
     decl_mapper = defaultdict(list)
-    v_mapper = {}
+    v_args = []
     for arg in routine.arguments:
         if isinstance(arg.type, DerivedType):
             # Pull the derived-rtype declaration from declaration list
             old_decl = [d for d in declarations if arg in d.variables][0]
             new_names = []
+            v_args += [arg.name]
 
             for type_var in arg.type.variables.values():
                 # Check if derived%var is used in routine
@@ -139,7 +143,6 @@ def flatten_derived_arguments_callee(routine):
                     # Create new name and add to variable mapper
                     new_name = '%s_%s' % (arg.name, type_var.name)
                     new_names += [new_name]
-                    v_mapper[old_name] = new_name
 
                     # Create new declaration and add to declaration mapper
                     new_type = BaseType(name=type_var.type.name,
@@ -154,7 +157,7 @@ def flatten_derived_arguments_callee(routine):
             routine._argnames[i:i+1] = new_names
 
     # Replace variable occurences in-place (derived%v => derived_v)
-    VariableTransformer(v_mapper).visit(routine.ir)
+    VariableTransformer(argnames=v_args).visit(routine.ir)
 
     # Replace `Declaration` nodes (re-generates the IR tree)
     routine._ir = Transformer(decl_mapper).visit(routine.ir)
