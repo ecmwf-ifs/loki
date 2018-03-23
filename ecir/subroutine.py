@@ -195,14 +195,6 @@ class Subroutine(Section):
         arg_ast = self._ast.findall('header/arguments/argument')
         self._argnames = [arg.attrib['name'] for arg in arg_ast]
 
-        # Try to infer variable dimensions for ALLOCATABLEs
-        allocs = FindNodes(Allocation).visit(self.ir)
-        for v in self.variables:
-            if v.type.allocatable:
-                alloc = [a for a in allocs if a.variable.name == v.name]
-                if len(alloc) > 0:
-                    v.dimensions = alloc[0].variable.dimensions
-
         # Attach derived-type information to variables from given typedefs
         for v in self.variables:
             if typedefs is not None and v.type.name in typedefs:
