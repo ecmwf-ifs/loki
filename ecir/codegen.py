@@ -64,11 +64,11 @@ class FortranCodegen(Visitor):
         footer = '\nEND SUBROUTINE %s\n' % o.name
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)
-            contains = '\n\nCONTAINS\n'
+            contains = '\nCONTAINS\n\n'
         else:
             members = ''
             contains = ''
-        return header + body + footer + contains + members
+        return header + body + contains + members + footer
 
     def visit_Comment(self, o):
         return self.indent + o._source.string
@@ -132,12 +132,10 @@ class FortranCodegen(Visitor):
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
-        variable = self.visit(o.variable)
-        return self.indent + 'ALLOCATE(%s)' % variable
+        return self.indent + 'ALLOCATE(%s)' % o.variable
 
     def visit_Deallocation(self, o):
-        variable = self.visit(o.variable)
-        return self.indent + 'DEALLOCATE(%s)' % variable
+        return self.indent + 'DEALLOCATE(%s)' % o.variable
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
@@ -156,12 +154,13 @@ class FortranCodegen(Visitor):
         tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
         return '%s%s%s%s%s%s%s%s' % (
             tname, '(KIND=%s)' % o.kind if o.kind else '',
-            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '',
-            ', TARGET' if o.target else '')
+            ', TARGET' if o.target else '',
+            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
+        )
 
     def visit_TypeDef(self, o):
         self._depth += 2

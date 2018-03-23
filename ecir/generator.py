@@ -305,22 +305,48 @@ class IRGenerator(GenericVisitor):
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
-        variable = None
-        subscripts = list(reversed(o.findall('subscripts')))
-        for i, vpart in enumerate(reversed(o.findall('part-ref'))):
-            if len(subscripts) > i:
-                indices = tuple(self.visit(s) for s in subscripts[i].findall('subscript'))
-            else:
-                indices = None
-            vname = vpart.attrib['id']
+        def generate_variable(vname, indices, subvar, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                variable = Variable(name=vname, dimensions=indices,
-                                    subvar=variable, source=source)
+                return Variable(name=vname, dimensions=indices,
+                                subvar=variable, source=source)
+
+        # Note: The following is quite tricky; essentially we traverse
+        # the children backwards trying to match potential (but not
+        # necessary indices/subscripts to variable names. From those
+        # we then create intermediate sub-variables and nest them as
+        # we move up the hierarchy.
+        vname = o.attrib['id'] if o.find('part-ref') is None else None
+        indices = None
+        variable = None
+        for child in reversed(o.getchildren()):
+            if child.tag =='part-ref':
+                # Stash previous sub-variable
+                if vname is not None:
+                    variable = generate_variable(vname=vname, indices=indices,
+                                                 subvar=variable, source=source)
+                    # Reset vname and indices
+                    vname = None
+                    indices = None
+
+                vname = child.attrib['id']
+
+            elif child.tag =='subscripts':
+                # Always stash sub-variable if we encounter subscripts
+                indices = self.visit(child)
+                variable = generate_variable(vname=vname, indices=indices,
+                                             subvar=variable, source=source)
+                # Reset vname and indices
+                vname = None
+                indices = None
+
+        if variable is None or vname is not None:
+            variable = generate_variable(vname=vname, indices=indices,
+                                         subvar=variable, source=source)
         return variable
 
     def visit_literal(self, o, source=None):
@@ -331,6 +357,9 @@ class IRGenerator(GenericVisitor):
         if value == 'true':
             value = '.TRUE.'
         return Literal(value=value, source=source)
+
+    def visit_subscripts(self, o, source=None):
+        return tuple(self.visit(s) for s in o.findall('subscript'))
 
     def visit_subscript(self, o, source=None):
         if o.find('range'):

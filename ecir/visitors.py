@@ -342,6 +342,10 @@ class PrintAST(Visitor):
             self._depth -= 2
         return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
 
+    def visit_Allocation(self, o):
+        variable = " %s" % o.variable if self.verbose else ''
+        return self.indent + '<Alloc%s>' % variable
+
     def visit_Call(self, o):
         args = '(%s)' % (', '.join(str(a) for a in o.arguments)) if self.verbose else ''
         return self.indent + '<Call %s%s>' % (o.name, args)
