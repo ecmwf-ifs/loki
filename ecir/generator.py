@@ -7,12 +7,12 @@ from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Import, Scope, Intrinsic,
-                     TypeDef)
+                     Pragma, Declaration, Allocation, Deallocation, Import,
+                     Scope, Intrinsic, TypeDef)
 from ecir.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
 from ecir.types import BaseType
 from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
-from ecir.tools import as_tuple
+from ecir.tools import as_tuple, timeit
 
 __all__ = ['generate', 'extract_source', 'Source']
 
@@ -88,8 +88,9 @@ class IRGenerator(GenericVisitor):
         """
         Alternative lookup method for XML element types, identified by ``element.tag``
         """
-        if instance.tag in self._handlers:
-            return self._handlers[instance.tag]
+        tag = instance.tag.replace('-', '_')
+        if tag in self._handlers:
+            return self._handlers[tag]
         else:
             return super(IRGenerator, self).lookup_method(instance)
 
@@ -157,6 +158,11 @@ class IRGenerator(GenericVisitor):
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, source=source)
 
+    def visit_pointer_assignment(self, o, source=None):
+        target = self.visit(o.find('target'))
+        expr = self.visit(o.find('value'))
+        return Statement(target=target, expr=expr, ptr=True, source=source)
+
     def visit_statement(self, o, source=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
@@ -169,6 +175,8 @@ class IRGenerator(GenericVisitor):
             return Statement(target=target, expr=expr, source=source)
         elif o.find('assignment'):
             return self.visit(o.find('assignment'))
+        elif o.find('pointer-assignment'):
+            return self.visit(o.find('pointer-assignment'))
         else:
             return self.visit_Element(o)
 
@@ -186,7 +194,7 @@ class IRGenerator(GenericVisitor):
                 # component is hidden recursively in a depth-first
                 # hierarchy of 'type' nodes.
                 derived_name = o.find('end-type-stmt').attrib['id']
-                derived_vars = []
+                declarations = []
                 pragmas = []
                 comments = []
 
@@ -202,26 +210,28 @@ class IRGenerator(GenericVisitor):
 
                     # Derive type and variables for this entry
                     variables = []
-                    attributes = [a.attrib['attrKeyword'] for a in t.findall('component-attr-spec')]
+                    attributes = [a.attrib['attrKeyword'].upper()
+                                  for a in t.findall('component-attr-spec')]
                     typename = t.find('type').attrib['name']  # :(
                     kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
-                    type = BaseType(typename, kind=kind, pointer='pointer' in attributes)
+                    type = BaseType(typename, kind=kind, pointer='POINTER' in attributes)
                     v_source = extract_source(t.attrib, self._raw_source)
                     v_line = int(t.find('type').attrib['line_end'])
                     v_source.lines = (v_line, v_line)  # HACK!!!
                     for v in t.findall('component-decl'):
-                        if 'dimension' in attributes:
-                            dim_count = int(t.find('deferred-shape-spec-list').attrib['count'])
+                        deferred_shape = t.find('deferred-shape-spec-list')
+                        if deferred_shape is not None:
+                            dim_count = int(deferred_shape.attrib['count'])
                             dimensions = [':' for _ in range(dim_count)]
                         else:
                             dimensions = None
                         variables.append(Variable(name=v.attrib['id'], type=type,
                                                   dimensions=dimensions, source=v_source))
                     # Pre-pend current variables to list for this DerivedType
-                    derived_vars = variables + derived_vars
+                    declarations.insert(0, Declaration(variables=variables))
                     # Recurse on 'type' nodes
                     t = t.find('type')
-                return TypeDef(name=derived_name, variables=derived_vars,
+                return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
             else:
                 # We are dealing with a single declaration, so we retrieve
@@ -232,9 +242,10 @@ class IRGenerator(GenericVisitor):
                 allocatable = o.find('attribute-allocatable') is not None
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
+                target = o.find('attribute-target') is not None
                 type = BaseType(name=typename, kind=kind, intent=intent,
                                 allocatable=allocatable, optional=optional,
-                                parameter=parameter, source=source)
+                                parameter=parameter, target=target, source=source)
                 variables = []
                 for v in o.findall('variables/variable'):
                     if len(v.attrib) == 0:
@@ -256,17 +267,17 @@ class IRGenerator(GenericVisitor):
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var.name] = Variable(name=assoc_name)
+            associations[var] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
         return Scope(body=body, associations=associations)
-
-    def visit_keyword_argument(self, o, source=None):
-        """Extract a single name => association mapping."""
-        return (variable, assoc)
 
     def visit_allocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))
         return Allocation(variable=variable, source=source)
+
+    def visit_deallocate(self, o, source=None):
+        variable = self.visit(o.find('expressions/expression/name'))
+        return Deallocation(variable=variable, source=source)
 
     def visit_use(self, o, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
@@ -275,6 +286,14 @@ class IRGenerator(GenericVisitor):
     def visit_directive(self, o, source=None):
         # Straight pipe-through node for header includes (#include ...)
         return Intrinsic(source=source)
+
+    def visit_open(self, o, source=None):
+        return Intrinsic(source=source)
+
+    visit_close = visit_open
+    visit_read = visit_open
+    visit_write = visit_open
+    visit_format = visit_open
 
     def visit_call(self, o, source=None):
         # Need to re-think this: the 'name' node already creates
@@ -286,13 +305,49 @@ class IRGenerator(GenericVisitor):
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
-        indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
-        vrefs = o.findall('part-ref')
-        vname = '%'.join(i.attrib['id'] for i in vrefs)
-        if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
-            return InlineCall(name=vname, arguments=indices)
-        else:
-            return Variable(name=vname, dimensions=indices, source=source)
+        def generate_variable(vname, indices, subvar, source):
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
+                return InlineCall(name=vname, arguments=indices)
+            elif indices is not None and len(indices) == 0:
+                # HACK: We (most likely) found a call out to a C routine
+                return InlineCall(name=o.attrib['id'], arguments=indices)
+            else:
+                return Variable(name=vname, dimensions=indices,
+                                subvar=variable, source=source)
+
+        # Note: The following is quite tricky; essentially we traverse
+        # the children backwards trying to match potential (but not
+        # necessary indices/subscripts to variable names. From those
+        # we then create intermediate sub-variables and nest them as
+        # we move up the hierarchy.
+        vname = o.attrib['id'] if o.find('part-ref') is None else None
+        indices = None
+        variable = None
+        for child in reversed(o.getchildren()):
+            if child.tag =='part-ref':
+                # Stash previous sub-variable
+                if vname is not None:
+                    variable = generate_variable(vname=vname, indices=indices,
+                                                 subvar=variable, source=source)
+                    # Reset vname and indices
+                    vname = None
+                    indices = None
+
+                vname = child.attrib['id']
+
+            elif child.tag =='subscripts':
+                # Always stash sub-variable if we encounter subscripts
+                indices = self.visit(child)
+                variable = generate_variable(vname=vname, indices=indices,
+                                             subvar=variable, source=source)
+                # Reset vname and indices
+                vname = None
+                indices = None
+
+        if variable is None or vname is not None:
+            variable = generate_variable(vname=vname, indices=indices,
+                                         subvar=variable, source=source)
+        return variable
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
@@ -302,6 +357,9 @@ class IRGenerator(GenericVisitor):
         if value == 'true':
             value = '.TRUE.'
         return Literal(value=value, source=source)
+
+    def visit_subscripts(self, o, source=None):
+        return tuple(self.visit(s) for s in o.findall('subscript'))
 
     def visit_subscript(self, o, source=None):
         if o.find('range'):
@@ -316,6 +374,8 @@ class IRGenerator(GenericVisitor):
             return self.visit(o.find('operation'))
         else:
             return Index(name=':')
+
+    visit_dimension = visit_subscript
 
     def visit_operation(self, o, source=None):
         ops = [self.visit(op) for op in o.findall('operator')]
@@ -401,6 +461,7 @@ class PatternFinder(Visitor):
     visit_list = visit_tuple
 
 
+@timeit()
 def generate(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)

@@ -2,6 +2,7 @@ import inspect
 from collections import Iterable
 
 from ecir.ir import Node
+from ecir.tools import flatten
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
@@ -142,8 +143,8 @@ class Transformer(Visitor):
 
     In the special case in which ``M[n]`` is None, ``n`` is dropped from T'.
 
-    In the special case in which ``M[n]`` is an iterable of nodes, ``n`` is
-    "extended" by pre-pending to its body the nodes in ``M[n]``.
+    In the special case in which ``M[n]`` is an iterable of nodes,
+    all nodes in ``M[n]`` are inserted into the tuple containing ``n``.
     """
 
     def __init__(self, mapper={}):
@@ -155,6 +156,12 @@ class Transformer(Visitor):
         return o
 
     def visit_tuple(self, o, **kwargs):
+        # For one-to-many mappings check iterables for the replacement
+        # node and insert the sub-list/tuple into the list/tuple.
+        for k, handle in self.mapper.items():
+            if k in o and isinstance(handle, Iterable):
+                i = o.index(k)
+                o = o[:i] + tuple(handle) + o[i+1:]
         visited = tuple(self.visit(i, **kwargs) for i in o)
         return tuple(i for i in visited if i is not None)
 
@@ -167,6 +174,7 @@ class Transformer(Visitor):
                 # None -> drop /o/
                 return None
             elif isinstance(handle, Iterable):
+                # Original implementation to extend o.children:
                 if not o.children:
                     raise VisitorException
                 extended = (tuple(handle) + o.children[0],) + o.children[1:]
@@ -304,7 +312,7 @@ class PrintAST(Visitor):
         return out
 
     def visit_Statement(self, o):
-        expr = ' = %s' % o.expr if self.verbose else ''
+        expr = (' => ' if o.ptr else ' = ') + str(o.expr) if self.verbose else ''
         if self.verbose and o.comment is not None:
             self._depth += 2
             comment = '\n%s' % self.visit(o.comment)
@@ -334,26 +342,34 @@ class PrintAST(Visitor):
             self._depth -= 2
         return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
 
+    def visit_Allocation(self, o):
+        variable = " %s" % o.variable if self.verbose else ''
+        return self.indent + '<Alloc%s>' % variable
+
     def visit_Call(self, o):
         args = '(%s)' % (', '.join(str(a) for a in o.arguments)) if self.verbose else ''
         return self.indent + '<Call %s%s>' % (o.name, args)
 
     def visit_Comment(self, o):
-        body = '::%s::' % o._source if self.verbose else ''
+        body = '::%s::' % o._source.string if self.verbose else ''
         return self.indent + '<Comment%s>' % body
 
     def visit_CommentBlock(self, o):
-        body = ('\n%s' % self.indent).join([b._source for b in o.comments])
+        body = ('\n%s' % self.indent).join([b._source.string for b in o.comments])
         return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
 
     def visit_Pragma(self, o):
-        body = ' ::%s::' % o._source if self.verbose else ''
+        body = ' ::%s::' % o._source.string if self.verbose else ''
         return self.indent + '<Pragma %s%s>' % (o.keyword, body)
 
     def visit_Variable(self, o):
         dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
-        pointer = ', ptr' if o.type.pointer else ''
-        return self.indent + 'Var<%s%s%s>' % (o.name, dimensions, pointer)
+        type = self.visit(o.type) if o.type is not None else ''
+        return self.indent + '<Var %s%s%s>' % (o.name, dimensions, type)
+
+    def visit_BaseType(self, o):
+        ptr = ', ptr' if o.pointer else ''
+        return '<Type %s:%s%s>' % (o.name, o.kind, ptr)
 
     def visit_DerivedType(self, o):
         variables = ''

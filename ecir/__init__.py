@@ -6,4 +6,5 @@ from ecir.types import *  #noqa
 from ecir.visitors import *  #noqa
 from ecir.generator import * #noqa
 from ecir.tools import * #noqa
+from ecir.logging import * #noqa
 from ecir.codegen import * #noqa

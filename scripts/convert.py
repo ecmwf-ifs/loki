@@ -6,7 +6,9 @@ import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
-                  Statement, Call, Pragma, fgen, BaseType, Source)
+                  Statement, Call, Pragma, fgen, BaseType, Source,
+                  Module, info, DerivedType, ExpressionVisitor,
+                  Transformer, Import)
 
 
 def generate_signature(name, arguments):
@@ -60,6 +62,52 @@ def generate_interface(filename, name, arguments, imports):
         file.write(interface)
 
 
+class FindVariables(ExpressionVisitor, Visitor):
+
+    default_retval = set
+
+    def visit_tuple(self, o):
+        vars = set()
+        for c in o:
+            vars.update(flatten(self.visit(c)))
+        return  vars
+
+    visit_list = visit_tuple
+
+    def visit_Variable(self, o):
+        return set([o])
+
+    def visit_Expression(self, o):
+        vars = set()
+        for c in o.children:
+            vars.update(flatten(self.visit(c)))
+        return  vars
+
+    def visit_Statement(self, o, **kwargs):
+        vars = self.visit(o.expr, **kwargs)
+        vars.update(flatten(self.visit(o.target)))
+        return vars
+
+
+class VariableTransformer(ExpressionVisitor, Visitor):
+    """
+    In-place transformer that applies string replacements
+    :class:`Variable`s.
+    """
+
+    def __init__(self, argnames):
+        super(VariableTransformer, self).__init__()
+        self.argnames = argnames
+
+    def visit_Variable(self, o):
+        if o.name in self.argnames and o.subvar is not None:
+            # HACK: In-place merging of var with subvar
+            o.name = '%s_%s' % (o.name, o.subvar.name)
+            o._type = o.subvar._type
+            o.dimensions = o.subvar.dimensions
+            o.initial = o.subvar.initial
+            o.subvar = o.subvar.subvar
+
 def get_typedefs(typedef):
     # Read derived type definitions from typedef modules
     definitions = {}
@@ -67,6 +115,85 @@ def get_typedefs(typedef):
         module = FortranSourceFile(tfile).modules[0]
         definitions.update(module.typedefs)
     return definitions
+
+
+def flatten_derived_arguments(routine, driver):
+    """
+    Unroll all derived-type arguments used in the subroutine signature,
+    declarations and body, as well as all call arguments for a
+    particular driver/kernel pair.
+
+    The convention used is simply: ``derived%var => derived_var``
+    """
+    variables = FindVariables().visit(routine.ir)
+
+    # Establish candidate sub-variables based on usage in the
+    # kernel routine. These are stored in a map of
+    # ``arg => [type_vars]``, where ``arg%type_var`` is to be
+    # replaced by ``arg_type_var``
+    candidates = defaultdict(list)
+    for arg in routine.arguments:
+        if isinstance(arg.type, DerivedType):
+            for type_var in arg.type.variables.values():
+                combined = '%s%%%s' % (arg.name, type_var.name)
+                if any(combined in str(v) for v in variables):
+                    candidates[arg] += [type_var]
+
+    # Caller: Tandem-walk the argument lists of the kernel for each call
+    for call in FindNodes(Call).visit(driver._ir):
+        if call.name == target_routine:
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            # Simultaneously walk driver and kernel arguments
+            new_arguments = list(deepcopy(call.arguments))
+            for d_arg, k_arg in zip(call.arguments, routine.arguments):
+                if k_arg in candidates:
+                    # Found derived-type argument, unroll according to candidate map
+                    new_args = []
+                    for type_var in candidates[k_arg]:
+                        new_arg = deepcopy(d_arg)
+                        new_arg.subvar = Variable(name=type_var.name, dimensions=None)
+                        new_args += [new_arg]
+
+                    # Replace variable in dummy signature
+                    i = new_arguments.index(d_arg)
+                    new_arguments[i:i+1] = new_args
+
+            # Set the new call signature on the IR ndoe
+            call.arguments = tuple(new_arguments)
+
+    # Callee: Establish replacements for declarations and dummy arguments
+    declarations = FindNodes(Declaration).visit(routine.ir)
+    decl_mapper = defaultdict(list)
+    for arg, type_vars in candidates.items():
+        old_decl = [d for d in declarations if arg in d.variables][0]
+        new_names = []
+
+        for type_var in type_vars:
+            # Create new name and add to variable mapper
+            new_name = '%s_%s' % (arg.name, type_var.name)
+            new_names += [new_name]
+
+            # Create new declaration and add to declaration mapper
+            new_type = BaseType(name=type_var.type.name,
+                                kind=type_var.type.kind,
+                                intent=arg.type.intent)
+            new_var = Variable(name=new_name, type=new_type,
+                               dimensions=type_var.dimensions)
+            decl_mapper[old_decl] += [Declaration(variables=[new_var])]
+
+        # Replace variable in dummy signature
+        i = routine.argnames.index(arg.name)
+        routine._argnames[i:i+1] = new_names
+
+    # Replace variable occurences in-place (derived%v => derived_v)
+    argnames = [arg.name for arg in candidates.keys()]
+    VariableTransformer(argnames=argnames).visit(routine.ir)
+
+    # Replace `Declaration` nodes (re-generates the IR tree)
+    routine._ir = Transformer(decl_mapper).visit(routine.ir)
 
 
 class Dimension(object):
@@ -101,6 +228,8 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
     f_driver = FortranSourceFile(driver, preprocess=False)
     driver_routine = f_driver.subroutines[0]
 
+    driver_routine._infer_variable_dimensions()
+
     # Process individual calls to our target routine
     for call in FindNodes(Call).visit(driver_routine._ir):
         if call.name == target_routine:
@@ -133,7 +262,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
                                              dimensions=new_dims))
                 elif len(d_arg.dimensions) > len(k_arg.dimensions):
                     # Driver-side has additional outer dimensions (eg. for blocking)
-                    d_var = driver_routine._variables[d_arg.name]
+                    d_var = driver_routine.variable_map[d_arg.name]
                     new_dims = tuple(target.variable if d_v in target.aliases else d_c
                                      for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
                     new_args.append(Variable(name=d_arg.name, type=d_arg.type,
@@ -241,9 +370,9 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
         for decl in declarations:
             if derived_arg in decl.variables:
                 # A simple sanity check...
-                decl.variables.remove(derived_arg)
-                if len(decl.variables) > 0:
-                    raise NotImplementedError('More than one derived argument per declaration found!')
+                # decl.variables.remove(derived_arg)
+                # if len(decl.variables) > 0:
+                #     raise NotImplementedError('More than one derived argument per declaration found!')
 
                 # Replace derived argument declaration with new declarations
                 new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
@@ -279,7 +408,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
             routine.declarations.replace(v._source.string, '')
 
     # Strip target loop variable
-    line = routine._variables[target.variable]._source.string
+    line = routine.variable_map[target.variable]._source.string
     new_line = line.replace('%s, ' % target.variable, '')
     routine.declarations.replace(line, new_line)
 
@@ -383,41 +512,47 @@ def cli():
             help='Driver file to convert.')
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
             help='Path for generated driver output.')
-@click.option('--interface', '-intfb', type=click.Path(), default=None,
-            help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-def idempotence(source, source_out, driver, driver_out, typedef, interface):
+@click.option('--flatten-args/--no-flatten-args', default=True,
+            help='Flag to trigger derived-type argument unrolling')
+def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
     typedefs = get_typedefs(typedef)
 
+    # Parse original kernel routine and update the name
     f_source = FortranSourceFile(source, preprocess=True, typedefs=typedefs)
     routine = f_source.subroutines[0]
     routine.name = '%s_IDEM' % routine.name
 
-    # Generate the interface file associated with this routine
-    generate_interface(filename=interface, name=routine.name,
-                       arguments=routine.arguments, imports=routine.imports)
+    # Parse the original driver (caller)
+    f_driver = FortranSourceFile(driver, preprocess=True)
+    driver = f_driver.subroutines[0]
 
-    # Re-generate the target routine with the updated name
-    f_source.write(source=fgen(routine, conservative=False), filename=source_out)
+    # Unroll derived-type arguments into multiple arguments
+    if flatten_args:
+        flatten_derived_arguments(routine, driver)
 
     # Replace the non-reference call in the driver for evaluation
-    f_driver = FortranSourceFile(driver, preprocess=False)
-    driver_routine = f_driver.subroutines[0]
-    for call in FindNodes(Call).visit(driver_routine._ir):
+    for call in FindNodes(Call).visit(driver._ir):
         if call.name == target_routine:
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
 
             call.name = '%s_IDEM' % call.name
-            driver_routine.body.replace(call._source.string, fgen(call, chunking=4))
 
-    print("Writing to %s" % driver_out)
-    f_driver.write(filename=driver_out)
+    # Re-generate the target routine with the updated name
+    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
+    f_source.write(source=fgen(module), filename=source_out)
+
+    # Insert new module import into the driver and re-generate
+    new_import = Import(module='%s_MOD' % routine.name.upper(),
+                        symbols=[routine.name.upper()])
+    driver._ir = tuple([new_import] + list(driver._ir))
+    f_driver.write(source=fgen(driver), filename=driver_out)
 
 
 @cli.command()

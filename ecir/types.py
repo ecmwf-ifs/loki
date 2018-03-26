@@ -22,8 +22,8 @@ class BaseType(object):
 
     _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
 
-    def __init__(self, name, kind=None, intent=None, allocatable=False,
-                 pointer=False, optional=None, parameter=None, source=None):
+    def __init__(self, name, kind=None, intent=None, allocatable=False, pointer=False,
+                 optional=None, parameter=None, target=None, source=None):
         self._source = source
 
         self.name = name
@@ -33,6 +33,7 @@ class BaseType(object):
         self.pointer = pointer
         self.optional = optional
         self.parameter = parameter
+        self.target = target
 
     def __repr__(self):
         return '<Type %s%s%s%s%s%s%s>' % (
@@ -41,6 +42,7 @@ class BaseType(object):
             ', all' if self.allocatable else '',
             ', ptr' if self.pointer else '',
             ', opt' if self.optional else '',
+            ', tgt' if self.target else '',
             ', param' if self.parameter else '')
 
     def __key(self):
@@ -57,7 +59,7 @@ class BaseType(object):
         elif isinstance(other, BaseType):
             return self.__key() == other.__key()
         else:
-            self == other
+            return super(BaseType, self).__eq__(other)
 
     @property
     def dtype(self):

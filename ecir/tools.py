@@ -1,10 +1,37 @@
 import os
+import time
 import pickle
 from collections import Iterable
+from functools import wraps
 
-from ecir.helpers import assemble_continued_statement_from_list
+from ecir.logging import log, info, INFO
 
-__all__ = ['flatten', 'chunks', 'disk_cached', 'as_tuple']
+__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached']
+
+
+def as_tuple(item, type=None, length=None):
+    """
+    Force item to a tuple.
+
+    Partly extracted from: https://github.com/OP2/PyOP2/.
+    """
+    # Empty list if we get passed None
+    if item is None:
+        t = ()
+    elif isinstance(item, str):
+        t = (item,)
+    else:
+        # Convert iterable to list...
+        try:
+            t = tuple(item)
+        # ... or create a list of a single item
+        except (TypeError, NotImplementedError):
+            t = (item,) * (length or 1)
+    if length and not len(t) == length:
+        raise ValueError("Tuple needs to be of length %d" % length)
+    if type and not all(isinstance(i, type) for i in t):
+        raise TypeError("Items need to be of type %s" % type)
+    return t
 
 
 def flatten(l):
@@ -34,7 +61,9 @@ def disk_cached(argname):
     :param argname: Name of the argument that holds the filename
     """
     def decorator(fn):
-        def wrapped(*args, **kwargs):
+
+        @wraps(fn)
+        def cached(*args, **kwargs):
             """
             Wrapper that will cache the output of a function on disk.
 
@@ -50,7 +79,7 @@ def disk_cached(argname):
                 cachetime = os.path.getmtime(cachefile)
                 if cachetime >= filetime:
                     with open(cachefile, 'rb') as cachehandle:
-                        print("Loading cache: '%s'" % cachefile)
+                        info("Loading cache: '%s'" % cachefile)
                         return pickle.load(cachehandle)
 
             # Execute the function with all arguments passed
@@ -58,34 +87,28 @@ def disk_cached(argname):
 
             # Write to cache file
             with open(cachefile, 'wb') as cachehandle:
-                print("Saving cache: '%s'" % cachefile)
+                info("Saving cache: '%s'" % cachefile)
                 pickle.dump(res, cachehandle)
 
             return res
-        return wrapped
+        return cached
     return decorator
 
 
-def as_tuple(item, type=None, length=None):
-    """
-    Force item to a tuple.
+def timeit(log_level=INFO, argname=None):
+    argname = as_tuple(argname)
+    def decorator(fn):
 
-    Partly extracted from: https://github.com/OP2/PyOP2/.
-    """
-    # Empty list if we get passed None
-    if item is None:
-        t = ()
-    elif isinstance(item, str):
-        t = (item,)
-    else:
-        # Convert iterable to list...
-        try:
-            t = tuple(item)
-        # ... or create a list of a single item
-        except (TypeError, NotImplementedError):
-            t = (item,) * (length or 1)
-    if length and not len(t) == length:
-        raise ValueError("Tuple needs to be of length %d" % length)
-    if type and not all(isinstance(i, type) for i in t):
-        raise TypeError("Items need to be of type %s" % type)
-    return t
+        @wraps(fn)
+        def timed(*args, **kwargs):
+            ts = time.time()
+            result = fn(*args, **kwargs)
+            te = time.time()
+
+            argvals = ', '.join(kwargs[arg] for arg in argname)
+            log('[%s: %s] Executed in %.2fs' % (fn.__name__, argvals, (te - ts)),
+                level=log_level)
+            return result
+
+        return timed
+    return decorator

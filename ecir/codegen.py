@@ -49,11 +49,27 @@ class FortranCodegen(Visitor):
 
     visit_list = visit_tuple
 
+    def visit_Module(self, o):
+        body = self.visit(o.routines)
+        spec = self.visit(o.spec)
+        header = 'MODULE %s \n\n' % o.name
+        contains = '\ncontains\n\n'
+        footer = '\nEND MODULE %s\n' % o.name
+        return header + spec + contains + body + footer
+
     def visit_Subroutine(self, o):
         arguments = self.segment([a.name for a in o.arguments])
+        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
         body = self.visit(o.ir)
-        header = 'SUBROUTINE %s &\n & (%s)\n' % (o.name, arguments)
-        return header + body + '\nEND SUBROUTINE %s\n' % o.name
+        header = 'SUBROUTINE %s%s' % (o.name, argument)
+        footer = '\nEND SUBROUTINE %s\n' % o.name
+        if o.members is not None:
+            members = '\n\n'.join(self.visit(s) for s in o.members)
+            contains = '\nCONTAINS\n\n'
+        else:
+            members = ''
+            contains = ''
+        return header + body + contains + members + footer
 
     def visit_Comment(self, o):
         return self.indent + o._source.string
@@ -66,12 +82,14 @@ class FortranCodegen(Visitor):
         return '\n'.join(comments)
 
     def visit_Declaration(self, o):
+        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.variables[0].type)
         variables = self.segment([self.visit(v) for v in o.variables])
-        return self.indent + '%s :: %s' % (type, variables)
+        return self.indent + '%s :: %s' % (type, variables) + comment
 
     def visit_Import(self, o):
-        return 'USE %s, ONLY: %s' % (o.module, self.segment(o.symbols))
+        only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
+        return 'USE %s%s' % (o.module, only)
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -100,7 +118,7 @@ class FortranCodegen(Visitor):
         return self.indent + stmt + comment
 
     def visit_Scope(self, o):
-        associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
+        associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)
         body = self.visit(o.body)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
@@ -108,30 +126,48 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if len(o.arguments) > self.chunking:
             self._depth += 2
-            signature = self.segment(self.visit(a) for a in o.arguments)
+            signature = self.segment(str(a) for a in o.arguments)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in o.arguments)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
+
+    def visit_Allocation(self, o):
+        return self.indent + 'ALLOCATE(%s)' % o.variable
+
+    def visit_Deallocation(self, o):
+        return self.indent + 'DEALLOCATE(%s)' % o.variable
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
 
     def visit_Variable(self, o):
-        dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
+        if len(o.dimensions) > 0:
+            dims = [str(d) if d is not None else ':' for d in o.dimensions]
+            dims = '(%s)' % ','.join(dims)
+        else:
+            dims = ''
         initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
         return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
         tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s%s' % (
+        return '%s%s%s%s%s%s%s%s' % (
             tname, '(KIND=%s)' % o.kind if o.kind else '',
-            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
-            ', ALLOCATE' if o.allocatable else '',
+            ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
-            ', PARAMETER' if o.parameter else '')
+            ', PARAMETER' if o.parameter else '',
+            ', TARGET' if o.target else '',
+            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
+        )
+
+    def visit_TypeDef(self, o):
+        self._depth += 2
+        declarations = self.visit(o.declarations)
+        self._depth -= 2
+        return 'TYPE %s\n' % o.name + declarations + '\nEND TYPE %s' % o.name
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):
@@ -188,7 +224,7 @@ class FExprCodegen(Visitor):
 
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
-        line = self.append(line, ' = ')
+        line = self.append(line, ' => ' if o.ptr else ' = ')
         line = self.visit(o.expr, line=line)
         return line
 
@@ -218,10 +254,11 @@ class FExprCodegen(Visitor):
 
     def visit_InlineCall(self, o, line):
         line = self.append(line, '%s(' % o.name)
-        line = self.visit(o.arguments[0], line=line)
-        for arg in o.arguments[1:]:
-            line = self.append(line, ',')
-            line = self.visit(arg, line=line)
+        if len(o.arguments) > 0:
+            line = self.visit(o.arguments[0], line=line)
+            for arg in o.arguments[1:]:
+                line = self.append(line, ',')
+                line = self.visit(arg, line=line)
         return self.append(line, ')')
 
 
