@@ -71,6 +71,15 @@ class FortranCodegen(Visitor):
             contains = ''
         return header + body + contains + members + footer
 
+    def visit_InterfaceBlock(self, o):
+        arguments = self.segment([a.name for a in o.arguments])
+        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
+        header = 'INTERFACE\nSUBROUTINE %s%s' % (o.name, argument)
+        footer = '\nEND SUBROUTINE %s\nEND INTERFACE\n' % o.name
+        imports = self.visit(o.imports)
+        declarations = self.visit(o.declarations)
+        return header + imports + '\n' + declarations + footer
+
     def visit_Comment(self, o):
         return self.indent + o._source.string
 

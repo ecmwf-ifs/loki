@@ -3,8 +3,8 @@ from collections import Mapping
 from loki.generator import generate, extract_source
 from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
                      Conditional, CommentBlock)
-from loki.expression import ExpressionVisitor
-from loki.types import DerivedType
+from loki.expression import ExpressionVisitor, Variable
+from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes
 from loki.tools import flatten
 
@@ -38,6 +38,15 @@ class InsertLiteralKinds(ExpressionVisitor):
         if o._source.lines[0] in self.pp_info:
             for val, kind in self.pp_info[o._source.lines[0]]:
                 o._source.string = o._source.string.replace(val, '%s_%s' % (val, kind))
+
+
+class InterfaceBlock(object):
+
+    def __init__(self, name, arguments, imports, declarations):
+        self.name = name
+        self.arguments = arguments
+        self.imports = imports
+        self.declarations = declarations
 
 
 class Section(object):
@@ -284,3 +293,32 @@ class Subroutine(Section):
         List of all module imports via USE statements
         """
         return FindNodes(Import).visit(self.ir)
+
+    @property
+    def interface(self):
+        arguments = self.arguments
+        declarations = tuple(d for d in FindNodes(Declaration).visit(self.ir)
+                             if any(v in arguments for v in d.variables))
+
+        # Collect unknown symbols that we might need to import
+        undefined = set()
+        anames = [a.name for a in arguments]
+        for a in arguments:
+            # Add potentially unkown TYPE and KIND symbols to 'undefined'
+            if a.type.name.upper() not in BaseType._base_types:
+                undefined.add(a.type.name)
+            if a.type.kind and not a.type.kind.isdigit():
+                undefined.add(a.type.kind)
+            # Add (pure) variable dimensions that might be defined elsewhere
+            undefined.update([str(d) for d in a.dimensions
+                              if isinstance(d, Variable) and d not in anames])
+
+        # Create a sub-list of imports based on undefined symbols
+        imports = []
+        for use in self.imports:
+            symbols = tuple(s for s in use.symbols if s in undefined)
+            if len(symbols) > 0:
+                imports += [Import(module=use.module, symbols=symbols)]
+
+        return InterfaceBlock(name=self.name, imports=imports,
+                              arguments=arguments, declarations=declarations)
