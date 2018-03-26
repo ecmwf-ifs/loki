@@ -3,6 +3,7 @@ import re
 from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 import sys
+from pathlib import Path
 
 from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
@@ -571,6 +572,39 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
+
+
+__macro_template = """
+#define LOKI_ROOT_CALL() %s(%s)
+"""
+
+
+@cli.command('physics')
+@click.option('--source', '-s', type=click.Path(),
+            help='Path to source files to transform.')
+@click.option('--typedef', '-t', type=click.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
+@click.option('--interface', '-intfb', type=click.Path(), default=None,
+            help='Path to auto-generate interface file(s)')
+@click.option('--root-macro', '-m', type=click.Path(),
+            help='Path to root macro for insertion of transformed call-tree')
+def physics(source, typedef, root_macro, interface):
+
+    # Re-generate target routine and interface block with updated name
+    f_source = FortranSourceFile(source, preprocess=True)
+    routine = f_source.subroutines[0]
+    routine.name = '%s_IDEM' % routine.name
+    f_source.write(source=fgen(routine), filename=f_source.path.with_suffix('.idem.F90'))
+    intfb_path = (Path(interface) / f_source.path.stem).with_suffix('.idem.intfb.h')
+    f_source.write(source=fgen(routine.interface), filename=intfb_path)
+
+    # Insert the root of the transformed call-tree into the root macro
+    root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
+    macro = __macro_template % (routine.name, root_args)
+    info('Writing root macro: %s' % root_macro)
+    with open(root_macro, 'w') as f:
+        f.write(macro)
+
 
 if __name__ == "__main__":
     cli()
