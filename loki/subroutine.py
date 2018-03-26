@@ -8,7 +8,6 @@ from loki.expression import ExpressionVisitor
 from loki.types import DerivedType, DataType
 from loki.visitors import FindNodes
 from loki.tools import flatten
-from loki.helpers import assemble_continued_statement_from_list
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
@@ -69,12 +68,6 @@ class Section(object):
         Note: This does not change the content of the file
         """
         return self._source.splitlines(keepends=True)
-
-    @property
-    def longlines(self):
-        from ecir.helpers import assemble_continued_statement_from_iterator
-        srciter = iter(self.lines)
-        return [assemble_continued_statement_from_iterator(line, srciter)[0] for line in srciter]
 
     def replace(self, repl, new=None):
         """
