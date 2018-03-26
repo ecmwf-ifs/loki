@@ -114,12 +114,18 @@ def extract_lines(ast, source, full_lines=False):
         lastline = lines[-1][:cend]
         lines = [firstline] + lines[1:-1] + [lastline]
 
+
     # Scan for line continuations and honour inline
     # comments in between continued lines
-    added_comment = False
-    while lines[-1].strip().endswith('&') or added_comment:
-        lend += 1
-        lines.append(source[lend-1])
-        added_comment = lines[-1].strip().startswith('!')
+    def continued(line):
+        return line.strip().endswith('&')
+    def is_comment(line):
+        return line.strip().startswith('!')
+
+    # We only honour line continuation if we're not parsing a comment
+    if not is_comment(lines[-1]):
+        while continued(lines[-1]) or is_comment(lines[-1]):
+            lend += 1
+            lines.append(source[lend-1])
 
     return ''.join(lines)

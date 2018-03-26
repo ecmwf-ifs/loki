@@ -2,6 +2,7 @@ import click as cli
 import re
 from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
+import sys
 
 from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, Type, DerivedType, Declaration, FindNodes,
@@ -94,8 +95,20 @@ class Dimension(object):
             help='Path to auto-generate and interface file')
 @cli.option('--typedef', '-t', type=cli.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
-@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw']), default='sca')
+@cli.option('--mode', '-m', type=cli.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
+
+    if mode == 'idem':
+        # Do-nothing debug mode: parse-unparse source and exit
+        f_source = FortranSourceFile(source, preprocess=True)
+        routine = f_source.subroutines[0]
+
+        # from IPython import embed; embed()
+
+        out_file = '%s.idem.F90' % f_source.basename
+        print("Writing to %s" % out_file)
+        f_source.write(source=fgen(routine, conservative=False), filename=out_file)
+        sys.exit(0)
 
     # Define the target dimension to strip from kernel and caller
     target = Dimension(name='KLON', aliases=['NPROMA'],
@@ -112,7 +125,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
                 derived_types[derived.name.upper()] = derived
 
     # Read the primary source routine
-    f_source = FortranSourceFile(source)
+    f_source = FortranSourceFile(source, preprocess=False)
     routine = f_source.subroutines[0]
     new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
@@ -168,7 +181,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Now we replace the declarations for the previously derived arguments
     # Note: Re-generation from AST would probably be cleaner...
-    declarations = FindNodes(Declaration).visit(routine._spec)
+    declarations = FindNodes(Declaration).visit(routine.ir)
     for derived_arg, new_args in derived_arg_map.items():
         for decl in declarations:
             if derived_arg in decl.variables:
@@ -232,8 +245,9 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         new_dimensions.remove(target.name)
 
         # Strip target dimension from declarations and body (for ALLOCATEs)
-        old_dims = '(%s)' % ','.join(str(d) for d in v.dimensions)
-        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d)for d in new_dimensions)
+        old_dims = '(%s)' % ','.join(str(d).replace(' ', '') for d in v.dimensions)
+        new_dims = '' if promote_to_scalar else '(%s)' % ','.join(str(d).replace(' ', '')
+                                                                  for d in new_dimensions)
         routine.declarations.replace(old_dims, new_dims)
         routine.body.replace(old_dims, new_dims)
 
@@ -295,11 +309,11 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
         routine._post._source += 'END MODULE'
 
     print("Writing to %s" % source_out)
-    f_source.write(source_out)
+    f_source.write(filename=source_out)
 
     # Now let's process the driver/caller side
     if driver is not None:
-        f_driver = FortranSourceFile(driver)
+        f_driver = FortranSourceFile(driver, preprocess=False)
         driver_routine = f_driver.subroutines[0]
 
         # Process individual calls to our target routine
@@ -369,7 +383,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
             driver_routine.declarations._source = new_import + driver_routine.declarations._source
             
         print("Writing to %s" % driver_out)
-        f_driver.write(driver_out)
+        f_driver.write(filename=driver_out)
 
 if __name__ == "__main__":
     convert()

@@ -5,6 +5,7 @@ Fortran source code file.
 import re
 import time
 import open_fortran_parser
+from os import path
 from collections import Iterable
 
 from ecir.subroutine import Section, Subroutine, Module
@@ -20,8 +21,19 @@ class FortranSourceFile(object):
     :param filename: Name of the input source file
     """
 
-    def __init__(self, filename):
-        self.name = filename
+    # Default custom KIND identifiers to use for pre-processing
+    _kinds = ['JPIM', 'JPRB']
+
+    def __init__(self, filename, preprocess=True):
+        self.basename = path.splitext(filename)[0]
+
+        # Unfortunately we need a pre-processing step to sanitize
+        # the input to the OFP, as it will otherwise drop certain
+        # terms due to advanced bugged-ness! :(
+        if preprocess:
+            pp_name = '%s.pp.F90' % self.basename
+            self.preprocess(filename, pp_name)
+            filename = pp_name
 
         # Import and store the raw file content
         with open(filename) as f:
@@ -40,6 +52,30 @@ class FortranSourceFile(object):
         self.modules = [Module(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]
 
+    def preprocess(self, filename, pp_name, kinds=None):
+        if path.exists(pp_name):
+            if path.getmtime(pp_name) > path.getmtime(filename):
+                # Already pre-processed this one, skip!
+                return
+
+        print("Pre-processing %s => %s" % (filename, pp_name))
+        with open(filename) as f:
+            source = f.read()
+
+        # OFP drops valid nodes if it encounters _KIND type casts.
+        # We remove it in the pre-processor, since we can infer that
+        # information by analysing the individual expressions that
+        # contain them.
+        def repl_number_kind(match):
+            m = match.groupdict()
+            return m['number'] if m['kind'] in self._kinds else m['all']
+        for kind in self._kinds:
+            re_number = re.compile('(?P<all>(?P<number>[0-9.\-eE]+)_(?P<kind>[a-zA-Z]+))')
+            source = re_number.sub(repl_number_kind, source)
+
+        with open(pp_name, 'w') as f:
+            f.write(source)
+
     @disk_cached(argname='filename')
     def parse_ast(self, filename):
         """
@@ -54,15 +90,17 @@ class FortranSourceFile(object):
         content = self.modules + self.subroutines
         return '\n\n'.join(s.source for s in content)
 
-    def write(self, filename=None):
+    def write(self, source=None, filename=None):
         """
         Write content to file
 
-        :param filename: Optional filename. If not provided, `self.name` is used
+        :param source: Optional source string; if not provided `self.source` is used
+        :param filename: Optional filename; if not provided, `self.name` is used
         """
-        filename = filename or self.name
+        filename = filename or '%s.F90' % self.basename
+        source = self.source if source is None else source
         with open(filename, 'w') as f:
-            f.write(self.source)
+            f.write(source)
 
     @property
     def lines(self):

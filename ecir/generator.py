@@ -3,12 +3,12 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import deque, Iterable
+from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
 from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Variable, Type, DerivedType,
-                     Expression, Index, Import)
+                     Expression, Index, Import, Scope, Intrinsic)
 from ecir.visitors import Visitor, Transformer, NestedTransformer
 from ecir.tools import as_tuple, extract_lines
 
@@ -59,8 +59,8 @@ class IRGenerator(Visitor):
     def visit_loop(self, o, source=None, line=None):
         variable = o.find('header/index-variable').attrib['name']
         try:
-            lower = self.visit(o.find('header/index-variable/lower-bound'))[0]
-            upper = self.visit(o.find('header/index-variable/upper-bound'))[0]
+            lower = self.visit(o.find('header/index-variable/lower-bound'))
+            upper = self.visit(o.find('header/index-variable/upper-bound'))
         except:
             lower = None
             upper = None
@@ -113,7 +113,8 @@ class IRGenerator(Visitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            return None  # SAVE statement, skip
+            # SAVE statement
+            return Intrinsic(source=source, line=line)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type:
@@ -178,23 +179,59 @@ class IRGenerator(Visitor):
                                               dimensions=dimensions, source=source))
                 return Declaration(variables=variables, source=source, line=line)
         elif o.attrib['type'] == 'implicit':
-            return None  # IMPLICIT marker, skip
+            # IMPLICIT marker
+            return Intrinsic(source=source, line=line)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+
+    def visit_associate(self, o, source=None, line=None):
+        associations = OrderedDict()
+        for a in o.findall('header/keyword-arguments/keyword-argument'):
+            var = self.visit(a.find('name'))
+            assoc_name = a.find('association').attrib['associate-name']
+            associations[var.name] = Variable(name=assoc_name)
+        body = self.visit(o.find('body'))
+        return Scope(body=body, associations=associations)
+
+    def visit_keyword_argument(self, o, source=None, line=None):
+        """Extract a single name => association mapping."""
+        return (variable, assoc)
 
     def visit_allocate(self, o, source=None, line=None):
         variable = self.visit(o.find('expressions/expression/name'))
         return Allocation(variable=variable, source=source, line=line)
 
+    def visit_use(self, o, source=None, line=None):
+        symbols = [n.attrib['id'] for n in o.findall('only/name')]
+        return Import(module=o.attrib['name'], symbols=symbols, source=source)
+
+    def visit_directive(self, o, source=None, line=None):
+        # Straight pipe-through node for header includes (#include ...)
+        return Intrinsic(source=source, line=line)
+
+    def visit_call(self, o, source=None, line=None):
+        # Need to re-think this: the 'name' node already creates
+        # a 'Variable', which in this case is wrong...
+        name = o.find('name').attrib['id']
+        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
+        return Call(name=name, arguments=args, source=source, line=line)
+
+    # Expression parsing below; maye move to its own parser..?
+
     def visit_name(self, o, source=None, line=None):
         indices = tuple(self.visit(i) for i in o.findall('subscripts/subscript'))
-        return Variable(name=o.attrib['id'], dimensions=indices)
+        vrefs = o.findall('part-ref')
+        vname = '%'.join(i.attrib['id'] for i in vrefs)
+        return Variable(name=vname, dimensions=indices)
 
     def visit_literal(self, o, source=None, line=None):
-        return o.attrib['value']
-
-    def visit_value(self, o, source=None, line=None):
-        return Expression(source=source)
+        expr = o.attrib['value']
+        # Override Fortran BOOL keywords
+        if expr == 'false':
+            expr = '.FALSE.'
+        if expr == 'true':
+            expr = '.TRUE.'
+        return Expression(expr=expr)
 
     def visit_subscript(self, o, source=None, line=None):
         if o.find('range'):
@@ -216,18 +253,15 @@ class IRGenerator(Visitor):
             return Index(name=':')
 
     def visit_operation(self, o, source=None, line=None):
-        return Expression(source=source)
+        exprs = [self.visit(c) for c in o.getchildren()]
+        exprs = [e for e in exprs if e is not None]
+        # Concatenate subexpression strings
+        exprs = [e.expr if isinstance(e, Expression) else str(e) for e in exprs]
+        parenthesized = o.find('parenthesized_expr') is not None
+        return Expression(expr='(%s)' % ' '.join(exprs) if parenthesized else ' '.join(exprs))
 
-    def visit_use(self, o, source=None, line=None):
-        symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return Import(module=o.attrib['name'], symbols=symbols, source=source)
-
-    def visit_call(self, o, source=None, line=None):
-        # Need to re-think this: the 'name' node already creates
-        # a 'Variable', which in this case is wrong...
-        name = o.find('name').attrib['id']
-        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        return Call(name=name, arguments=args, source=source, line=line)
+    def visit_operator(self, o, source=None, line=None):
+        return o.attrib['operator']
 
 
 class SequenceFinder(Visitor):
@@ -239,6 +273,10 @@ class SequenceFinder(Visitor):
     def __init__(self, node_type):
         super(SequenceFinder, self).__init__()
         self.node_type = node_type
+
+    @classmethod
+    def default_retval(cls):
+        return []
 
     def visit_tuple(self, o):
         groups = []
@@ -266,6 +304,10 @@ class PatternFinder(Visitor):
     def __init__(self, pattern):
         super(PatternFinder, self).__init__()
         self.pattern = pattern
+
+    @classmethod
+    def default_retval(cls):
+        return []
 
     def match_indices(self, pattern, sequence):
         """ Return indices of matched patterns in sequence. """
