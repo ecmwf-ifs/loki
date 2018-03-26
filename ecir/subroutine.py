@@ -1,14 +1,45 @@
 import re
 from collections import OrderedDict, Mapping
 
-from ecir.generator import generate
-from ecir.ir import Declaration, Allocation, Import, DerivedType
+from ecir.generator import generate, extract_source
+from ecir.ir import (Declaration, Allocation, Import, Statement, TypeDef,
+                     Call, Conditional, CommentBlock)
+from ecir.expression import ExpressionVisitor
+from ecir.types import DerivedType, DataType
 from ecir.visitors import FindNodes
-from ecir.tools import flatten, extract_lines
+from ecir.tools import flatten
 from ecir.helpers import assemble_continued_statement_from_list
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
+
+class InsertLiteralKinds(ExpressionVisitor):
+    """
+    Re-insert explicit _KIND casts for literals dropped during pre-processing.
+
+    :param pp_info: List of `(literal, kind)` tuples to be inserted
+    """
+
+    def __init__(self, pp_info):
+        super(InsertLiteralKinds, self).__init__()
+
+        self.pp_info = dict(pp_info)
+
+    def visit_Literal(self, o):
+        if o._source.lines[0] in self.pp_info:
+            literals = dict(self.pp_info[o._source.lines[0]])
+            if o.value in literals:
+                o.value = '%s_%s' % (o.value, literals[o.value])
+
+    def visit_CommentBlock(self, o):
+        for c in o.comments:
+            self.visit(c)
+
+    def visit_Comment(self, o):
+        if o._source.lines[0] in self.pp_info:
+            for val, kind in self.pp_info[o._source.lines[0]]:
+                o._source.string = o._source.string.replace(val, '%s_%s' % (val, kind))
+
 
 class Section(object):
     """
@@ -76,28 +107,33 @@ class Module(Section):
         self._raw_source = raw_source
 
         # The actual lines in the source for this subroutine
-        self._source = extract_lines(self._ast.attrib, raw_source)
+        self._source = extract_source(self._ast.attrib, raw_source).string
 
         # Process module-level type specifications
         spec_ast = self._ast.find('body/specification')
         self._spec = generate(spec_ast, self._raw_source)
 
         # Process 'dimension' pragmas to override deferred dimensions
-        derived_types = [d for d in self._spec if isinstance(d, DerivedType)]
-        for derived in derived_types:
-            pragmas = {p._line: p for p in derived.pragmas}
-            for v in derived.variables:
-                if v._line-1 in pragmas:
-                    pragma = pragmas[v._line-1]
+        self._typedefs = FindNodes(TypeDef).visit(self._spec)
+        for typedef in self._typedefs:
+            pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
+            for v in typedef.variables:
+                if v._source.lines[0]-1 in pragmas:
+                    pragma = pragmas[v._source.lines[0]-1]
                     if pragma.keyword == 'dimension':
                         # Found dimension override for variable
-                        dims = pragma._source.split('dimension(')[-1]
+                        dims = pragma._source.string.split('dimension(')[-1]
                         dims = dims.split(')')[0].split(',')
                         dims = [d.strip() for d in dims]
                         # Override dimensions (hacky: not transformer-safe!)
                         v.dimensions = dims
 
-        # TODO: Process subroutines in modules, I guess...
+    @property
+    def typedefs(self):
+        """
+        Map of names and :class:`DerivedType`s defined in this module.
+        """
+        return {td.name.upper(): td for td in self._typedefs}
 
 
 class Subroutine(Section):
@@ -108,15 +144,18 @@ class Subroutine(Section):
     :param ast: OFP parser node for this subroutine
     :param raw_source: Raw source string, broken into lines(!), as it
                        appeared in the parsed source file.
+    :param typedefs: Optional list of external definitions for derived
+                     types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None):
+    def __init__(self, ast, raw_source, name=None, typedefs=None, pp_info=None):
         self.name = name or ast.attrib['name']
         self._ast = ast
         self._raw_source = raw_source
 
         # The actual lines in the source for this subroutine
-        self._source = extract_lines(self._ast.attrib, raw_source)
+        # TODO: Turn Section._source into a real `Source` object
+        self._source = extract_source(self._ast.attrib, raw_source).string
 
         # Separate body and declaration sections
         # Note: The declaration includes the SUBROUTINE key and dummy
@@ -147,6 +186,37 @@ class Subroutine(Section):
                 alloc = [a for a in allocs if a.variable.name == v.name]
                 if len(alloc) > 0:
                     v.dimensions = alloc[0].variable.dimensions
+
+        # Attach derived-type information to variables from given typedefs
+        for v in self.variables:
+            if typedefs is not None and v.type.name in typedefs:
+                typedef = typedefs[v.type.name]
+                derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
+                                           intent=v.type.intent, allocatable=v.type.allocatable,
+                                           pointer=v.type.pointer, optional=v.type.optional)
+                v._type = derived_type
+
+        # Re-insert literal _KIND type casts from pre-processing info
+        # Note, that this is needed to get accurate data _KIND
+        # attributes for literal values, as these have been stripped
+        # in a preprocessing step to avoid OFP bugs.
+        if pp_info is not None:
+            insert_kind = InsertLiteralKinds(pp_info)
+
+            for decl in FindNodes(Declaration).visit(self.ir):
+                for v in decl.variables:
+                    if v.initial is not None:
+                        insert_kind.visit(v.initial)
+
+            for stmt in FindNodes(Statement).visit(self.ir):
+                insert_kind.visit(stmt)
+
+            for cnd in FindNodes(Conditional).visit(self.ir):
+                for c in cnd.conditions:
+                    insert_kind.visit(c)
+
+            for cmt in FindNodes(CommentBlock).visit(self.ir):
+                insert_kind.visit(cmt)
 
     @property
     def source(self):

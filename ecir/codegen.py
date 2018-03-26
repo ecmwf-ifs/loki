@@ -1,9 +1,8 @@
 from ecir.visitors import Visitor
 from ecir.tools import chunks
+from ecir.types import BaseType, DataType
 
-from textwrap import wrap
-
-__all__ = ['fgen', 'FortranCodegen']
+__all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
 
 class FortranCodegen(Visitor):
@@ -11,10 +10,9 @@ class FortranCodegen(Visitor):
     Tree visitor to generate standardized Fortran code from IR.
     """
 
-    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
-
-    def __init__(self, depth=0, chunking=4, conservative=True):
+    def __init__(self, depth=0, linewidth=90, chunking=4, conservative=True):
         super(FortranCodegen, self).__init__()
+        self.linewidth = linewidth
         self.conservative = conservative
         self.chunking = chunking
         self._depth = 0
@@ -36,7 +34,7 @@ class FortranCodegen(Visitor):
     def visit(self, o):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
             # Re-use original source associated with node
-            return o._source
+            return o._source.string
         else:
             return super(FortranCodegen, self).visit(o)
 
@@ -44,7 +42,7 @@ class FortranCodegen(Visitor):
         return self.indent + '! <%s>' % o.__class__.__name__
 
     def visit_Intrinsic(self, o):
-        return o._source
+        return o._source.string
 
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
@@ -58,10 +56,10 @@ class FortranCodegen(Visitor):
         return header + body + '\nEND SUBROUTINE %s\n' % o.name
 
     def visit_Comment(self, o):
-        return self.indent + o._source
+        return self.indent + o._source.string
 
     def visit_Pragma(self, o):
-        return self.indent + o._source
+        return self.indent + o._source.string
 
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]
@@ -69,7 +67,7 @@ class FortranCodegen(Visitor):
 
     def visit_Declaration(self, o):
         type = self.visit(o.variables[0].type)
-        variables = self.segment([str(v) for v in o.variables])
+        variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s :: %s' % (type, variables)
 
     def visit_Import(self, o):
@@ -80,7 +78,8 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s' % (o.variable, o.bounds[0], o.bounds[1])
+        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
+                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
     def visit_Conditional(self, o):
@@ -88,17 +87,17 @@ class FortranCodegen(Visitor):
         bodies = [self.visit(b) for b in o.bodies]
         else_body = self.visit(o.else_body)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % str(c) for c in  o.conditions]
+        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in  o.conditions]
         main_branch = ('\n%sELSE'%self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_Statement(self, o):
-        target = self.visit(o.target)
-        expr = self.visit(o.expr)
-        stmt = self.indent + '%s = %s' % (target, expr)
-        wrapped = wrap(stmt, width=90, break_long_words=False)
-        return (' &\n%s   & ' % self.indent).join(wrapped)
+        linewidth = self.linewidth - len(self.indent)
+        lines = fexprgen(o, linewidth=linewidth).split('\n')
+        stmt = (' &\n%s   & ' % self.indent).join(lines)
+        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
+        return self.indent + stmt + comment
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, a) for a, v in o.associations.items()]
@@ -121,15 +120,18 @@ class FortranCodegen(Visitor):
 
     def visit_Variable(self, o):
         dims = '(%s)' % ','.join([str(d) for d in o.dimensions]) if len(o.dimensions) > 0 else ''
-        return '%s%s' % (o.name, dims)
+        initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
+        return '%s%s%s' % (o.name, dims, initial)
 
-    def visit_Type(self, o):
-        tname = o.name if o.name in self._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s' % (tname, '(KIND=%s)' % o.kind if o.kind else '',
-                                 ', INTENT(%s)' % o.intent.upper() if o.intent else '',
-                                 ', ALLOCATE' if o.allocatable else '',
-                                 ', POINTER' if o.pointer else '',
-                                 ', OPTIONAL' if o.optional else '')
+    def visit_BaseType(self, o):
+        tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
+        return '%s%s%s%s%s%s%s' % (
+            tname, '(KIND=%s)' % o.kind if o.kind else '',
+            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
+            ', ALLOCATE' if o.allocatable else '',
+            ', POINTER' if o.pointer else '',
+            ', OPTIONAL' if o.optional else '',
+            ', PARAMETER' if o.parameter else '')
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):
@@ -138,3 +140,93 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
+
+class FExprCodegen(Visitor):
+    """
+    Tree visitor to generate a single Fortran assignment expression
+    from a tree of sub-expressions.
+
+    :param linewidth: Maximum width to after which to insert linebreaks.
+    :param op_spaces: Flag indicating whether to use spaces around operators.
+    """
+
+    def __init__(self, linewidth=90, op_spaces=False):
+        super(FExprCodegen, self).__init__()
+        self.linewidth = linewidth
+        self.op_spaces = op_spaces
+
+        # We ignore outer indents and count from 0
+        self._width = 0
+
+    def append(self, line, txt):
+        """Insert linebreaks when requested width is hit."""
+        if self._width + len(txt) > self.linewidth:
+            self._width = len(txt)
+            line += '\n' + txt
+        else:
+            self._width += len(txt)
+            line += txt
+        return line
+
+    @classmethod
+    def default_retval(cls):
+        return ""
+
+    def visit(self, o, line):
+        """
+        Overriding base `.visit()` to auto-count width and enforce
+        line breaks.
+        """
+        meth = self.lookup_method(o)
+        return meth(o, line)
+
+    def visit_str(self, o, line):
+        return self.append(line, str(o))
+
+    visit_Expression = visit_str
+    visit_Variable = visit_str
+
+    def visit_Statement(self, o, line):
+        line = self.visit(o.target, line=line)
+        line = self.append(line, ' = ')
+        line = self.visit(o.expr, line=line)
+        return line
+
+    def visit_Operation(self, o, line):
+        if len(o.ops) == 1 and len(o.operands) == 1:
+            # Special case: a unary operator
+            line = self.append(line, o.ops[0])
+            return self.visit(o.operands[0], line=line)
+
+        if o.parenthesis:
+            line = self.append(line, '(')
+        line = self.visit(o.operands[0], line=line)
+        for op, operand in zip(o.ops, o.operands[1:]):
+            s_op = (' %s ' % op) if self.op_spaces else str(op)
+            line = self.append(line, s_op)
+            line = self.visit(operand, line=line)
+        if o.parenthesis:
+            line = self.append(line, ')')
+        return line
+
+    def visit_Literal(self, o, line):
+        if o.type in [DataType.JPRB, DataType.JPRM]:
+            value = '%s_%s' % (str(o), o.type.name)
+        else:
+            value = str(o)
+        return self.append(line, value)
+
+    def visit_InlineCall(self, o, line):
+        line = self.append(line, '%s(' % o.name)
+        line = self.visit(o.arguments[0], line=line)
+        for arg in o.arguments[1:]:
+            line = self.append(line, ',')
+            line = self.visit(arg, line=line)
+        return self.append(line, ')')
+
+
+def fexprgen(expr, linewidth=90, op_spaces=False):
+    """
+    Generate Fortran expression code from a tree of sub-expressions.
+    """
+    return FExprCodegen(linewidth=linewidth, op_spaces=op_spaces).visit(expr, line='')
