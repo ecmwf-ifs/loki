@@ -1,6 +1,6 @@
-from ecir.visitors import Visitor
-from ecir.tools import chunks
-from ecir.types import BaseType, DataType
+from loki.visitors import Visitor
+from loki.tools import chunks
+from loki.types import BaseType, DataType
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 

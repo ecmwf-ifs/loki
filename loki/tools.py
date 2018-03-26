@@ -4,7 +4,7 @@ import pickle
 from collections import Iterable
 from functools import wraps
 
-from ecir.logging import log, info, INFO
+from loki.logging import log, info, INFO
 
 __all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached']
 

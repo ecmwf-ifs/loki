@@ -4,7 +4,7 @@ from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 import sys
 
-from ecir import (FortranSourceFile, Visitor, flatten, chunks, Loop,
+from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,

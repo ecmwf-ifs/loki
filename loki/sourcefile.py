@@ -9,9 +9,9 @@ import open_fortran_parser
 from pathlib import Path
 from collections import Iterable, defaultdict
 
-from ecir.subroutine import Section, Subroutine, Module
-from ecir.tools import disk_cached, timeit
-from ecir.logging import info, INFO
+from loki.subroutine import Section, Subroutine, Module
+from loki.tools import disk_cached, timeit
+from loki.logging import info, INFO
 
 
 __all__ =['FortranSourceFile']

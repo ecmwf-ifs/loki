@@ -1,14 +1,14 @@
 import re
 from collections import OrderedDict, Mapping
 
-from ecir.generator import generate, extract_source
-from ecir.ir import (Declaration, Allocation, Import, Statement, TypeDef,
+from loki.generator import generate, extract_source
+from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
                      Call, Conditional, CommentBlock)
-from ecir.expression import ExpressionVisitor
-from ecir.types import DerivedType, DataType
-from ecir.visitors import FindNodes
-from ecir.tools import flatten
-from ecir.helpers import assemble_continued_statement_from_list
+from loki.expression import ExpressionVisitor
+from loki.types import DerivedType, DataType
+from loki.visitors import FindNodes
+from loki.tools import flatten
+from loki.helpers import assemble_continued_statement_from_list
 
 
 __all__ = ['Section', 'Subroutine', 'Module']

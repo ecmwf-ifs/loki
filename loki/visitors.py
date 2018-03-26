@@ -1,8 +1,8 @@
 import inspect
 from collections import Iterable
 
-from ecir.ir import Node
-from ecir.tools import flatten
+from loki.ir import Node
+from loki.tools import flatten
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 

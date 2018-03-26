@@ -1,7 +1,7 @@
 from collections import OrderedDict
 import inspect
 
-from ecir.tools import flatten
+from loki.tools import flatten
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',

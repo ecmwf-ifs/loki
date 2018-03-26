@@ -6,13 +6,13 @@ import re
 from collections import deque, Iterable, OrderedDict
 from itertools import groupby
 
-from ecir.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
+from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Import,
                      Scope, Intrinsic, TypeDef)
-from ecir.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
-from ecir.types import BaseType
-from ecir.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
-from ecir.tools import as_tuple, timeit
+from loki.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
+from loki.types import BaseType
+from loki.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
+from loki.tools import as_tuple, timeit
 
 __all__ = ['generate', 'extract_source', 'Source']
 
