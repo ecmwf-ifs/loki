@@ -335,6 +335,12 @@ class IRGenerator(GenericVisitor):
 
                 vname = child.attrib['id']
 
+            elif child.tag == 'subscript':
+                # TODO: HACK: ARGHHHHH!!!!
+                # This odd case arises from things like (a%b(:, c%d%e)
+                n = child.find('name')
+                variable = self.visit(n)
+
             elif child.tag == 'subscripts':
                 # Always stash sub-variable if we encounter subscripts
                 indices = self.visit(child)
@@ -347,6 +353,7 @@ class IRGenerator(GenericVisitor):
         if variable is None or vname is not None:
             variable = generate_variable(vname=vname, indices=indices,
                                          subvar=variable, source=source)
+
         return variable
 
     def visit_literal(self, o, source=None):
@@ -359,7 +366,8 @@ class IRGenerator(GenericVisitor):
         return Literal(value=value, source=source)
 
     def visit_subscripts(self, o, source=None):
-        return tuple(self.visit(s) for s in o.findall('subscript'))
+        return tuple(self.visit(c)for c in o.getchildren()
+                     if c.tag in ['subscript', 'name'])
 
     def visit_subscript(self, o, source=None):
         if o.find('range'):
