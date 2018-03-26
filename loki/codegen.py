@@ -105,8 +105,8 @@ class FortranCodegen(Visitor):
         bodies = [self.visit(b) for b in o.bodies]
         else_body = self.visit(o.else_body)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in  o.conditions]
-        main_branch = ('\n%sELSE'%self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
+        main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
@@ -176,6 +176,7 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
+
 
 class FExprCodegen(Visitor):
     """

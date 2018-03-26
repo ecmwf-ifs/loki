@@ -1,5 +1,4 @@
 from abc import ABCMeta, abstractproperty
-from enum import Enum
 
 from loki.visitors import GenericVisitor
 

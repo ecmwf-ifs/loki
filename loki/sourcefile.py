@@ -3,18 +3,17 @@ Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
 import re
-import time
 import pickle
 import open_fortran_parser
 from pathlib import Path
-from collections import Iterable, defaultdict
+from collections import defaultdict
 
-from loki.subroutine import Section, Subroutine, Module
+from loki.subroutine import Subroutine, Module
 from loki.tools import disk_cached, timeit
-from loki.logging import info, INFO
+from loki.logging import info
 
 
-__all__ =['FortranSourceFile']
+__all__ = ['FortranSourceFile']
 
 
 class FortranSourceFile(object):

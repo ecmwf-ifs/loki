@@ -97,6 +97,7 @@ def disk_cached(argname):
 
 def timeit(log_level=INFO, argname=None):
     argname = as_tuple(argname)
+
     def decorator(fn):
 
         @wraps(fn)

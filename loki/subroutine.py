@@ -1,16 +1,16 @@
-import re
-from collections import OrderedDict, Mapping
+from collections import Mapping
 
 from loki.generator import generate, extract_source
 from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
-                     Call, Conditional, CommentBlock)
+                     Conditional, CommentBlock)
 from loki.expression import ExpressionVisitor
-from loki.types import DerivedType, DataType
+from loki.types import DerivedType
 from loki.visitors import FindNodes
 from loki.tools import flatten
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
+
 
 class InsertLiteralKinds(ExpressionVisitor):
     """
@@ -171,7 +171,6 @@ class Subroutine(Section):
         # Note: The declaration includes the SUBROUTINE key and dummy
         # variable list, so no _pre section is required.
         body_ast = self._ast.find('body')
-        bstart = int(body_ast.attrib['line_begin']) - 1
         bend = int(body_ast.attrib['line_end'])
         spec_ast = self._ast.find('body/specification')
         sstart = int(spec_ast.attrib['line_begin']) - 1
@@ -243,7 +242,7 @@ class Subroutine(Section):
         The raw source code contained in this section.
         """
         content = [self.header, self.declarations, self.body, self._post]
-        return ''.join(s.source for s in content)        
+        return ''.join(s.source for s in content)
 
     @property
     def ir(self):

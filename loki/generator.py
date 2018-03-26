@@ -3,15 +3,15 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import deque, Iterable, OrderedDict
+from collections import OrderedDict
 from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Import,
                      Scope, Intrinsic, TypeDef)
-from loki.expression import (Variable, Literal, Operation, Index, Expression, InlineCall)
+from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
-from loki.visitors import GenericVisitor, Visitor, Transformer, NestedTransformer
+from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
 
 __all__ = ['generate', 'extract_source', 'Source']
@@ -25,6 +25,7 @@ class Source(object):
 
     def __repr__(self):
         return 'Source<lines %s-%s>' % (self.lines[0], self.lines[1])
+
 
 def extract_source(ast, text, full_lines=False):
     """
@@ -48,6 +49,7 @@ def extract_source(ast, text, full_lines=False):
     # comments in between continued lines
     def continued(line):
         return line.strip().endswith('&')
+
     def is_comment(line):
         return line.strip().startswith('!')
 
@@ -119,15 +121,13 @@ class IRGenerator(GenericVisitor):
 
     def visit_loop(self, o, source=None):
         variable = o.find('header/index-variable').attrib['name']
+
+        lower = self.visit(o.find('header/index-variable/lower-bound'))
+        upper = self.visit(o.find('header/index-variable/upper-bound'))
         step = None
-        try:
-            lower = self.visit(o.find('header/index-variable/lower-bound'))
-            upper = self.visit(o.find('header/index-variable/upper-bound'))
-            if o.find('header/index-variable/step') is not None:
-                step = self.visit(o.find('header/index-variable/step'))
-        except:
-            lower = None
-            upper = None
+        if o.find('header/index-variable/step') is not None:
+            step = self.visit(o.find('header/index-variable/step'))
+
         body = as_tuple(self.visit(o.find('body')))
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
@@ -324,7 +324,7 @@ class IRGenerator(GenericVisitor):
         indices = None
         variable = None
         for child in reversed(o.getchildren()):
-            if child.tag =='part-ref':
+            if child.tag == 'part-ref':
                 # Stash previous sub-variable
                 if vname is not None:
                     variable = generate_variable(vname=vname, indices=indices,
@@ -335,7 +335,7 @@ class IRGenerator(GenericVisitor):
 
                 vname = child.attrib['id']
 
-            elif child.tag =='subscripts':
+            elif child.tag == 'subscripts':
                 # Always stash sub-variable if we encounter subscripts
                 indices = self.visit(child)
                 variable = generate_variable(vname=vname, indices=indices,
@@ -383,7 +383,7 @@ class IRGenerator(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
         parenthesis = o.find('parenthesized_expr') is not None
-        
+
         return Operation(ops=ops, operands=exprs, parenthesis=parenthesis,
                          source=source)
 

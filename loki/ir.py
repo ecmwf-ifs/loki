@@ -7,6 +7,7 @@ from loki.tools import flatten
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
            'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import']
 
+
 class Node(object):
 
     """
@@ -72,6 +73,7 @@ class CommentBlock(Node):
         super(CommentBlock, self).__init__(source=source)
 
         self.comments = comments
+
 
 class Pragma(Node):
     """

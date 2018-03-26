@@ -79,7 +79,7 @@ class DerivedType(BaseType):
 
     def __key(self):
         return (self.name, (v.__key for v in self.variables), self.intent,
-                            self.allocatable, self.pointer, self.optional)
+                self.allocatable, self.pointer, self.optional)
 
     def __repr__(self):
         return '<DerivedType %s%s%s%s%s>' % (self.name,
