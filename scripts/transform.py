@@ -599,11 +599,44 @@ def physics(source, typedef, root_macro, interface):
     f_source.write(source=fgen(routine.interface), filename=intfb_path)
 
     # Insert the root of the transformed call-tree into the root macro
-    root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
-    macro = __macro_template % (routine.name, root_args)
-    info('Writing root macro: %s' % root_macro)
-    with open(root_macro, 'w') as f:
-        f.write(macro)
+    # TODO: To get argument naming right, we need driver information!
+    # root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
+    # macro = __macro_template % (routine.name, root_args)
+    # info('Writing root macro: %s' % root_macro)
+    # with open(root_macro, 'w') as f:
+    #     f.write(macro)
+
+
+@cli.command('dependencies')
+@click.argument('routines', nargs=-1)
+@click.option('--dependency-file', '-deps', type=click.Path(), default=None,
+              help='Path to RAPS-generated dependency file')
+def dependencies(routines, dependency_file):
+    """
+    Utility script to override the RAPS-generated dependencies
+    following subroutine transformation.
+    """
+
+    deps_path = Path(dependency_file)
+    with deps_path.open('r') as f:
+        deps = f.read()
+
+    def deps_replace(deps, base, routine, mode, suffix):
+        oldpath = '%s/%s%s' % (base, routine, suffix)
+        newpath = '%s/%s.%s%s' % (base, routine, mode, suffix)
+        return deps.replace(oldpath, newpath)
+
+    # Performn string substitutions on dependency list
+    mode = 'idem'
+    for rname in routines:
+        deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.o')
+        deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.F90')
+        deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.h')
+        deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.ok')
+
+    info('Writing dependencies: %s' % deps_path)
+    with deps_path.open('w') as f:
+        f.write(deps)
 
 
 if __name__ == "__main__":
