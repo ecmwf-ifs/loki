@@ -1,17 +1,16 @@
-import re
-from collections import OrderedDict, Mapping
+from collections import Mapping
 
-from ecir.generator import generate, extract_source
-from ecir.ir import (Declaration, Allocation, Import, Statement, TypeDef,
-                     Call, Conditional, CommentBlock)
-from ecir.expression import ExpressionVisitor
-from ecir.types import DerivedType, DataType
-from ecir.visitors import FindNodes
-from ecir.tools import flatten
-from ecir.helpers import assemble_continued_statement_from_list
+from loki.generator import generate, extract_source
+from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
+                     Conditional, CommentBlock)
+from loki.expression import ExpressionVisitor
+from loki.types import DerivedType
+from loki.visitors import FindNodes
+from loki.tools import flatten
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
+
 
 class InsertLiteralKinds(ExpressionVisitor):
     """
@@ -69,12 +68,6 @@ class Section(object):
         Note: This does not change the content of the file
         """
         return self._source.splitlines(keepends=True)
-
-    @property
-    def longlines(self):
-        from ecir.helpers import assemble_continued_statement_from_iterator
-        srciter = iter(self.lines)
-        return [assemble_continued_statement_from_iterator(line, srciter)[0] for line in srciter]
 
     def replace(self, repl, new=None):
         """
@@ -178,7 +171,6 @@ class Subroutine(Section):
         # Note: The declaration includes the SUBROUTINE key and dummy
         # variable list, so no _pre section is required.
         body_ast = self._ast.find('body')
-        bstart = int(body_ast.attrib['line_begin']) - 1
         bend = int(body_ast.attrib['line_end'])
         spec_ast = self._ast.find('body/specification')
         sstart = int(spec_ast.attrib['line_begin']) - 1
@@ -250,7 +242,7 @@ class Subroutine(Section):
         The raw source code contained in this section.
         """
         content = [self.header, self.declarations, self.body, self._post]
-        return ''.join(s.source for s in content)        
+        return ''.join(s.source for s in content)
 
     @property
     def ir(self):

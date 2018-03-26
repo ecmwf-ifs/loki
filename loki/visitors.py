@@ -1,8 +1,8 @@
 import inspect
 from collections import Iterable
 
-from ecir.ir import Node
-from ecir.tools import flatten
+from loki.ir import Node
+from loki.tools import flatten
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
@@ -176,7 +176,7 @@ class Transformer(Visitor):
             elif isinstance(handle, Iterable):
                 # Original implementation to extend o.children:
                 if not o.children:
-                    raise VisitorException
+                    raise ValueError
                 extended = (tuple(handle) + o.children[0],) + o.children[1:]
                 return o._rebuild(*extended, **o.args_frozen)
             else:
@@ -208,7 +208,7 @@ class NestedTransformer(Transformer):
             return None
         elif isinstance(handle, Iterable):
             if not o.children:
-                raise VisitorException
+                raise ValueError
             extended = [tuple(handle) + rebuilt[0]] + rebuilt[1:]
             return o._rebuild(*extended, **o.args_frozen)
         else:
@@ -306,7 +306,7 @@ class PrintAST(Visitor):
             out += '\n%s' % self.indent + '<Else-If %s>\n%s' % (c, b)
         if o.else_body is not None:
             self._depth += 2
-            else_body = self.visit(o.else_body) #[self.visit(b) for b in o.else_body]
+            else_body = self.visit(o.else_body)
             self._depth -= 2
             out += '\n%s' % self.indent + '<Else>\n%s' % else_body
         return out

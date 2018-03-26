@@ -1,7 +1,7 @@
 *~
 *.pyc
 
-ecir.egg-info/*
+loki.egg-info/*
 
 # Let's not worry about input Fortran files for now
 *.F90

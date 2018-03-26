@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractproperty
-from enum import Enum
 
-from ecir.visitors import GenericVisitor
+from loki.visitors import GenericVisitor
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
            'ExpressionVisitor']
