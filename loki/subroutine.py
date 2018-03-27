@@ -1,43 +1,15 @@
 from collections import Mapping
 
 from loki.generator import generate, extract_source
-from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
-                     Conditional, CommentBlock)
-from loki.expression import ExpressionVisitor, Variable
+from loki.ir import Declaration, Allocation, Import, TypeDef
+from loki.expression import Variable
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes
 from loki.tools import flatten
+from loki.preprocessing import blacklist
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
-
-
-class InsertLiteralKinds(ExpressionVisitor):
-    """
-    Re-insert explicit _KIND casts for literals dropped during pre-processing.
-
-    :param pp_info: List of `(literal, kind)` tuples to be inserted
-    """
-
-    def __init__(self, pp_info):
-        super(InsertLiteralKinds, self).__init__()
-
-        self.pp_info = dict(pp_info)
-
-    def visit_Literal(self, o):
-        if o._source.lines[0] in self.pp_info:
-            literals = dict(self.pp_info[o._source.lines[0]])
-            if o.value in literals:
-                o.value = '%s_%s' % (o.value, literals[o.value])
-
-    def visit_CommentBlock(self, o):
-        for c in o.comments:
-            self.visit(c)
-
-    def visit_Comment(self, o):
-        if o._source.lines[0] in self.pp_info:
-            for val, kind in self.pp_info[o._source.lines[0]]:
-                o._source.string = o._source.string.replace(val, '%s_%s' % (val, kind))
 
 
 class InterfaceBlock(object):
@@ -205,27 +177,9 @@ class Subroutine(Section):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-        # Re-insert literal _KIND type casts from pre-processing info
-        # Note, that this is needed to get accurate data _KIND
-        # attributes for literal values, as these have been stripped
-        # in a preprocessing step to avoid OFP bugs.
-        if pp_info is not None:
-            insert_kind = InsertLiteralKinds(pp_info)
-
-            for decl in FindNodes(Declaration).visit(self.ir):
-                for v in decl.variables:
-                    if v.initial is not None:
-                        insert_kind.visit(v.initial)
-
-            for stmt in FindNodes(Statement).visit(self.ir):
-                insert_kind.visit(stmt)
-
-            for cnd in FindNodes(Conditional).visit(self.ir):
-                for c in cnd.conditions:
-                    insert_kind.visit(c)
-
-            for cmt in FindNodes(CommentBlock).visit(self.ir):
-                insert_kind.visit(cmt)
+        # Apply postprocessing rules to re-insert information lost during preprocessing
+        for name, rule in blacklist.items():
+            self._ir = rule.postprocess(self._ir, pp_info[name])
 
         # And finally we parse "member" subroutines
         self.members = None
