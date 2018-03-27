@@ -163,23 +163,6 @@ class IRGenerator(GenericVisitor):
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, ptr=True, source=source)
 
-    def visit_statement(self, o, source=None):
-        if len(o.attrib) == 0:
-            return None  # Empty element, skip
-        elif o.find('name'):
-            # Note: KIND literals confuse the parser, so the structure
-            # is slightly odd here. The `name` node is actually the target
-            # and the `target` node is actually the KIND identifier.
-            target = self.visit(o.find('name'))
-            expr = self.visit(o.find('assignment/value'))
-            return Statement(target=target, expr=expr, source=source)
-        elif o.find('assignment'):
-            return self.visit(o.find('assignment'))
-        elif o.find('pointer-assignment'):
-            return self.visit(o.find('pointer-assignment'))
-        else:
-            return self.visit_Element(o)
-
     def visit_declaration(self, o, source=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
