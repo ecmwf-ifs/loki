@@ -162,13 +162,15 @@ class FortranCodegen(Visitor):
 
     def visit_BaseType(self, o):
         tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s%s%s' % (
-            tname, '(KIND=%s)' % o.kind if o.kind else '',
+        return '%s%s%s%s%s%s%s%s%s' % (
+            tname,
+            '(KIND=%s)' % o.kind if o.kind else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '',
             ', TARGET' if o.target else '',
+            ', CONTIGUOUS' if o.contiguous else '',
             ', INTENT(%s)' % o.intent.upper() if o.intent else '',
         )
 

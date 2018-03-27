@@ -69,6 +69,18 @@ def reinsert_literal_kinds(ir, pp_info):
     return ir
 
 
+def reinsert_contiguous(ir, pp_info):
+    """
+    Reinsert the CONTIGUOUS marker into declaration variables.
+    """
+    if pp_info is not None:
+        for decl in FindNodes(Declaration).visit(ir):
+            if decl._source.lines[0] in pp_info:
+                for v in decl.variables:
+                    v.type.contiguous = True
+    return ir
+
+
 class PPRule(object):
 
     _empty_pattern = re.compile('')
@@ -95,6 +107,8 @@ class PPRule(object):
             return self.match.sub(self.replace, line)
         else:
             # Apply a regular string replacement
+            if self.match in line:
+                self._info[lineno] += [(self.match, self.replace)]
             return line.replace(self.match, self.replace)
 
     @property
@@ -125,4 +139,7 @@ blacklist = {
                         replace=lambda m: m.groupdict()['number'], postprocess=reinsert_literal_kinds),
     'KIND_JPIM': PPRule(match=re.compile('(?P<all>(?P<number>[0-9.]+[eE]?[0-9\-]*)_(?P<kind>JPIM))'),
                         replace=lambda m: m.groupdict()['number'], postprocess=reinsert_literal_kinds),
+
+    # Despit F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
+    'CONTIGUOUS' : PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
 }
