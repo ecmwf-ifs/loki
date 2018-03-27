@@ -3,7 +3,7 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
@@ -229,15 +229,11 @@ class IRGenerator(GenericVisitor):
                 type = BaseType(name=typename, kind=kind, intent=intent,
                                 allocatable=allocatable, optional=optional,
                                 parameter=parameter, target=target, source=source)
-                variables = []
-                for v in o.findall('variables/variable'):
-                    if len(v.attrib) == 0:
-                        continue
-                    dimensions = tuple(self.visit(i) for i in v.findall('dimensions/dimension'))
-                    initial = self.visit(v.find('initial-value')) if parameter else None
-                    variables.append(Variable(name=v.attrib['name'], type=type,
-                                              dimensions=dimensions, source=source,
-                                              initial=initial))
+                variables = [self.visit(v) for v in o.findall('variables/variable')]
+                variables = [v for v in variables if v is not None]
+                # Retro-fit type onto variables
+                for v in variables:
+                    v._type = type
                 return Declaration(variables=variables, source=source)
         elif o.attrib['type'] == 'implicit':
             # IMPLICIT marker
@@ -288,6 +284,7 @@ class IRGenerator(GenericVisitor):
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
+
         def generate_variable(vname, indices, subvar, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
                 return InlineCall(name=vname, arguments=indices)
@@ -298,46 +295,47 @@ class IRGenerator(GenericVisitor):
                 return Variable(name=vname, dimensions=indices,
                                 subvar=variable, source=source)
 
-        # Note: The following is quite tricky; essentially we traverse
-        # the children backwards trying to match potential (but not
-        # necessary indices/subscripts to variable names. From those
-        # we then create intermediate sub-variables and nest them as
-        # we move up the hierarchy.
-        vname = o.attrib['id'] if o.find('part-ref') is None else None
+        # Creating compound variables is a bit tricky, so let's first
+        # process all our children and shove them into a deque
+        _children = deque(self.visit(c) for c in o.getchildren())
+        _children = deque(c for c in _children if c is not None)
+
+        # Now we nest variables, dimensions and sub-variables by
+        # popping them off the back of our deque...
         indices = None
         variable = None
-        for child in reversed(o.getchildren()):
-            if child.tag == 'part-ref':
-                # Stash previous sub-variable
-                if vname is not None:
-                    variable = generate_variable(vname=vname, indices=indices,
-                                                 subvar=variable, source=source)
-                    # Reset vname and indices
-                    vname = None
-                    indices = None
+        while len(_children) > 0:
+            item = _children.pop()
+            if len(_children) > 0 and isinstance(_children[-1], tuple):
+                indices = _children.pop()
 
-                vname = child.attrib['id']
+            if len(_children) > 0 and isinstance(item, Variable):
+                # A subvar was processed separately, so move over
+                if variable is None:
+                    variable = item
+                    continue
 
-            elif child.tag == 'subscript':
-                # TODO: HACK: ARGHHHHH!!!!
-                # This odd case arises from things like (a%b(:, c%d%e)
-                n = child.find('name')
-                variable = self.visit(n)
-
-            elif child.tag == 'subscripts':
-                # Always stash sub-variable if we encounter subscripts
-                indices = self.visit(child)
-                variable = generate_variable(vname=vname, indices=indices,
-                                             subvar=variable, source=source)
-                # Reset vname and indices
-                vname = None
-                indices = None
-
-        if variable is None or vname is not None:
-            variable = generate_variable(vname=vname, indices=indices,
+            # The "append" base case
+            variable = generate_variable(vname=item, indices=indices,
                                          subvar=variable, source=source)
-
+            indices = None
         return variable
+
+    def visit_variable(self, o, source=None):
+        if 'id' not in o.attrib and 'name' not in o.attrib:
+            return None
+        name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
+        if o.find('dimensions') is not None:
+            dimensions = tuple(self.visit(d) for d in o.find('dimensions'))
+            dimensions = tuple(d for d in dimensions if d is not None)
+        else:
+            dimensions = None
+        initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
+        return Variable(name=name, dimensions=dimensions, initial=initial, source=source)
+
+    def visit_part_ref(self, o, source=None):
+        # Return a pure string, as part of a variable name
+        return o.attrib['id']
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
