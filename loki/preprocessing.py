@@ -3,7 +3,8 @@ from collections import defaultdict
 
 from loki.expression import ExpressionVisitor
 from loki.visitors import FindNodes
-from loki.ir import Declaration, Statement, Conditional, CommentBlock, MaskedStatement
+from loki.ir import (Declaration, Statement, Conditional, Call,
+                     CommentBlock, MaskedStatement)
 
 
 __all__ = ['blacklist', 'PPRule']
@@ -62,6 +63,10 @@ def reinsert_literal_kinds(ir, pp_info):
         for cnd in FindNodes(Conditional).visit(ir):
             for c in cnd.conditions:
                 insert_kind.visit(c)
+
+        for call in FindNodes(Call).visit(ir):
+            for a in call.arguments:
+                insert_kind.visit(a)
 
         for mst in FindNodes(MaskedStatement).visit(ir):
             insert_kind.visit(mst.condition)
