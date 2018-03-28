@@ -78,6 +78,7 @@ class FortranSourceFile(object):
         pp_info = OrderedDict()
         for name, rule in blacklist.items():
             # Apply rule filter over source file
+            rule.reset()
             new_source = ''
             for ll, line in enumerate(source.splitlines(keepends=True)):
                 ll += 1  # Correct for Fortran counting

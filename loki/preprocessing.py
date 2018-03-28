@@ -104,6 +104,9 @@ class PPRule(object):
         self._postprocess = postprocess
         self._info = defaultdict(list)
 
+    def reset(self):
+        self._info = defaultdict(list)
+
     def filter(self, line, lineno):
         """
         Filter a source line by matching the given rule and storing meta-content.
