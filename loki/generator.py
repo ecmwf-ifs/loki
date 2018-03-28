@@ -315,12 +315,14 @@ class IRGenerator(GenericVisitor):
                 kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
+                pointer = o.find('attribute-pointer') is not None
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
                 target = o.find('attribute-target') is not None
                 type = BaseType(name=typename, kind=kind, intent=intent,
-                                allocatable=allocatable, optional=optional,
-                                parameter=parameter, target=target, source=source)
+                                allocatable=allocatable, pointer=pointer,
+                                optional=optional, parameter=parameter,
+                                target=target, source=source)
                 variables = [self.visit(v) for v in o.findall('variables/variable')]
                 variables = [v for v in variables if v is not None]
                 # Retro-fit type onto variables
