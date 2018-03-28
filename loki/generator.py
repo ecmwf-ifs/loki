@@ -586,7 +586,8 @@ def generate(ofp_ast, raw_source):
     """
 
     # Sanitize the OFP output in-place
-    OFPDropEmptyRules().visit(ofp_ast)
+    # Note: DO NOT USE THE OFPDropEmptyRules fixer!
+    # We need it to get expression bracketing right.
     OFPFixMultipartVariables().visit(ofp_ast)
 
     # Parse the OFP AST into a raw IR
