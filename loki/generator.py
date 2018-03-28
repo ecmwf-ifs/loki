@@ -7,8 +7,8 @@ from collections import OrderedDict, deque
 from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Deallocation, Import,
-                     Scope, Intrinsic, TypeDef)
+                     Pragma, Declaration, Allocation, Deallocation, Nullify,
+                     Import, Scope, Intrinsic, TypeDef)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -244,6 +244,14 @@ class IRGenerator(GenericVisitor):
             return Pragma(keyword=keyword, source=source)
         else:
             return Comment(source=source)
+
+    def visit_statement(self, o, source=None):
+        # TODO: Hacky pre-emption for special-case statements
+        if o.find('name/nullify-stmt') is not None:
+            variable = self.visit(o.find('name'))
+            return Nullify(variable=variable, source=source)
+        else:
+            return self.visit_Element(o, source=source)
 
     def visit_assignment(self, o, source=None):
         target = self.visit(o.find('target'))

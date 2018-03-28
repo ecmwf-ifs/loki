@@ -148,6 +148,9 @@ class FortranCodegen(Visitor):
     def visit_Deallocation(self, o):
         return self.indent + 'DEALLOCATE(%s)' % o.variable
 
+    def visit_Nullify(self, o):
+        return self.indent + 'NULLIFY(%s)' % o.variable
+
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)

@@ -5,7 +5,8 @@ from loki.tools import flatten
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
-           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import']
+           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
+           'Allocation', 'Deallocation', 'Nullify']
 
 
 class Node(object):
@@ -205,6 +206,16 @@ class Deallocation(Node):
     """
     def __init__(self, variable, source=None):
         super(Deallocation, self).__init__(source=source)
+
+        self.variable = variable
+
+
+class Nullify(Node):
+    """
+    Internal representation of a pointer nullification
+    """
+    def __init__(self, variable, source=None):
+        super(Nullify, self).__init__(source=source)
 
         self.variable = variable
 
