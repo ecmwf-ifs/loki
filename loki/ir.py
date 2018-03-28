@@ -213,11 +213,12 @@ class Call(Node):
     """
     Internal representation of a function call
     """
-    def __init__(self, name, arguments, pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
+        self.kwarguments = kwarguments
         self.pragma = pragma
 
 

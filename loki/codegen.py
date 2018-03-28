@@ -133,12 +133,13 @@ class FortranCodegen(Visitor):
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
     def visit_Call(self, o):
-        if len(o.arguments) > self.chunking:
+        args = o.arguments + tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+        if len(args) > self.chunking:
             self._depth += 2
-            signature = self.segment(str(a) for a in o.arguments)
+            signature = self.segment(str(a) for a in args)
             self._depth -= 2
         else:
-            signature = ', '.join(str(a) for a in o.arguments)
+            signature = ', '.join(str(a) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):

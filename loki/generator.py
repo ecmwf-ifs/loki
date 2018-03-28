@@ -371,7 +371,13 @@ class IRGenerator(GenericVisitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        return Call(name=name, arguments=args, source=source)
+        kwargs = OrderedDict([self.visit(i) for i in o.findall('name/subscripts/argument')])
+        return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
+
+    def visit_argument(self, o, source=None):
+        key = o.attrib['name']
+        val = self.visit(o.find('name'))
+        return key, val
 
     # Expression parsing below; maye move to its own parser..?
 
