@@ -267,8 +267,13 @@ class FExprCodegen(Visitor):
     def visit_Operation(self, o, line):
         if len(o.ops) == 1 and len(o.operands) == 1:
             # Special case: a unary operator
+            if o.parenthesis:
+                line = self.append(line, '(')
             line = self.append(line, o.ops[0])
-            return self.visit(o.operands[0], line=line)
+            line = self.visit(o.operands[0], line=line)
+            if o.parenthesis:
+                line = self.append(line, ')')
+            return line
 
         if o.parenthesis:
             line = self.append(line, '(')
