@@ -580,6 +580,7 @@ __macro_template = """
 
 
 @cli.command('physics')
+@click.argument('routines', nargs=-1)
 @click.option('--source', '-s', type=click.Path(),
             help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
@@ -588,15 +589,27 @@ __macro_template = """
             help='Path to auto-generate interface file(s)')
 @click.option('--root-macro', '-m', type=click.Path(),
             help='Path to root macro for insertion of transformed call-tree')
-def physics(source, typedef, root_macro, interface):
+def physics(routines, source, typedef, root_macro, interface):
 
-    # Re-generate target routine and interface block with updated name
-    f_source = FortranSourceFile(source, preprocess=True)
-    routine = f_source.subroutines[0]
-    routine.name = '%s_IDEM' % routine.name
-    f_source.write(source=fgen(routine), filename=f_source.path.with_suffix('.idem.F90'))
-    intfb_path = (Path(interface) / f_source.path.stem).with_suffix('.idem.intfb.h')
-    f_source.write(source=fgen(routine.interface), filename=intfb_path)
+    source_path = Path(source)
+
+    for routine in routines:
+        source = (source_path / routine).with_suffix('.F90')
+
+        # Re-generate target routine and interface block with updated name
+        f_source = FortranSourceFile(source, preprocess=True)
+        routine = f_source.subroutines[0]
+        routine.name = '%s_IDEM' % routine.name
+
+        # Modify calls to other subroutines in our list
+        for call in FindNodes(Call).visit(routine.ir):
+            if call.name.lower() in (r.lower() for r in routines):
+                call.name += '_IDEM'
+
+        f_source.write(source=fgen(routine), filename=f_source.path.with_suffix('.idem.F90'))
+
+        intfb_path = (Path(interface) / f_source.path.stem).with_suffix('.idem.intfb.h')
+        f_source.write(source=fgen(routine.interface), filename=intfb_path)
 
     # Insert the root of the transformed call-tree into the root macro
     # TODO: To get argument naming right, we need driver information!
