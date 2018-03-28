@@ -6,7 +6,7 @@ from loki.tools import flatten
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
            'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
-           'Allocation', 'Deallocation', 'Nullify']
+           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement']
 
 
 class Node(object):
@@ -145,6 +145,23 @@ class Statement(Node):
         self.expr = expr
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
+
+
+class MaskedStatement(Node):
+    """
+    Internal representation of a masked array assignment (WHERE clause).
+    """
+
+    def __init__(self, condition, body, default, source=None):
+        super(MaskedStatement, self).__init__(source=source)
+
+        self.condition = condition
+        self.body = body
+        self.default = default  # The ELSEWHERE stmt
+
+    @property
+    def children(self):
+        return tuple([self.body, self.default])
 
 
 class Scope(Node):

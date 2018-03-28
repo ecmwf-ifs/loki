@@ -126,6 +126,16 @@ class FortranCodegen(Visitor):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
+    def visit_MaskedStatement(self, o):
+        condition = self.visit(o.condition)
+        self._depth += 1
+        body = self.visit(o.body)
+        default = self.visit(o.default)
+        self._depth -= 1
+        header = self.indent + 'WHERE (%s)\n' % condition
+        footer = '\n' + self.indent + 'END WHERE'
+        return header + body + '\n%sELSEWHERE\n' % self.indent + default + footer
+
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)

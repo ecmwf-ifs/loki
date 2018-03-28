@@ -8,7 +8,7 @@ from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
-                     Import, Scope, Intrinsic, TypeDef)
+                     Import, Scope, Intrinsic, TypeDef, MaskedStatement)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -250,6 +250,16 @@ class IRGenerator(GenericVisitor):
         if o.find('name/nullify-stmt') is not None:
             variable = self.visit(o.find('name'))
             return Nullify(variable=variable, source=source)
+        elif o.find('where-construct-stmt') is not None:
+            # Parse a WHERE statement...
+            condition = self.visit(o[0])
+            body = self.visit(o[2])
+            default = None
+            for i in range(len(o)):
+                if o[i].tag == 'elsewhere-stmt':
+                    default = self.visit(o[i+1])
+            # TODO: Deal with alternative conditions (multiple ELSEWHERE)
+            return MaskedStatement(condition=condition, body=body, default=default)
         else:
             return self.visit_Element(o, source=source)
 
