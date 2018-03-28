@@ -119,6 +119,17 @@ class FortranCodegen(Visitor):
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
+    def visit_MultiConditional(self, o):
+        expr = fexprgen(o.expr)
+        values = [self.visit(v) for v in o.values]
+        self._depth += 1
+        bodies = [self.visit(b) for b in o.bodies]
+        self._depth -= 1
+        header = self.indent + 'SELECT CASE (%s)\n' % expr
+        footer = self.indent + 'END SELECT'
+        cases = [self.indent + 'CASE (%s)\n' % v + b for v, b in zip(values, bodies)]
+        return header + '\n'.join(cases) + '\n' + footer
+
     def visit_Statement(self, o):
         linewidth = self.linewidth - len(self.indent)
         lines = fexprgen(o, linewidth=linewidth).split('\n')
@@ -127,7 +138,7 @@ class FortranCodegen(Visitor):
         return self.indent + stmt + comment
 
     def visit_MaskedStatement(self, o):
-        condition = self.visit(o.condition)
+        condition = fexprgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         default = self.visit(o.default)

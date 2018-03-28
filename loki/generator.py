@@ -8,7 +8,8 @@ from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
-                     Import, Scope, Intrinsic, TypeDef, MaskedStatement)
+                     Import, Scope, Intrinsic, TypeDef, MaskedStatement,
+                     MultiConditional)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -233,6 +234,12 @@ class IRGenerator(GenericVisitor):
         else_body = bodies[-1] if len(bodies) > ncond else None
         return Conditional(conditions=conditions, bodies=bodies[:ncond],
                            else_body=else_body, source=source)
+
+    def visit_select(self, o, source=None):
+        expr = self.visit(o.find('header'))
+        values = tuple(self.visit(h) for h in o.findall('body/case/header'))
+        bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
+        return MultiConditional(expr=expr, values=values, bodies=bodies)
 
     _re_pragma = re.compile('\!\$ecir\s+(?P<keyword>\w+)', re.IGNORECASE)
 

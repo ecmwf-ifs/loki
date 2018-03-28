@@ -6,7 +6,8 @@ from loki.tools import flatten
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
            'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
-           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement']
+           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
+           'MultiConditional']
 
 
 class Node(object):
@@ -133,6 +134,23 @@ class Conditional(Node):
         # Note that we currently ignore the condition itself
         return tuple(tuple([self.bodies]) + tuple([self.else_body]))
 
+class MultiConditional(Node):
+    """
+    Internal representation of a multi-value conditional (eg. SELECT)
+    """
+
+    _traversable = ['bodies']
+
+    def __init__(self, expr, values, bodies, source=None):
+        super(MultiConditional, self).__init__(source=source)
+
+        self.expr = expr
+        self.values = values
+        self.bodies = bodies
+
+    @property
+    def children(self):
+        return tuple([self.bodies])
 
 class Statement(Node):
     """
