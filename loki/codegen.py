@@ -131,9 +131,7 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        linewidth = self.linewidth - len(self.indent)
-        lines = fexprgen(o, linewidth=linewidth).split('\n')
-        stmt = (' &\n%s   & ' % self.indent).join(lines)
+        stmt = fexprgen(o, linewidth=self.linewidth, indent=self.indent)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -223,9 +221,10 @@ class FExprCodegen(Visitor):
     :param op_spaces: Flag indicating whether to use spaces around operators.
     """
 
-    def __init__(self, linewidth=90, op_spaces=False):
+    def __init__(self, linewidth=90, indent='', op_spaces=False):
         super(FExprCodegen, self).__init__()
         self.linewidth = linewidth
+        self.indent = indent
         self.op_spaces = op_spaces
 
         # We ignore outer indents and count from 0
@@ -235,7 +234,7 @@ class FExprCodegen(Visitor):
         """Insert linebreaks when requested width is hit."""
         if self._width + len(txt) > self.linewidth:
             self._width = len(txt)
-            line += '\n' + txt
+            line += '&\n%s& ' % self.indent + txt
         else:
             self._width += len(txt)
             line += txt
@@ -299,8 +298,9 @@ class FExprCodegen(Visitor):
         return self.append(line, ')')
 
 
-def fexprgen(expr, linewidth=90, op_spaces=False):
+def fexprgen(expr, linewidth=90, indent='', op_spaces=False):
     """
     Generate Fortran expression code from a tree of sub-expressions.
     """
-    return FExprCodegen(linewidth=linewidth, op_spaces=op_spaces).visit(expr, line='')
+    return FExprCodegen(linewidth=linewidth, indent=indent,
+                        op_spaces=op_spaces).visit(expr, line='')
