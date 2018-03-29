@@ -1,6 +1,6 @@
 import click
 import re
-from collections import OrderedDict, defaultdict, Iterable
+from collections import OrderedDict, defaultdict, Iterable, deque
 from copy import deepcopy
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import)
+                  Transformer, Import, warning)
 
 
 def generate_signature(name, arguments):
@@ -665,7 +665,9 @@ def dependencies(routines, dependency_file):
 @click.argument('routines', nargs=-1)
 @click.option('--source', '-s', type=click.Path(),
             help='Path to source files to transform.')
-def callgraph(routines, source):
+@click.option('--discovery', '-d', is_flag=True, default=False,
+            help='Automatically attempt to discover new subroutines.')
+def callgraph(routines, source, discovery):
 
     if Digraph is None:
         raise ImportError('Could not import graphviz library')
@@ -674,6 +676,9 @@ def callgraph(routines, source):
 
     cgraph = Digraph()
 
+    routine_map = {}
+    unseen = deque()
+
     for routine in routines:
         source = (source_path / routine).with_suffix('.F90')
 
@@ -681,11 +686,43 @@ def callgraph(routines, source):
         f_source = FortranSourceFile(source, preprocess=True)
         routine = f_source.subroutines[0]
 
-        cgraph.node(routine.name)
+        # Store routine in our map
+        routine_map[routine.name.upper()]  = routine
 
+        cgraph.node(routine.name)
         for call in FindNodes(Call).visit(routine.ir):
             cgraph.node(call.name)
             cgraph.edge(routine.name, call.name)
+
+            unseen.append(call.name)
+
+    if discovery:
+        while len(unseen) > 0:
+            r = unseen.pop()
+
+            if r.upper() in routine_map:
+                continue
+
+            source = (source_path / r.lower()).with_suffix('.F90')
+            if source.exists():
+                try:
+                    # Store the attempt in our routine cache
+                    routine_map[r.upper()] = None
+
+                    f_source = FortranSourceFile(source, preprocess=True)
+                    routine = f_source.subroutines[0]
+                    routine_map[routine.name.upper()]  = routine
+
+                    cgraph.node(routine.name)
+                    for call in FindNodes(Call).visit(routine.ir):
+                        cgraph.node(call.name)
+                        cgraph.edge(routine.name, call.name)
+
+                        unseen.append(call.name)
+                except:
+                    warning("Could not parse %s!" % source)
+            else:
+                info("Could not find %s; skipping..." % source)
 
     cgraph.render('callgraph.gv', view=True)
 
