@@ -411,7 +411,7 @@ class IRGenerator(GenericVisitor):
     def visit_name(self, o, source=None):
 
         def generate_variable(vname, indices, subvar, source):
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine

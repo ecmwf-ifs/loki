@@ -4,7 +4,7 @@ from collections import defaultdict
 from loki.expression import ExpressionVisitor
 from loki.visitors import FindNodes
 from loki.ir import (Declaration, Statement, Conditional, Call,
-                     CommentBlock, MaskedStatement)
+                     Comment, CommentBlock, MaskedStatement)
 
 
 __all__ = ['blacklist', 'PPRule']
@@ -23,11 +23,12 @@ class InsertLiteralKinds(ExpressionVisitor):
         self.pp_info = dict(pp_info)
 
     def visit_Literal(self, o):
-        if o._source.lines[0] in self.pp_info:
-            info = self.pp_info[o._source.lines[0]]
-            literals = {i['number']: i['kind'] for i in info}
-            if o.value in literals:
-                o.value = '%s_%s' % (o.value, literals[o.value])
+        for ll in range(o._source.lines[0], o._source.lines[1]+1):
+            if ll in self.pp_info:
+                info = self.pp_info[ll]
+                literals = {i['number']: i['kind'] for i in info}
+                if o.value in literals:
+                    o.value = '%s_%s' % (o.value, literals[o.value])
 
     def visit_CommentBlock(self, o):
         for c in o.comments:
@@ -70,6 +71,9 @@ def reinsert_literal_kinds(ir, pp_info):
 
         for mst in FindNodes(MaskedStatement).visit(ir):
             insert_kind.visit(mst.condition)
+
+        for cmt in FindNodes(Comment).visit(ir):
+            insert_kind.visit(cmt)
 
         for cmt in FindNodes(CommentBlock).visit(ir):
             insert_kind.visit(cmt)
