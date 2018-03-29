@@ -610,6 +610,11 @@ def physics(routines, source, typedef, root_macro, interface):
             if call.name.lower() in (r.lower() for r in routines):
                 call.name += '_IDEM'
 
+        for im in FindNodes(Import).visit(routine.ir):
+            for r in routines:
+                if im.c_import and r == im.module.split('.')[0]:
+                    im.module = im.module.replace('.intfb', '.idem.intfb')
+
         f_source.write(source=fgen(routine), filename=f_source.path.with_suffix('.idem.F90'))
 
         intfb_path = (Path(interface) / f_source.path.stem).with_suffix('.idem.intfb.h')
