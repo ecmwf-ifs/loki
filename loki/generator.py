@@ -232,8 +232,9 @@ class IRGenerator(GenericVisitor):
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
+        inline = o.find('if-then-stmt') is None
         return Conditional(conditions=conditions, bodies=bodies[:ncond],
-                           else_body=else_body, source=source)
+                           else_body=else_body, inline=inline, source=source)
 
     def visit_select(self, o, source=None):
         expr = self.visit(o.find('header'))

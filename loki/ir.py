@@ -122,12 +122,13 @@ class Conditional(Node):
 
     _traversable = ['bodies', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, source=None):
+    def __init__(self, conditions, bodies, else_body, inline=False, source=None):
         super(Conditional, self).__init__(source=source)
 
         self.conditions = conditions
         self.bodies = bodies
         self.else_body = else_body
+        self.inline = inline
 
     @property
     def children(self):

@@ -114,10 +114,15 @@ class FortranCodegen(Visitor):
         bodies = [self.visit(b) for b in o.bodies]
         else_body = self.visit(o.else_body)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
-        main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
-        else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
-        return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+        if o.inline:
+            assert len(o.conditions) == 1 and len(bodies) == 1
+            cond = fexprgen(o.conditions[0], op_spaces=True)
+            return self.indent + 'IF (%s) %s' % (cond, bodies[0])
+        else:
+            headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
+            main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+            else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
+            return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
         expr = fexprgen(o.expr)
