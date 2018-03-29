@@ -4,6 +4,10 @@ from collections import OrderedDict, defaultdict, Iterable
 from copy import deepcopy
 import sys
 from pathlib import Path
+try:
+    from graphviz import Digraph
+except ImportError:
+    Digraph = None
 
 from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
@@ -651,6 +655,34 @@ def dependencies(routines, dependency_file):
     with deps_path.open('w') as f:
         f.write(deps)
 
+
+@cli.command('callgraph')
+@click.argument('routines', nargs=-1)
+@click.option('--source', '-s', type=click.Path(),
+            help='Path to source files to transform.')
+def callgraph(routines, source):
+
+    if Digraph is None:
+        raise ImportError('Could not import graphviz library')
+
+    source_path = Path(source)
+
+    cgraph = Digraph()
+
+    for routine in routines:
+        source = (source_path / routine).with_suffix('.F90')
+
+        # Re-generate target routine and interface block with updated name
+        f_source = FortranSourceFile(source, preprocess=True)
+        routine = f_source.subroutines[0]
+
+        cgraph.node(routine.name)
+
+        for call in FindNodes(Call).visit(routine.ir):
+            cgraph.node(call.name)
+            cgraph.edge(routine.name, call.name)
+
+    cgraph.render('callgraph.gv', view=True)
 
 if __name__ == "__main__":
     cli()
