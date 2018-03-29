@@ -219,11 +219,12 @@ class Import(Node):
     """
     Internal representation of a module import.
     """
-    def __init__(self, module, symbols, source=None):
+    def __init__(self, module, symbols=None, c_import=False, source=None):
         super(Import, self).__init__(source=source)
 
         self.module = module
-        self.symbols = symbols
+        self.symbols = symbols or ()
+        self.c_import = c_import
 
 
 class Allocation(Node):
