@@ -129,13 +129,13 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o):
         expr = fexprgen(o.expr)
-        values = [self.visit(v) for v in o.values]
+        values = ['DEFAULT' if v is None else '(%s)' % self.visit(v) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
         header = self.indent + 'SELECT CASE (%s)\n' % expr
         footer = self.indent + 'END SELECT'
-        cases = [self.indent + 'CASE (%s)\n' % v + b for v, b in zip(values, bodies)]
+        cases = [self.indent + 'CASE %s\n' % v + b for v, b in zip(values, bodies)]
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
