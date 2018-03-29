@@ -407,6 +407,9 @@ class IRGenerator(GenericVisitor):
         val = self.visit(o.find('name'))
         return key, val
 
+    def visit_exit(self, o, source=None):
+        return Intrinsic(source=source)
+
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
