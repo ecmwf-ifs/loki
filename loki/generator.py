@@ -383,10 +383,13 @@ class IRGenerator(GenericVisitor):
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
 
     def visit_directive(self, o, source=None):
-        # Straight pipe-through node for header includes (#include ...)
-        match = re.search('#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
-        module = match.groupdict()['module']
-        return Import(module=module, c_import=True, source=source)
+        if '#include' in o.attrib['text']:
+            # Straight pipe-through node for header includes (#include ...)
+            match = re.search('#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
+            module = match.groupdict()['module']
+            return Import(module=module, c_import=True, source=source)
+        else:
+            return Intrinsic(source=source)
 
     def visit_open(self, o, source=None):
         return Intrinsic(source=source)
