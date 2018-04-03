@@ -13,7 +13,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import, warning)
+                  Transformer, Import, warning, as_tuple, error)
 
 
 def generate_signature(name, arguments):
@@ -65,6 +65,80 @@ def generate_interface(filename, name, arguments, imports):
     print("Writing interface to %s" % filename)
     with open(filename, 'w') as file:
         file.write(interface)
+
+
+class SourceProcessor(object):
+    """
+    Work queue manager to enqueue and process individual source
+    routines/modules with a given kernel.
+
+    Note: The processing module can create a callgraph and perform
+    automated discovery, to enable easy bulk-processing of large
+    numbers of source files.
+    """
+
+    blacklist = ['DR_HOOK', 'ABOR1']
+
+    def __init__(self, kernel, path):
+        self.kernel = kernel
+        self.path = Path(path)
+
+        self.queue = deque()
+        self.processed = []
+
+        if Digraph is not None:
+            self.graph = Digraph(format='pdf', strict=True)
+        else:
+            self.graph = None
+
+    def append(self, sources):
+        """
+        Add names of source routines or modules to find and process.
+        """
+        self.queue.extend(as_tuple(sources))
+
+    def process(self, discovery=False):
+        """
+        Process all enqueued source modules and routines with the
+        stored kernel.
+        """
+        while len(self.queue) > 0:
+            source = self.queue.popleft()
+            source_path = (self.path / source).with_suffix('.F90')
+
+            if source_path.exists():
+                try:
+                    # Re-generate target routine and interface block with updated name
+                    source_file = FortranSourceFile(source_path, preprocess=True)
+                    routine = source_file.subroutines[0]
+
+                    # TODO: Apply the user-defined kernel
+                    # self.kernel(source, processor=self)
+
+                    if self.graph:
+                        self.graph.node(routine.name, color='lightseagreen', style='filled')
+
+                    for call in FindNodes(Call).visit(routine.ir):
+                        if call.name in self.blacklist:
+                            continue
+
+                        if self.graph:
+                            self.graph.node(call.name, color='lightblue', style='filled')
+                            self.graph.edge(routine.name, call.name)
+
+                        if discovery:
+                            self.append(call.name.lower())
+
+                except Exception as e:
+                    if self.graph:
+                        self.graph.node(source.upper(), color='red', style='filled')
+                    warning('Could not parse %s:' % source)
+                    error(e)
+
+            else:
+                if self.graph:
+                    self.graph.node(source.upper(), color='lightsalmon', style='filled')
+                info("Could not find source file %s; skipping..." % source)
 
 
 class FindVariables(ExpressionVisitor, Visitor):
@@ -669,62 +743,11 @@ def dependencies(routines, dependency_file):
             help='Automatically attempt to discover new subroutines.')
 def callgraph(routines, source, discovery):
 
-    if Digraph is None:
-        raise ImportError('Could not import graphviz library')
+    processor = SourceProcessor(kernel=None, path=source)
+    processor.append(routines)
+    processor.process(discovery=discovery)
 
-    source_path = Path(source)
-
-    cgraph = Digraph()
-
-    routine_map = {}
-    unseen = deque()
-
-    for routine in routines:
-        source = (source_path / routine).with_suffix('.F90')
-
-        # Re-generate target routine and interface block with updated name
-        f_source = FortranSourceFile(source, preprocess=True)
-        routine = f_source.subroutines[0]
-
-        # Store routine in our map
-        routine_map[routine.name.upper()]  = routine
-
-        cgraph.node(routine.name)
-        for call in FindNodes(Call).visit(routine.ir):
-            cgraph.node(call.name)
-            cgraph.edge(routine.name, call.name)
-
-            unseen.append(call.name)
-
-    if discovery:
-        while len(unseen) > 0:
-            r = unseen.pop()
-
-            if r.upper() in routine_map:
-                continue
-
-            source = (source_path / r.lower()).with_suffix('.F90')
-            if source.exists():
-                try:
-                    # Store the attempt in our routine cache
-                    routine_map[r.upper()] = None
-
-                    f_source = FortranSourceFile(source, preprocess=True)
-                    routine = f_source.subroutines[0]
-                    routine_map[routine.name.upper()]  = routine
-
-                    cgraph.node(routine.name)
-                    for call in FindNodes(Call).visit(routine.ir):
-                        cgraph.node(call.name)
-                        cgraph.edge(routine.name, call.name)
-
-                        unseen.append(call.name)
-                except:
-                    warning("Could not parse %s!" % source)
-            else:
-                info("Could not find %s; skipping..." % source)
-
-    cgraph.render('callgraph.gv', view=True)
+    processor.graph.render('callgraph', view=True)
 
 if __name__ == "__main__":
     cli()
