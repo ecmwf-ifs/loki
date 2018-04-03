@@ -136,6 +136,13 @@ class Variable(Expression):
         else:
             return super(Variable, self).__eq__(other)
 
+    @property
+    def children(self):
+        c = self.dimensions
+        if self.subvar is not None:
+            c += (self.subvar, )
+        return c
+
 
 class InlineCall(Expression):
     """

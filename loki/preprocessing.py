@@ -147,7 +147,9 @@ A black list of Fortran features that cause bugs and failures in the OFP.
 blacklist = {
     # Remove various IBM directives
     'IBM_NOCHECK': PPRule(match='@PROCESS NOCHECK', replace=''),
-    'IBM_HOT': PPRule(match='@PROCESS HOT(NOVECTOR) NOSTRICT', replace=''),
+    'IBM_HOT_NOVECTOR': PPRule(match='@PROCESS HOT(NOVECTOR) NOSTRICT', replace=''),
+    'IBM_HOT_NOSTRICT': PPRule(match='@PROCESS HOT NOSTRICT', replace=''),
+
 
     # Strip and re-insert _KIND type casts to circumvent OFP bug (issue #4)
     'KIND_JPRB': PPRule(match=re.compile('(?P<all>(?P<number>[0-9.]+[eE]?[0-9\-]*)_(?P<kind>JPRB))'),
