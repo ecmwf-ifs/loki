@@ -179,7 +179,8 @@ class Subroutine(Section):
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for name, rule in blacklist.items():
-            self._ir = rule.postprocess(self._ir, pp_info[name])
+            info = pp_info[name] if pp_info is not None and name in pp_info else None
+            self._ir = rule.postprocess(self._ir, info)
 
         # And finally we parse "member" subroutines
         self.members = None
