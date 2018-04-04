@@ -49,6 +49,8 @@ def extract_source(ast, text, full_lines=False):
     # Scan for line continuations and honour inline
     # comments in between continued lines
     def continued(line):
+        if '!' in line:
+            line = line.split('!')[0]
         return line.strip().endswith('&')
 
     def is_comment(line):
