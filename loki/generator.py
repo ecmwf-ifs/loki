@@ -80,98 +80,6 @@ def extract_source(ast, text, full_lines=False):
     return Source(string=''.join(lines), lines=(lstart, lend))
 
 
-class XMLVisitor(GenericVisitor):
-    """
-    Base class for XML visitors that traverse XML node trees.
-
-    Note: Since re-building these trees is insane, we will modify them
-    in-place and use these visitor classes as "transformers" as well.
-    """
-
-    def lookup_method(self, instance):
-        """
-        Alternative lookup method for XML element types, identified by ``element.tag``
-        """
-        tag = instance.tag.replace('-', '_')
-        if tag in self._handlers:
-            return self._handlers[tag]
-        else:
-            return super(XMLVisitor, self).lookup_method(instance)
-
-    def visit_Element(self, o):
-        for e in list(o):
-            self.visit(e)
-
-
-class OFPDropEmptyRules(XMLVisitor):
-    """
-    Remove all elements that only contain rule attributes
-    """
-
-    def visit_Element(self, o):
-        for e in list(o):
-            if len(list(e)) == 0 and len(e.attrib) == 1 and 'rule' in e.attrib:
-                o.remove(e)
-            else:
-                self.visit(e)
-
-
-class OFPFixMultipartVariables(XMLVisitor):
-    """
-    Explicit OFP bugfix for erroneously nested keywrod argument lists:
-
-    If derived-type indirections deeper than 2 levels (eg. A%B%C) are
-    present in keyword-argument lists or subscript lists, the OFP will
-    erroneously split the compound 'name' node and hoist some 'part-ref'
-    nodes above the containing 'keyword-argument' node. This creates a
-    weird nested structure that we flatten here by re-connecting
-    the XML nodes in-place.
-    """
-
-    def merge(self, head, tail, parent):
-        """
-        Utility to merge two 'name' nodes, where the 'part-ref' nodes
-        in `head` are inserted at the front of `tail`, before removing
-        the `head` and hoisting all its children to the `parent`.
-        """
-        head_refs = head.findall('part-ref')
-        tail_refs = tail.findall('part-ref')
-
-        # Shove head parts into the tail
-        for ref in head_refs:
-            tail.insert(0, ref)
-            head.remove(ref)
-
-        # Drop the now empty head and hoist its children
-        parent.remove(head)
-        for c in list(head):
-            # parent.insert(-1, c)
-            parent.append(c)
-
-    def merge_multipart(self, head, parent):
-        """
-        Utility to recursively descend into the last layer of nested
-        'name' node pairs, before merging our way back up.
-        """
-        if head.find('name'):
-            self.merge_multipart(head=head.find('name'), parent=head)
-
-        tail = head.find('*/name')
-        if tail is not None:
-            self.merge(head, tail, parent=parent)
-
-    def visit_keyword_arguments(self, o):
-        while o.find('name') is not None:
-            head = o.find('name')
-            self.merge_multipart(head=head, parent=o)
-
-    def visit_call(self, o):
-        subscripts = o.find('name/subscripts')
-        while subscripts.find('name') is not None:
-            head = subscripts.find('name')
-            self.merge_multipart(head=head, parent=subscripts)
-
-
 class IRGenerator(GenericVisitor):
 
     def __init__(self, raw_source):
@@ -593,11 +501,6 @@ def generate(ofp_ast, raw_source):
     The internal IR is intended to represent the code at a much higher
     level than the raw langage constructs that OFP returns.
     """
-
-    # Sanitize the OFP output in-place
-    # Note: DO NOT USE THE OFPDropEmptyRules fixer!
-    # We need it to get expression bracketing right.
-    OFPFixMultipartVariables().visit(ofp_ast)
 
     # Parse the OFP AST into a raw IR
     ir = IRGenerator(raw_source).visit(ofp_ast)
