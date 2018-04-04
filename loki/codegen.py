@@ -112,6 +112,15 @@ class FortranCodegen(Visitor):
                                   ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
+    def visit_WhileLoop(self, o):
+        condition = fexprgen(o.condition, op_spaces=True)
+        self._depth += 1
+        body = self.visit(o.body)
+        self._depth -= 1
+        header = 'DO WHILE (%s)\n' % condition
+        footer = '\n' + self.indent + 'END DO'
+        return self.indent + header + body + footer
+
     def visit_Conditional(self, o):
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]

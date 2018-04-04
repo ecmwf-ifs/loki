@@ -115,6 +115,28 @@ class Loop(Node):
         return tuple([self.body])
 
 
+class WhileLoop(Node):
+    """
+    Internal representation of a while loop in source code.
+
+    Importantly, this is different from a DO or FOR loop, as we don't
+    have a dedicated loop variable with bounds.
+    """
+
+    _traversable = ['body']
+
+    def __init__(self, condition, body=None, source=None):
+        super(WhileLoop, self).__init__(source=source)
+
+        self.condition = condition
+        self.body = body
+
+    @property
+    def children(self):
+        # Note: Needs to be one tuple per `traversable`
+        return tuple([self.body])
+
+
 class Conditional(Node):
     """
     Internal representation of a conditional branching construct.

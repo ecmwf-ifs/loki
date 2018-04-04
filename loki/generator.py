@@ -9,7 +9,7 @@ from itertools import groupby
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
-                     MultiConditional)
+                     MultiConditional, WhileLoop)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -123,19 +123,25 @@ class IRGenerator(GenericVisitor):
     visit_body = visit_Element
 
     def visit_loop(self, o, source=None):
-        variable = o.find('header/index-variable').attrib['name']
+        if o.find('header/index-variable') is None:
+            # We are processing a while loop
+            condition = self.visit(o.find('header'))
+            body = as_tuple(self.visit(o.find('body')))
+            return WhileLoop(condition=condition, body=body, source=source)
+        else:
+            # We are processing a regular for/do loop with bounds
+            variable = o.find('header/index-variable').attrib['name']
+            lower = self.visit(o.find('header/index-variable/lower-bound'))
+            upper = self.visit(o.find('header/index-variable/upper-bound'))
+            step = None
+            if o.find('header/index-variable/step') is not None:
+                step = self.visit(o.find('header/index-variable/step'))
 
-        lower = self.visit(o.find('header/index-variable/lower-bound'))
-        upper = self.visit(o.find('header/index-variable/upper-bound'))
-        step = None
-        if o.find('header/index-variable/step') is not None:
-            step = self.visit(o.find('header/index-variable/step'))
-
-        body = as_tuple(self.visit(o.find('body')))
-        # Store full lines with loop body for easy replacement
-        source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return Loop(variable=variable, body=body, bounds=(lower, upper, step),
-                    source=source)
+            body = as_tuple(self.visit(o.find('body')))
+            # Store full lines with loop body for easy replacement
+            source = extract_source(o.attrib, self._raw_source, full_lines=True)
+            return Loop(variable=variable, body=body, bounds=(lower, upper, step),
+                        source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
