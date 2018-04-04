@@ -9,7 +9,7 @@ from itertools import groupby
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
-                     MultiConditional, WhileLoop)
+                     MultiConditional, WhileLoop, DataDeclaration)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -277,8 +277,24 @@ class IRGenerator(GenericVisitor):
                     v._type = type
                 return Declaration(variables=variables, source=source)
         elif o.attrib['type'] == 'implicit':
-            # IMPLICIT marker
             return Intrinsic(source=source)
+        elif o.attrib['type'] == 'intrinsic':
+            return Intrinsic(source=source)
+        elif o.attrib['type'] == 'data':
+            # Data declaration blocks
+            declarations = []
+            for variables, values in zip(o.findall('variables'), o.findall('values')):
+                variable = self.visit(variables)
+                # Lists of literal values are again nested, so extract
+                # them recursively.
+                l = values.find('literal')  # We explicitly recurse on l
+                vals = []
+                while l.find('literal') is not None:
+                    vals += [self.visit(l)]
+                    l = l.find('literal')
+                vals += [self.visit(l)]
+                declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
+            return tuple(declarations)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 

@@ -237,6 +237,17 @@ class Declaration(Node):
         self.pragma = pragma
 
 
+class DataDeclaration(Node):
+    """
+    Internal representation of a DATA declaration for explicit array value lists.
+    """
+    def __init__(self, variable, values, source=None):
+        super(DataDeclaration, self).__init__(source=source)
+
+        self.variable = variable
+        self.values = values
+
+
 class Import(Node):
     """
     Internal representation of a module import.

@@ -96,6 +96,10 @@ class FortranCodegen(Visitor):
         variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s :: %s' % (type, variables) + comment
 
+    def visit_DataDeclaration(self, o):
+        values = self.segment([str(v) for v in o.values], chunking=8)
+        return self.indent + 'DATA %s/%s/' % (o.variable, values)
+
     def visit_Import(self, o):
         if o.c_import:
             return '#include "%s"' % o.module
