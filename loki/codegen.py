@@ -160,7 +160,11 @@ class FortranCodegen(Visitor):
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
     def visit_Call(self, o):
-        args = o.arguments + tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+        if o.kwarguments is not None:
+            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+            args = o.arguments + kwargs
+        else:
+            args = o.arguments
         if len(args) > self.chunking:
             self._depth += 2
             signature = self.segment(str(a) for a in args)
