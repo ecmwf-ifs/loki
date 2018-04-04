@@ -113,7 +113,8 @@ class SourceProcessor(object):
                     routine = source_file.subroutines[0]
 
                     # TODO: Apply the user-defined kernel
-                    # self.kernel(source, processor=self)
+                    if self.kernel is not None:
+                        self.kernel(source_file, processor=self)
 
                     if self.graph:
                         self.graph.node(routine.name, color='lightseagreen', style='filled')
@@ -659,57 +660,7 @@ __macro_template = """
 """
 
 
-@cli.command('physics')
-@click.argument('routines', nargs=-1)
-@click.option('--source', '-s', type=click.Path(),
-            help='Path to source files to transform.')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-            help='Path for additional source file(s) containing type definitions')
-@click.option('--interface', '-intfb', type=click.Path(), default=None,
-            help='Path to auto-generate interface file(s)')
-@click.option('--root-macro', '-m', type=click.Path(),
-            help='Path to root macro for insertion of transformed call-tree')
-def physics(routines, source, typedef, root_macro, interface):
-
-    source_path = Path(source)
-
-    for routine in routines:
-        source = (source_path / routine).with_suffix('.F90')
-
-        # Re-generate target routine and interface block with updated name
-        f_source = FortranSourceFile(source, preprocess=True)
-        routine = f_source.subroutines[0]
-        routine.name = '%s_IDEM' % routine.name
-
-        # Modify calls to other subroutines in our list
-        for call in FindNodes(Call).visit(routine.ir):
-            if call.name.lower() in (r.lower() for r in routines):
-                call.name += '_IDEM'
-
-        for im in FindNodes(Import).visit(routine.ir):
-            for r in routines:
-                if im.c_import and r == im.module.split('.')[0]:
-                    im.module = im.module.replace('.intfb', '.idem.intfb')
-
-        f_source.write(source=fgen(routine), filename=f_source.path.with_suffix('.idem.F90'))
-
-        intfb_path = (Path(interface) / f_source.path.stem).with_suffix('.idem.intfb.h')
-        f_source.write(source=fgen(routine.interface), filename=intfb_path)
-
-    # Insert the root of the transformed call-tree into the root macro
-    # TODO: To get argument naming right, we need driver information!
-    # root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
-    # macro = __macro_template % (routine.name, root_args)
-    # info('Writing root macro: %s' % root_macro)
-    # with open(root_macro, 'w') as f:
-    #     f.write(macro)
-
-
-@cli.command('dependencies')
-@click.argument('routines', nargs=-1)
-@click.option('--dependency-file', '-deps', type=click.Path(), default=None,
-              help='Path to RAPS-generated dependency file')
-def dependencies(routines, dependency_file):
+def adjust_dependencies(routines, dependency_file):
     """
     Utility script to override the RAPS-generated dependencies
     following subroutine transformation.
@@ -737,19 +688,77 @@ def dependencies(routines, dependency_file):
         f.write(deps)
 
 
-@cli.command('callgraph')
+@cli.command('physics')
+@click.argument('routines', nargs=-1)
+@click.option('--source', '-s', type=click.Path(),
+            help='Path to source files to transform.')
+@click.option('--typedef', '-t', type=click.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
+@click.option('--interface', '-intfb', type=click.Path(), default=None,
+            help='Path to auto-generate interface file(s)')
+@click.option('--root-macro', '-m', type=click.Path(),
+            help='Path to root macro for insertion of transformed call-tree')
+@click.option('--dependency-file', '-deps', type=click.Path(), default=None,
+              help='Path to RAPS-generated dependency file')
+@click.option('--callgraph', '-cg', is_flag=True, default=False,
+            help='Generate and display the subroutine callgraph.')
+def physics(routines, source, typedef, root_macro, interface, dependency_file, callgraph):
+
+    def physics_idem_kernel(source_file, processor):
+        routine = source_file.subroutines[0]
+        routine.name = '%s_IDEM' % routine.name
+
+        # Modify calls to other subroutines in our list
+        for call in FindNodes(Call).visit(routine.ir):
+            if call.name.lower() in (r.lower() for r in routines):
+                call.name += '_IDEM'
+
+        for im in FindNodes(Import).visit(routine.ir):
+            for r in routines:
+                if im.c_import and r == im.module.split('.')[0]:
+                    im.module = im.module.replace('.intfb', '.idem.intfb')
+
+        source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
+
+        intfb_path = (Path(interface) / source_file.path.stem).with_suffix('.idem.intfb.h')
+        source_file.write(source=fgen(routine.interface), filename=intfb_path)
+
+    processor = SourceProcessor(kernel=physics_idem_kernel, path=source)
+    processor.append(routines)
+    processor.process(discovery=False)
+
+    if callgraph:
+        processor.graph.render('callgraph', view=False)
+
+    adjust_dependencies(routines, dependency_file)
+
+    # Insert the root of the transformed call-tree into the root macro
+    # TODO: To get argument naming right, we need driver information!
+    # root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
+    # macro = __macro_template % (routine.name, root_args)
+    # info('Writing root macro: %s' % root_macro)
+    # with open(root_macro, 'w') as f:
+    #     f.write(macro)
+
+
+@cli.command('noop')
 @click.argument('routines', nargs=-1)
 @click.option('--source', '-s', type=click.Path(),
             help='Path to source files to transform.')
 @click.option('--discovery', '-d', is_flag=True, default=False,
             help='Automatically attempt to discover new subroutines.')
-def callgraph(routines, source, discovery):
-
+@click.option('--callgraph', '-cg', is_flag=True, default=False,
+            help='Generate and display the subroutine callgraph.')
+def noop(routines, source, discovery, callgraph):
+    """
+    Do-nothing mode to test the parsing and bulk-traversal capabilities.
+    """
     processor = SourceProcessor(kernel=None, path=source)
     processor.append(routines)
     processor.process(discovery=discovery)
 
-    processor.graph.render('callgraph', view=True)
+    if callgraph:
+        processor.graph.render('callgraph', view=True)
 
 if __name__ == "__main__":
     cli()
