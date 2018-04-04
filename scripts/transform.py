@@ -482,14 +482,16 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
                           'END SUBROUTINE %s' % new_routine_name)
 
     # Strip target sizes from declarations
-    for v in routine.arguments:
-        if v.name in target.variables:
-            routine.declarations.replace(v._source.string, '')
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        if len(decl.variables) == 1 and decl.variables[0].name in target.variables:
+            routine.declarations.replace(decl._source.string, '')
 
     # Strip target loop variable
-    line = routine.variable_map[target.variable]._source.string
-    new_line = line.replace('%s, ' % target.variable, '')
-    routine.declarations.replace(line, new_line)
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        if target.variable in decl.variables:
+            line = decl._source.string
+            new_line = line.replace('%s, ' % target.variable, '')
+            routine.declarations.replace(line, new_line)
 
     ####  Index replacements  ####
 
