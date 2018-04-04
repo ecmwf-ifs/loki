@@ -166,6 +166,8 @@ class IRGenerator(GenericVisitor):
         if o.find('name/nullify-stmt') is not None:
             variable = self.visit(o.find('name'))
             return Nullify(variable=variable, source=source)
+        elif o.find('cycle') is not None:
+            return self.visit(o.find('cycle'))
         elif o.find('where-construct-stmt') is not None:
             # Parse a WHERE statement...
             condition = self.visit(o[0])
@@ -178,6 +180,9 @@ class IRGenerator(GenericVisitor):
             return MaskedStatement(condition=condition, body=body, default=default)
         else:
             return self.visit_Element(o, source=source)
+
+    def visit_cycle(self, o, source=None):
+        return Intrinsic(source=source)
 
     def visit_assignment(self, o, source=None):
         target = self.visit(o.find('target'))
