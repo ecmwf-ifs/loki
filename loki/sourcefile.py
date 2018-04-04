@@ -23,7 +23,7 @@ class FortranSourceFile(object):
     :param filename: Name of the input source file
     """
 
-    def __init__(self, filename, preprocess=True, typedefs=None):
+    def __init__(self, filename, preprocess=False, typedefs=None):
         self.path = Path(filename)
         info_path = self.path.with_suffix('.pp.info')
         file_path = self.path

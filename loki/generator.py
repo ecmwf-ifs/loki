@@ -386,12 +386,15 @@ class IRGenerator(GenericVisitor):
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
+        type = o.attrib['type'] if 'type' in o.attrib else None
+        kind_param = o.find('kind-param')
+        kind = kind_param.attrib['kind'] if kind_param is not None else None
         # Override Fortran BOOL keywords
         if value == 'false':
             value = '.FALSE.'
         if value == 'true':
             value = '.TRUE.'
-        return Literal(value=value, source=source)
+        return Literal(value=value, kind=kind, type=type, source=source)
 
     def visit_subscripts(self, o, source=None):
         return tuple(self.visit(c)for c in o.getchildren()

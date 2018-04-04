@@ -295,10 +295,7 @@ class FExprCodegen(Visitor):
         return line
 
     def visit_Literal(self, o, line):
-        if o.type in [DataType.JPRB, DataType.JPRM]:
-            value = '%s_%s' % (str(o), o.type.name)
-        else:
-            value = str(o)
+        value = str(o)
         return self.append(line, value)
 
     def visit_InlineCall(self, o, line):

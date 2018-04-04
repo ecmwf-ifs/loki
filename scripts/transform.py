@@ -304,7 +304,7 @@ target_routine = 'CLOUDSC'
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
-    f_driver = FortranSourceFile(driver, preprocess=False)
+    f_driver = FortranSourceFile(driver)
     driver_routine = f_driver.subroutines[0]
 
     driver_routine._infer_variable_dimensions()
@@ -388,7 +388,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     typedefs = get_typedefs(typedef)
 
     # Read the primary source routine
-    f_source = FortranSourceFile(source, preprocess=False, typedefs=typedefs)
+    f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
     new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
@@ -602,12 +602,12 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     typedefs = get_typedefs(typedef)
 
     # Parse original kernel routine and update the name
-    f_source = FortranSourceFile(source, preprocess=True, typedefs=typedefs)
+    f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
     routine.name = '%s_IDEM' % routine.name
 
     # Parse the original driver (caller)
-    f_driver = FortranSourceFile(driver, preprocess=True)
+    f_driver = FortranSourceFile(driver)
     driver = f_driver.subroutines[0]
 
     # Unroll derived-type arguments into multiple arguments

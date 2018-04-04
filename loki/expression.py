@@ -84,14 +84,15 @@ class Operation(Expression):
 
 class Literal(Expression):
 
-    def __init__(self, value, type=None, source=None):
+    def __init__(self, value, kind=None, type=None, source=None):
         super(Literal, self).__init__(source=source)
         self.value = value
+        self.kind = kind
         self._type = type
 
     @property
     def expr(self):
-        return self.value
+        return self.value if self.kind is None else '%s_%s' % (self.value, self.kind)
 
     @property
     def type(self):
