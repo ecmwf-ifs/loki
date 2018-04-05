@@ -258,15 +258,16 @@ class Subroutine(Section):
         # Collect unknown symbols that we might need to import
         undefined = set()
         anames = [a.name for a in arguments]
-        for a in arguments:
+        for decl in declarations:
             # Add potentially unkown TYPE and KIND symbols to 'undefined'
-            if a.type.name.upper() not in BaseType._base_types:
-                undefined.add(a.type.name)
-            if a.type.kind and not a.type.kind.isdigit():
-                undefined.add(a.type.kind)
+            if decl.type.name.upper() not in BaseType._base_types:
+                undefined.add(decl.type.name)
+            if decl.type.kind and not decl.type.kind.isdigit():
+                undefined.add(decl.type.kind)
             # Add (pure) variable dimensions that might be defined elsewhere
-            undefined.update([str(d) for d in a.dimensions
-                              if isinstance(d, Variable) and d not in anames])
+            for v in decl.variables:
+                undefined.update([str(d) for d in v.dimensions
+                                  if isinstance(d, Variable) and d not in anames])
 
         # Create a sub-list of imports based on undefined symbols
         imports = []

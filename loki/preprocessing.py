@@ -88,8 +88,7 @@ def reinsert_contiguous(ir, pp_info):
     if pp_info is not None:
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
-                for v in decl.variables:
-                    v.type.contiguous = True
+                decl.type.contiguous = True
     return ir
 
 

@@ -272,10 +272,10 @@ class IRGenerator(GenericVisitor):
                                 target=target, source=source)
                 variables = [self.visit(v) for v in o.findall('variables/variable')]
                 variables = [v for v in variables if v is not None]
-                # Retro-fit type onto variables
-                for v in variables:
-                    v._type = type
-                return Declaration(variables=variables, source=source)
+                dims = o.find('dimensions')
+                dimensions = None if dims is None else as_tuple(self.visit(dims))
+                return Declaration(variables=variables, type=type,
+                                   dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
             return Intrinsic(source=source)
         elif o.attrib['type'] == 'intrinsic':

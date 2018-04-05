@@ -229,10 +229,14 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, comment=None, pragma=None, source=None):
+    def __init__(self, variables, dimensions=None, type=None,
+                 comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
         self.variables = variables
+        self.dimensions = dimensions
+        self.type = type
+
         self.comment = comment
         self.pragma = pragma
 
