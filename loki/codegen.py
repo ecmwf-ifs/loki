@@ -81,7 +81,8 @@ class FortranCodegen(Visitor):
         return header + imports + '\n' + declarations + footer
 
     def visit_Comment(self, o):
-        return self.indent + o._source.string
+        text = o._source.string if o.text is None else o.text
+        return self.indent + text
 
     def visit_Pragma(self, o):
         return self.indent + o._source.string

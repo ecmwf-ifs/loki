@@ -63,8 +63,10 @@ class Comment(Node):
     """
     Internal representation of a single comment line.
     """
-    pass
+    def __init__(self, text=None, source=None):
+        super(Comment, self).__init__(source=source)
 
+        self.text = text
 
 class CommentBlock(Node):
     """

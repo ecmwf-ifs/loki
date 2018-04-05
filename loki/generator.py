@@ -167,7 +167,7 @@ class IRGenerator(GenericVisitor):
             keyword = match_pragma.groupdict()['keyword']
             return Pragma(keyword=keyword, source=source)
         else:
-            return Comment(source=source)
+            return Comment(text=o.attrib['text'], source=source)
 
     def visit_statement(self, o, source=None):
         # TODO: Hacky pre-emption for special-case statements
