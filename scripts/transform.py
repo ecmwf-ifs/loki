@@ -1,4 +1,5 @@
 import click
+import toml
 import re
 from collections import OrderedDict, defaultdict, Iterable, deque
 from copy import deepcopy
@@ -79,9 +80,10 @@ class SourceProcessor(object):
 
     blacklist = ['DR_HOOK', 'ABOR1']
 
-    def __init__(self, kernel, path):
-        self.kernel = kernel
+    def __init__(self, path, config=None, kernel_map=None):
         self.path = Path(path)
+        self.config = config
+        self.kernel_map = kernel_map
 
         self.queue = deque()
         self.processed = []
@@ -91,11 +93,16 @@ class SourceProcessor(object):
         else:
             self.graph = None
 
+    @property
+    def routines(self):
+        return list(self.processed) + list(self.queue)
+
     def append(self, sources):
         """
         Add names of source routines or modules to find and process.
         """
-        self.queue.extend(as_tuple(sources))
+        sources = as_tuple(sources)
+        self.queue.extend(s for s in sources if s not in self.routines)
 
     def process(self, discovery=False):
         """
@@ -112,23 +119,34 @@ class SourceProcessor(object):
                     source_file = FortranSourceFile(source_path, preprocess=True)
                     routine = source_file.subroutines[0]
 
-                    # TODO: Apply the user-defined kernel
-                    if self.kernel is not None:
-                        self.kernel(source_file, processor=self)
+                    config = self.config['default'].copy()
+                    if source in self.config['routines']:
+                        config.update(self.config['routines'][source])
+
+                    info("Source: %s, config: %s" % (source, config))
 
                     if self.graph:
                         self.graph.node(routine.name, color='lightseagreen', style='filled')
 
                     for call in FindNodes(Call).visit(routine.ir):
-                        if call.name in self.blacklist:
+                        if call.name.upper() in self.blacklist:
                             continue
 
                         if self.graph:
-                            self.graph.node(call.name, color='lightblue', style='filled')
                             self.graph.edge(routine.name, call.name)
+                            if call.name.lower() not in self.processed:
+                                self.graph.node(call.name, color='lightblue', style='filled')
 
-                        if discovery:
+                        if config['expand']:
                             self.append(call.name.lower())
+
+                    # Apply the user-defined kernel
+                    kernel = self.kernel_map[config['mode']][config['role']]
+
+                    if kernel is not None:
+                        kernel(source_file, config=self.config, processor=self)
+
+                    self.processed.append(source)
 
                 except Exception as e:
                     if self.graph:
@@ -680,65 +698,123 @@ def adjust_dependencies(routines, dependency_file):
     for rname in routines:
         deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.o')
         deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.F90')
-        deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.h')
-        deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.ok')
+        # deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.h')
+        # deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.ok')
 
     info('Writing dependencies: %s' % deps_path)
     with deps_path.open('w') as f:
         f.write(deps)
 
 
+def physics_idem_kernel(source_file, config=None, processor=None):
+    """
+    Processing method for kernel routines that recreates a mode-specific
+    version of the kernel and swaps out all subroutine calls.
+    """
+    mode = config['default']['mode']
+    routine = source_file.subroutines[0]
+
+    info('Processing kernel: %s, mode=%s' % (routine.name, mode))
+
+    # Rename kernel routine to mode-specific variant
+    routine.name = '%s_%s' % (routine.name, mode.upper())
+
+    # Modify calls to other subroutines in our list
+    for call in FindNodes(Call).visit(routine.ir):
+        if call.name.lower() in (r.lower() for r in processor.routines):
+            call.name = '%s_%s' % (call.name, mode.upper())
+
+    # Update all relevant interface imports
+    for im in FindNodes(Import).visit(routine.ir):
+        for r in processor.routines:
+            if im.c_import and r == im.module.split('.')[0]:
+                im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Generate mode-specific kernel subroutine
+    source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
+
+    # Generate updated interface block
+    intfb_path = (Path(config['interface']) / source_file.path.stem).with_suffix('.idem.intfb.h')
+    source_file.write(source=fgen(routine.interface), filename=intfb_path)
+
+
+def physics_driver(source, config, processor):
+    """
+    Processing method for driver (root) routines that recreates the
+    driver and swaps out all subroutine calls.
+    """
+    mode = config['default']['mode']
+    driver = source.subroutines[0]
+
+    info('Processing driver: %s, mode=%s' % (driver.name, mode))
+
+    # Replace the non-reference call in the driver for evaluation
+    for call in FindNodes(Call).visit(driver.ir):
+        if call.name.lower() in (r.lower() for r in processor.routines):
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            call.name = '%s_%s' % (call.name, mode.upper())
+
+    # Update all relevant interface imports
+    for im in FindNodes(Import).visit(driver.ir):
+        for r in processor.routines:
+            if im.c_import and r == im.module.split('.')[0]:
+                im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Re-generate updated driver subroutine
+    source.write(source=fgen(driver), filename=source.path.with_suffix('.idem.F90'))
+
+
 @cli.command('physics')
-@click.argument('routines', nargs=-1)
+@click.option('--config', '-cfg', type=click.Path(),
+            help='Path to configuration file.')
 @click.option('--source', '-s', type=click.Path(),
             help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
             help='Path for additional source file(s) containing type definitions')
 @click.option('--interface', '-intfb', type=click.Path(), default=None,
             help='Path to auto-generate interface file(s)')
-@click.option('--root-macro', '-m', type=click.Path(),
-            help='Path to root macro for insertion of transformed call-tree')
 @click.option('--dependency-file', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
             help='Generate and display the subroutine callgraph.')
-def physics(routines, source, typedef, root_macro, interface, dependency_file, callgraph):
+def physics(config, source, typedef, interface, dependency_file, callgraph):
 
-    def physics_idem_kernel(source_file, processor):
-        routine = source_file.subroutines[0]
-        routine.name = '%s_IDEM' % routine.name
+    kernel_map = {'idem' : {'driver': physics_driver,
+                            'kernel': physics_idem_kernel},
+                  'noop' : {'driver': None,
+                            'kernel': None},
+    }
 
-        # Modify calls to other subroutines in our list
-        for call in FindNodes(Call).visit(routine.ir):
-            if call.name.lower() in (r.lower() for r in routines):
-                call.name += '_IDEM'
+    # Load configuration file and process options
+    with Path(config).open('r') as f:
+        config = toml.load(f)
 
-        for im in FindNodes(Import).visit(routine.ir):
-            for r in routines:
-                if im.c_import and r == im.module.split('.')[0]:
-                    im.module = im.module.replace('.intfb', '.idem.intfb')
+    mode = config['default']['mode']
+    config['interface'] = interface
+    # Convert 'routines' to an ordered dictionary
+    config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
-        source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
+    # Create and setup the bulk source processor
+    processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
+    processor.append(config['routines'].keys())
 
-        intfb_path = (Path(interface) / source_file.path.stem).with_suffix('.idem.intfb.h')
-        source_file.write(source=fgen(routine.interface), filename=intfb_path)
+    # Add explicitly blacklisted subnodes
+    if 'blacklist' in config['default']:
+        processor.blacklist += [b.upper() for b in config['default']['blacklist']]
+    for opts in config['routines'].values():
+        if 'blacklist' in opts:
+            processor.blacklist += [b.upper() for b in opts['blacklist']]
 
-    processor = SourceProcessor(kernel=physics_idem_kernel, path=source)
-    processor.append(routines)
+    # Execute and extract the resulting callgraph
     processor.process(discovery=False)
-
     if callgraph:
         processor.graph.render('callgraph', view=False)
 
-    adjust_dependencies(routines, dependency_file)
-
-    # Insert the root of the transformed call-tree into the root macro
-    # TODO: To get argument naming right, we need driver information!
-    # root_args = ', '.join(arg.name.upper() for arg in routine.arguments)
-    # macro = __macro_template % (routine.name, root_args)
-    # info('Writing root macro: %s' % root_macro)
-    # with open(root_macro, 'w') as f:
-    #     f.write(macro)
+    # Adjust build dependencies in the RAPS-generated file
+    adjust_dependencies(processor.processed, dependency_file)
 
 
 @cli.command('noop')
