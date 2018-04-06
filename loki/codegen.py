@@ -1,6 +1,9 @@
+from collections import Iterable
+
 from loki.visitors import Visitor
 from loki.tools import chunks
 from loki.types import BaseType, DataType
+from loki.expression import Literal
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
@@ -147,7 +150,7 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o):
         expr = fexprgen(o.expr)
-        values = ['DEFAULT' if v is None else '(%s)' % self.visit(v) for v in o.values]
+        values = ['DEFAULT' if v is None else '(%s)' % fexprgen(v) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -210,7 +213,15 @@ class FortranCodegen(Visitor):
             dims = '(%s)' % ','.join(dims)
         else:
             dims = ''
-        initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
+        if o.initial is not None:
+            if isinstance(o.initial, Iterable):
+                values = [fexprgen(v) for v in o.initial]
+                values = self.segment(values)
+                initial = ' = (/%s/)' % values
+            else:
+                initial = ' = %s' % fexprgen(o.initial)
+        else:
+            initial = ''
         return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
@@ -288,10 +299,24 @@ class FExprCodegen(Visitor):
     visit_Expression = visit_str
     visit_Variable = visit_str
 
+    def visit_tuple(self, o, line):
+        for i, e in enumerate(o):
+            line = self.visit(e, line=line)
+            if i < len(o)-1:
+                line = self.append(line, ', ')
+        return line
+
+    visit_list = visit_tuple
+
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
         line = self.append(line, ' => ' if o.ptr else ' = ')
+        value_array = isinstance(o.expr, Iterable) and all(isinstance(v, Literal) for v in o.expr)
+        if value_array:
+            line = self.append(line, '(/')
         line = self.visit(o.expr, line=line)
+        if value_array:
+            line = self.append(line, '/)')
         return line
 
     def visit_Operation(self, o, line):
