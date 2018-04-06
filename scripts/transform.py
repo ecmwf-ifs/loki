@@ -115,13 +115,13 @@ class SourceProcessor(object):
 
             if source_path.exists():
                 try:
-                    # Re-generate target routine and interface block with updated name
-                    source_file = FortranSourceFile(source_path, preprocess=True)
-                    routine = source_file.subroutines[0]
-
                     config = self.config['default'].copy()
                     if source in self.config['routines']:
                         config.update(self.config['routines'][source])
+
+                    # Re-generate target routine and interface block with updated name
+                    source_file = FortranSourceFile(source_path, preprocess=True)
+                    routine = source_file.subroutines[0]
 
                     info("Source: %s, config: %s" % (source, config))
 
@@ -152,7 +152,10 @@ class SourceProcessor(object):
                     if self.graph:
                         self.graph.node(source.upper(), color='red', style='filled')
                     warning('Could not parse %s:' % source)
-                    error(e)
+                    if config['strict']:
+                        raise e
+                    else:
+                        error(e)
 
             else:
                 if self.graph:
