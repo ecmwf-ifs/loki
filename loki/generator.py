@@ -177,17 +177,39 @@ class IRGenerator(GenericVisitor):
         elif o.find('cycle') is not None:
             return self.visit(o.find('cycle'))
         elif o.find('where-construct-stmt') is not None:
-            # Parse a WHERE statement...
-            condition = self.visit(o[0])
-            body = self.visit(o[2])
-            default = None
-            for i in range(len(o)):
-                if o[i].tag == 'elsewhere-stmt':
-                    default = self.visit(o[i+1])
+            # Parse a WHERE statement(s)...
+            children = [self.visit(c) for c in o]
+            children = [c for c in children if c is not None]
+
+            stmts = []
+            while 'ENDWHERE_CONSTRUCT' in children:
+                iend = children.index('ENDWHERE_CONSTRUCT')
+                w_children = children[:iend]
+
+                condition = w_children[0]
+                if 'ELSEWHERE_CONSTRUCT' in w_children:
+                    iw = w_children.index('ELSEWHERE_CONSTRUCT')
+                    body = w_children[1:iw]
+                    default = w_children[iw:]
+                else:
+                    body = w_children[1:]
+                    default = ()
+
+                stmts += [MaskedStatement(condition=condition, body=body, default=default)]
+                children = children[iend+1:]
+
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
-            return MaskedStatement(condition=condition, body=body, default=default)
+            return as_tuple(stmts)
         else:
             return self.visit_Element(o, source=source)
+
+    def visit_elsewhere_stmt(self, o, source=None):
+        # Only used as a marker above
+        return 'ELSEWHERE_CONSTRUCT'
+
+    def visit_end_where_stmt(self, o, source=None):
+        # Only used as a marker above
+        return 'ENDWHERE_CONSTRUCT'
 
     def visit_cycle(self, o, source=None):
         return Intrinsic(source=source)

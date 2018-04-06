@@ -1,7 +1,7 @@
 from collections import OrderedDict
 import inspect
 
-from loki.tools import flatten
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
@@ -195,6 +195,8 @@ class MaskedStatement(Node):
     Internal representation of a masked array assignment (WHERE clause).
     """
 
+    _traversable = ['body', 'default']
+
     def __init__(self, condition, body, default, source=None):
         super(MaskedStatement, self).__init__(source=source)
 
@@ -204,7 +206,7 @@ class MaskedStatement(Node):
 
     @property
     def children(self):
-        return tuple([self.body, self.default])
+        return tuple([as_tuple(self.body), as_tuple(self.default)])
 
 
 class Scope(Node):

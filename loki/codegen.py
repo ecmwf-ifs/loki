@@ -172,7 +172,8 @@ class FortranCodegen(Visitor):
         self._depth -= 1
         header = self.indent + 'WHERE (%s)\n' % condition
         footer = '\n' + self.indent + 'END WHERE'
-        return header + body + '\n%sELSEWHERE\n' % self.indent + default + footer
+        default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
+        return header + body + default + footer
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
