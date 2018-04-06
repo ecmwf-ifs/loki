@@ -166,7 +166,7 @@ class Subroutine(Section):
 
         # Store the names of variables in the subroutine signature
         arg_ast = self._ast.findall('header/arguments/argument')
-        self._argnames = [arg.attrib['name'] for arg in arg_ast]
+        self._argnames = [arg.attrib['name'].upper() for arg in arg_ast]
 
         # Attach derived-type information to variables from given typedefs
         for v in self.variables:
@@ -225,7 +225,7 @@ class Subroutine(Section):
         List of argument names as defined in the subroutine signature.
         """
         vmap = self.variable_map
-        return [vmap[name] for name in self.argnames]
+        return [vmap[name.upper()] for name in self.argnames]
 
     @property
     def variables(self):
@@ -240,7 +240,7 @@ class Subroutine(Section):
         """
         Map of variable names to `Variable` objects
         """
-        return {v.name: v for v in self.variables}
+        return {v.name.upper(): v for v in self.variables}
 
     @property
     def imports(self):
