@@ -16,7 +16,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error)
 
-from raps_deps import RapsDependencyFile, Dependency
+from raps_deps import RapsDependencyFile, Rule
 
 
 def generate_signature(name, arguments):
@@ -683,32 +683,42 @@ __macro_template = """
 """
 
 
-def adjust_dependencies(routines, dependency_file):
+def adjust_dependencies(original, config, processor, interface=False):
     """
-    Utility script to override the RAPS-generated dependencies
-    following subroutine transformation.
+    Utility routine to generate Loki-specific build dependencies from
+    RAPS-generated dependency files.
+
+    Hack alert: The two dependency files are stashed in the `config` and
+    modified on-the-fly. This is required to get selective replication
+    until we have some smarter dependency generation and globbing support.
     """
+    mode = config['default']['mode']
+    whitelist = config['default']['whitelist']
+    original = original.lower()
 
-    deps_path = Path(dependency_file)
-    with deps_path.open('r') as f:
-        deps = f.read()
+    # Adjust the object entry in the dependency file
+    orig_path = 'ifs/phys_ec/%s.o' % original
+    r_deps = deepcopy(config['raps_deps'].content_map[orig_path])
+    r_deps.replace(original, '%s.%s' % (original, mode))
+    for r in processor.routines:
+        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
+    config['loki_deps'].content += [r_deps]
 
-    def deps_replace(deps, base, routine, mode, suffix):
-        oldpath = '%s/%s%s' % (base, routine, suffix)
-        newpath = '%s/%s.%s%s' % (base, routine, mode, suffix)
-        return deps.replace(oldpath, newpath)
+    # Add build rule for interface block
+    if interface:
+        intfb_path = 'flexbuild/raps17/intfb/ifs/%s.intfb.ok' % original
+        intfb_deps = deepcopy(config['raps_deps'].content_map[intfb_path])
+        intfb_deps.replace(original, '%s.%s' % (original, mode))
+        config['loki_deps'].content += [intfb_deps]
 
-    # Performn string substitutions on dependency list
-    mode = 'idem'
-    for rname in routines:
-        deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.o')
-        deps = deps_replace(deps, 'ifs/phys_ec', rname, mode, suffix='.F90')
-        # deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.h')
-        # deps = deps_replace(deps, 'flexbuild/raps17/intfb/ifs', rname, mode, suffix='.intfb.ok')
-
-    info('Writing dependencies: %s' % deps_path)
-    with deps_path.open('w') as f:
-        f.write(deps)
+    # Inject new object into the final binary libs
+    objs_ifsloki = config['loki_deps'].content_map['OBJS_ifsloki']
+    if original in whitelist:
+        # Add new dependency inplace, next to the old one
+        objs_ifsloki.append_inplace('%s.o' % original, '%s.%s.o' % (original, mode))
+    else:
+        # Replace old dependency to avoid ghosting where possible
+        objs_ifsloki.replace('%s.o' % original, '%s.%s.o' % (original, mode))
 
 
 def physics_idem_kernel(source_file, config=None, processor=None):
@@ -717,7 +727,6 @@ def physics_idem_kernel(source_file, config=None, processor=None):
     version of the kernel and swaps out all subroutine calls.
     """
     mode = config['default']['mode']
-    dependencies = config['dependencies']
     routine = source_file.subroutines[0]
 
     info('Processing kernel: %s, mode=%s' % (routine.name, mode))
@@ -737,24 +746,16 @@ def physics_idem_kernel(source_file, config=None, processor=None):
             if im.c_import and r == im.module.split('.')[0]:
                 im.module = im.module.replace('.intfb', '.idem.intfb')
 
-    # Adjust the object entry in the dependency file
-    orig_path = 'ifs/phys_ec/%s.o' % original.lower()
-    r_deps = deepcopy(dependencies.content_map[orig_path])
-    r_deps.replace(original.lower(), '%s.%s' % (original.lower(), mode))
-    for r in processor.routines:
-        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
-    dependencies.replace(orig_path, r_deps)
-
-    # Inject new object into the final binary libs
-    objs_ifs = dependencies.content_map['OBJS_ifs']
-    objs_ifs.replace('%s.o' % original.lower(), '%s.%s.o' % (original.lower(), mode))
-
     # Generate mode-specific kernel subroutine
     source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
 
     # Generate updated interface block
     intfb_path = (Path(config['interface']) / source_file.path.stem).with_suffix('.idem.intfb.h')
     source_file.write(source=fgen(routine.interface), filename=intfb_path)
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=original, config=config,
+                        processor=processor, interface=True)
 
 
 def physics_driver(source, config, processor):
@@ -763,7 +764,6 @@ def physics_driver(source, config, processor):
     driver and swaps out all subroutine calls.
     """
     mode = config['default']['mode']
-    dependencies = config['dependencies']
     driver = source.subroutines[0]
 
     info('Processing driver: %s, mode=%s' % (driver.name, mode))
@@ -783,20 +783,12 @@ def physics_driver(source, config, processor):
             if im.c_import and r == im.module.split('.')[0]:
                 im.module = im.module.replace('.intfb', '.idem.intfb')
 
-    # Adjust the object entry in the dependency file
-    orig_path = 'ifs/phys_ec/%s.o' % driver.name.lower()
-    r_deps = deepcopy(dependencies.content_map[orig_path])
-    r_deps.replace(driver.name.lower(), '%s.%s' % (driver.name.lower(), mode))
-    for r in processor.routines:
-        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
-    dependencies.replace(orig_path, r_deps)
-
-    # Inject new object into the final binary libs
-    objs_ifs = dependencies.content_map['OBJS_ifs']
-    objs_ifs.replace('%s.o' % driver.name.lower(), '%s.%s.o' % (driver.name.lower(), mode))
-
     # Re-generate updated driver subroutine
     source.write(source=fgen(driver), filename=source.path.with_suffix('.idem.F90'))
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=driver.name, config=config,
+                        processor=processor, interface=False)
 
 
 @cli.command('physics')
@@ -830,8 +822,15 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
     # Load RAPS dependency file for injection into the build system
-    dependencies = RapsDependencyFile.from_file(dependency_file)
-    config['dependencies'] = dependencies
+    raps_deps = RapsDependencyFile.from_file(dependency_file)
+    config['raps_deps'] = RapsDependencyFile.from_file(dependency_file)
+
+    # Create new deps file with lib dependencies and a build rule
+    objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
+    objs_ifsloki.target = 'OBJS_ifsloki'
+    rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
+                        cmds=[ '/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
+    config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
     processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
@@ -849,11 +848,9 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
     if callgraph:
         processor.graph.render('callgraph', view=False)
 
-    # Adjust build dependencies in the RAPS-generated file
-    # adjust_dependencies(processor.processed, dependency_file)
-
     # Write new mode-specific dependency rules file
-    dependencies.write(path=dependencies.path.with_suffix('.%s.def' % mode))
+    loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
+    config['loki_deps'].write(path=loki_config_path)
 
 
 @cli.command('noop')
