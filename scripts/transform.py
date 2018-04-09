@@ -16,6 +16,8 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error)
 
+from raps_deps import RapsDependencyFile, Dependency
+
 
 def generate_signature(name, arguments):
     """
@@ -715,11 +717,13 @@ def physics_idem_kernel(source_file, config=None, processor=None):
     version of the kernel and swaps out all subroutine calls.
     """
     mode = config['default']['mode']
+    dependencies = config['dependencies']
     routine = source_file.subroutines[0]
 
     info('Processing kernel: %s, mode=%s' % (routine.name, mode))
 
     # Rename kernel routine to mode-specific variant
+    original = routine.name
     routine.name = '%s_%s' % (routine.name, mode.upper())
 
     # Modify calls to other subroutines in our list
@@ -732,6 +736,18 @@ def physics_idem_kernel(source_file, config=None, processor=None):
         for r in processor.routines:
             if im.c_import and r == im.module.split('.')[0]:
                 im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Adjust the object entry in the dependency file
+    orig_path = 'ifs/phys_ec/%s.o' % original.lower()
+    r_deps = deepcopy(dependencies.content_map[orig_path])
+    r_deps.replace(original.lower(), '%s.%s' % (original.lower(), mode))
+    for r in processor.routines:
+        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
+    dependencies.replace(orig_path, r_deps)
+
+    # Inject new object into the final binary libs
+    objs_ifs = dependencies.content_map['OBJS_ifs']
+    objs_ifs.replace('%s.o' % original.lower(), '%s.%s.o' % (original.lower(), mode))
 
     # Generate mode-specific kernel subroutine
     source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
@@ -747,6 +763,7 @@ def physics_driver(source, config, processor):
     driver and swaps out all subroutine calls.
     """
     mode = config['default']['mode']
+    dependencies = config['dependencies']
     driver = source.subroutines[0]
 
     info('Processing driver: %s, mode=%s' % (driver.name, mode))
@@ -765,6 +782,18 @@ def physics_driver(source, config, processor):
         for r in processor.routines:
             if im.c_import and r == im.module.split('.')[0]:
                 im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Adjust the object entry in the dependency file
+    orig_path = 'ifs/phys_ec/%s.o' % driver.name.lower()
+    r_deps = deepcopy(dependencies.content_map[orig_path])
+    r_deps.replace(driver.name.lower(), '%s.%s' % (driver.name.lower(), mode))
+    for r in processor.routines:
+        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
+    dependencies.replace(orig_path, r_deps)
+
+    # Inject new object into the final binary libs
+    objs_ifs = dependencies.content_map['OBJS_ifs']
+    objs_ifs.replace('%s.o' % driver.name.lower(), '%s.%s.o' % (driver.name.lower(), mode))
 
     # Re-generate updated driver subroutine
     source.write(source=fgen(driver), filename=source.path.with_suffix('.idem.F90'))
@@ -800,6 +829,10 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
     # Convert 'routines' to an ordered dictionary
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
+    # Load RAPS dependency file for injection into the build system
+    dependencies = RapsDependencyFile.from_file(dependency_file)
+    config['dependencies'] = dependencies
+
     # Create and setup the bulk source processor
     processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
     processor.append(config['routines'].keys())
@@ -817,7 +850,10 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
         processor.graph.render('callgraph', view=False)
 
     # Adjust build dependencies in the RAPS-generated file
-    adjust_dependencies(processor.processed, dependency_file)
+    # adjust_dependencies(processor.processed, dependency_file)
+
+    # Write new mode-specific dependency rules file
+    dependencies.write(path=dependencies.path.with_suffix('.%s.def' % mode))
 
 
 @cli.command('noop')
