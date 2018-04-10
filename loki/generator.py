@@ -10,7 +10,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration)
-from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
+from loki.expression import (Variable, Literal, Operation, Index, InlineCall, LiteralList)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
@@ -447,6 +447,7 @@ class IRGenerator(GenericVisitor):
                      if c.tag in ['subscript', 'name'])
 
     def visit_subscript(self, o, source=None):
+        # TODO: Drop this entire routine, but beware the base-case!
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
@@ -457,10 +458,17 @@ class IRGenerator(GenericVisitor):
             return self.visit(o.find('literal'))
         elif o.find('operation'):
             return self.visit(o.find('operation'))
+        elif o.find('array-constructor-values'):
+            return self.visit(o.find('array-constructor-values'))
         else:
             return Index(name=':')
 
     visit_dimension = visit_subscript
+
+    def visit_array_constructor_values(self, o, source=None):
+        values = [self.visit(v) for v in o.findall('value')]
+        values = [v for v in values if v is not None]  # Filter empy values
+        return LiteralList(values=values)
 
     def visit_operation(self, o, source=None):
         ops = [self.visit(op) for op in o.findall('operator')]

@@ -3,7 +3,7 @@ from abc import ABCMeta, abstractproperty
 from loki.visitors import GenericVisitor
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
-           'ExpressionVisitor']
+           'ExpressionVisitor', 'LiteralList']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -97,6 +97,16 @@ class Literal(Expression):
     @property
     def type(self):
         return self._type
+
+
+class LiteralList(Expression):
+
+    def __init__(self, values, source=None):
+        self.values = values
+
+    @property
+    def expr(self):
+        return '(/%s/)' % ', '.join(str(v) for v in self.values)
 
 
 class Variable(Expression):

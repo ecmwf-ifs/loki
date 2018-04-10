@@ -214,15 +214,7 @@ class FortranCodegen(Visitor):
             dims = '(%s)' % ','.join(dims)
         else:
             dims = ''
-        if o.initial is not None:
-            if isinstance(o.initial, Iterable):
-                values = [fexprgen(v) for v in o.initial]
-                values = self.segment(values)
-                initial = ' = (/%s/)' % values
-            else:
-                initial = ' = %s' % fexprgen(o.initial)
-        else:
-            initial = ''
+        initial = '' if o.initial is None else ' = %s' % fexprgen(o.initial)
         return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
@@ -309,15 +301,21 @@ class FExprCodegen(Visitor):
 
     visit_list = visit_tuple
 
+    def visit_Variable(self, o, line):
+        line = self.append(line, o.name)
+        if o.dimensions is not None and len(o.dimensions) > 0:
+            line = self.append(line, '(')
+            line = self.visit(o.dimensions, line=line)
+            line = self.append(line, ')')
+        if o.subvar is not None:
+            line = self.append(line, '%')
+            line = self.visit(o.subvar, line=line)
+        return line
+
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
         line = self.append(line, ' => ' if o.ptr else ' = ')
-        value_array = isinstance(o.expr, Iterable) and all(isinstance(v, Literal) for v in o.expr)
-        if value_array:
-            line = self.append(line, '(/')
         line = self.visit(o.expr, line=line)
-        if value_array:
-            line = self.append(line, '/)')
         return line
 
     def visit_Operation(self, o, line):
@@ -345,6 +343,12 @@ class FExprCodegen(Visitor):
     def visit_Literal(self, o, line):
         value = str(o)
         return self.append(line, value)
+
+    def visit_LiteralList(self, o, line):
+        line = self.append(line, '(/')
+        line = self.visit(o.values, line=line)
+        line = self.append(line, '/)')
+        return line
 
     def visit_InlineCall(self, o, line):
         line = self.append(line, '%s(' % o.name)
