@@ -14,7 +14,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import, warning, as_tuple, error)
+                  Transformer, Import, warning, as_tuple, error, debug)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -125,7 +125,7 @@ class SourceProcessor(object):
                     source_file = FortranSourceFile(source_path, preprocess=True)
                     routine = source_file.subroutines[0]
 
-                    info("Source: %s, config: %s" % (source, config))
+                    debug("Source: %s, config: %s" % (source, config))
 
                     if self.graph:
                         self.graph.node(routine.name, color='lightseagreen', style='filled')
@@ -699,26 +699,32 @@ def adjust_dependencies(original, config, processor, interface=False):
     # Adjust the object entry in the dependency file
     orig_path = 'ifs/phys_ec/%s.o' % original
     r_deps = deepcopy(config['raps_deps'].content_map[orig_path])
-    r_deps.replace(original, '%s.%s' % (original, mode))
+    r_deps.replace('ifs/phys_ec/%s.F90' % original,
+                   'ifs/phys_ec/%s.%s.F90' % (original, mode))
     for r in processor.routines:
-        r_deps.replace(r.lower(), '%s.%s' % (r.lower(), mode))
+        routine = r.lower()
+        r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
+                       'flexbuild/raps17/intfb/ifs/%s.%s.intfb.ok' % (routine, mode))
     config['loki_deps'].content += [r_deps]
 
     # Add build rule for interface block
     if interface:
         intfb_path = 'flexbuild/raps17/intfb/ifs/%s.intfb.ok' % original
         intfb_deps = deepcopy(config['raps_deps'].content_map[intfb_path])
-        intfb_deps.replace(original, '%s.%s' % (original, mode))
+        intfb_deps.replace('ifs/phys_ec/%s.F90' % original,
+                           'ifs/phys_ec/%s.%s.F90' % (original, mode))
         config['loki_deps'].content += [intfb_deps]
 
     # Inject new object into the final binary libs
     objs_ifsloki = config['loki_deps'].content_map['OBJS_ifsloki']
     if original in whitelist:
         # Add new dependency inplace, next to the old one
-        objs_ifsloki.append_inplace('%s.o' % original, '%s.%s.o' % (original, mode))
+        objs_ifsloki.append_inplace('ifs/phys_ec/%s.o' % original,
+                                    'ifs/phys_ec/%s.%s.o' % (original, mode))
     else:
         # Replace old dependency to avoid ghosting where possible
-        objs_ifsloki.replace('%s.o' % original, '%s.%s.o' % (original, mode))
+        objs_ifsloki.replace('ifs/phys_ec/%s.o' % original,
+                             'ifs/phys_ec/%s.%s.o' % (original, mode))
 
 
 def physics_idem_kernel(source_file, config=None, processor=None):
