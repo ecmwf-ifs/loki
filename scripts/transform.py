@@ -128,16 +128,26 @@ class SourceProcessor(object):
                     debug("Source: %s, config: %s" % (source, config))
 
                     if self.graph:
-                        self.graph.node(routine.name, color='lightseagreen', style='filled')
+                        if routine.name.lower() in config['whitelist']:
+                            self.graph.node(routine.name, color='black', shape='diamond',
+                                            fillcolor='limegreen', style='rounded,filled')
+                        else:
+                            self.graph.node(routine.name, color='black',
+                                            fillcolor='limegreen', style='filled')
 
                     for call in FindNodes(Call).visit(routine.ir):
+                        # Yes, DR_HOOK is that(!) special
+                        if self.graph and call.name not in ['DR_HOOK', 'ABOR1']:
+                            self.graph.edge(routine.name, call.name)
+                            if call.name.upper() in self.blacklist:
+                                self.graph.node(call.name, color='black',
+                                                fillcolor='orangered', style='filled')
+                            elif call.name.lower() not in self.processed:
+                                self.graph.node(call.name, color='black',
+                                                fillcolor='lightblue', style='filled')
+
                         if call.name.upper() in self.blacklist:
                             continue
-
-                        if self.graph:
-                            self.graph.edge(routine.name, call.name)
-                            if call.name.lower() not in self.processed:
-                                self.graph.node(call.name, color='lightblue', style='filled')
 
                         if config['expand']:
                             self.append(call.name.lower())
