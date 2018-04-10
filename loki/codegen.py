@@ -1,7 +1,7 @@
 from collections import Iterable
 
 from loki.visitors import Visitor
-from loki.tools import chunks
+from loki.tools import chunks, flatten
 from loki.types import BaseType, DataType
 from loki.expression import Literal
 
@@ -134,15 +134,19 @@ class FortranCodegen(Visitor):
         return self.indent + header + body + footer
 
     def visit_Conditional(self, o):
-        self._depth += 1
-        bodies = [self.visit(b) for b in o.bodies]
-        else_body = self.visit(o.else_body)
-        self._depth -= 1
         if o.inline:
-            assert len(o.conditions) == 1 and len(bodies) == 1
+            assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
+            indent_depth = self._depth
+            self._depth = 0  # Surpress indentation
+            body = self.visit(flatten(o.bodies)[0])
+            self._depth = indent_depth
             cond = fexprgen(o.conditions[0], op_spaces=True)
-            return self.indent + 'IF (%s) %s' % (cond, bodies[0])
+            return self.indent + 'IF (%s) %s' % (cond, body)
         else:
+            self._depth += 1
+            bodies = [self.visit(b) for b in o.bodies]
+            else_body = self.visit(o.else_body)
+            self._depth -= 1
             headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
             main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
