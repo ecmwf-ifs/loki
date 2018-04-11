@@ -330,11 +330,42 @@ class Dimension(object):
     def variables(self):
         return (self.name, self.variable) + self.iteration
 
+    @property
+    def size_expressions(self):
+        """
+        Return a list of expression strings all signifying "dimension size".
+        """
+        iteration = ['%s-%s+1' % (self.iteration[1], self.iteration[0])]
+        return [self.name] + self.aliases + iteration
+
 
 # Define the target dimension to strip from kernel and caller
 target = Dimension(name='KLON', aliases=['NPROMA'],
                    variable='JL', iteration=('KIDIA', 'KFDIA'))
 target_routine = 'CLOUDSC'
+
+
+def remove_dimension(routine, target):
+    """
+    Remove all loops and variable indices of a given target dimension
+    from the given routine.
+    """
+
+    # Remove all loops over the target dimensions
+    loop_map = {}
+    for loop in FindNodes(Loop).visit(routine.ir):
+        if loop.variable == target.variable:
+            loop_map[loop] = loop.body
+    routine._ir = Transformer(loop_map).visit(routine.ir)
+
+    # Remove target dimension from variable declarations (in-place)
+    size_expressions = target.size_expressions
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        for v in decl.variables:
+            # Filter target dimensions from variable
+            if v.dimensions is not None:
+                v.dimensions = as_tuple(d for d in v.dimensions
+                                        if d not in size_expressions)
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
@@ -686,7 +717,43 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
             help='Path for additional source file(s) containing type definitions')
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
-    convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
+    """
+    Single Column Abstraction: Convert kernel into SCA format and adjust driver.
+    """
+    # convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
+    typedefs = get_typedefs(typedef)
+
+    # Parse original kernel routine and update the name
+    f_source = FortranSourceFile(source, typedefs=typedefs)
+    routine = f_source.subroutines[0]
+    routine.name = '%s_%s' % (routine.name, mode.upper())
+
+    # Parse the original driver (caller)
+    f_driver = FortranSourceFile(driver)
+    driver = f_driver.subroutines[0]
+
+    # Here is the meat of the operation:
+    flatten_derived_arguments(routine, driver)
+    remove_dimension(routine=routine, target=target)
+
+    # Replace the non-reference call in the driver for evaluation
+    for call in FindNodes(Call).visit(driver._ir):
+        if call.name == target_routine:
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            call.name = '%s_%s' % (call.name, mode.upper())
+
+    # Re-generate the target routine with the updated name
+    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
+    f_source.write(source=fgen(module), filename=source_out)
+
+    # Insert new module import into the driver and re-generate
+    new_import = Import(module='%s_MOD' % routine.name.upper(),
+                        symbols=[routine.name.upper()])
+    driver._ir = tuple([new_import] + list(driver._ir))
+    f_driver.write(source=fgen(driver), filename=driver_out)
 
 
 __macro_template = """
