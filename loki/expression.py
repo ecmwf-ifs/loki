@@ -141,7 +141,7 @@ class Variable(Expression):
     def __eq__(self, other):
         # Allow direct comparison to string and other Variable objects
         if isinstance(other, str):
-            return str(self) == other
+            return str(self).upper() == other.upper()
         elif isinstance(other, Variable):
             return self.__key() == other.__key()
         else:
@@ -199,7 +199,7 @@ class Index(Expression):
     def __eq__(self, other):
         # Allow direct comparisong to string and other Index objects
         if isinstance(other, str):
-            return self.name == other
+            return self.name.upper() == other.upper()
         elif isinstance(other, Index):
             return self.name == other.name
         else:

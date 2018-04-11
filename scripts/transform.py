@@ -295,10 +295,10 @@ def flatten_derived_arguments(routine, driver):
                                 intent=arg.type.intent)
             new_var = Variable(name=new_name, type=new_type,
                                dimensions=type_var.dimensions)
-            decl_mapper[old_decl] += [Declaration(variables=[new_var])]
+            decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
 
         # Replace variable in dummy signature
-        i = routine.argnames.index(arg.name)
+        i = routine.argnames.index(arg)
         routine._argnames[i:i+1] = new_names
 
     # Replace variable occurences in-place (derived%v => derived_v)
@@ -375,7 +375,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
                                              dimensions=new_dims))
                 elif len(d_arg.dimensions) > len(k_arg.dimensions):
                     # Driver-side has additional outer dimensions (eg. for blocking)
-                    d_var = driver_routine.variable_map[d_arg.name]
+                    d_var = driver_routine.variable_map[d_arg.name.upper()]
                     new_dims = tuple(target.variable if d_v in target.aliases else d_c
                                      for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
                     new_args.append(Variable(name=d_arg.name, type=d_arg.type,
@@ -401,7 +401,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
 
     # Finally, add the loop counter variable to declarations
     new_var = Variable(name=target.variable, type=BaseType(name='INTEGER', kind='JPIM'))
-    new_decl = Declaration(variables=[new_var])
+    new_decl = Declaration(variables=[new_var], type=new_var.type)
     driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
 
     if mode == 'sca':
@@ -488,7 +488,8 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
                 #     raise NotImplementedError('More than one derived argument per declaration found!')
 
                 # Replace derived argument declaration with new declarations
-                new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
+                new_string = fgen([Declaration(variables=[arg], type=new_args[0].type)
+                                   for arg in new_args]) + '\n'
                 routine.declarations.replace(decl._source.string, new_string)
 
     # And finally, replace all occurences of derived sub-types with unrolled ones

@@ -272,7 +272,7 @@ class IRGenerator(GenericVisitor):
                         variables.append(Variable(name=v.attrib['id'], type=type,
                                                   dimensions=dimensions, source=v_source))
                     # Pre-pend current variables to list for this DerivedType
-                    declarations.insert(0, Declaration(variables=variables))
+                    declarations.insert(0, Declaration(variables=variables, type=type))
                     # Recurse on 'type' nodes
                     t = t.find('type')
                 return TypeDef(name=derived_name, declarations=declarations,
@@ -294,6 +294,9 @@ class IRGenerator(GenericVisitor):
                                 target=target, source=source)
                 variables = [self.visit(v) for v in o.findall('variables/variable')]
                 variables = [v for v in variables if v is not None]
+                # Propagate type onto variables
+                for v in variables:
+                    v._type = type
                 dims = o.find('dimensions')
                 dimensions = None if dims is None else as_tuple(self.visit(dims))
                 return Declaration(variables=variables, type=type,
