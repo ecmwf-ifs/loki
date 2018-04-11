@@ -1,14 +1,22 @@
 import click
+import toml
 import re
-from collections import OrderedDict, defaultdict, Iterable
+from collections import OrderedDict, defaultdict, Iterable, deque
 from copy import deepcopy
 import sys
+from pathlib import Path
+try:
+    from graphviz import Digraph
+except ImportError:
+    Digraph = None
 
 from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import)
+                  Transformer, Import, warning, as_tuple, error, debug)
+
+from raps_deps import RapsDependencyFile, Rule
 
 
 def generate_signature(name, arguments):
@@ -60,6 +68,111 @@ def generate_interface(filename, name, arguments, imports):
     print("Writing interface to %s" % filename)
     with open(filename, 'w') as file:
         file.write(interface)
+
+
+class SourceProcessor(object):
+    """
+    Work queue manager to enqueue and process individual source
+    routines/modules with a given kernel.
+
+    Note: The processing module can create a callgraph and perform
+    automated discovery, to enable easy bulk-processing of large
+    numbers of source files.
+    """
+
+    blacklist = ['DR_HOOK', 'ABOR1']
+
+    def __init__(self, path, config=None, kernel_map=None):
+        self.path = Path(path)
+        self.config = config
+        self.kernel_map = kernel_map
+
+        self.queue = deque()
+        self.processed = []
+
+        if Digraph is not None:
+            self.graph = Digraph(format='pdf', strict=True)
+        else:
+            self.graph = None
+
+    @property
+    def routines(self):
+        return list(self.processed) + list(self.queue)
+
+    def append(self, sources):
+        """
+        Add names of source routines or modules to find and process.
+        """
+        sources = as_tuple(sources)
+        self.queue.extend(s for s in sources if s not in self.routines)
+
+    def process(self, discovery=False):
+        """
+        Process all enqueued source modules and routines with the
+        stored kernel.
+        """
+        while len(self.queue) > 0:
+            source = self.queue.popleft()
+            source_path = (self.path / source).with_suffix('.F90')
+
+            if source_path.exists():
+                try:
+                    config = self.config['default'].copy()
+                    if source in self.config['routines']:
+                        config.update(self.config['routines'][source])
+
+                    # Re-generate target routine and interface block with updated name
+                    source_file = FortranSourceFile(source_path, preprocess=True)
+                    routine = source_file.subroutines[0]
+
+                    debug("Source: %s, config: %s" % (source, config))
+
+                    if self.graph:
+                        if routine.name.lower() in config['whitelist']:
+                            self.graph.node(routine.name, color='black', shape='diamond',
+                                            fillcolor='limegreen', style='rounded,filled')
+                        else:
+                            self.graph.node(routine.name, color='black',
+                                            fillcolor='limegreen', style='filled')
+
+                    for call in FindNodes(Call).visit(routine.ir):
+                        # Yes, DR_HOOK is that(!) special
+                        if self.graph and call.name not in ['DR_HOOK', 'ABOR1']:
+                            self.graph.edge(routine.name, call.name)
+                            if call.name.upper() in self.blacklist:
+                                self.graph.node(call.name, color='black',
+                                                fillcolor='orangered', style='filled')
+                            elif call.name.lower() not in self.processed:
+                                self.graph.node(call.name, color='black',
+                                                fillcolor='lightblue', style='filled')
+
+                        if call.name.upper() in self.blacklist:
+                            continue
+
+                        if config['expand']:
+                            self.append(call.name.lower())
+
+                    # Apply the user-defined kernel
+                    kernel = self.kernel_map[config['mode']][config['role']]
+
+                    if kernel is not None:
+                        kernel(source_file, config=self.config, processor=self)
+
+                    self.processed.append(source)
+
+                except Exception as e:
+                    if self.graph:
+                        self.graph.node(source.upper(), color='red', style='filled')
+                    warning('Could not parse %s:' % source)
+                    if config['strict']:
+                        raise e
+                    else:
+                        error(e)
+
+            else:
+                if self.graph:
+                    self.graph.node(source.upper(), color='lightsalmon', style='filled')
+                info("Could not find source file %s; skipping..." % source)
 
 
 class FindVariables(ExpressionVisitor, Visitor):
@@ -182,10 +295,10 @@ def flatten_derived_arguments(routine, driver):
                                 intent=arg.type.intent)
             new_var = Variable(name=new_name, type=new_type,
                                dimensions=type_var.dimensions)
-            decl_mapper[old_decl] += [Declaration(variables=[new_var])]
+            decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
 
         # Replace variable in dummy signature
-        i = routine.argnames.index(arg.name)
+        i = routine.argnames.index(arg)
         routine._argnames[i:i+1] = new_names
 
     # Replace variable occurences in-place (derived%v => derived_v)
@@ -225,7 +338,7 @@ target_routine = 'CLOUDSC'
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
-    f_driver = FortranSourceFile(driver, preprocess=False)
+    f_driver = FortranSourceFile(driver)
     driver_routine = f_driver.subroutines[0]
 
     driver_routine._infer_variable_dimensions()
@@ -262,7 +375,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
                                              dimensions=new_dims))
                 elif len(d_arg.dimensions) > len(k_arg.dimensions):
                     # Driver-side has additional outer dimensions (eg. for blocking)
-                    d_var = driver_routine.variable_map[d_arg.name]
+                    d_var = driver_routine.variable_map[d_arg.name.upper()]
                     new_dims = tuple(target.variable if d_v in target.aliases else d_c
                                      for d_v, d_c in zip(d_var.dimensions, d_arg.dimensions))
                     new_args.append(Variable(name=d_arg.name, type=d_arg.type,
@@ -288,7 +401,7 @@ def process_driver(driver, driver_out, routine, derived_arg_var, mode):
 
     # Finally, add the loop counter variable to declarations
     new_var = Variable(name=target.variable, type=BaseType(name='INTEGER', kind='JPIM'))
-    new_decl = Declaration(variables=[new_var])
+    new_decl = Declaration(variables=[new_var], type=new_var.type)
     driver_routine.declarations._source += '\n%s\n\n' % fgen(new_decl)
 
     if mode == 'sca':
@@ -309,7 +422,7 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
     typedefs = get_typedefs(typedef)
 
     # Read the primary source routine
-    f_source = FortranSourceFile(source, preprocess=False, typedefs=typedefs)
+    f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
     new_routine_name = '%s_%s' % (routine.name, mode.upper())
 
@@ -375,7 +488,8 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
                 #     raise NotImplementedError('More than one derived argument per declaration found!')
 
                 # Replace derived argument declaration with new declarations
-                new_string = fgen([Declaration(variables=[arg]) for arg in new_args]) + '\n'
+                new_string = fgen([Declaration(variables=[arg], type=new_args[0].type)
+                                   for arg in new_args]) + '\n'
                 routine.declarations.replace(decl._source.string, new_string)
 
     # And finally, replace all occurences of derived sub-types with unrolled ones
@@ -403,14 +517,16 @@ def convert_sca(source, source_out, driver, driver_out, interface, typedef, mode
                           'END SUBROUTINE %s' % new_routine_name)
 
     # Strip target sizes from declarations
-    for v in routine.arguments:
-        if v.name in target.variables:
-            routine.declarations.replace(v._source.string, '')
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        if len(decl.variables) == 1 and decl.variables[0].name in target.variables:
+            routine.declarations.replace(decl._source.string, '')
 
     # Strip target loop variable
-    line = routine.variable_map[target.variable]._source.string
-    new_line = line.replace('%s, ' % target.variable, '')
-    routine.declarations.replace(line, new_line)
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        if target.variable in decl.variables:
+            line = decl._source.string
+            new_line = line.replace('%s, ' % target.variable, '')
+            routine.declarations.replace(line, new_line)
 
     ####  Index replacements  ####
 
@@ -523,12 +639,12 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     typedefs = get_typedefs(typedef)
 
     # Parse original kernel routine and update the name
-    f_source = FortranSourceFile(source, preprocess=True, typedefs=typedefs)
+    f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
     routine.name = '%s_IDEM' % routine.name
 
     # Parse the original driver (caller)
-    f_driver = FortranSourceFile(driver, preprocess=True)
+    f_driver = FortranSourceFile(driver)
     driver = f_driver.subroutines[0]
 
     # Unroll derived-type arguments into multiple arguments
@@ -571,6 +687,207 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
+
+
+__macro_template = """
+#define LOKI_ROOT_CALL() %s(%s)
+"""
+
+
+def adjust_dependencies(original, config, processor, interface=False):
+    """
+    Utility routine to generate Loki-specific build dependencies from
+    RAPS-generated dependency files.
+
+    Hack alert: The two dependency files are stashed in the `config` and
+    modified on-the-fly. This is required to get selective replication
+    until we have some smarter dependency generation and globbing support.
+    """
+    mode = config['default']['mode']
+    whitelist = config['default']['whitelist']
+    original = original.lower()
+
+    # Adjust the object entry in the dependency file
+    orig_path = 'ifs/phys_ec/%s.o' % original
+    r_deps = deepcopy(config['raps_deps'].content_map[orig_path])
+    r_deps.replace('ifs/phys_ec/%s.F90' % original,
+                   'ifs/phys_ec/%s.%s.F90' % (original, mode))
+    for r in processor.routines:
+        routine = r.lower()
+        r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
+                       'flexbuild/raps17/intfb/ifs/%s.%s.intfb.ok' % (routine, mode))
+    config['loki_deps'].content += [r_deps]
+
+    # Add build rule for interface block
+    if interface:
+        intfb_path = 'flexbuild/raps17/intfb/ifs/%s.intfb.ok' % original
+        intfb_deps = deepcopy(config['raps_deps'].content_map[intfb_path])
+        intfb_deps.replace('ifs/phys_ec/%s.F90' % original,
+                           'ifs/phys_ec/%s.%s.F90' % (original, mode))
+        config['loki_deps'].content += [intfb_deps]
+
+    # Inject new object into the final binary libs
+    objs_ifsloki = config['loki_deps'].content_map['OBJS_ifsloki']
+    if original in whitelist:
+        # Add new dependency inplace, next to the old one
+        objs_ifsloki.append_inplace('ifs/phys_ec/%s.o' % original,
+                                    'ifs/phys_ec/%s.%s.o' % (original, mode))
+    else:
+        # Replace old dependency to avoid ghosting where possible
+        objs_ifsloki.replace('ifs/phys_ec/%s.o' % original,
+                             'ifs/phys_ec/%s.%s.o' % (original, mode))
+
+
+def physics_idem_kernel(source_file, config=None, processor=None):
+    """
+    Processing method for kernel routines that recreates a mode-specific
+    version of the kernel and swaps out all subroutine calls.
+    """
+    mode = config['default']['mode']
+    routine = source_file.subroutines[0]
+
+    info('Processing kernel: %s, mode=%s' % (routine.name, mode))
+
+    # Rename kernel routine to mode-specific variant
+    original = routine.name
+    routine.name = '%s_%s' % (routine.name, mode.upper())
+
+    # Modify calls to other subroutines in our list
+    for call in FindNodes(Call).visit(routine.ir):
+        if call.name.lower() in (r.lower() for r in processor.routines):
+            call.name = '%s_%s' % (call.name, mode.upper())
+
+    # Update all relevant interface imports
+    for im in FindNodes(Import).visit(routine.ir):
+        for r in processor.routines:
+            if im.c_import and r == im.module.split('.')[0]:
+                im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Generate mode-specific kernel subroutine
+    source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
+
+    # Generate updated interface block
+    intfb_path = (Path(config['interface']) / source_file.path.stem).with_suffix('.idem.intfb.h')
+    source_file.write(source=fgen(routine.interface), filename=intfb_path)
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=original, config=config,
+                        processor=processor, interface=True)
+
+
+def physics_driver(source, config, processor):
+    """
+    Processing method for driver (root) routines that recreates the
+    driver and swaps out all subroutine calls.
+    """
+    mode = config['default']['mode']
+    driver = source.subroutines[0]
+
+    info('Processing driver: %s, mode=%s' % (driver.name, mode))
+
+    # Replace the non-reference call in the driver for evaluation
+    for call in FindNodes(Call).visit(driver.ir):
+        if call.name.lower() in (r.lower() for r in processor.routines):
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            call.name = '%s_%s' % (call.name, mode.upper())
+
+    # Update all relevant interface imports
+    for im in FindNodes(Import).visit(driver.ir):
+        for r in processor.routines:
+            if im.c_import and r == im.module.split('.')[0]:
+                im.module = im.module.replace('.intfb', '.idem.intfb')
+
+    # Re-generate updated driver subroutine
+    source.write(source=fgen(driver), filename=source.path.with_suffix('.idem.F90'))
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=driver.name, config=config,
+                        processor=processor, interface=False)
+
+
+@cli.command('physics')
+@click.option('--config', '-cfg', type=click.Path(),
+            help='Path to configuration file.')
+@click.option('--source', '-s', type=click.Path(),
+            help='Path to source files to transform.')
+@click.option('--typedef', '-t', type=click.Path(), multiple=True,
+            help='Path for additional source file(s) containing type definitions')
+@click.option('--interface', '-intfb', type=click.Path(), default=None,
+            help='Path to auto-generate interface file(s)')
+@click.option('--dependency-file', '-deps', type=click.Path(), default=None,
+              help='Path to RAPS-generated dependency file')
+@click.option('--callgraph', '-cg', is_flag=True, default=False,
+            help='Generate and display the subroutine callgraph.')
+def physics(config, source, typedef, interface, dependency_file, callgraph):
+
+    kernel_map = {'idem' : {'driver': physics_driver,
+                            'kernel': physics_idem_kernel},
+                  'noop' : {'driver': None,
+                            'kernel': None},
+    }
+
+    # Load configuration file and process options
+    with Path(config).open('r') as f:
+        config = toml.load(f)
+
+    mode = config['default']['mode']
+    config['interface'] = interface
+    # Convert 'routines' to an ordered dictionary
+    config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
+
+    # Load RAPS dependency file for injection into the build system
+    raps_deps = RapsDependencyFile.from_file(dependency_file)
+    config['raps_deps'] = RapsDependencyFile.from_file(dependency_file)
+
+    # Create new deps file with lib dependencies and a build rule
+    objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
+    objs_ifsloki.target = 'OBJS_ifsloki'
+    rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
+                        cmds=[ '/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
+    config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
+
+    # Create and setup the bulk source processor
+    processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
+    processor.append(config['routines'].keys())
+
+    # Add explicitly blacklisted subnodes
+    if 'blacklist' in config['default']:
+        processor.blacklist += [b.upper() for b in config['default']['blacklist']]
+    for opts in config['routines'].values():
+        if 'blacklist' in opts:
+            processor.blacklist += [b.upper() for b in opts['blacklist']]
+
+    # Execute and extract the resulting callgraph
+    processor.process(discovery=False)
+    if callgraph:
+        processor.graph.render('callgraph', view=False)
+
+    # Write new mode-specific dependency rules file
+    loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
+    config['loki_deps'].write(path=loki_config_path)
+
+
+@cli.command('noop')
+@click.argument('routines', nargs=-1)
+@click.option('--source', '-s', type=click.Path(),
+            help='Path to source files to transform.')
+@click.option('--discovery', '-d', is_flag=True, default=False,
+            help='Automatically attempt to discover new subroutines.')
+@click.option('--callgraph', '-cg', is_flag=True, default=False,
+            help='Generate and display the subroutine callgraph.')
+def noop(routines, source, discovery, callgraph):
+    """
+    Do-nothing mode to test the parsing and bulk-traversal capabilities.
+    """
+    processor = SourceProcessor(kernel=None, path=source)
+    processor.append(routines)
+    processor.process(discovery=discovery)
+
+    if callgraph:
+        processor.graph.render('callgraph', view=True)
 
 if __name__ == "__main__":
     cli()

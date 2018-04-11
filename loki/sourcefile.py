@@ -2,15 +2,15 @@
 Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
-import re
 import pickle
 import open_fortran_parser
 from pathlib import Path
-from collections import defaultdict
+from collections import OrderedDict
 
 from loki.subroutine import Subroutine, Module
 from loki.tools import disk_cached, timeit
 from loki.logging import info
+from loki.preprocessing import blacklist
 
 
 __all__ = ['FortranSourceFile']
@@ -23,10 +23,7 @@ class FortranSourceFile(object):
     :param filename: Name of the input source file
     """
 
-    # Default custom KIND identifiers to use for pre-processing
-    _kinds = ['JPIM', 'JPRB']
-
-    def __init__(self, filename, preprocess=True, typedefs=None):
+    def __init__(self, filename, preprocess=False, typedefs=None):
         self.path = Path(filename)
         info_path = self.path.with_suffix('.pp.info')
         file_path = self.path
@@ -62,9 +59,9 @@ class FortranSourceFile(object):
         """
         A dedicated pre-processing step to ensure smooth source parsing.
 
-        Note: The OFP drops jumbles up valid expression nodes if it
-        encounters _KIND type casts (issue #48). To avoid this, we
-        remove these here and create a record of the literals and
+        Note: The OFP drops and/or jumbles up valid expression nodes
+        if it encounters _KIND type casts (issue #48). To avoid this,
+        we remove these here and create a record of the literals and
         their _KINDs, indexed by line. This allows us to the re-insert
         this information after the AST parse when creating `Subroutine`s.
         """
@@ -74,28 +71,28 @@ class FortranSourceFile(object):
                 return
         info("Pre-processing %s => %s" % (self.path, pp_path))
 
-        def repl_number_kind(match):
-            m = match.groupdict()
-            return m['number'] if m['kind'] in self._kinds else m['all']
-
-        ll_kind_map = defaultdict(list)
-        re_number = re.compile('(?P<all>(?P<number>[0-9.]+[eE]?[0-9\-]*)_(?P<kind>[a-zA-Z]+))')
-        source = ''
         with self.path.open() as f:
-            for ll, line in enumerate(f):
+            source = f.read()
+
+        # Apply preprocessing rules and store meta-information
+        pp_info = OrderedDict()
+        for name, rule in blacklist.items():
+            # Apply rule filter over source file
+            rule.reset()
+            new_source = ''
+            for ll, line in enumerate(source.splitlines(keepends=True)):
                 ll += 1  # Correct for Fortran counting
-                matches = re_number.findall(line)
-                for m in matches:
-                    if m[2] in self._kinds:
-                        line = line.replace(m[0], m[1])
-                        ll_kind_map[ll] += [(m[1], m[2])]
-                source += line
+                new_source += rule.filter(line, lineno=ll)
+
+            # Store met-information from rule
+            pp_info[name] = rule.info
+            source = new_source
 
         with pp_path.open('w') as f:
             f.write(source)
 
         with info_path.open('wb') as f:
-            pickle.dump(ll_kind_map, f)
+            pickle.dump(pp_info, f)
 
     @timeit()
     @disk_cached(argname='filename')

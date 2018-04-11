@@ -1,6 +1,9 @@
+from collections import Iterable
+
 from loki.visitors import Visitor
-from loki.tools import chunks
+from loki.tools import chunks, flatten
 from loki.types import BaseType, DataType
+from loki.expression import Literal
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
@@ -71,8 +74,18 @@ class FortranCodegen(Visitor):
             contains = ''
         return header + body + contains + members + footer
 
+    def visit_InterfaceBlock(self, o):
+        arguments = self.segment([a.name for a in o.arguments])
+        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
+        header = 'INTERFACE\nSUBROUTINE %s%s' % (o.name, argument)
+        footer = '\nEND SUBROUTINE %s\nEND INTERFACE\n' % o.name
+        imports = self.visit(o.imports)
+        declarations = self.visit(o.declarations)
+        return header + imports + '\n' + declarations + footer
+
     def visit_Comment(self, o):
-        return self.indent + o._source.string
+        text = o._source.string if o.text is None else o.text
+        return self.indent + text
 
     def visit_Pragma(self, o):
         return self.indent + o._source.string
@@ -83,13 +96,24 @@ class FortranCodegen(Visitor):
 
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        type = self.visit(o.variables[0].type)
+        type = self.visit(o.type)
         variables = self.segment([self.visit(v) for v in o.variables])
-        return self.indent + '%s :: %s' % (type, variables) + comment
+        if o.dimensions is None:
+            dimensions = ''
+        else:
+            dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
+        return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
+
+    def visit_DataDeclaration(self, o):
+        values = self.segment([str(v) for v in o.values], chunking=8)
+        return self.indent + 'DATA %s/%s/' % (o.variable, values)
 
     def visit_Import(self, o):
-        only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
-        return 'USE %s%s' % (o.module, only)
+        if o.c_import:
+            return '#include "%s"' % o.module
+        else:
+            only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
+            return 'USE %s%s' % (o.module, only)
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -100,22 +124,60 @@ class FortranCodegen(Visitor):
                                   ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
 
+    def visit_WhileLoop(self, o):
+        condition = fexprgen(o.condition, op_spaces=True)
+        self._depth += 1
+        body = self.visit(o.body)
+        self._depth -= 1
+        header = 'DO WHILE (%s)\n' % condition
+        footer = '\n' + self.indent + 'END DO'
+        return self.indent + header + body + footer
+
     def visit_Conditional(self, o):
+        if o.inline:
+            assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
+            indent_depth = self._depth
+            self._depth = 0  # Surpress indentation
+            body = self.visit(flatten(o.bodies)[0])
+            self._depth = indent_depth
+            cond = fexprgen(o.conditions[0], op_spaces=True)
+            return self.indent + 'IF (%s) %s' % (cond, body)
+        else:
+            self._depth += 1
+            bodies = [self.visit(b) for b in o.bodies]
+            else_body = self.visit(o.else_body)
+            self._depth -= 1
+            headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
+            main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+            else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
+            return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+
+    def visit_MultiConditional(self, o):
+        expr = fexprgen(o.expr)
+        values = ['DEFAULT' if v is None else '(%s)' % fexprgen(v) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
-        else_body = self.visit(o.else_body)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
-        main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
-        else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
-        return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+        header = self.indent + 'SELECT CASE (%s)\n' % expr
+        footer = self.indent + 'END SELECT'
+        cases = [self.indent + 'CASE %s\n' % v + b for v, b in zip(values, bodies)]
+        return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        linewidth = self.linewidth - len(self.indent)
-        lines = fexprgen(o, linewidth=linewidth).split('\n')
-        stmt = (' &\n%s   & ' % self.indent).join(lines)
+        stmt = fexprgen(o, linewidth=self.linewidth, indent=self.indent)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
+
+    def visit_MaskedStatement(self, o):
+        condition = fexprgen(o.condition)
+        self._depth += 1
+        body = self.visit(o.body)
+        default = self.visit(o.default)
+        self._depth -= 1
+        header = self.indent + 'WHERE (%s)\n' % condition
+        footer = '\n' + self.indent + 'END WHERE'
+        default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
+        return header + body + default + footer
 
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
@@ -124,12 +186,17 @@ class FortranCodegen(Visitor):
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
     def visit_Call(self, o):
-        if len(o.arguments) > self.chunking:
+        if o.kwarguments is not None:
+            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+            args = o.arguments + kwargs
+        else:
+            args = o.arguments
+        if len(args) > self.chunking:
             self._depth += 2
-            signature = self.segment(str(a) for a in o.arguments)
+            signature = self.segment(str(a) for a in args)
             self._depth -= 2
         else:
-            signature = ', '.join(str(a) for a in o.arguments)
+            signature = ', '.join(str(a) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
@@ -137,6 +204,9 @@ class FortranCodegen(Visitor):
 
     def visit_Deallocation(self, o):
         return self.indent + 'DEALLOCATE(%s)' % o.variable
+
+    def visit_Nullify(self, o):
+        return self.indent + 'NULLIFY(%s)' % o.variable
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
@@ -148,18 +218,20 @@ class FortranCodegen(Visitor):
             dims = '(%s)' % ','.join(dims)
         else:
             dims = ''
-        initial = ' = %s' % fexprgen(o.initial) if o.initial is not None else ''
+        initial = '' if o.initial is None else ' = %s' % fexprgen(o.initial)
         return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
         tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s%s%s' % (
-            tname, '(KIND=%s)' % o.kind if o.kind else '',
+        return '%s%s%s%s%s%s%s%s%s' % (
+            tname,
+            '(KIND=%s)' % o.kind if o.kind else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '',
             ', TARGET' if o.target else '',
+            ', CONTIGUOUS' if o.contiguous else '',
             ', INTENT(%s)' % o.intent.upper() if o.intent else '',
         )
 
@@ -187,9 +259,10 @@ class FExprCodegen(Visitor):
     :param op_spaces: Flag indicating whether to use spaces around operators.
     """
 
-    def __init__(self, linewidth=90, op_spaces=False):
+    def __init__(self, linewidth=90, indent='', op_spaces=False):
         super(FExprCodegen, self).__init__()
         self.linewidth = linewidth
+        self.indent = indent
         self.op_spaces = op_spaces
 
         # We ignore outer indents and count from 0
@@ -199,7 +272,7 @@ class FExprCodegen(Visitor):
         """Insert linebreaks when requested width is hit."""
         if self._width + len(txt) > self.linewidth:
             self._width = len(txt)
-            line += '\n' + txt
+            line += '&\n%s& ' % self.indent + txt
         else:
             self._width += len(txt)
             line += txt
@@ -223,6 +296,26 @@ class FExprCodegen(Visitor):
     visit_Expression = visit_str
     visit_Variable = visit_str
 
+    def visit_tuple(self, o, line):
+        for i, e in enumerate(o):
+            line = self.visit(e, line=line)
+            if i < len(o)-1:
+                line = self.append(line, ', ')
+        return line
+
+    visit_list = visit_tuple
+
+    def visit_Variable(self, o, line):
+        line = self.append(line, o.name)
+        if o.dimensions is not None and len(o.dimensions) > 0:
+            line = self.append(line, '(')
+            line = self.visit(o.dimensions, line=line)
+            line = self.append(line, ')')
+        if o.subvar is not None:
+            line = self.append(line, '%')
+            line = self.visit(o.subvar, line=line)
+        return line
+
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
         line = self.append(line, ' => ' if o.ptr else ' = ')
@@ -232,8 +325,13 @@ class FExprCodegen(Visitor):
     def visit_Operation(self, o, line):
         if len(o.ops) == 1 and len(o.operands) == 1:
             # Special case: a unary operator
+            if o.parenthesis:
+                line = self.append(line, '(')
             line = self.append(line, o.ops[0])
-            return self.visit(o.operands[0], line=line)
+            line = self.visit(o.operands[0], line=line)
+            if o.parenthesis:
+                line = self.append(line, ')')
+            return line
 
         if o.parenthesis:
             line = self.append(line, '(')
@@ -247,11 +345,14 @@ class FExprCodegen(Visitor):
         return line
 
     def visit_Literal(self, o, line):
-        if o.type in [DataType.JPRB, DataType.JPRM]:
-            value = '%s_%s' % (str(o), o.type.name)
-        else:
-            value = str(o)
+        value = str(o)
         return self.append(line, value)
+
+    def visit_LiteralList(self, o, line):
+        line = self.append(line, '(/')
+        line = self.visit(o.values, line=line)
+        line = self.append(line, '/)')
+        return line
 
     def visit_InlineCall(self, o, line):
         line = self.append(line, '%s(' % o.name)
@@ -263,8 +364,9 @@ class FExprCodegen(Visitor):
         return self.append(line, ')')
 
 
-def fexprgen(expr, linewidth=90, op_spaces=False):
+def fexprgen(expr, linewidth=90, indent='', op_spaces=False):
     """
     Generate Fortran expression code from a tree of sub-expressions.
     """
-    return FExprCodegen(linewidth=linewidth, op_spaces=op_spaces).visit(expr, line='')
+    return FExprCodegen(linewidth=linewidth, indent=indent,
+                        op_spaces=op_spaces).visit(expr, line='')

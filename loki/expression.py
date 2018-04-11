@@ -3,7 +3,7 @@ from abc import ABCMeta, abstractproperty
 from loki.visitors import GenericVisitor
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
-           'ExpressionVisitor']
+           'ExpressionVisitor', 'LiteralList']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -84,18 +84,29 @@ class Operation(Expression):
 
 class Literal(Expression):
 
-    def __init__(self, value, type=None, source=None):
+    def __init__(self, value, kind=None, type=None, source=None):
         super(Literal, self).__init__(source=source)
         self.value = value
+        self.kind = kind
         self._type = type
 
     @property
     def expr(self):
-        return self.value
+        return self.value if self.kind is None else '%s_%s' % (self.value, self.kind)
 
     @property
     def type(self):
         return self._type
+
+
+class LiteralList(Expression):
+
+    def __init__(self, values, source=None):
+        self.values = values
+
+    @property
+    def expr(self):
+        return '(/%s/)' % ', '.join(str(v) for v in self.values)
 
 
 class Variable(Expression):
@@ -130,11 +141,18 @@ class Variable(Expression):
     def __eq__(self, other):
         # Allow direct comparison to string and other Variable objects
         if isinstance(other, str):
-            return str(self) == other
+            return str(self).upper() == other.upper()
         elif isinstance(other, Variable):
             return self.__key() == other.__key()
         else:
             return super(Variable, self).__eq__(other)
+
+    @property
+    def children(self):
+        c = self.dimensions
+        if self.subvar is not None:
+            c += (self.subvar, )
+        return c
 
 
 class InlineCall(Expression):
@@ -181,7 +199,7 @@ class Index(Expression):
     def __eq__(self, other):
         # Allow direct comparisong to string and other Index objects
         if isinstance(other, str):
-            return self.name == other
+            return self.name.upper() == other.upper()
         elif isinstance(other, Index):
             return self.name == other.name
         else:

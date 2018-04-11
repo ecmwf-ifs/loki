@@ -1,43 +1,24 @@
 from collections import Mapping
 
 from loki.generator import generate, extract_source
-from loki.ir import (Declaration, Allocation, Import, Statement, TypeDef,
-                     Conditional, CommentBlock)
-from loki.expression import ExpressionVisitor
-from loki.types import DerivedType
+from loki.ir import Declaration, Allocation, Import, TypeDef
+from loki.expression import Variable
+from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes
 from loki.tools import flatten
+from loki.preprocessing import blacklist
 
 
 __all__ = ['Section', 'Subroutine', 'Module']
 
 
-class InsertLiteralKinds(ExpressionVisitor):
-    """
-    Re-insert explicit _KIND casts for literals dropped during pre-processing.
+class InterfaceBlock(object):
 
-    :param pp_info: List of `(literal, kind)` tuples to be inserted
-    """
-
-    def __init__(self, pp_info):
-        super(InsertLiteralKinds, self).__init__()
-
-        self.pp_info = dict(pp_info)
-
-    def visit_Literal(self, o):
-        if o._source.lines[0] in self.pp_info:
-            literals = dict(self.pp_info[o._source.lines[0]])
-            if o.value in literals:
-                o.value = '%s_%s' % (o.value, literals[o.value])
-
-    def visit_CommentBlock(self, o):
-        for c in o.comments:
-            self.visit(c)
-
-    def visit_Comment(self, o):
-        if o._source.lines[0] in self.pp_info:
-            for val, kind in self.pp_info[o._source.lines[0]]:
-                o._source.string = o._source.string.replace(val, '%s_%s' % (val, kind))
+    def __init__(self, name, arguments, imports, declarations):
+        self.name = name
+        self.arguments = arguments
+        self.imports = imports
+        self.declarations = declarations
 
 
 class Section(object):
@@ -185,7 +166,7 @@ class Subroutine(Section):
 
         # Store the names of variables in the subroutine signature
         arg_ast = self._ast.findall('header/arguments/argument')
-        self._argnames = [arg.attrib['name'] for arg in arg_ast]
+        self._argnames = [arg.attrib['name'].upper() for arg in arg_ast]
 
         # Attach derived-type information to variables from given typedefs
         for v in self.variables:
@@ -196,27 +177,10 @@ class Subroutine(Section):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-        # Re-insert literal _KIND type casts from pre-processing info
-        # Note, that this is needed to get accurate data _KIND
-        # attributes for literal values, as these have been stripped
-        # in a preprocessing step to avoid OFP bugs.
-        if pp_info is not None:
-            insert_kind = InsertLiteralKinds(pp_info)
-
-            for decl in FindNodes(Declaration).visit(self.ir):
-                for v in decl.variables:
-                    if v.initial is not None:
-                        insert_kind.visit(v.initial)
-
-            for stmt in FindNodes(Statement).visit(self.ir):
-                insert_kind.visit(stmt)
-
-            for cnd in FindNodes(Conditional).visit(self.ir):
-                for c in cnd.conditions:
-                    insert_kind.visit(c)
-
-            for cmt in FindNodes(CommentBlock).visit(self.ir):
-                insert_kind.visit(cmt)
+        # Apply postprocessing rules to re-insert information lost during preprocessing
+        for name, rule in blacklist.items():
+            info = pp_info[name] if pp_info is not None and name in pp_info else None
+            self._ir = rule.postprocess(self._ir, info)
 
         # And finally we parse "member" subroutines
         self.members = None
@@ -261,7 +225,7 @@ class Subroutine(Section):
         List of argument names as defined in the subroutine signature.
         """
         vmap = self.variable_map
-        return [vmap[name] for name in self.argnames]
+        return [vmap[name.upper()] for name in self.argnames]
 
     @property
     def variables(self):
@@ -276,7 +240,7 @@ class Subroutine(Section):
         """
         Map of variable names to `Variable` objects
         """
-        return {v.name: v for v in self.variables}
+        return {v.name.upper(): v for v in self.variables}
 
     @property
     def imports(self):
@@ -284,3 +248,33 @@ class Subroutine(Section):
         List of all module imports via USE statements
         """
         return FindNodes(Import).visit(self.ir)
+
+    @property
+    def interface(self):
+        arguments = self.arguments
+        declarations = tuple(d for d in FindNodes(Declaration).visit(self.ir)
+                             if any(v in arguments for v in d.variables))
+
+        # Collect unknown symbols that we might need to import
+        undefined = set()
+        anames = [a.name for a in arguments]
+        for decl in declarations:
+            # Add potentially unkown TYPE and KIND symbols to 'undefined'
+            if decl.type.name.upper() not in BaseType._base_types:
+                undefined.add(decl.type.name)
+            if decl.type.kind and not decl.type.kind.isdigit():
+                undefined.add(decl.type.kind)
+            # Add (pure) variable dimensions that might be defined elsewhere
+            for v in decl.variables:
+                undefined.update([str(d) for d in v.dimensions
+                                  if isinstance(d, Variable) and d not in anames])
+
+        # Create a sub-list of imports based on undefined symbols
+        imports = []
+        for use in self.imports:
+            symbols = tuple(s for s in use.symbols if s in undefined)
+            if len(symbols) > 0:
+                imports += [Import(module=use.module, symbols=symbols)]
+
+        return InterfaceBlock(name=self.name, imports=imports,
+                              arguments=arguments, declarations=declarations)

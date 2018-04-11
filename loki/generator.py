@@ -3,13 +3,14 @@ Module to manage loops and statements via an internal representation(IR)/AST.
 """
 
 import re
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from itertools import groupby
 
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
-                     Pragma, Declaration, Allocation, Deallocation, Import,
-                     Scope, Intrinsic, TypeDef)
-from loki.expression import (Variable, Literal, Operation, Index, InlineCall)
+                     Pragma, Declaration, Allocation, Deallocation, Nullify,
+                     Import, Scope, Intrinsic, TypeDef, MaskedStatement,
+                     MultiConditional, WhileLoop, DataDeclaration)
+from loki.expression import (Variable, Literal, Operation, Index, InlineCall, LiteralList)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
@@ -48,6 +49,8 @@ def extract_source(ast, text, full_lines=False):
     # Scan for line continuations and honour inline
     # comments in between continued lines
     def continued(line):
+        if '!' in line:
+            line = line.split('!')[0]
         return line.strip().endswith('&')
 
     def is_comment(line):
@@ -120,27 +123,40 @@ class IRGenerator(GenericVisitor):
     visit_body = visit_Element
 
     def visit_loop(self, o, source=None):
-        variable = o.find('header/index-variable').attrib['name']
+        if o.find('header/index-variable') is None:
+            # We are processing a while loop
+            condition = self.visit(o.find('header'))
+            body = as_tuple(self.visit(o.find('body')))
+            return WhileLoop(condition=condition, body=body, source=source)
+        else:
+            # We are processing a regular for/do loop with bounds
+            variable = o.find('header/index-variable').attrib['name']
+            lower = self.visit(o.find('header/index-variable/lower-bound'))
+            upper = self.visit(o.find('header/index-variable/upper-bound'))
+            step = None
+            if o.find('header/index-variable/step') is not None:
+                step = self.visit(o.find('header/index-variable/step'))
 
-        lower = self.visit(o.find('header/index-variable/lower-bound'))
-        upper = self.visit(o.find('header/index-variable/upper-bound'))
-        step = None
-        if o.find('header/index-variable/step') is not None:
-            step = self.visit(o.find('header/index-variable/step'))
-
-        body = as_tuple(self.visit(o.find('body')))
-        # Store full lines with loop body for easy replacement
-        source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return Loop(variable=variable, body=body, bounds=(lower, upper, step),
-                    source=source)
+            body = as_tuple(self.visit(o.find('body')))
+            # Store full lines with loop body for easy replacement
+            source = extract_source(o.attrib, self._raw_source, full_lines=True)
+            return Loop(variable=variable, body=body, bounds=(lower, upper, step),
+                        source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
+        inline = o.find('if-then-stmt') is None
         return Conditional(conditions=conditions, bodies=bodies[:ncond],
-                           else_body=else_body, source=source)
+                           else_body=else_body, inline=inline, source=source)
+
+    def visit_select(self, o, source=None):
+        expr = self.visit(o.find('header'))
+        values = tuple(self.visit(h) for h in o.findall('body/case/header'))
+        bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
+        return MultiConditional(expr=expr, values=values, bodies=bodies)
 
     _re_pragma = re.compile('\!\$ecir\s+(?P<keyword>\w+)', re.IGNORECASE)
 
@@ -151,7 +167,52 @@ class IRGenerator(GenericVisitor):
             keyword = match_pragma.groupdict()['keyword']
             return Pragma(keyword=keyword, source=source)
         else:
-            return Comment(source=source)
+            return Comment(text=o.attrib['text'], source=source)
+
+    def visit_statement(self, o, source=None):
+        # TODO: Hacky pre-emption for special-case statements
+        if o.find('name/nullify-stmt') is not None:
+            variable = self.visit(o.find('name'))
+            return Nullify(variable=variable, source=source)
+        elif o.find('cycle') is not None:
+            return self.visit(o.find('cycle'))
+        elif o.find('where-construct-stmt') is not None:
+            # Parse a WHERE statement(s)...
+            children = [self.visit(c) for c in o]
+            children = [c for c in children if c is not None]
+
+            stmts = []
+            while 'ENDWHERE_CONSTRUCT' in children:
+                iend = children.index('ENDWHERE_CONSTRUCT')
+                w_children = children[:iend]
+
+                condition = w_children[0]
+                if 'ELSEWHERE_CONSTRUCT' in w_children:
+                    iw = w_children.index('ELSEWHERE_CONSTRUCT')
+                    body = w_children[1:iw]
+                    default = w_children[iw:]
+                else:
+                    body = w_children[1:]
+                    default = ()
+
+                stmts += [MaskedStatement(condition=condition, body=body, default=default)]
+                children = children[iend+1:]
+
+            # TODO: Deal with alternative conditions (multiple ELSEWHERE)
+            return as_tuple(stmts)
+        else:
+            return self.visit_Element(o, source=source)
+
+    def visit_elsewhere_stmt(self, o, source=None):
+        # Only used as a marker above
+        return 'ELSEWHERE_CONSTRUCT'
+
+    def visit_end_where_stmt(self, o, source=None):
+        # Only used as a marker above
+        return 'ENDWHERE_CONSTRUCT'
+
+    def visit_cycle(self, o, source=None):
+        return Intrinsic(source=source)
 
     def visit_assignment(self, o, source=None):
         target = self.visit(o.find('target'))
@@ -162,23 +223,6 @@ class IRGenerator(GenericVisitor):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, ptr=True, source=source)
-
-    def visit_statement(self, o, source=None):
-        if len(o.attrib) == 0:
-            return None  # Empty element, skip
-        elif o.find('name'):
-            # Note: KIND literals confuse the parser, so the structure
-            # is slightly odd here. The `name` node is actually the target
-            # and the `target` node is actually the KIND identifier.
-            target = self.visit(o.find('name'))
-            expr = self.visit(o.find('assignment/value'))
-            return Statement(target=target, expr=expr, source=source)
-        elif o.find('assignment'):
-            return self.visit(o.find('assignment'))
-        elif o.find('pointer-assignment'):
-            return self.visit(o.find('pointer-assignment'))
-        else:
-            return self.visit_Element(o)
 
     def visit_declaration(self, o, source=None):
         if len(o.attrib) == 0:
@@ -228,7 +272,7 @@ class IRGenerator(GenericVisitor):
                         variables.append(Variable(name=v.attrib['id'], type=type,
                                                   dimensions=dimensions, source=v_source))
                     # Pre-pend current variables to list for this DerivedType
-                    declarations.insert(0, Declaration(variables=variables))
+                    declarations.insert(0, Declaration(variables=variables, type=type))
                     # Recurse on 'type' nodes
                     t = t.find('type')
                 return TypeDef(name=derived_name, declarations=declarations,
@@ -240,25 +284,42 @@ class IRGenerator(GenericVisitor):
                 kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
+                pointer = o.find('attribute-pointer') is not None
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
                 target = o.find('attribute-target') is not None
                 type = BaseType(name=typename, kind=kind, intent=intent,
-                                allocatable=allocatable, optional=optional,
-                                parameter=parameter, target=target, source=source)
-                variables = []
-                for v in o.findall('variables/variable'):
-                    if len(v.attrib) == 0:
-                        continue
-                    dimensions = tuple(self.visit(i) for i in v.findall('dimensions/dimension'))
-                    initial = self.visit(v.find('initial-value')) if parameter else None
-                    variables.append(Variable(name=v.attrib['name'], type=type,
-                                              dimensions=dimensions, source=source,
-                                              initial=initial))
-                return Declaration(variables=variables, source=source)
+                                allocatable=allocatable, pointer=pointer,
+                                optional=optional, parameter=parameter,
+                                target=target, source=source)
+                variables = [self.visit(v) for v in o.findall('variables/variable')]
+                variables = [v for v in variables if v is not None]
+                # Propagate type onto variables
+                for v in variables:
+                    v._type = type
+                dims = o.find('dimensions')
+                dimensions = None if dims is None else as_tuple(self.visit(dims))
+                return Declaration(variables=variables, type=type,
+                                   dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
-            # IMPLICIT marker
             return Intrinsic(source=source)
+        elif o.attrib['type'] == 'intrinsic':
+            return Intrinsic(source=source)
+        elif o.attrib['type'] == 'data':
+            # Data declaration blocks
+            declarations = []
+            for variables, values in zip(o.findall('variables'), o.findall('values')):
+                variable = self.visit(variables)
+                # Lists of literal values are again nested, so extract
+                # them recursively.
+                l = values.find('literal')  # We explicitly recurse on l
+                vals = []
+                while l.find('literal') is not None:
+                    vals += [self.visit(l)]
+                    l = l.find('literal')
+                vals += [self.visit(l)]
+                declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
+            return tuple(declarations)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
@@ -284,8 +345,13 @@ class IRGenerator(GenericVisitor):
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
 
     def visit_directive(self, o, source=None):
-        # Straight pipe-through node for header includes (#include ...)
-        return Intrinsic(source=source)
+        if '#include' in o.attrib['text']:
+            # Straight pipe-through node for header includes (#include ...)
+            match = re.search('#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
+            module = match.groupdict()['module']
+            return Import(module=module, c_import=True, source=source)
+        else:
+            return Intrinsic(source=source)
 
     def visit_open(self, o, source=None):
         return Intrinsic(source=source)
@@ -300,13 +366,23 @@ class IRGenerator(GenericVisitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        return Call(name=name, arguments=args, source=source)
+        kwargs = OrderedDict([self.visit(i) for i in o.findall('name/subscripts/argument')])
+        return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
+
+    def visit_argument(self, o, source=None):
+        key = o.attrib['name']
+        val = self.visit(o.find('name'))
+        return key, val
+
+    def visit_exit(self, o, source=None):
+        return Intrinsic(source=source)
 
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
+
         def generate_variable(vname, indices, subvar, source):
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS']:
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
@@ -315,53 +391,66 @@ class IRGenerator(GenericVisitor):
                 return Variable(name=vname, dimensions=indices,
                                 subvar=variable, source=source)
 
-        # Note: The following is quite tricky; essentially we traverse
-        # the children backwards trying to match potential (but not
-        # necessary indices/subscripts to variable names. From those
-        # we then create intermediate sub-variables and nest them as
-        # we move up the hierarchy.
-        vname = o.attrib['id'] if o.find('part-ref') is None else None
+        # Creating compound variables is a bit tricky, so let's first
+        # process all our children and shove them into a deque
+        _children = deque(self.visit(c) for c in o.getchildren())
+        _children = deque(c for c in _children if c is not None)
+
+        # Now we nest variables, dimensions and sub-variables by
+        # popping them off the back of our deque...
         indices = None
         variable = None
-        for child in reversed(o.getchildren()):
-            if child.tag == 'part-ref':
-                # Stash previous sub-variable
-                if vname is not None:
-                    variable = generate_variable(vname=vname, indices=indices,
-                                                 subvar=variable, source=source)
-                    # Reset vname and indices
-                    vname = None
-                    indices = None
+        while len(_children) > 0:
+            item = _children.pop()
+            if len(_children) > 0 and isinstance(_children[-1], tuple):
+                indices = _children.pop()
 
-                vname = child.attrib['id']
+            if len(_children) > 0 and isinstance(item, Variable):
+                # A subvar was processed separately, so move over
+                if variable is None:
+                    variable = item
+                    continue
 
-            elif child.tag == 'subscripts':
-                # Always stash sub-variable if we encounter subscripts
-                indices = self.visit(child)
-                variable = generate_variable(vname=vname, indices=indices,
-                                             subvar=variable, source=source)
-                # Reset vname and indices
-                vname = None
-                indices = None
-
-        if variable is None or vname is not None:
-            variable = generate_variable(vname=vname, indices=indices,
+            # The "append" base case
+            variable = generate_variable(vname=item, indices=indices,
                                          subvar=variable, source=source)
+            indices = None
         return variable
+
+    def visit_variable(self, o, source=None):
+        if 'id' not in o.attrib and 'name' not in o.attrib:
+            return None
+        name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
+        if o.find('dimensions') is not None:
+            dimensions = tuple(self.visit(d) for d in o.find('dimensions'))
+            dimensions = tuple(d for d in dimensions if d is not None)
+        else:
+            dimensions = None
+        initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
+        return Variable(name=name, dimensions=dimensions, initial=initial, source=source)
+
+    def visit_part_ref(self, o, source=None):
+        # Return a pure string, as part of a variable name
+        return o.attrib['id']
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
+        type = o.attrib['type'] if 'type' in o.attrib else None
+        kind_param = o.find('kind-param')
+        kind = kind_param.attrib['kind'] if kind_param is not None else None
         # Override Fortran BOOL keywords
         if value == 'false':
             value = '.FALSE.'
         if value == 'true':
             value = '.TRUE.'
-        return Literal(value=value, source=source)
+        return Literal(value=value, kind=kind, type=type, source=source)
 
     def visit_subscripts(self, o, source=None):
-        return tuple(self.visit(s) for s in o.findall('subscript'))
+        return tuple(self.visit(c)for c in o.getchildren()
+                     if c.tag in ['subscript', 'name'])
 
     def visit_subscript(self, o, source=None):
+        # TODO: Drop this entire routine, but beware the base-case!
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
@@ -372,10 +461,17 @@ class IRGenerator(GenericVisitor):
             return self.visit(o.find('literal'))
         elif o.find('operation'):
             return self.visit(o.find('operation'))
+        elif o.find('array-constructor-values'):
+            return self.visit(o.find('array-constructor-values'))
         else:
             return Index(name=':')
 
     visit_dimension = visit_subscript
+
+    def visit_array_constructor_values(self, o, source=None):
+        values = [self.visit(v) for v in o.findall('value')]
+        values = [v for v in values if v is not None]  # Filter empy values
+        return LiteralList(values=values)
 
     def visit_operation(self, o, source=None):
         ops = [self.visit(op) for op in o.findall('operator')]

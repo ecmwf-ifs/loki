@@ -1,11 +1,13 @@
 from collections import OrderedDict
 import inspect
 
-from loki.tools import flatten
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
-           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import']
+           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
+           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
+           'MultiConditional']
 
 
 class Node(object):
@@ -61,8 +63,10 @@ class Comment(Node):
     """
     Internal representation of a single comment line.
     """
-    pass
+    def __init__(self, text=None, source=None):
+        super(Comment, self).__init__(source=source)
 
+        self.text = text
 
 class CommentBlock(Node):
     """
@@ -113,6 +117,28 @@ class Loop(Node):
         return tuple([self.body])
 
 
+class WhileLoop(Node):
+    """
+    Internal representation of a while loop in source code.
+
+    Importantly, this is different from a DO or FOR loop, as we don't
+    have a dedicated loop variable with bounds.
+    """
+
+    _traversable = ['body']
+
+    def __init__(self, condition, body=None, source=None):
+        super(WhileLoop, self).__init__(source=source)
+
+        self.condition = condition
+        self.body = body
+
+    @property
+    def children(self):
+        # Note: Needs to be one tuple per `traversable`
+        return tuple([self.body])
+
+
 class Conditional(Node):
     """
     Internal representation of a conditional branching construct.
@@ -120,18 +146,36 @@ class Conditional(Node):
 
     _traversable = ['bodies', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, source=None):
+    def __init__(self, conditions, bodies, else_body, inline=False, source=None):
         super(Conditional, self).__init__(source=source)
 
         self.conditions = conditions
         self.bodies = bodies
         self.else_body = else_body
+        self.inline = inline
 
     @property
     def children(self):
         # Note that we currently ignore the condition itself
         return tuple(tuple([self.bodies]) + tuple([self.else_body]))
 
+class MultiConditional(Node):
+    """
+    Internal representation of a multi-value conditional (eg. SELECT)
+    """
+
+    _traversable = ['bodies']
+
+    def __init__(self, expr, values, bodies, source=None):
+        super(MultiConditional, self).__init__(source=source)
+
+        self.expr = expr
+        self.values = values
+        self.bodies = bodies
+
+    @property
+    def children(self):
+        return tuple([self.bodies])
 
 class Statement(Node):
     """
@@ -144,6 +188,25 @@ class Statement(Node):
         self.expr = expr
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
+
+
+class MaskedStatement(Node):
+    """
+    Internal representation of a masked array assignment (WHERE clause).
+    """
+
+    _traversable = ['body', 'default']
+
+    def __init__(self, condition, body, default, source=None):
+        super(MaskedStatement, self).__init__(source=source)
+
+        self.condition = condition
+        self.body = body
+        self.default = default  # The ELSEWHERE stmt
+
+    @property
+    def children(self):
+        return tuple([as_tuple(self.body), as_tuple(self.default)])
 
 
 class Scope(Node):
@@ -170,23 +233,39 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
-    def __init__(self, variables, comment=None, pragma=None, source=None):
+    def __init__(self, variables, dimensions=None, type=None,
+                 comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
         self.variables = variables
+        self.dimensions = dimensions
+        self.type = type
+
         self.comment = comment
         self.pragma = pragma
+
+
+class DataDeclaration(Node):
+    """
+    Internal representation of a DATA declaration for explicit array value lists.
+    """
+    def __init__(self, variable, values, source=None):
+        super(DataDeclaration, self).__init__(source=source)
+
+        self.variable = variable
+        self.values = values
 
 
 class Import(Node):
     """
     Internal representation of a module import.
     """
-    def __init__(self, module, symbols, source=None):
+    def __init__(self, module, symbols=None, c_import=False, source=None):
         super(Import, self).__init__(source=source)
 
         self.module = module
-        self.symbols = symbols
+        self.symbols = symbols or ()
+        self.c_import = c_import
 
 
 class Allocation(Node):
@@ -209,15 +288,26 @@ class Deallocation(Node):
         self.variable = variable
 
 
+class Nullify(Node):
+    """
+    Internal representation of a pointer nullification
+    """
+    def __init__(self, variable, source=None):
+        super(Nullify, self).__init__(source=source)
+
+        self.variable = variable
+
+
 class Call(Node):
     """
     Internal representation of a function call
     """
-    def __init__(self, name, arguments, pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
+        self.kwarguments = kwarguments
         self.pragma = pragma
 
 
