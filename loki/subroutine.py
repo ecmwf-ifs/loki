@@ -170,7 +170,7 @@ class Subroutine(Section):
 
         # Attach derived-type information to variables from given typedefs
         for v in self.variables:
-            if typedefs is not None and v.type.name in typedefs:
+            if typedefs is not None and v.type is not None and v.type.name in typedefs:
                 typedef = typedefs[v.type.name]
                 derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
                                            intent=v.type.intent, allocatable=v.type.allocatable,
