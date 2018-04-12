@@ -14,7 +14,8 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Variable, TypeDef, Declaration, FindNodes,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import, warning, as_tuple, error, debug)
+                  Transformer, Import, warning, as_tuple, error, debug,
+                  FindVariables)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -175,33 +176,6 @@ class SourceProcessor(object):
                 info("Could not find source file %s; skipping..." % source)
 
 
-class FindVariables(ExpressionVisitor, Visitor):
-
-    default_retval = set
-
-    def visit_tuple(self, o):
-        vars = set()
-        for c in o:
-            vars.update(flatten(self.visit(c)))
-        return  vars
-
-    visit_list = visit_tuple
-
-    def visit_Variable(self, o):
-        return set([o])
-
-    def visit_Expression(self, o):
-        vars = set()
-        for c in o.children:
-            vars.update(flatten(self.visit(c)))
-        return  vars
-
-    def visit_Statement(self, o, **kwargs):
-        vars = self.visit(o.expr, **kwargs)
-        vars.update(flatten(self.visit(o.target)))
-        return vars
-
-
 class VariableTransformer(ExpressionVisitor, Visitor):
     """
     In-place transformer that applies string replacements
@@ -220,6 +194,7 @@ class VariableTransformer(ExpressionVisitor, Visitor):
             o.dimensions = o.subvar.dimensions
             o.initial = o.subvar.initial
             o.subvar = o.subvar.subvar
+
 
 def get_typedefs(typedef):
     # Read derived type definitions from typedef modules
@@ -366,6 +341,11 @@ def remove_dimension(routine, target):
             if v.dimensions is not None:
                 v.dimensions = as_tuple(d for d in v.dimensions
                                         if d not in size_expressions)
+
+    # Remove all occurences of the loop variable in expressions (in-place)
+    for v in FindVariables(unique=False).visit(routine.ir):
+        if v.dimensions is not None:
+            v.dimensions = as_tuple(d for d in v.dimensions if d != target.variable)
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
