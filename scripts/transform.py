@@ -313,6 +313,15 @@ class Dimension(object):
         iteration = ['%s-%s+1' % (self.iteration[1], self.iteration[0])]
         return [self.name] + self.aliases + iteration
 
+    @property
+    def index_expressions(self):
+        """
+        Return a list of expression strings all signifying potential
+        dimension indices, including range accesses like `START:END`.
+        """
+        i_range = ['%s:%s' % (self.iteration[0], self.iteration[1])]
+        return [self.variable] + i_range
+
 
 # Define the target dimension to strip from kernel and caller
 target = Dimension(name='KLON', aliases=['NPROMA'],
@@ -333,19 +342,19 @@ def remove_dimension(routine, target):
             loop_map[loop] = loop.body
     routine._ir = Transformer(loop_map).visit(routine.ir)
 
-    # Remove target dimension from variable declarations (in-place)
+    # Remove dimension size expressions from variable declarations (in-place)
     size_expressions = target.size_expressions
     for decl in FindNodes(Declaration).visit(routine.ir):
         for v in decl.variables:
-            # Filter target dimensions from variable
             if v.dimensions is not None:
                 v.dimensions = as_tuple(d for d in v.dimensions
-                                        if d not in size_expressions)
+                                        if str(d) not in size_expressions)
 
-    # Remove all occurences of the loop variable in expressions (in-place)
+    # Remove all variable indices representing the target dimension (in-place)
     for v in FindVariables(unique=False).visit(routine.ir):
         if v.dimensions is not None:
-            v.dimensions = as_tuple(d for d in v.dimensions if d != target.variable)
+            v.dimensions = as_tuple(d for d in v.dimensions
+                                    if str(d) not in target.index_expressions)
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
