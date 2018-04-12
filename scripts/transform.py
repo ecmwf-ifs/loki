@@ -15,7 +15,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error, debug,
-                  FindVariables, Index)
+                  FindVariables, Index, Allocation)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -378,6 +378,56 @@ def remove_dimension(routine, target):
             decl.variables.remove(target.variable)
 
 
+def hoist_dimension_from_call(driver):
+    """
+    Remove all indices and variables of a target dimension from
+    caller (driver) and callee (kernel) routines, and insert the
+    necessary loop over the target dimension into the driver.
+
+    Note: In order for this routine to see the target dimensions
+    in the argument declarations of the kernel, it must be applied
+    before they are stripped from the kernel itself.
+    """
+    size_expressions = target.size_expressions
+
+    vmap = driver.variable_map
+
+    # Create map of variable names to their "true dimensions",
+    # that is either their declared or the allocated dimensions.
+    vdims = {}
+    for v in driver.variables:
+        if v.dimensions is not None and len(v.dimensions) > 0:
+            vdims[v.name] = v.dimensions
+    for alloc in FindNodes(Allocation).visit(driver.ir):
+        vdims[alloc.variable.name] = alloc.variable.dimensions
+
+    for call in FindNodes(Call).visit(driver.ir):
+        if call.name == target_routine:
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            for darg in call.arguments:
+
+                # Replace target dimension with a loop index in arguments
+                if isinstance(darg, Variable) and darg.name in vdims:
+                    # The "template" is the list of dimensions originally
+                    # declared or allocated for this (sub-)variable.
+                    template = vdims[darg.name]
+
+                    # Skip to the innermost compound variable
+                    while darg.subvar is not None:
+                        type_vars = vmap[darg.name.upper()].type.variables
+                        template = type_vars[darg.subvar.name].dimensions
+                        darg = darg.subvar
+
+                    # Remove dimension from caller-side argument indices
+                    new_dims = tuple(Index(name=target.variable)
+                                     if str(tdim) in size_expressions else ddim
+                                     for ddim, tdim in zip(darg.dimensions, template))
+                    darg.dimensions = new_dims
+
+
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
     f_driver = FortranSourceFile(driver)
     driver_routine = f_driver.subroutines[0]
@@ -733,20 +783,24 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     # convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
     typedefs = get_typedefs(typedef)
 
-    # Parse original kernel routine and update the name
+    # Parse original kernel routine and inject type definitions
     f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
-    routine.name = '%s_%s' % (routine.name, mode.upper())
 
     # Parse the original driver (caller)
-    f_driver = FortranSourceFile(driver)
+    f_driver = FortranSourceFile(driver, typedefs=typedefs)
     driver = f_driver.subroutines[0]
 
-    # Here is the meat of the operation:
+    # Remove horizontal dimension from kernels and hoist loop to
+    # driver to transform a subroutine invocation to SCA format.
     flatten_derived_arguments(routine, driver)
+    hoist_dimension_from_call(driver)
     remove_dimension(routine=routine, target=target)
 
-    # Replace the non-reference call in the driver for evaluation
+    # Update the name of the kernel routine
+    routine.name = '%s_%s' % (routine.name, mode.upper())
+
+    # Update the names of all non-reference calls in the driver
     for call in FindNodes(Call).visit(driver._ir):
         if call.name == target_routine:
             # Skip calls marked for reference data collection
