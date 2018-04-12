@@ -370,6 +370,11 @@ def remove_dimension(routine, target):
                 v.dimensions = as_tuple(d for d in v.dimensions
                                         if str(d) not in size_expressions)
 
+    # Drop the declaration for the loop counter variable
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        if target.variable in decl.variables:
+            decl.variables.remove(target.variable)
+
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
     f_driver = FortranSourceFile(driver)
