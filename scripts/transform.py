@@ -15,7 +15,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error, debug,
-                  FindVariables)
+                  FindVariables, Index)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -241,8 +241,10 @@ def flatten_derived_arguments(routine, driver):
                     # Found derived-type argument, unroll according to candidate map
                     new_args = []
                     for type_var in candidates[k_arg]:
+                        # Insert `:` range dimensions into newly generated args
+                        new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
                         new_arg = deepcopy(d_arg)
-                        new_arg.subvar = Variable(name=type_var.name, dimensions=None)
+                        new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims)
                         new_args += [new_arg]
 
                     # Replace variable in dummy signature
