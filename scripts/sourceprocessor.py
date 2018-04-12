@@ -1,3 +1,14 @@
+from pathlib import Path
+from collections import deque
+try:
+    from graphviz import Digraph
+except ImportError:
+    Digraph = None
+
+from loki import (as_tuple, debug, info, warning, error,
+                  FortranSourceFile, FindNodes, Call)
+
+
 class SourceProcessor(object):
     """
     Work queue manager to enqueue and process individual source

@@ -1,21 +1,14 @@
 import click
 import toml
-import re
-from collections import OrderedDict, defaultdict, Iterable, deque
+from collections import OrderedDict, defaultdict
 from copy import deepcopy
-import sys
 from pathlib import Path
-try:
-    from graphviz import Digraph
-except ImportError:
-    Digraph = None
 
-from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
-                  Variable, TypeDef, Declaration, FindNodes,
-                  Statement, Call, Pragma, fgen, BaseType, Source,
-                  Module, info, DerivedType, ExpressionVisitor,
-                  Transformer, Import, warning, as_tuple, error, debug,
-                  FindVariables, Index, Allocation, BaseType, Pragma)
+from loki import (FortranSourceFile, Visitor, Loop, Variable,
+                  Declaration, FindNodes, Call, Pragma, fgen,
+                  BaseType, Module, info, DerivedType,
+                  ExpressionVisitor, Transformer, Import, as_tuple,
+                  FindVariables, Index, Allocation)
 
 from raps_deps import RapsDependencyFile, Rule
 from sourceprocessor import SourceProcessor
@@ -335,19 +328,20 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 def cli():
     pass
 
+
 @cli.command('idem')
 @click.option('--source', '-s', type=click.Path(),
-            help='Source file to convert.')
+              help='Source file to convert.')
 @click.option('--source-out', '-so', type=click.Path(),
-            help='Path for generated source output.')
+              help='Path for generated source output.')
 @click.option('--driver', '-d', type=click.Path(), default=None,
-            help='Driver file to convert.')
+              help='Driver file to convert.')
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
-            help='Path for generated driver output.')
+              help='Path for generated driver output.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
-            help='Path for additional soUrce file(s) containing type definitions')
+              help='Path for additional soUrce file(s) containing type definitions')
 @click.option('--flatten-args/--no-flatten-args', default=True,
-            help='Flag to trigger derived-type argument unrolling')
+              help='Flag to trigger derived-type argument unrolling')
 def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
@@ -389,17 +383,17 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
 
 @cli.command()
 @click.option('--source', '-s', type=click.Path(),
-            help='Source file to convert.')
+              help='Source file to convert.')
 @click.option('--source-out', '-so', type=click.Path(),
-            help='Path for generated source output.')
+              help='Path for generated source output.')
 @click.option('--driver', '-d', type=click.Path(), default=None,
-            help='Driver file to convert.')
+              help='Driver file to convert.')
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
-            help='Path for generated driver output.')
+              help='Path for generated driver output.')
 @click.option('--interface', '-intfb', type=click.Path(), default=None,
-            help='Path to auto-generate and interface file')
+              help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
-            help='Path for additional source file(s) containing type definitions')
+              help='Path for additional source file(s) containing type definitions')
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     """
@@ -568,43 +562,39 @@ def physics_driver(source, config, processor):
 
 @cli.command('physics')
 @click.option('--config', '-cfg', type=click.Path(),
-            help='Path to configuration file.')
+              help='Path to configuration file.')
 @click.option('--source', '-s', type=click.Path(),
-            help='Path to source files to transform.')
+              help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
-            help='Path for additional source file(s) containing type definitions')
+              help='Path for additional source file(s) containing type definitions')
 @click.option('--interface', '-intfb', type=click.Path(), default=None,
-            help='Path to auto-generate interface file(s)')
+              help='Path to auto-generate interface file(s)')
 @click.option('--dependency-file', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
-            help='Generate and display the subroutine callgraph.')
+              help='Generate and display the subroutine callgraph.')
 def physics(config, source, typedef, interface, dependency_file, callgraph):
 
-    kernel_map = {'idem' : {'driver': physics_driver,
-                            'kernel': physics_idem_kernel},
-                  'noop' : {'driver': None,
-                            'kernel': None},
-    }
+    kernel_map = {'idem': {'driver': physics_driver,
+                           'kernel': physics_idem_kernel},
+                  'noop': {'driver': None, 'kernel': None}}
 
     # Load configuration file and process options
     with Path(config).open('r') as f:
         config = toml.load(f)
 
-    mode = config['default']['mode']
     config['interface'] = interface
     # Convert 'routines' to an ordered dictionary
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
     # Load RAPS dependency file for injection into the build system
-    raps_deps = RapsDependencyFile.from_file(dependency_file)
     config['raps_deps'] = RapsDependencyFile.from_file(dependency_file)
 
     # Create new deps file with lib dependencies and a build rule
     objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
     objs_ifsloki.target = 'OBJS_ifsloki'
     rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
-                        cmds=[ '/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
+                        cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
     config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
@@ -631,11 +621,11 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
 @cli.command('noop')
 @click.argument('routines', nargs=-1)
 @click.option('--source', '-s', type=click.Path(),
-            help='Path to source files to transform.')
+              help='Path to source files to transform.')
 @click.option('--discovery', '-d', is_flag=True, default=False,
-            help='Automatically attempt to discover new subroutines.')
+              help='Automatically attempt to discover new subroutines.')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
-            help='Generate and display the subroutine callgraph.')
+              help='Generate and display the subroutine callgraph.')
 def noop(routines, source, discovery, callgraph):
     """
     Do-nothing mode to test the parsing and bulk-traversal capabilities.
@@ -646,6 +636,7 @@ def noop(routines, source, discovery, callgraph):
 
     if callgraph:
         processor.graph.render('callgraph', view=True)
+
 
 if __name__ == "__main__":
     cli()
