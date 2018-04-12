@@ -15,7 +15,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error, debug,
-                  FindVariables, Index, Allocation, BaseType)
+                  FindVariables, Index, Allocation, BaseType, Pragma)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -463,6 +463,29 @@ def hoist_dimension_from_call(routine, driver):
     driver._ir = Transformer(replacements).visit(driver.ir)
 
 
+def insert_claw_directives(routine, driver, claw_scalars, target):
+    """
+    Insert the necessary pragmas and directives to instruct the CLAW.
+
+    Note: Must be run after generic SCA conversion.
+    """
+
+    # Insert loop pragmas in driver (in-place)
+    for loop in FindNodes(Loop).visit(driver.ir):
+        if loop.variable == target.variable:
+            loop.pragma = Pragma(keyword='claw', content='parallelize forward create update')
+
+    # Generate CLAW directives
+    directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
+                  Pragma(keyword='claw', content='parallelize &'),
+                  Pragma(keyword='claw', content='scalar(%s)\n\n\n' % ', '.join(claw_scalars))]
+
+    # Insert directives into driver (HACK!)
+    decls = FindNodes(Declaration).visit(routine.ir)
+    replacements = {decls[-1]: [deepcopy(decls[-1])] + directives}
+    routine._ir = Transformer(replacements).visit(routine.ir)
+
+
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
     f_driver = FortranSourceFile(driver)
     driver_routine = f_driver.subroutines[0]
@@ -755,7 +778,7 @@ def cli():
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
             help='Path for generated driver output.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
-            help='Path for additional source file(s) containing type definitions')
+            help='Path for additional soUrce file(s) containing type definitions')
 @click.option('--flatten-args/--no-flatten-args', default=True,
             help='Flag to trigger derived-type argument unrolling')
 def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
@@ -826,11 +849,18 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     f_driver = FortranSourceFile(driver, typedefs=typedefs)
     driver = f_driver.subroutines[0]
 
+    if mode == 'claw':
+        claw_scalars = [v.name.lower() for v in routine.arguments
+                        if len(v.dimensions) == 1]
+
     # Remove horizontal dimension from kernels and hoist loop to
     # driver to transform a subroutine invocation to SCA format.
     flatten_derived_arguments(routine, driver)
     hoist_dimension_from_call(routine, driver)
     remove_dimension(routine=routine, target=target)
+
+    if mode == 'claw':
+        insert_claw_directives(routine, driver, claw_scalars, target)
 
     # Update the name of the kernel routine
     routine.name = '%s_%s' % (routine.name, mode.upper())

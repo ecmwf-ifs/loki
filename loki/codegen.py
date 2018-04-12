@@ -88,7 +88,10 @@ class FortranCodegen(Visitor):
         return self.indent + text
 
     def visit_Pragma(self, o):
-        return self.indent + o._source.string
+        if o.content is not None:
+            return self.indent + '!$%s %s' % (o.keyword, o.content)
+        else:
+            return self.indent + o._source.string
 
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]

@@ -84,10 +84,11 @@ class Pragma(Node):
     Internal representation of a EcIR-specific pragma
     """
 
-    def __init__(self, keyword, source=None):
+    def __init__(self, keyword, content=None, source=None):
         super(Pragma, self).__init__(source=source)
 
         self.keyword = keyword
+        self.content = content
 
 
 class Loop(Node):
