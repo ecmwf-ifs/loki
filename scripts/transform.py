@@ -320,6 +320,8 @@ class Dimension(object):
         dimension indices, including range accesses like `START:END`.
         """
         i_range = ['%s:%s' % (self.iteration[0], self.iteration[1])]
+        # A somewhat strange expression used in VMASS bracnhes
+        i_range += ['%s-%s+1' % (self.variable, self.iteration[0])]
         return [self.variable] + i_range
 
 
