@@ -334,6 +334,8 @@ def remove_dimension(routine, target):
     Remove all loops and variable indices of a given target dimension
     from the given routine.
     """
+    size_expressions = target.size_expressions
+    index_expressions = target.index_expressions
 
     # Remove all loops over the target dimensions
     loop_map = {}
@@ -342,19 +344,29 @@ def remove_dimension(routine, target):
             loop_map[loop] = loop.body
     routine._ir = Transformer(loop_map).visit(routine.ir)
 
+    # Remove all variable indices representing the target dimension (in-place)
+    variable_map = routine.variable_map
+    for v in FindVariables(unique=False).visit(routine.ir):
+        if v.dimensions is not None:
+            v.dimensions = as_tuple(d for d in v.dimensions
+                                    if str(d) not in index_expressions)
+
+        # Remove implicit ranges (`:`) by checking against the allocated dimensions
+        if v.name not in variable_map:
+            continue
+        declared_dims = variable_map[v.name].dimensions
+        if declared_dims is not None:
+            v.dimensions = as_tuple(dim for dd, dim in zip(declared_dims, v.dimensions)
+                                    if not (dim == ':' and str(dd) in size_expressions))
+
     # Remove dimension size expressions from variable declarations (in-place)
-    size_expressions = target.size_expressions
+    # Note: We do this last, because changing the declaration affects
+    # the variable_map used above.
     for decl in FindNodes(Declaration).visit(routine.ir):
         for v in decl.variables:
             if v.dimensions is not None:
                 v.dimensions = as_tuple(d for d in v.dimensions
                                         if str(d) not in size_expressions)
-
-    # Remove all variable indices representing the target dimension (in-place)
-    for v in FindVariables(unique=False).visit(routine.ir):
-        if v.dimensions is not None:
-            v.dimensions = as_tuple(d for d in v.dimensions
-                                    if str(d) not in target.index_expressions)
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
