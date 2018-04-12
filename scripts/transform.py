@@ -15,7 +15,7 @@ from loki import (FortranSourceFile, Visitor, flatten, chunks, Loop,
                   Statement, Call, Pragma, fgen, BaseType, Source,
                   Module, info, DerivedType, ExpressionVisitor,
                   Transformer, Import, warning, as_tuple, error, debug,
-                  FindVariables, Index, Allocation)
+                  FindVariables, Index, Allocation, BaseType)
 
 from raps_deps import RapsDependencyFile, Rule
 
@@ -378,7 +378,7 @@ def remove_dimension(routine, target):
             decl.variables.remove(target.variable)
 
 
-def hoist_dimension_from_call(driver):
+def hoist_dimension_from_call(routine, driver):
     """
     Remove all indices and variables of a target dimension from
     caller (driver) and callee (kernel) routines, and insert the
@@ -389,8 +389,8 @@ def hoist_dimension_from_call(driver):
     before they are stripped from the kernel itself.
     """
     size_expressions = target.size_expressions
-
     vmap = driver.variable_map
+    replacements = {}
 
     # Create map of variable names to their "true dimensions",
     # that is either their declared or the allocated dimensions.
@@ -407,9 +407,8 @@ def hoist_dimension_from_call(driver):
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
 
-            for darg in call.arguments:
-
-                # Replace target dimension with a loop index in arguments
+            # Replace target dimension with a loop index in arguments
+            for darg, karg in zip(call.arguments, routine.arguments):
                 if isinstance(darg, Variable) and darg.name in vdims:
                     # The "template" is the list of dimensions originally
                     # declared or allocated for this (sub-)variable.
@@ -426,6 +425,42 @@ def hoist_dimension_from_call(driver):
                                      if str(tdim) in size_expressions else ddim
                                      for ddim, tdim in zip(darg.dimensions, template))
                     darg.dimensions = new_dims
+
+            # Collect caller-side expressions for dimension sizes and bounds
+            dim_lower = None
+            dim_upper = None
+            for darg, karg in zip(call.arguments, routine.arguments):
+                if karg == target.iteration[0]:
+                    dim_lower = darg
+                if karg == target.iteration[1]:
+                    dim_upper = darg
+
+            # Create and insert new loop over target dimension
+            loop = Loop(variable=Variable(name=target.variable),
+                        bounds=(dim_lower, dim_upper), body=call)
+            replacements[call] = loop
+
+            # Remove call-side arguments (in-place)
+            call.arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
+                                   if karg not in target.variables)
+
+            # Remove kernel-side arguments from signature and declarations
+            routine._argnames = tuple(arg for arg in routine.argnames
+                                      if arg not in target.variables)
+            routine_replacements = {}
+            for decl in FindNodes(Declaration).visit(routine.ir):
+                decl.variables = tuple(v for v in decl.variables
+                                       if v not in target.variables)
+                if len(decl.variables) == 0:
+                    routine_replacements[decl] = None
+            routine._ir = Transformer(routine_replacements).visit(routine.ir)
+
+    # Finally, add declaration of loop variable (a little hacky!)
+    decls = FindNodes(Declaration).visit(driver.ir)
+    new_decl = Declaration(variables=[Variable(name=target.variable)],
+                           type=BaseType(name='INTEGER', kind='JPIM'))
+    replacements[decls[-1]] = [deepcopy(decls[-1]), new_decl]
+    driver._ir = Transformer(replacements).visit(driver.ir)
 
 
 def process_driver(driver, driver_out, routine, derived_arg_var, mode):
@@ -794,7 +829,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     # Remove horizontal dimension from kernels and hoist loop to
     # driver to transform a subroutine invocation to SCA format.
     flatten_derived_arguments(routine, driver)
-    hoist_dimension_from_call(driver)
+    hoist_dimension_from_call(routine, driver)
     remove_dimension(routine=routine, target=target)
 
     # Update the name of the kernel routine
