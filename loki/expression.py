@@ -44,12 +44,14 @@ class FindVariables(ExpressionVisitor, Visitor):
     visit_list = visit_tuple
 
     def visit_Variable(self, o):
-        ret = set([o]) if self.unique else tuple([o])
-        return ret
+        dims = flatten(self.visit(d) for d in o.dimensions)
+        return set(dims + [o]) if self.unique else tuple(dims + [o])
 
     def visit_Expression(self, o):
         vars = flatten(self.visit(c) for c in o.children)
         return set(vars) if self.unique else vars
+
+    visit_InlineCall = visit_Expression
 
     def visit_Statement(self, o, **kwargs):
         vars = as_tuple(self.visit(o.expr, **kwargs))
