@@ -462,6 +462,8 @@ def adjust_dependencies(original, config, processor, interface=False):
     # Adjust the object entry in the dependency file
     orig_path = 'ifs/phys_ec/%s.o' % original
     r_deps = deepcopy(config['raps_deps'].content_map[orig_path])
+    r_deps.replace('ifs/phys_ec/%s.o' % original,
+                   'ifs/phys_ec/%s.%s.o' % (original, mode))
     r_deps.replace('ifs/phys_ec/%s.F90' % original,
                    'ifs/phys_ec/%s.%s.F90' % (original, mode))
     for r in processor.routines:
