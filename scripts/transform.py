@@ -214,6 +214,9 @@ def remove_dimension(routine, target):
     for decl in FindNodes(Declaration).visit(routine.ir):
         if target.variable in decl.variables:
             decl.variables.remove(target.variable)
+        if len(decl.variables) == 0:
+            # Drop the loop counter declaration
+            routine._ir = Transformer({decl: None}).visit(routine.ir)
 
 
 def hoist_dimension_from_call(routine, driver):
