@@ -394,7 +394,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
               help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
-@click.option('--mode', '-m', type=click.Choice(['sca', 'claw', 'idem']), default='sca')
+@click.option('--mode', '-m', type=click.Choice(['sca', 'claw']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     """
     Single Column Abstraction: Convert kernel into SCA format and adjust driver.
@@ -569,11 +569,11 @@ def physics_driver(source, config, processor):
               help='Path for additional source file(s) containing type definitions')
 @click.option('--interface', '-intfb', type=click.Path(), default=None,
               help='Path to auto-generate interface file(s)')
-@click.option('--dependency-file', '-deps', type=click.Path(), default=None,
+@click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
-def physics(config, source, typedef, interface, dependency_file, callgraph):
+def physics(config, source, typedef, interface, raps_dependencies, callgraph):
 
     kernel_map = {'idem': {'driver': physics_driver,
                            'kernel': physics_idem_kernel},
@@ -587,15 +587,16 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
     # Convert 'routines' to an ordered dictionary
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
-    # Load RAPS dependency file for injection into the build system
-    config['raps_deps'] = RapsDependencyFile.from_file(dependency_file)
+    if raps_dependencies:
+        # Load RAPS dependency file for injection into the build system
+        config['raps_deps'] = RapsDependencyFile.from_file(raps_dependencies)
 
-    # Create new deps file with lib dependencies and a build rule
-    objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
-    objs_ifsloki.target = 'OBJS_ifsloki'
-    rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
-                        cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
-    config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
+        # Create new deps file with lib dependencies and a build rule
+        objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
+        objs_ifsloki.target = 'OBJS_ifsloki'
+        rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
+                            cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
+        config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
     processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
@@ -613,9 +614,10 @@ def physics(config, source, typedef, interface, dependency_file, callgraph):
     if callgraph:
         processor.graph.render('callgraph', view=False)
 
-    # Write new mode-specific dependency rules file
-    loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
-    config['loki_deps'].write(path=loki_config_path)
+    if raps_dependencies:
+        # Write new mode-specific dependency rules file
+        loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
+        config['loki_deps'].write(path=loki_config_path)
 
 
 @cli.command('noop')
