@@ -446,6 +446,44 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     f_driver.write(source=fgen(driver), filename=driver_out)
 
 
+def adjust_calls_and_imports(routine, mode, processor):
+    """
+    Utility routine to rename all calls to relevant subroutines and
+    adjust the relevant imports.
+
+    Note: This will always assume that any non-blacklisted routines
+    will be re-generated wrapped in a module with the naming
+    convention ``<KERNEL>_<MODE>_MOD``.
+    """
+    replacements = {}
+
+    # Replace the non-reference call in the driver for evaluation
+    for call in FindNodes(Call).visit(routine.ir):
+        if call.name.lower() in (r.lower() for r in processor.routines):
+            # Skip calls marked for reference data collection
+            if call.pragma is not None and call.pragma.keyword == 'reference':
+                continue
+
+            # Re-generate the call IR node with a new name
+            replacements[call] = call.clone(name='%s_%s' % (call.name, mode.upper()))
+
+    # Update all relevant interface imports
+    new_imports = []
+    for im in FindNodes(Import).visit(routine.ir):
+        for r in processor.routines:
+            if im.c_import and r == im.module.split('.')[0]:
+                replacements[im] = None  # Drop old C-style import
+                new_imports += [Import(module='%s_%s_MOD' % (r.upper(), mode.upper()),
+                                       symbols=['%s_%s' % (r.upper(), mode.upper())])]
+
+    # A hacky way to insert new imports at the end of module imports
+    last_module = [im for im in FindNodes(Import).visit(routine.ir)
+                   if not im.c_import][-1]
+    replacements[last_module] = [deepcopy(last_module)] + new_imports
+
+    routine._ir = Transformer(replacements).visit(routine.ir)
+
+
 def adjust_dependencies(original, config, processor, interface=False):
     """
     Utility routine to generate Loki-specific build dependencies from
@@ -469,7 +507,7 @@ def adjust_dependencies(original, config, processor, interface=False):
     for r in processor.routines:
         routine = r.lower()
         r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
-                       'flexbuild/raps17/intfb/ifs/%s.%s.intfb.ok' % (routine, mode))
+                       'ifs/phys_ec/%s.%s.o' % (routine, mode))
     config['loki_deps'].content += [r_deps]
 
     # Add build rule for interface block
@@ -506,56 +544,40 @@ def physics_idem_kernel(source_file, config=None, processor=None):
     original = routine.name
     routine.name = '%s_%s' % (routine.name, mode.upper())
 
-    # Modify calls to other subroutines in our list
-    for call in FindNodes(Call).visit(routine.ir):
-        if call.name.lower() in (r.lower() for r in processor.routines):
-            call.name = '%s_%s' % (call.name, mode.upper())
+    # Housekeeping for injecting re-generated routines into the build
+    adjust_calls_and_imports(routine, mode, processor)
 
-    # Update all relevant interface imports
-    for im in FindNodes(Import).visit(routine.ir):
-        for r in processor.routines:
-            if im.c_import and r == im.module.split('.')[0]:
-                im.module = im.module.replace('.intfb', '.idem.intfb')
-
-    # Generate mode-specific kernel subroutine
-    source_file.write(source=fgen(routine), filename=source_file.path.with_suffix('.idem.F90'))
-
-    # Generate updated interface block
-    intfb_path = (Path(config['interface']) / source_file.path.stem).with_suffix('.idem.intfb.h')
-    source_file.write(source=fgen(routine.interface), filename=intfb_path)
+    # Generate mode-specific kernel subroutine with module wrappers
+    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
+    source_file.write(source=fgen(module),
+                      filename=source_file.path.with_suffix('.idem.F90'))
 
     # Add dependencies for newly created source files into RAPS build
     adjust_dependencies(original=original, config=config,
-                        processor=processor, interface=True)
+                        processor=processor, interface=False)
 
 
 def physics_driver(source, config, processor):
     """
-    Processing method for driver (root) routines that recreates the
-    driver and swaps out all subroutine calls.
+    Processing method for driver (root) routines that creates a clone
+    of the driver routine in the usual style and swaps out all
+    relevant subroutine calls.
+
+    Note: We do not change the driver routine's name and we do not
+    module-wrap it either. This way it can be slotted into a build
+    as a straight replacement via object dependencies.
     """
     mode = config['default']['mode']
     driver = source.subroutines[0]
 
     info('Processing driver: %s, mode=%s' % (driver.name, mode))
 
-    # Replace the non-reference call in the driver for evaluation
-    for call in FindNodes(Call).visit(driver.ir):
-        if call.name.lower() in (r.lower() for r in processor.routines):
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
+    # Housekeeping for injecting re-generated routines into the build
+    adjust_calls_and_imports(driver, mode, processor)
 
-            call.name = '%s_%s' % (call.name, mode.upper())
-
-    # Update all relevant interface imports
-    for im in FindNodes(Import).visit(driver.ir):
-        for r in processor.routines:
-            if im.c_import and r == im.module.split('.')[0]:
-                im.module = im.module.replace('.intfb', '.idem.intfb')
-
-    # Re-generate updated driver subroutine
-    source.write(source=fgen(driver), filename=source.path.with_suffix('.idem.F90'))
+    # Re-generate updated driver subroutine (do not module-wrap!)
+    source.write(source=fgen(driver),
+                 filename=source.path.with_suffix('.%s.F90' % mode))
 
     # Add dependencies for newly created source files into RAPS build
     adjust_dependencies(original=driver.name, config=config,
@@ -577,9 +599,9 @@ def physics_driver(source, config, processor):
               help='Generate and display the subroutine callgraph.')
 def physics(config, source, typedef, interface, raps_dependencies, callgraph):
 
-    kernel_map = {'idem': {'driver': physics_driver,
-                           'kernel': physics_idem_kernel},
-                  'noop': {'driver': None, 'kernel': None}}
+    kernel_map = {'noop': {'driver': None, 'kernel': None},
+                  'idem': {'driver': physics_driver,
+                           'kernel': physics_idem_kernel}}
 
     # Load configuration file and process options
     with Path(config).open('r') as f:

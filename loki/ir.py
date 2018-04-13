@@ -37,6 +37,8 @@ class Node(object):
         handle.update(kwargs)
         return type(self)(**handle)
 
+    clone = _rebuild
+
     @property
     def args(self):
         """Arguments used to construct the Node."""
