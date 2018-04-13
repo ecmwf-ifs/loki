@@ -484,7 +484,7 @@ def adjust_calls_and_imports(routine, mode, processor):
     routine._ir = Transformer(replacements).visit(routine.ir)
 
 
-def adjust_dependencies(original, config, processor, interface=False):
+def adjust_dependencies(original, config, processor):
     """
     Utility routine to generate Loki-specific build dependencies from
     RAPS-generated dependency files.
@@ -509,14 +509,6 @@ def adjust_dependencies(original, config, processor, interface=False):
         r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
                        'ifs/phys_ec/%s.%s.o' % (routine, mode))
     config['loki_deps'].content += [r_deps]
-
-    # Add build rule for interface block
-    if interface:
-        intfb_path = 'flexbuild/raps17/intfb/ifs/%s.intfb.ok' % original
-        intfb_deps = deepcopy(config['raps_deps'].content_map[intfb_path])
-        intfb_deps.replace('ifs/phys_ec/%s.F90' % original,
-                           'ifs/phys_ec/%s.%s.F90' % (original, mode))
-        config['loki_deps'].content += [intfb_deps]
 
     # Inject new object into the final binary libs
     objs_ifsloki = config['loki_deps'].content_map['OBJS_ifsloki']
@@ -553,8 +545,7 @@ def physics_idem_kernel(source_file, config=None, processor=None):
                       filename=source_file.path.with_suffix('.idem.F90'))
 
     # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=original, config=config,
-                        processor=processor, interface=False)
+    adjust_dependencies(original=original, config=config, processor=processor)
 
 
 def physics_driver(source, config, processor):
@@ -580,8 +571,7 @@ def physics_driver(source, config, processor):
                  filename=source.path.with_suffix('.%s.F90' % mode))
 
     # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=driver.name, config=config,
-                        processor=processor, interface=False)
+    adjust_dependencies(original=driver.name, config=config, processor=processor)
 
 
 @cli.command('physics')
@@ -591,13 +581,11 @@ def physics_driver(source, config, processor):
               help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
-@click.option('--interface', '-intfb', type=click.Path(), default=None,
-              help='Path to auto-generate interface file(s)')
 @click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
-def physics(config, source, typedef, interface, raps_dependencies, callgraph):
+def physics(config, source, typedef, raps_dependencies, callgraph):
 
     kernel_map = {'noop': {'driver': None, 'kernel': None},
                   'idem': {'driver': physics_driver,
@@ -607,7 +595,6 @@ def physics(config, source, typedef, interface, raps_dependencies, callgraph):
     with Path(config).open('r') as f:
         config = toml.load(f)
 
-    config['interface'] = interface
     # Convert 'routines' to an ordered dictionary
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
@@ -642,26 +629,6 @@ def physics(config, source, typedef, interface, raps_dependencies, callgraph):
         # Write new mode-specific dependency rules file
         loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
         config['loki_deps'].write(path=loki_config_path)
-
-
-@cli.command('noop')
-@click.argument('routines', nargs=-1)
-@click.option('--source', '-s', type=click.Path(),
-              help='Path to source files to transform.')
-@click.option('--discovery', '-d', is_flag=True, default=False,
-              help='Automatically attempt to discover new subroutines.')
-@click.option('--callgraph', '-cg', is_flag=True, default=False,
-              help='Generate and display the subroutine callgraph.')
-def noop(routines, source, discovery, callgraph):
-    """
-    Do-nothing mode to test the parsing and bulk-traversal capabilities.
-    """
-    processor = SourceProcessor(kernel=None, path=source)
-    processor.append(routines)
-    processor.process(discovery=discovery)
-
-    if callgraph:
-        processor.graph.render('callgraph', view=True)
 
 
 if __name__ == "__main__":
