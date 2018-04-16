@@ -20,7 +20,7 @@ class WorkItem(object):
     specialised explicitly in the config file.
     """
 
-    def __init__(self, name, config, source_path, graph=None):
+    def __init__(self, name, config, source_path, graph=None, typedefs=None):
         self.name = name
         self.routine = None
         self.source_file = None
@@ -34,7 +34,8 @@ class WorkItem(object):
         if source_path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.source_file = FortranSourceFile(source_path, preprocess=True)
+                self.source_file = FortranSourceFile(source_path, preprocess=True,
+                                                     typedefs=typedefs)
                 self.routine = self.source_file.subroutines[0]
 
             except Exception as e:
@@ -73,10 +74,11 @@ class Scheduler(object):
 
     _deadlist = ['dr_hook', 'abor1']
 
-    def __init__(self, path, config=None, kernel_map=None):
+    def __init__(self, path, config=None, kernel_map=None, typedefs=None):
         self.path = Path(path)
         self.config = config
         self.kernel_map = kernel_map
+        self.typedefs = typedefs
         # TODO: Remove; should be done per item
         self.blacklist = []
 
@@ -102,7 +104,8 @@ class Scheduler(object):
                 continue
             source_path = (self.path / source).with_suffix('.F90')
             item = WorkItem(name=source, config=self.config,
-                            source_path=source_path, graph=self.graph)
+                            source_path=source_path, graph=self.graph,
+                            typedefs=self.typedefs)
             self.queue.append(item)
             self.item_map[source] = item
 

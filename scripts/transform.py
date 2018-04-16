@@ -593,6 +593,8 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
     kernel_map = {'noop': {'driver': None, 'kernel': None},
                   'idem': {'driver': physics_driver,
                            'kernel': physics_idem_kernel}}
+    # Get external derived-type definitions
+    typedefs = get_typedefs(typedef)
 
     # Load configuration file and process options
     with Path(config).open('r') as f:
@@ -613,7 +615,7 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
-    processor = Scheduler(path=source, config=config, kernel_map=kernel_map)
+    processor = Scheduler(path=source, config=config, kernel_map=kernel_map, typedefs=typedefs)
     processor.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes
