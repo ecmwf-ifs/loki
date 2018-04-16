@@ -11,7 +11,7 @@ from loki import (FortranSourceFile, Visitor, Loop, Variable,
                   FindVariables, Index, Allocation)
 
 from raps_deps import RapsDependencyFile, Rule
-from sourceprocessor import SourceProcessor
+from scheduler import Scheduler
 
 
 class VariableTransformer(ExpressionVisitor, Visitor):
@@ -462,7 +462,7 @@ def adjust_calls_and_imports(routine, mode, processor):
 
     # Replace the non-reference call in the driver for evaluation
     for call in FindNodes(Call).visit(routine.ir):
-        if call.name.lower() in (r.lower() for r in processor.routines):
+        if call.name.lower() in (r.name for r in processor.routines):
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
@@ -474,10 +474,10 @@ def adjust_calls_and_imports(routine, mode, processor):
     new_imports = []
     for im in FindNodes(Import).visit(routine.ir):
         for r in processor.routines:
-            if im.c_import and r == im.module.split('.')[0]:
+            if im.c_import and r.name.lower() == im.module.split('.')[0]:
                 replacements[im] = None  # Drop old C-style import
-                new_imports += [Import(module='%s_%s_MOD' % (r.upper(), mode.upper()),
-                                       symbols=['%s_%s' % (r.upper(), mode.upper())])]
+                new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
+                                       symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
 
     # A hacky way to insert new imports at the end of module imports
     last_module = [im for im in FindNodes(Import).visit(routine.ir)
@@ -508,7 +508,7 @@ def adjust_dependencies(original, config, processor):
     r_deps.replace('ifs/phys_ec/%s.F90' % original,
                    'ifs/phys_ec/%s.%s.F90' % (original, mode))
     for r in processor.routines:
-        routine = r.lower()
+        routine = r.name.lower()
         r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
                        'ifs/phys_ec/%s.%s.o' % (routine, mode))
     config['loki_deps'].content += [r_deps]
@@ -613,7 +613,7 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
-    processor = SourceProcessor(path=source, config=config, kernel_map=kernel_map)
+    processor = Scheduler(path=source, config=config, kernel_map=kernel_map)
     processor.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes
