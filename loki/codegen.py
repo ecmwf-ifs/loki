@@ -1,7 +1,7 @@
 from collections import Iterable
 
 from loki.visitors import Visitor
-from loki.tools import chunks, flatten
+from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType, DataType
 from loki.expression import Literal
 
@@ -191,7 +191,7 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if o.kwarguments is not None:
             kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
-            args = o.arguments + kwargs
+            args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments
         if len(args) > self.chunking:

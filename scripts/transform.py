@@ -43,7 +43,7 @@ def get_typedefs(typedef):
     return definitions
 
 
-def flatten_derived_arguments(routine, driver):
+def flatten_derived_arguments(routine, driver, candidate_routines):
     """
     Unroll all derived-type arguments used in the subroutine signature,
     declarations and body, as well as all call arguments for a
@@ -66,8 +66,10 @@ def flatten_derived_arguments(routine, driver):
                     candidates[arg] += [type_var]
 
     # Caller: Tandem-walk the argument lists of the kernel for each call
+    call_mapper = {}
     for call in FindNodes(Call).visit(driver._ir):
-        if call.name == target_routine:
+        if call.name.lower() in (r.lower() for r in candidate_routines):
+
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
@@ -90,7 +92,9 @@ def flatten_derived_arguments(routine, driver):
                     new_arguments[i:i+1] = new_args
 
             # Set the new call signature on the IR ndoe
-            call.arguments = tuple(new_arguments)
+            call_mapper[call] = call.clone(arguments=new_arguments)
+
+    driver._ir = Transformer(call_mapper).visit(driver.ir)
 
     # Callee: Establish replacements for declarations and dummy arguments
     declarations = FindNodes(Declaration).visit(routine.ir)
@@ -219,7 +223,7 @@ def remove_dimension(routine, target):
             routine._ir = Transformer({decl: None}).visit(routine.ir)
 
 
-def hoist_dimension_from_call(routine, driver):
+def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
     """
     Remove all indices and variables of a target dimension from
     caller (driver) and callee (kernel) routines, and insert the
@@ -239,18 +243,26 @@ def hoist_dimension_from_call(routine, driver):
     for v in driver.variables:
         if v.dimensions is not None and len(v.dimensions) > 0:
             vdims[v.name] = v.dimensions
+        # Quick and dirty hack...
+        if isinstance(v.type, DerivedType):
+            for tv in v.type.variables.values():
+                vdims[tv.name] = tv.dimensions
     for alloc in FindNodes(Allocation).visit(driver.ir):
         vdims[alloc.variable.name] = alloc.variable.dimensions
 
     for call in FindNodes(Call).visit(driver.ir):
-        if call.name == target_routine:
+        if call.name.lower() in (r.lower() for r in candidate_routines):
+
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
                 continue
 
             # Replace target dimension with a loop index in arguments
             for darg, karg in zip(call.arguments, routine.arguments):
-                if isinstance(darg, Variable) and darg.name in vdims:
+                if not isinstance(darg, Variable):
+                    continue
+
+                if darg.name in vdims:
                     # The "template" is the list of dimensions originally
                     # declared or allocated for this (sub-)variable.
                     template = vdims[darg.name]
@@ -267,6 +279,18 @@ def hoist_dimension_from_call(routine, driver):
                                      for ddim, tdim in zip(darg.dimensions, template))
                     darg.dimensions = new_dims
 
+                # Super-hacky: infer dimensions for compound variables
+                if darg.subvar is not None and darg.subvar.name in vdims:
+                    darg = darg.subvar
+                    template = vdims[darg.name]
+
+                    # Remove dimension from caller-side argument indices
+                    new_dims = tuple(Index(name=target.variable)
+                                     if str(tdim) in size_expressions else ddim
+                                     for ddim, tdim in zip(darg.dimensions, template))
+                    darg.dimensions = new_dims
+
+
             # Collect caller-side expressions for dimension sizes and bounds
             dim_lower = None
             dim_upper = None
@@ -276,14 +300,18 @@ def hoist_dimension_from_call(routine, driver):
                 if karg == target.iteration[1]:
                     dim_upper = darg
 
-            # Create and insert new loop over target dimension
-            loop = Loop(variable=Variable(name=target.variable),
-                        bounds=(dim_lower, dim_upper), body=call)
-            replacements[call] = loop
-
             # Remove call-side arguments (in-place)
-            call.arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
-                                   if karg not in target.variables)
+            arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
+                              if karg not in target.variables)
+            new_call = call.clone(arguments=arguments)
+
+            # Create and insert new loop over target dimension
+            if wrap:
+                loop = Loop(variable=Variable(name=target.variable),
+                        bounds=(dim_lower, dim_upper), body=new_call)
+                replacements[call] = loop
+            else:
+                replacements[call] = new_call
 
             # Remove kernel-side arguments from signature and declarations
             routine._argnames = tuple(arg for arg in routine.argnames
@@ -297,10 +325,11 @@ def hoist_dimension_from_call(routine, driver):
             routine._ir = Transformer(routine_replacements).visit(routine.ir)
 
     # Finally, add declaration of loop variable (a little hacky!)
-    decls = FindNodes(Declaration).visit(driver.ir)
-    new_decl = Declaration(variables=[Variable(name=target.variable)],
-                           type=BaseType(name='INTEGER', kind='JPIM'))
-    replacements[decls[-1]] = [deepcopy(decls[-1]), new_decl]
+    if wrap and target.variable not in driver.variables:
+        decls = FindNodes(Declaration).visit(driver.ir)
+        new_decl = Declaration(variables=[Variable(name=target.variable)],
+                               type=BaseType(name='INTEGER', kind='JPIM'))
+        replacements[decls[-1]] = [deepcopy(decls[-1]), new_decl]
     driver._ir = Transformer(replacements).visit(driver.ir)
 
 
@@ -362,7 +391,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
 
     # Unroll derived-type arguments into multiple arguments
     if flatten_args:
-        flatten_derived_arguments(routine, driver)
+        flatten_derived_arguments(routine, driver, candidate_routines=[target_routine])
 
     # Replace the non-reference call in the driver for evaluation
     for call in FindNodes(Call).visit(driver._ir):
@@ -419,8 +448,8 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Remove horizontal dimension from kernels and hoist loop to
     # driver to transform a subroutine invocation to SCA format.
-    flatten_derived_arguments(routine, driver)
-    hoist_dimension_from_call(routine, driver)
+    flatten_derived_arguments(routine, driver, candidate_routines=[target_routine])
+    hoist_dimension_from_call(routine, driver, candidate_routines=[target_routine])
     remove_dimension(routine=routine, target=target)
 
     if mode == 'claw':
@@ -551,7 +580,7 @@ def physics_idem_kernel(source_file, config=None, processor=None):
     adjust_dependencies(original=original, config=config, processor=processor)
 
 
-def physics_driver(source, config, processor):
+def physics_idem_driver(source, config, processor):
     """
     Processing method for driver (root) routines that creates a clone
     of the driver routine in the usual style and swaps out all
@@ -565,6 +594,78 @@ def physics_driver(source, config, processor):
     driver = source.subroutines[0]
 
     info('Processing driver: %s, mode=%s' % (driver.name, mode))
+
+    # Housekeeping for injecting re-generated routines into the build
+    adjust_calls_and_imports(driver, mode, processor)
+
+    # Re-generate updated driver subroutine (do not module-wrap!)
+    source.write(source=fgen(driver),
+                 filename=source.path.with_suffix('.%s.F90' % mode))
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=driver.name, config=config, processor=processor)
+
+
+def physics_sca_kernel(source_file, config=None, processor=None):
+    """
+    Processing method to convert kernel routines into Single Column Abstract (SCA)
+    format by removing the horizontal dimension (KLON/NPROMA) from the subroutine.
+    """
+    mode = config['default']['mode']
+    routine = source_file.subroutines[0]
+
+    info('Processing kernel: %s, mode=%s' % (routine.name, mode))
+
+    # Rename kernel routine to mode-specific variant
+    original = routine.name
+    routine.name = '%s_%s' % (routine.name, mode.upper())
+
+    # Perform caller-side transformations for all children in the callgraph
+    for call in FindNodes(Call).visit(routine.ir):
+        if call.name.lower() in (r.name for r in processor.routines):
+            child = processor.item_map[call.name.lower()].routine
+
+            # Apply inter-procedural part of the conversion
+            flatten_derived_arguments(routine=child, driver=routine,
+                                      candidate_routines=[r.name for r in processor.routines])
+
+            # Hoist dimension, but do not wrap in new loop
+            hoist_dimension_from_call(routine=child, driver=routine, wrap=False,
+                                      candidate_routines=[r.name for r in processor.routines])
+
+    # Remove the target dimension from all loops and variables
+    remove_dimension(routine=routine, target=target)
+
+    # Housekeeping for injecting re-generated routines into the build
+    adjust_calls_and_imports(routine, mode, processor)
+
+    # Generate mode-specific kernel subroutine with module wrappers
+    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
+    source_file.write(source=fgen(module),
+                      filename=source_file.path.with_suffix('.sca.F90'))
+
+    # Add dependencies for newly created source files into RAPS build
+    adjust_dependencies(original=original, config=config, processor=processor)
+
+
+def physics_sca_driver(source, config, processor):
+    """
+    Processing method for driver (root) routines for SCA
+    """
+    mode = config['default']['mode']
+    driver = source.subroutines[0]
+
+    info('Processing driver: %s, mode=%s' % (driver.name, mode))
+
+    for call in FindNodes(Call).visit(driver.ir):
+        if call.name.lower() in (r.name for r in processor.routines):
+            routine = processor.item_map[call.name.lower()].routine
+
+            # Apply inter-procedural part of the conversion
+            flatten_derived_arguments(routine, driver,
+                                      candidate_routines=[r.name for r in processor.routines])
+            hoist_dimension_from_call(routine, driver, wrap=True,
+                                      candidate_routines=[r.name for r in processor.routines])
 
     # Housekeeping for injecting re-generated routines into the build
     adjust_calls_and_imports(driver, mode, processor)
@@ -591,8 +692,11 @@ def physics_driver(source, config, processor):
 def physics(config, source, typedef, raps_dependencies, callgraph):
 
     kernel_map = {'noop': {'driver': None, 'kernel': None},
-                  'idem': {'driver': physics_driver,
-                           'kernel': physics_idem_kernel}}
+                  'idem': {'driver': physics_idem_driver,
+                           'kernel': physics_idem_kernel},
+                  'sca': {'driver': physics_sca_driver,
+                          'kernel': physics_sca_kernel}}
+
     # Get external derived-type definitions
     typedefs = get_typedefs(typedef)
 
