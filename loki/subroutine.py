@@ -103,7 +103,7 @@ class Module(Section):
     @classmethod
     def _process_pragmas(self, spec):
         """
-        Process any '!$ecir dimension' pragmas to override deferred dimensions
+        Process any '!$loki dimension' pragmas to override deferred dimensions
         """
         for typedef in FindNodes(TypeDef).visit(spec):
             pragmas = {p._source.lines[0]: p for p in typedef.pragmas}

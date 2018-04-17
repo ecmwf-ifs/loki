@@ -158,7 +158,7 @@ class IRGenerator(GenericVisitor):
         bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
         return MultiConditional(expr=expr, values=values, bodies=bodies)
 
-    _re_pragma = re.compile('\!\$ecir\s+(?P<keyword>\w+)', re.IGNORECASE)
+    _re_pragma = re.compile('\!\$loki\s+(?P<keyword>\w+)', re.IGNORECASE)
 
     def visit_comment(self, o, source=None):
         match_pragma = self._re_pragma.search(source.string)
