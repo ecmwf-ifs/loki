@@ -85,7 +85,8 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
                         # Insert `:` range dimensions into newly generated args
                         new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
                         new_arg = deepcopy(d_arg)
-                        new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims)
+                        new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims,
+                                                  shape=type_var.dimensions)
                         new_args += [new_arg]
 
                     # Replace variable in dummy signature
@@ -114,7 +115,8 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
                                 kind=type_var.type.kind,
                                 intent=arg.type.intent)
             new_var = Variable(name=new_name, type=new_type,
-                               dimensions=type_var.dimensions)
+                               dimensions=type_var.dimensions,
+                               shape=type_var.dimensions)
             decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
 
         # Replace variable in dummy signature
@@ -238,19 +240,6 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
     vmap = driver.variable_map
     replacements = {}
 
-    # Create map of variable names to their "true dimensions",
-    # that is either their declared or the allocated dimensions.
-    vdims = {}
-    for v in driver.variables:
-        if v.dimensions is not None and len(v.dimensions) > 0:
-            vdims[v.name] = v.dimensions
-        # Quick and dirty hack...
-        if isinstance(v.type, DerivedType):
-            for tv in v.type.variables.values():
-                vdims[tv.name] = tv.dimensions
-    for alloc in FindNodes(Allocation).visit(driver.ir):
-        vdims[alloc.variable.name] = alloc.variable.dimensions
-
     for call in FindNodes(Call).visit(driver.ir):
         if call.name.lower() in (r.lower() for r in candidate_routines):
 
@@ -263,34 +252,19 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
                 if not isinstance(darg, Variable):
                     continue
 
-                if darg.name in vdims:
-                    # The "template" is the list of dimensions originally
-                    # declared or allocated for this (sub-)variable.
-                    template = vdims[darg.name]
-
-                    # Skip to the innermost compound variable
-                    while darg.subvar is not None:
-                        type_vars = vmap[darg.name.upper()].type.variables
-                        template = type_vars[darg.subvar.name].dimensions
-                        darg = darg.subvar
-
-                    # Remove dimension from caller-side argument indices
-                    new_dims = tuple(Index(name=target.variable)
-                                     if str(tdim) in size_expressions else ddim
-                                     for ddim, tdim in zip(darg.dimensions, template))
-                    darg.dimensions = new_dims
-
-                # Super-hacky: infer dimensions for compound variables
-                if darg.subvar is not None and darg.subvar.name in vdims:
+                # Skip to the innermost variable of derived types
+                while darg.subvar is not None:
                     darg = darg.subvar
-                    template = vdims[darg.name]
 
-                    # Remove dimension from caller-side argument indices
-                    new_dims = tuple(Index(name=target.variable)
-                                     if str(tdim) in size_expressions else ddim
-                                     for ddim, tdim in zip(darg.dimensions, template))
-                    darg.dimensions = new_dims
+                # Insert ':' for all missing dimensions in argument
+                if karg.shape is not None and len(darg.dimensions) == 0:
+                    darg.dimensions = tuple(Index(name=':') for _ in karg.shape)
 
+                # Remove target dimension sizes from caller-side argument indices
+                if darg.shape is not None:
+                    darg.dimensions = tuple(Index(name=target.variable)
+                                            if str(tdim) in size_expressions else ddim
+                                            for ddim, tdim in zip(darg.dimensions, darg.shape))
 
             # Collect caller-side expressions for dimension sizes and bounds
             dim_lower = None
@@ -323,6 +297,7 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
                                        if v not in target.variables)
                 if len(decl.variables) == 0:
                     routine_replacements[decl] = None
+
             routine._ir = Transformer(routine_replacements).visit(routine.ir)
 
     # Finally, add declaration of loop variable (a little hacky!)
