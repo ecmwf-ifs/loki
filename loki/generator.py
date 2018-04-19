@@ -330,7 +330,7 @@ class IRGenerator(GenericVisitor):
             assoc_name = a.find('association').attrib['associate-name']
             associations[var] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
-        return Scope(body=body, associations=associations)
+        return Scope(body=as_tuple(body), associations=associations)
 
     def visit_allocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))
