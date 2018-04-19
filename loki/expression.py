@@ -159,13 +159,14 @@ class LiteralList(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, dimensions=None, subvar=None,
+    def __init__(self, name, type=None, shape=None, dimensions=None, subvar=None,
                  initial=None, source=None):
         super(Variable, self).__init__(source=source)
         self._source = source
 
         self.name = name
         self._type = type
+        self._shape = shape
         self.subvar = subvar
         self.dimensions = dimensions or ()
         self.initial = initial
@@ -179,6 +180,13 @@ class Variable(Expression):
     @property
     def type(self):
         return self._type
+
+    @property
+    def shape(self):
+        """
+        Original allocated shape of the variable as a tuple of dimensions.
+        """
+        return self._shape
 
     def __key(self):
         return (self.name, self.type, self.dimensions, self.subvar)
