@@ -60,10 +60,11 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
     candidates = defaultdict(list)
     for arg in routine.arguments:
         if isinstance(arg.type, DerivedType):
-            for type_var in arg.type.variables.values():
-                combined = '%s%%%s' % (arg.name, type_var.name)
-                if any(combined in str(v) for v in variables):
-                    candidates[arg] += [type_var]
+            # Add candidate type variables, preserving order from the typedef
+            argvars = [v for v in variables if v.name == arg.name]
+            argsubvars = set(v.subvar.name for v in argvars if v.subvar is not None)
+            candidates[arg] += [v for v in arg.type.variables.values()
+                                if v.name in argsubvars]
 
     # Caller: Tandem-walk the argument lists of the kernel for each call
     call_mapper = {}
