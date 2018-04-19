@@ -237,6 +237,9 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
+
+    _traversable = ['variables']
+
     def __init__(self, variables, dimensions=None, type=None,
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
@@ -247,6 +250,10 @@ class Declaration(Node):
 
         self.comment = comment
         self.pragma = pragma
+
+    @property
+    def children(self):
+        return tuple([self.variables])
 
 
 class DataDeclaration(Node):
