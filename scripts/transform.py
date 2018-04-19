@@ -93,7 +93,7 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
                     new_arguments[i:i+1] = new_args
 
             # Set the new call signature on the IR ndoe
-            call_mapper[call] = call.clone(arguments=new_arguments)
+            call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
 
     driver._ir = Transformer(call_mapper).visit(driver.ir)
 
@@ -309,7 +309,7 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
             # Create and insert new loop over target dimension
             if wrap:
                 loop = Loop(variable=Variable(name=target.variable),
-                        bounds=(dim_lower, dim_upper), body=new_call)
+                            bounds=(dim_lower, dim_upper), body=as_tuple([new_call]))
                 replacements[call] = loop
             else:
                 replacements[call] = new_call
@@ -328,9 +328,9 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
     # Finally, add declaration of loop variable (a little hacky!)
     if wrap and target.variable not in driver.variables:
         decls = FindNodes(Declaration).visit(driver.ir)
-        new_decl = Declaration(variables=[Variable(name=target.variable)],
+        new_decl = Declaration(variables=as_tuple(Variable(name=target.variable)),
                                type=BaseType(name='INTEGER', kind='JPIM'))
-        replacements[decls[-1]] = [deepcopy(decls[-1]), new_decl]
+        replacements[decls[-1]] = as_tuple([deepcopy(decls[-1]), new_decl])
     driver._ir = Transformer(replacements).visit(driver.ir)
 
 

@@ -313,6 +313,9 @@ class Call(Node):
     """
     Internal representation of a function call
     """
+
+    _traversable = ['arguments']
+
     def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
@@ -320,6 +323,10 @@ class Call(Node):
         self.arguments = arguments
         self.kwarguments = kwarguments
         self.pragma = pragma
+
+    @property
+    def children(self):
+        return tuple([self.arguments])
 
 
 class TypeDef(Node):
