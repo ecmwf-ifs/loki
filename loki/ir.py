@@ -283,10 +283,15 @@ class Allocation(Node):
     """
     Internal representation of a variable allocation
     """
+
     def __init__(self, variable, source=None):
         super(Allocation, self).__init__(source=source)
 
         self.variable = variable
+
+    @property
+    def children(self):
+        return tuple([self.variable])
 
 
 class Deallocation(Node):
