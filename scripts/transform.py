@@ -183,6 +183,7 @@ def remove_dimension(routine, target):
     Remove all loops and variable indices of a given target dimension
     from the given routine.
     """
+    replacements = {}
     size_expressions = target.size_expressions
     index_expressions = target.index_expressions
 
@@ -217,13 +218,21 @@ def remove_dimension(routine, target):
                 v.dimensions = as_tuple(d for d in v.dimensions
                                         if str(d) not in size_expressions)
 
-    # Drop the declaration for the loop counter variable
+    # Drop declarations for dimension variables (eg. loop counter or sizes)
     for decl in FindNodes(Declaration).visit(routine.ir):
-        if target.variable in decl.variables:
-            decl.variables.remove(target.variable)
-        if len(decl.variables) == 0:
-            # Drop the loop counter declaration
-            routine._ir = Transformer({decl: None}).visit(routine.ir)
+        new_vars = tuple(v for v in decl.variables
+                         if v.name not in target.variables)
+        if len(new_vars) == 0:
+            # Drop the declaration if it becomes empty
+            replacements[decl] = None
+        else:
+            replacements[decl] = decl.clone(variables=new_vars)
+
+    # Remove dummy variables from subroutine signature (in-place)
+    routine._argnames = tuple(arg for arg in routine.argnames
+                              if arg not in target.variables)
+
+    routine._ir = Transformer(replacements).visit(routine.ir)
 
 
 def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
@@ -287,18 +296,6 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
                 replacements[call] = loop
             else:
                 replacements[call] = new_call
-
-            # Remove kernel-side arguments from signature and declarations
-            routine._argnames = tuple(arg for arg in routine.argnames
-                                      if arg not in target.variables)
-            routine_replacements = {}
-            for decl in FindNodes(Declaration).visit(routine.ir):
-                decl.variables = tuple(v for v in decl.variables
-                                       if v not in target.variables)
-                if len(decl.variables) == 0:
-                    routine_replacements[decl] = None
-
-            routine._ir = Transformer(routine_replacements).visit(routine.ir)
 
     # Finally, add declaration of loop variable (a little hacky!)
     if wrap and target.variable not in driver.variables:
