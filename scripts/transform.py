@@ -29,6 +29,7 @@ class VariableTransformer(ExpressionVisitor, Visitor):
             # HACK: In-place merging of var with subvar
             o.name = '%s_%s' % (o.name, o.subvar.name)
             o._type = o.subvar._type
+            o._shape = o.subvar._shape
             o.dimensions = o.subvar.dimensions
             o.initial = o.subvar.initial
             o.subvar = o.subvar.subvar
@@ -116,7 +117,7 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
                                 intent=arg.type.intent)
             new_var = Variable(name=new_name, type=new_type,
                                dimensions=as_tuple(type_var.dimensions),
-                               shape=type_var.dimensions)
+                               shape=as_tuple(type_var.dimensions))
             decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
 
         # Replace variable in dummy signature
@@ -194,20 +195,42 @@ def remove_dimension(routine, target):
             loop_map[loop] = loop.body
     routine._ir = Transformer(loop_map).visit(routine.ir)
 
-    # Remove all variable indices representing the target dimension (in-place)
-    variable_map = routine.variable_map
-    for v in FindVariables(unique=False).visit(routine.ir):
-        if v.dimensions is not None:
-            v.dimensions = as_tuple(d for d in v.dimensions
-                                    if str(d) not in index_expressions)
+    # Drop declarations for dimension variables (eg. loop counter or sizes)
+    for decl in FindNodes(Declaration).visit(routine.ir):
+        new_vars = tuple(v for v in decl.variables
+                         if str(v) not in target.variables)
 
-        # Remove implicit ranges (`:`) by checking against the allocated dimensions
-        if v.name not in variable_map:
-            continue
-        declared_dims = variable_map[v.name].dimensions
-        if declared_dims is not None:
-            v.dimensions = as_tuple(dim for dd, dim in zip(declared_dims, v.dimensions)
-                                    if not (dim == ':' and str(dd) in size_expressions))
+        # Strip target dimension from declaration-level dimensions
+        if decl.dimensions is not None and len(decl.dimensions) > 0:
+            # TODO: This is quite hacky, as we rely on the first
+            # variable in the declaration to provide the correct shape.
+            assert len(decl.dimensions) == len(decl.variables[0].shape)
+            new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
+                             if str(s) not in size_expressions)
+            if len(new_dims) == 0:
+                new_dims = None
+        else:
+            new_dims = decl.dimensions
+
+        if len(new_vars) == 0:
+            # Drop the declaration if it becomes empty
+            replacements[decl] = None
+        else:
+            replacements[decl] = decl.clone(variables=new_vars, dimensions=new_dims)
+
+    # Remove all variable indices representing the target dimension (in-place)
+    for v in FindVariables(unique=False).visit(routine.ir):
+        if v.dimensions is not None and v.shape is not None:
+            # Filter index variables against index expressions
+            # and shape dimensions against size expressions.
+            filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
+                        if str(s) not in size_expressions and d not in index_expressions]
+
+            # Reconstruct variable dimensions and shape from filtered
+            if len(filtered) > 0:
+                v.dimensions, v._shape = zip(*(filtered))
+            else:
+                v.dimensions, v._shape = (), None
 
     # Remove dimension size expressions from variable declarations (in-place)
     # Note: We do this last, because changing the declaration affects
@@ -217,16 +240,6 @@ def remove_dimension(routine, target):
             if v.dimensions is not None:
                 v.dimensions = as_tuple(d for d in v.dimensions
                                         if str(d) not in size_expressions)
-
-    # Drop declarations for dimension variables (eg. loop counter or sizes)
-    for decl in FindNodes(Declaration).visit(routine.ir):
-        new_vars = tuple(v for v in decl.variables
-                         if v.name not in target.variables)
-        if len(new_vars) == 0:
-            # Drop the declaration if it becomes empty
-            replacements[decl] = None
-        else:
-            replacements[decl] = decl.clone(variables=new_vars)
 
     # Remove dummy variables from subroutine signature (in-place)
     routine._argnames = tuple(arg for arg in routine.argnames

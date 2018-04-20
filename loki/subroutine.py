@@ -205,6 +205,16 @@ class Subroutine(object):
                 for c in o.children:
                     self.visit(c)
 
+            def visit_Declaration(self, o):
+                # Attach shape info to declaration dummy variables
+                if o.type.allocatable:
+                    for v in o.variables:
+                        v._shape = self.shapes[v.name]
+
+                # Recurse over children
+                for c in o.children:
+                    self.visit(c)
+
         # Apply dimensions via expression visitor (in-place)
         VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
 
