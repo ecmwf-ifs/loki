@@ -44,7 +44,7 @@ def get_typedefs(typedef):
     return definitions
 
 
-def flatten_derived_arguments(routine, driver, candidate_routines):
+def flatten_derived_arguments(routine, driver):
     """
     Unroll all derived-type arguments used in the subroutine signature,
     declarations and body, as well as all call arguments for a
@@ -70,7 +70,7 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
     # Caller: Tandem-walk the argument lists of the kernel for each call
     call_mapper = {}
     for call in FindNodes(Call).visit(driver._ir):
-        if call.name.lower() in (r.lower() for r in candidate_routines):
+        if call.name.lower() == routine.name.lower():
 
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
@@ -248,7 +248,7 @@ def remove_dimension(routine, target):
     routine._ir = Transformer(replacements).visit(routine.ir)
 
 
-def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
+def hoist_dimension_from_call(routine, driver, wrap=True):
     """
     Remove all indices and variables of a target dimension from
     caller (driver) and callee (kernel) routines, and insert the
@@ -263,7 +263,7 @@ def hoist_dimension_from_call(routine, driver, candidate_routines, wrap=True):
     replacements = {}
 
     for call in FindNodes(Call).visit(driver.ir):
-        if call.name.lower() in (r.lower() for r in candidate_routines):
+        if call.name.lower() == routine.name.lower():
 
             # Skip calls marked for reference data collection
             if call.pragma is not None and call.pragma.keyword == 'reference':
@@ -377,7 +377,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
 
     # Unroll derived-type arguments into multiple arguments
     if flatten_args:
-        flatten_derived_arguments(routine, driver, candidate_routines=[target_routine])
+        flatten_derived_arguments(routine, driver)
 
     # Replace the non-reference call in the driver for evaluation
     for call in FindNodes(Call).visit(driver._ir):
@@ -434,8 +434,8 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Remove horizontal dimension from kernels and hoist loop to
     # driver to transform a subroutine invocation to SCA format.
-    flatten_derived_arguments(routine, driver, candidate_routines=[target_routine])
-    hoist_dimension_from_call(routine, driver, candidate_routines=[target_routine])
+    flatten_derived_arguments(routine, driver)
+    hoist_dimension_from_call(routine, driver)
     remove_dimension(routine=routine, target=target)
 
     if mode == 'claw':
@@ -607,17 +607,18 @@ def physics_sca_kernel(source_file, config=None, processor=None):
     routine.name = '%s_%s' % (routine.name, mode.upper())
 
     # Perform caller-side transformations for all children in the callgraph
-    for call in FindNodes(Call).visit(routine.ir):
-        if call.name.lower() in (r.name for r in processor.routines):
-            child = processor.item_map[call.name.lower()].routine
+    # Note: We need to filter multiple calls to the came child, so
+    # that we apply transformations only once.
+    child_calls = [c.name.lower() for c in FindNodes(Call).visit(routine.ir)
+                   if c.name.lower() in (r.name for r in processor.routines)]
+    child_nodes = set(processor.item_map[c].routine for c in child_calls)
+    for child in child_nodes:
 
-            # Apply inter-procedural part of the conversion
-            flatten_derived_arguments(routine=child, driver=routine,
-                                      candidate_routines=[r.name for r in processor.routines])
+        # Apply inter-procedural part of the conversion
+        flatten_derived_arguments(routine=child, driver=routine)
 
-            # Hoist dimension, but do not wrap in new loop
-            hoist_dimension_from_call(routine=child, driver=routine, wrap=False,
-                                      candidate_routines=[r.name for r in processor.routines])
+        # Hoist dimension, but do not wrap in new loop
+        hoist_dimension_from_call(routine=child, driver=routine, wrap=False)
 
     # Remove the target dimension from all loops and variables
     remove_dimension(routine=routine, target=target)
@@ -648,10 +649,8 @@ def physics_sca_driver(source, config, processor):
             routine = processor.item_map[call.name.lower()].routine
 
             # Apply inter-procedural part of the conversion
-            flatten_derived_arguments(routine, driver,
-                                      candidate_routines=[r.name for r in processor.routines])
-            hoist_dimension_from_call(routine, driver, wrap=True,
-                                      candidate_routines=[r.name for r in processor.routines])
+            flatten_derived_arguments(routine, driver)
+            hoist_dimension_from_call(routine, driver, wrap=True)
 
     # Housekeeping for injecting re-generated routines into the build
     adjust_calls_and_imports(driver, mode, processor)
