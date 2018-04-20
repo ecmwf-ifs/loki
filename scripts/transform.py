@@ -115,7 +115,7 @@ def flatten_derived_arguments(routine, driver, candidate_routines):
                                 kind=type_var.type.kind,
                                 intent=arg.type.intent)
             new_var = Variable(name=new_name, type=new_type,
-                               dimensions=type_var.dimensions,
+                               dimensions=as_tuple(type_var.dimensions),
                                shape=type_var.dimensions)
             decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
 
