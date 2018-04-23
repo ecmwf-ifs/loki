@@ -1,9 +1,10 @@
 from pathlib import Path
 from collections import deque
+import networkx as nx
 try:
-    from graphviz import Digraph
+    import graphviz as gviz
 except ImportError:
-    Digraph = None
+    gviz = None
 
 from loki import (as_tuple, debug, info, warning, error,
                   FortranSourceFile, FindNodes, Call)
@@ -82,18 +83,20 @@ class Scheduler(object):
         # TODO: Remove; should be done per item
         self.blacklist = []
 
+        self.taskgraph = nx.DiGraph()
+
         self.queue = deque()
         self.processed = []
         self.item_map = {}
 
-        if Digraph is not None:
-            self.graph = Digraph(format='pdf', strict=True)
+        if gviz is not None:
+            self.graph = gviz.Digraph(format='pdf', strict=True)
         else:
             self.graph = None
 
     @property
     def routines(self):
-        return list(self.processed) + list(self.queue)
+        return self.taskgraph.nodes
 
     def append(self, sources):
         """
@@ -108,6 +111,8 @@ class Scheduler(object):
                             typedefs=self.typedefs)
             self.queue.append(item)
             self.item_map[source] = item
+
+            self.taskgraph.add_node(item)
 
     def process(self, discovery=False):
         """
@@ -136,6 +141,8 @@ class Scheduler(object):
                 if item.config['expand']:
                     self.append(child)
 
+                    self.taskgraph.add_edge(item, self.item_map[child])
+
                     # Append newly created edge to graph
                     if self.graph:
                         if child not in [r.name for r in self.processed]:
@@ -143,7 +150,10 @@ class Scheduler(object):
                                             fillcolor='lightblue', style='filled')
                         self.graph.edge(item.name.upper(), child.upper())
 
-            # Process worl item with appropriate kernel
+        # Traverse the generated DAG with topological ordering
+        # to ensure that parent get processed before children.
+        for item in nx.topological_sort(self.taskgraph):
+            # Process work item with appropriate kernel
             mode = item.config['mode']
             role = item.config['role']
             kernel = self.kernel_map[mode][role]
