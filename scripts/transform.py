@@ -174,7 +174,7 @@ class Dimension(object):
 
 
 # Define the target dimension to strip from kernel and caller
-target = Dimension(name='KLON', aliases=['NPROMA'],
+target = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                    variable='JL', iteration=('KIDIA', 'KFDIA'))
 target_routine = 'CLOUDSC'
 
