@@ -228,7 +228,11 @@ class IRGenerator(GenericVisitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            # SAVE statement
+            return Intrinsic(source=source)
+        elif o.find('implicit-stmt') is not None:
+            return Intrinsic(source=source)
+        elif o.find('access-spec') is not None:
+            # PUBLIC or PRIVATE declarations
             return Intrinsic(source=source)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
