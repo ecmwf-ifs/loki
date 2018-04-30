@@ -240,12 +240,12 @@ class FindNodes(Visitor):
         self.rule = self.rules[mode]
 
     def visit_object(self, o, ret=None):
-        return ret
+        return ret or self.default_retval()
 
     def visit_tuple(self, o, ret=None):
         for i in o:
             ret = self.visit(i, ret=ret)
-        return ret
+        return ret or self.default_retval()
 
     def visit_Node(self, o, ret=None):
         if ret is None:
@@ -254,7 +254,7 @@ class FindNodes(Visitor):
             ret.append(o)
         for i in o.children:
             ret = self.visit(i, ret=ret)
-        return ret
+        return ret or self.default_retval()
 
 
 class PrintAST(Visitor):
