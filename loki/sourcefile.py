@@ -8,8 +8,8 @@ from pathlib import Path
 from collections import OrderedDict
 
 from loki.subroutine import Subroutine, Module
-from loki.tools import disk_cached, timeit
-from loki.logging import info
+from loki.tools import disk_cached, timeit, flatten, as_tuple
+from loki.logging import info, DEBUG
 from loki.preprocessing import blacklist
 
 
@@ -49,9 +49,9 @@ class FortranSourceFile(object):
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
-        self.subroutines = [Subroutine(ast=r, raw_source=self._raw_source,
-                                       typedefs=typedefs, pp_info=pp_info)
-                            for r in self._ast.findall('file/subroutine')]
+        self.routines = [Subroutine(ast=r, raw_source=self._raw_source,
+                                    typedefs=typedefs, pp_info=pp_info)
+                         for r in self._ast.findall('file/subroutine')]
         self.modules = [Module.from_source(ast=m, raw_source=self._raw_source)
                         for m in self._ast.findall('file/module')]
 
@@ -94,7 +94,7 @@ class FortranSourceFile(object):
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
 
-    @timeit()
+    @timeit(log_level=DEBUG)
     @disk_cached(argname='filename')
     def parse_ast(self, filename):
         """
@@ -109,6 +109,10 @@ class FortranSourceFile(object):
     def source(self):
         content = self.modules + self.subroutines
         return '\n\n'.join(s.source for s in content)
+
+    @property
+    def subroutines(self):
+        return as_tuple(self.routines + flatten(m.subroutines for m in self.modules))
 
     def write(self, source=None, filename=None):
         """

@@ -1,7 +1,7 @@
 from collections import Iterable
 
 from loki.visitors import Visitor
-from loki.tools import chunks, flatten
+from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType, DataType
 from loki.expression import Literal
 
@@ -88,7 +88,10 @@ class FortranCodegen(Visitor):
         return self.indent + text
 
     def visit_Pragma(self, o):
-        return self.indent + o._source.string
+        if o.content is not None:
+            return self.indent + '!$%s %s' % (o.keyword, o.content)
+        else:
+            return self.indent + o._source.string
 
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]
@@ -188,7 +191,7 @@ class FortranCodegen(Visitor):
     def visit_Call(self, o):
         if o.kwarguments is not None:
             kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
-            args = o.arguments + kwargs
+            args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments
         if len(args) > self.chunking:

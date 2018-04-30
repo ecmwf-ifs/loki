@@ -37,6 +37,8 @@ class Node(object):
         handle.update(kwargs)
         return type(self)(**handle)
 
+    clone = _rebuild
+
     @property
     def args(self):
         """Arguments used to construct the Node."""
@@ -84,10 +86,11 @@ class Pragma(Node):
     Internal representation of a EcIR-specific pragma
     """
 
-    def __init__(self, keyword, source=None):
+    def __init__(self, keyword, content=None, source=None):
         super(Pragma, self).__init__(source=source)
 
         self.keyword = keyword
+        self.content = content
 
 
 class Loop(Node):
@@ -144,7 +147,7 @@ class Conditional(Node):
     Internal representation of a conditional branching construct.
     """
 
-    _traversable = ['bodies', 'else_body']
+    _traversable = ['conditions', 'bodies', 'else_body']
 
     def __init__(self, conditions, bodies, else_body, inline=False, source=None):
         super(Conditional, self).__init__(source=source)
@@ -157,7 +160,8 @@ class Conditional(Node):
     @property
     def children(self):
         # Note that we currently ignore the condition itself
-        return tuple(tuple([self.bodies]) + tuple([self.else_body]))
+        return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
+
 
 class MultiConditional(Node):
     """
@@ -233,6 +237,9 @@ class Declaration(Node):
     """
     Internal representation of a variable declaration
     """
+
+    _traversable = ['variables']
+
     def __init__(self, variables, dimensions=None, type=None,
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
@@ -243,6 +250,10 @@ class Declaration(Node):
 
         self.comment = comment
         self.pragma = pragma
+
+    @property
+    def children(self):
+        return tuple([self.variables])
 
 
 class DataDeclaration(Node):
@@ -272,10 +283,15 @@ class Allocation(Node):
     """
     Internal representation of a variable allocation
     """
+
     def __init__(self, variable, source=None):
         super(Allocation, self).__init__(source=source)
 
         self.variable = variable
+
+    @property
+    def children(self):
+        return tuple([self.variable])
 
 
 class Deallocation(Node):
@@ -302,6 +318,9 @@ class Call(Node):
     """
     Internal representation of a function call
     """
+
+    _traversable = ['arguments']
+
     def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
@@ -309,6 +328,10 @@ class Call(Node):
         self.arguments = arguments
         self.kwarguments = kwarguments
         self.pragma = pragma
+
+    @property
+    def children(self):
+        return tuple([self.arguments])
 
 
 class TypeDef(Node):

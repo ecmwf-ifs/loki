@@ -14,6 +14,7 @@ from loki.expression import (Variable, Literal, Operation, Index, InlineCall, Li
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
+from loki.logging import DEBUG
 
 __all__ = ['generate', 'extract_source', 'Source']
 
@@ -228,7 +229,11 @@ class IRGenerator(GenericVisitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            # SAVE statement
+            return Intrinsic(source=source)
+        elif o.find('implicit-stmt') is not None:
+            return Intrinsic(source=source)
+        elif o.find('access-spec') is not None:
+            # PUBLIC or PRIVATE declarations
             return Intrinsic(source=source)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
@@ -330,7 +335,7 @@ class IRGenerator(GenericVisitor):
             assoc_name = a.find('association').attrib['associate-name']
             associations[var] = Variable(name=assoc_name)
         body = self.visit(o.find('body'))
-        return Scope(body=body, associations=associations)
+        return Scope(body=as_tuple(body), associations=associations)
 
     def visit_allocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))
@@ -557,7 +562,7 @@ class PatternFinder(Visitor):
     visit_list = visit_tuple
 
 
-@timeit()
+@timeit(log_level=DEBUG)
 def generate(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)

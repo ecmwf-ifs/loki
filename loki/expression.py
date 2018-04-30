@@ -1,9 +1,10 @@
 from abc import ABCMeta, abstractproperty
 
-from loki.visitors import GenericVisitor
+from loki.visitors import GenericVisitor, Visitor
+from loki.tools import flatten, as_tuple
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
-           'ExpressionVisitor', 'LiteralList']
+           'ExpressionVisitor', 'LiteralList', 'FindVariables']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -15,11 +16,60 @@ class ExpressionVisitor(GenericVisitor):
         return tuple(self.visit(c, **kwargs) for c in o.children)
 
 
+class FindVariables(ExpressionVisitor, Visitor):
+    """
+    A dedicated visitor to collect all variables used in an IR tree.
+
+    Note: With `unique=False` all variables instanecs are traversed,
+    allowing us to change them in-place. Conversely, `unique=True`
+    returns a :class:`set` of unique :class:`Variable` objects that
+    can be used to check if a particular variable is used in a given
+    context.
+
+    Note: :class:`Variable` objects are not recursed on in themselves.
+    That means that individual component variables or dimension indices
+    are not traversed or included in the final :class:`set`.
+    """
+
+    def __init__(self, unique=True):
+        super(FindVariables, self).__init__()
+        self.unique = unique
+
+    default_retval = tuple
+
+    def visit_tuple(self, o):
+        vars = flatten(self.visit(c) for c in o)
+        return set(vars) if self.unique else vars
+
+    visit_list = visit_tuple
+
+    def visit_Variable(self, o):
+        dims = flatten(self.visit(d) for d in o.dimensions)
+        return set(dims + [o]) if self.unique else tuple(dims + [o])
+
+    def visit_Expression(self, o):
+        vars = flatten(self.visit(c) for c in o.children)
+        return set(vars) if self.unique else vars
+
+    visit_InlineCall = visit_Expression
+
+    def visit_Statement(self, o, **kwargs):
+        vars = as_tuple(self.visit(o.expr, **kwargs))
+        vars += as_tuple(self.visit(o.target))
+        return set(vars) if self.unique else as_tuple(vars)
+
+
 class Expression(object):
+    """
+    Base class for aithmetic and logical expressions.
+
+    Note: :class:`Expression` objects are not part of the IR hierarchy,
+    because re-building each individual expression tree during
+    :class:`Transformer` passes can quickly become much more costly
+    than re-building the control flow structures.
+    """
 
     __metaclass__ = ABCMeta
-
-    _traversable = []
 
     def __init__(self, source=None):
         self._source = source
@@ -52,8 +102,6 @@ class Expression(object):
 
 
 class Operation(Expression):
-
-    _traversable = ['operands']
 
     def __init__(self, ops, operands, parenthesis=False, source=None):
         super(Operation, self).__init__(source=source)
@@ -111,13 +159,14 @@ class LiteralList(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, dimensions=None, subvar=None,
+    def __init__(self, name, type=None, shape=None, dimensions=None, subvar=None,
                  initial=None, source=None):
         super(Variable, self).__init__(source=source)
         self._source = source
 
         self.name = name
         self._type = type
+        self._shape = shape
         self.subvar = subvar
         self.dimensions = dimensions or ()
         self.initial = initial
@@ -131,6 +180,13 @@ class Variable(Expression):
     @property
     def type(self):
         return self._type
+
+    @property
+    def shape(self):
+        """
+        Original allocated shape of the variable as a tuple of dimensions.
+        """
+        return self._shape
 
     def __key(self):
         return (self.name, self.type, self.dimensions, self.subvar)

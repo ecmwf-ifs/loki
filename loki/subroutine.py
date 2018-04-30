@@ -2,14 +2,14 @@ from collections import Mapping
 
 from loki.generator import generate, extract_source
 from loki.ir import Declaration, Allocation, Import, TypeDef
-from loki.expression import Variable
+from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
-from loki.visitors import FindNodes
+from loki.visitors import FindNodes, Visitor
 from loki.tools import flatten
 from loki.preprocessing import blacklist
 
 
-__all__ = ['Section', 'Subroutine', 'Module']
+__all__ = ['Subroutine', 'Module']
 
 
 class InterfaceBlock(object):
@@ -21,51 +21,7 @@ class InterfaceBlock(object):
         self.declarations = declarations
 
 
-class Section(object):
-    """
-    Class to handle and manipulate a source code section.
-
-    :param name: Name of the source section.
-    :param source: String with the contained source code.
-    """
-
-    def __init__(self, name, source):
-        self.name = name
-
-        self._source = source
-
-    @property
-    def source(self):
-        """
-        The raw source code contained in this section.
-        """
-        return self._source
-
-    @property
-    def lines(self):
-        """
-        Sanitizes source content into long lines with continuous statements.
-
-        Note: This does not change the content of the file
-        """
-        return self._source.splitlines(keepends=True)
-
-    def replace(self, repl, new=None):
-        """
-        Performs a line-by-line string-replacement from a given mapping
-
-        Note: The replacement is performed on each raw line. Might
-        need to improve this later to unpick linebreaks in the search
-        keys.
-        """
-        if isinstance(repl, Mapping):
-            for old, new in repl.items():
-                self._source = self._source.replace(old, new)
-        else:
-            self._source = self._source.replace(repl, new)
-
-
-class Module(Section):
+class Module(object):
     """
     Class to handle and manipulate source modules.
 
@@ -94,11 +50,13 @@ class Module(Section):
         spec = generate(spec_ast, raw_source)
 
         # TODO: Add routine parsing
+        routine_asts = ast.findall('members/subroutine')
+        routines = tuple(Subroutine(ast, raw_source) for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
 
-        return cls(name=name, spec=spec, ast=ast, raw_source=raw_source)
+        return cls(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -126,8 +84,15 @@ class Module(Section):
         types = FindNodes(TypeDef).visit(self.spec)
         return {td.name.upper(): td for td in types}
 
+    @property
+    def subroutines(self):
+        """
+        List of :class:`Subroutine` objects that are members of this :class:`Module`.
+        """
+        return self.routines
 
-class Subroutine(Section):
+
+class Subroutine(object):
     """
     Class to handle and manipulate a single subroutine.
 
@@ -148,19 +113,6 @@ class Subroutine(Section):
         # TODO: Turn Section._source into a real `Source` object
         self._source = extract_source(self._ast.attrib, raw_source).string
 
-        # Separate body and declaration sections
-        # Note: The declaration includes the SUBROUTINE key and dummy
-        # variable list, so no _pre section is required.
-        body_ast = self._ast.find('body')
-        bend = int(body_ast.attrib['line_end'])
-        spec_ast = self._ast.find('body/specification')
-        sstart = int(spec_ast.attrib['line_begin']) - 1
-        send = int(spec_ast.attrib['line_end'])
-        self.header = Section(name='header', source=''.join(self.lines[:sstart]))
-        self.declarations = Section(name='declarations', source=''.join(self.lines[sstart:send]))
-        self.body = Section(name='body', source=''.join(self.lines[send:bend]))
-        self._post = Section(name='post', source=''.join(self.lines[bend:]))
-
         # Create a IRs for declarations section and the loop body
         self._ir = generate(self._ast.find('body'), self._raw_source)
 
@@ -170,12 +122,15 @@ class Subroutine(Section):
 
         # Attach derived-type information to variables from given typedefs
         for v in self.variables:
-            if typedefs is not None and v.type.name in typedefs:
+            if typedefs is not None and v.type is not None and v.type.name in typedefs:
                 typedef = typedefs[v.type.name]
                 derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
                                            intent=v.type.intent, allocatable=v.type.allocatable,
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
+
+        # Infers the original shape (dimensions) of each variable from declarations
+        self._derive_variable_shape(self.ir, typedefs=typedefs)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for name, rule in blacklist.items():
@@ -200,13 +155,77 @@ class Subroutine(Section):
                 if len(alloc) > 0:
                     v.dimensions = alloc[0].variable.dimensions
 
-    @property
-    def source(self):
+    def _derive_variable_shape(self, ir, declarations=None, typedefs=None):
         """
-        The raw source code contained in this section.
+        Propgates the allocated dimensions (shape) from variable
+        declarations to :class:`Variables` instances in the code body.
+
+        :param ir: The control-flow IR into which to inject shape info
+        :param declarations: Optional list of :class:`Declaration`s from
+                             which to get shape dimensions.
+        :param typdefs: Optional, additional derived-type definitions
+                        from which to infer sub-variable shapes.
+
+        Note, the shape derivation from derived types is currently
+        limited to first-level nesting only.
         """
-        content = [self.header, self.declarations, self.body, self._post]
-        return ''.join(s.source for s in content)
+        declarations = declarations or FindNodes(Declaration).visit(ir)
+        typedefs = typedefs or {}
+
+        # Create map of variable names to allocated shape (dimensions)
+        # Make sure you capture sub-variables.
+        shapes = {}
+        derived = {}
+        for decl in declarations:
+            if decl.type.name in typedefs:
+                derived.update({v.name: typedefs[decl.type.name]
+                                for v in decl.variables})
+
+            if decl.dimensions is not None:
+                shapes.update({v.name: decl.dimensions for v in decl.variables})
+            else:
+                shapes.update({v.name: v.dimensions for v in decl.variables
+                               if v.dimensions is not None and len(v.dimensions) > 0})
+
+        # Override shapes for deferred-shape allocations
+        for alloc in FindNodes(Allocation).visit(ir):
+            shapes[alloc.variable.name] = alloc.variable.dimensions
+
+        class VariableShapeInjector(ExpressionVisitor, Visitor):
+            """
+            Attach shape information to :class:`Variable` via the
+            ``.shape`` attribute.
+            """
+            def __init__(self, shapes, derived):
+                super(VariableShapeInjector, self).__init__()
+                self.shapes = shapes
+                self.derived = derived
+
+            def visit_Variable(self, o):
+                if o.name in self.shapes:
+                    o._shape = self.shapes[o.name]
+
+                if o.subvar is not None and o.name in self.derived:
+                    # We currently only follow a single level of nesting
+                    typevars = {v.name.upper(): v for v in self.derived[o.name].variables}
+                    o.subvar._shape = typevars[o.subvar.name.upper()].dimensions
+
+                # Recurse over children
+                for c in o.children:
+                    self.visit(c)
+
+            def visit_Declaration(self, o):
+                # Attach shape info to declaration dummy variables
+                if o.type.allocatable:
+                    for v in o.variables:
+                        v._shape = self.shapes[v.name]
+
+                # Recurse over children
+                for c in o.children:
+                    self.visit(c)
+
+        # Apply dimensions via expression visitor (in-place)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
 
     @property
     def ir(self):
