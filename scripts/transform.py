@@ -666,7 +666,7 @@ def physics_sca_driver(source, config, processor):
 @cli.command('physics')
 @click.option('--config', '-cfg', type=click.Path(),
               help='Path to configuration file.')
-@click.option('--source', '-s', type=click.Path(),
+@click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
@@ -704,7 +704,7 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
-    processor = Scheduler(path=source, config=config, kernel_map=kernel_map, typedefs=typedefs)
+    processor = Scheduler(paths=source, config=config, kernel_map=kernel_map, typedefs=typedefs)
     processor.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes

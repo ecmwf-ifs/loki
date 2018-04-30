@@ -1,6 +1,7 @@
 from pathlib import Path
 from collections import deque
 import networkx as nx
+import glob
 try:
     import graphviz as gviz
 except ImportError:
@@ -43,7 +44,7 @@ class WorkItem(object):
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
-                warning('Could not parse %s:' % source)
+                warning('Could not parse %s:' % source_path)
                 if self.config['strict']:
                     raise e
                 else:
@@ -71,12 +72,14 @@ class Scheduler(object):
     Note: The processing module can create a callgraph and perform
     automated discovery, to enable easy bulk-processing of large
     numbers of source files.
+
+    :param paths: List of locations to search for source files.
     """
 
     _deadlist = ['dr_hook', 'abor1']
 
-    def __init__(self, path, config=None, kernel_map=None, typedefs=None):
-        self.path = Path(path)
+    def __init__(self, paths, config=None, kernel_map=None, typedefs=None):
+        self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
         self.kernel_map = kernel_map
         self.typedefs = typedefs
@@ -98,6 +101,24 @@ class Scheduler(object):
     def routines(self):
         return self.taskgraph.nodes
 
+    def find_path(self, source):
+        """
+        Attempts to find a source file from a (no endings) routine
+        name across all specified source locations.
+
+        :param source: Name of the source routine to locate.
+        """
+        for path in self.paths:
+            for suffix in ['.F90', '_mod.F90']:
+                path_string = '%s/**/%s%s' % (str(path), source, suffix)
+                locs = glob.glob(path_string, recursive=True)
+                if len(locs) > 0:
+                    source_path = Path(locs[0])
+                    if source_path.exists():
+                        return source_path
+
+        raise RuntimeError("Source path not found: %s" % source)
+
     def append(self, sources):
         """
         Add names of source routines or modules to find and process.
@@ -105,7 +126,7 @@ class Scheduler(object):
         for source in as_tuple(sources):
             if source in self.item_map:
                 continue
-            source_path = (self.path / source).with_suffix('.F90')
+            source_path = self.find_path(source)
             item = WorkItem(name=source, config=self.config,
                             source_path=source_path, graph=self.graph,
                             typedefs=self.typedefs)
