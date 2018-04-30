@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 from loki.subroutine import Subroutine, Module
 from loki.tools import disk_cached, timeit, flatten, as_tuple
-from loki.logging import info
+from loki.logging import info, DEBUG
 from loki.preprocessing import blacklist
 
 
@@ -94,7 +94,7 @@ class FortranSourceFile(object):
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
 
-    @timeit()
+    @timeit(log_level=DEBUG)
     @disk_cached(argname='filename')
     def parse_ast(self, filename):
         """

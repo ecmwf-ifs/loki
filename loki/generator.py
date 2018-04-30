@@ -14,6 +14,7 @@ from loki.expression import (Variable, Literal, Operation, Index, InlineCall, Li
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
+from loki.logging import DEBUG
 
 __all__ = ['generate', 'extract_source', 'Source']
 
@@ -561,7 +562,7 @@ class PatternFinder(Visitor):
     visit_list = visit_tuple
 
 
-@timeit()
+@timeit(log_level=DEBUG)
 def generate(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
