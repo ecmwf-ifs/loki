@@ -50,11 +50,13 @@ class Module(object):
         spec = generate(spec_ast, raw_source)
 
         # TODO: Add routine parsing
+        routine_asts = ast.findall('members/subroutine')
+        routines = tuple(Subroutine(ast, raw_source) for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
 
-        return cls(name=name, spec=spec, ast=ast, raw_source=raw_source)
+        return cls(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -81,6 +83,13 @@ class Module(object):
         """
         types = FindNodes(TypeDef).visit(self.spec)
         return {td.name.upper(): td for td in types}
+
+    @property
+    def subroutines(self):
+        """
+        List of :class:`Subroutine` objects that are members of this :class:`Module`.
+        """
+        return self.routines
 
 
 class Subroutine(object):

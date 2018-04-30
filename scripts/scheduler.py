@@ -38,6 +38,7 @@ class WorkItem(object):
                 # Read and parse source file and extract subroutine
                 self.source_file = FortranSourceFile(source_path, preprocess=True,
                                                      typedefs=typedefs)
+                # TODO: Modules should be first-class items too
                 self.routine = self.source_file.subroutines[0]
 
             except Exception as e:
