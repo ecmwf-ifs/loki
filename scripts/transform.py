@@ -366,10 +366,9 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     """
     typedefs = get_typedefs(typedef)
 
-    # Parse original kernel routine and update the name
+    # Parse original kernel routine
     f_source = FortranSourceFile(source, typedefs=typedefs)
     routine = f_source.subroutines[0]
-    routine.name = '%s_IDEM' % routine.name
 
     # Parse the original driver (caller)
     f_driver = FortranSourceFile(driver)
@@ -378,6 +377,9 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     # Unroll derived-type arguments into multiple arguments
     if flatten_args:
         flatten_derived_arguments(routine, driver)
+
+    # Update the kernel routine name (after modification!)
+    routine.name = '%s_IDEM' % routine.name
 
     # Replace the non-reference call in the driver for evaluation
     for call in FindNodes(Call).visit(driver._ir):
