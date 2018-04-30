@@ -11,11 +11,14 @@ from loki import (as_tuple, debug, info, warning, error,
                   FortranSourceFile, FindNodes, Call)
 
 
-class WorkItem(object):
+__all__ = ['Task', 'TaskScheduler']
+
+
+class Task(object):
     """
-    A single work item that represents a single source routine to be
-    processed. Each work item spawns new work items according to its
-    own subroutine calls and the scheduler's blacklist.
+    A work item  that represents a single source routine  or module to
+    be processed.  Each :class:`Task` spawns new  work items according
+    to its own subroutine calls and the scheduler's blacklist.
 
     Note: Each work item may have its own configuration settings that
     primarily inherit values from the 'default', but can be
@@ -65,9 +68,9 @@ class WorkItem(object):
         return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir))
 
 
-class Scheduler(object):
+class TaskScheduler(object):
     """
-    Work queue manager to enqueue and process individual source
+    Work queue manager to enqueue and process individual :class:`Task`
     routines/modules with a given kernel.
 
     Note: The processing module can create a callgraph and perform
@@ -128,9 +131,9 @@ class Scheduler(object):
             if source in self.item_map:
                 continue
             source_path = self.find_path(source)
-            item = WorkItem(name=source, config=self.config,
-                            source_path=source_path, graph=self.graph,
-                            typedefs=self.typedefs)
+            item = Task(name=source, config=self.config,
+                        source_path=source_path, graph=self.graph,
+                        typedefs=self.typedefs)
             self.queue.append(item)
             self.item_map[source] = item
 

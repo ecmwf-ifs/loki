@@ -11,7 +11,7 @@ from loki import (FortranSourceFile, Visitor, Loop, Variable,
                   FindVariables, Index, Allocation)
 
 from raps_deps import RapsDependencyFile, Rule
-from scheduler import Scheduler
+from scheduler import TaskScheduler
 
 
 class VariableTransformer(ExpressionVisitor, Visitor):
@@ -704,7 +704,8 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create and setup the bulk source processor
-    processor = Scheduler(paths=source, config=config, kernel_map=kernel_map, typedefs=typedefs)
+    processor = TaskScheduler(paths=source, config=config,
+                              kernel_map=kernel_map, typedefs=typedefs)
     processor.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes
