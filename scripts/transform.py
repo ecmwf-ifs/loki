@@ -455,6 +455,11 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
             call.name = '%s_%s' % (call.name, mode.upper())
 
+    # Debug addition: detect calls to `ref_save` and replace with `ref_error`
+    for call in FindNodes(Call).visit(routine.ir):
+        if call.name.lower() == 'ref_save':
+            call.name = 'ref_error'
+
     # Re-generate the target routine with the updated name
     module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
     f_source.write(source=fgen(module), filename=source_out)
