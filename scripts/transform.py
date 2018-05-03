@@ -325,6 +325,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     Note: Must be run after generic SCA conversion.
     """
+    from loki import FortranCodegen
 
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.ir):
@@ -332,9 +333,10 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
             loop.pragma = Pragma(keyword='claw', content='parallelize forward create update')
 
     # Generate CLAW directives
+    segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
                   Pragma(keyword='claw', content='parallelize &'),
-                  Pragma(keyword='claw', content='scalar(%s)\n\n\n' % ', '.join(claw_scalars))]
+                  Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
 
     # Insert directives into driver (HACK!)
     decls = FindNodes(Declaration).visit(routine.ir)
@@ -431,7 +433,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     driver = f_driver.subroutines[0]
 
     if mode == 'claw':
-        claw_scalars = [v.name.lower() for v in routine.arguments
+        claw_scalars = [v.name.lower() for v in routine.variables
                         if len(v.dimensions) == 1]
 
     # Remove horizontal dimension from kernels and hoist loop to
