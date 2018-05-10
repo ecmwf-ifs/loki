@@ -120,12 +120,13 @@ class FortranCodegen(Visitor):
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
+        pragma_post = ('\n' + self.visit(o.pragma_post)) if o.pragma_post else ''
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
         header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
                                   ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
-        return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+        return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
         condition = fexprgen(o.condition, op_spaces=True)

@@ -104,7 +104,7 @@ class Loop(Node):
     _traversable = ['body']
 
     def __init__(self, variable, body=None, bounds=None, pragma=None,
-                 source=None):
+                 pragma_post=None, source=None):
         super(Loop, self).__init__(source=source)
 
         self.variable = variable
@@ -113,6 +113,7 @@ class Loop(Node):
         self.bounds = tuple(bounds[i] if len(bounds) > i else None
                             for i in range(3))
         self.pragma = pragma
+        self.pragma_post = pragma_post
 
     @property
     def children(self):

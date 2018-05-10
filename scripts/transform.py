@@ -362,7 +362,9 @@ def cli():
               help='Path for additional soUrce file(s) containing type definitions')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
-def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
+@click.option('--openmp/--no-openmp', default=False,
+              help='Flag to force OpenMP pragmas onto existing horizontal loops')
+def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, openmp):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -379,6 +381,13 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args):
     # Unroll derived-type arguments into multiple arguments
     if flatten_args:
         flatten_derived_arguments(routine, driver)
+
+    if openmp:
+        for loop in FindNodes(Loop).visit(routine.ir):
+            if loop.variable == target.variable:
+                # HACK! Should re-generate the node
+                loop.pragma = Pragma(keyword='omp', content='do simd')
+                loop.pragma_post = Pragma(keyword='omp', content='end do simd nowait')
 
     # Update the kernel routine name (after modification!)
     routine.name = '%s_IDEM' % routine.name
