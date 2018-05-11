@@ -183,6 +183,9 @@ class FortranCodegen(Visitor):
         default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
         return header + body + default + footer
 
+    def visit_Section(self, o):
+        return self.visit(o.body)
+
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)

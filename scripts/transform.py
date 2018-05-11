@@ -310,13 +310,12 @@ def hoist_dimension_from_call(routine, driver, wrap=True):
             else:
                 replacements[call] = new_call
 
-    # Finally, add declaration of loop variable (a little hacky!)
-    if wrap and target.variable not in driver.variables:
-        decls = FindNodes(Declaration).visit(driver.ir)
-        new_decl = Declaration(variables=as_tuple(Variable(name=target.variable)),
-                               type=BaseType(name='INTEGER', kind='JPIM'))
-        replacements[decls[-1]] = as_tuple([deepcopy(decls[-1]), new_decl])
     driver._ir = Transformer(replacements).visit(driver.ir)
+
+    # Finally, we add the declaration of the loop variable
+    if wrap and target.variable not in driver.variables:
+        driver.spec.append(Declaration(variables=Variable(name=target.variable),
+                                       type=BaseType(name='INTEGER', kind='JPIM')))
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
@@ -332,16 +331,12 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
         if loop.variable == target.variable:
             loop.pragma = Pragma(keyword='claw', content='parallelize forward create update')
 
-    # Generate CLAW directives
+    # Generate CLAW directives and insert into routine spec
     segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
                   Pragma(keyword='claw', content='parallelize &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
-
-    # Insert directives into driver (HACK!)
-    decls = FindNodes(Declaration).visit(routine.ir)
-    replacements = {decls[-1]: [deepcopy(decls[-1])] + directives}
-    routine._ir = Transformer(replacements).visit(routine.ir)
+    routine.spec.append(directives)
 
 
 @click.group()
@@ -406,9 +401,8 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
     f_source.write(source=fgen(module), filename=source_out)
 
     # Insert new module import into the driver and re-generate
-    new_import = Import(module='%s_MOD' % routine.name.upper(),
-                        symbols=[routine.name.upper()])
-    driver._ir = tuple([new_import] + list(driver._ir))
+    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
+                               symbols=[routine.name.upper()]))
     f_driver.write(source=fgen(driver), filename=driver_out)
 
 

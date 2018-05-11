@@ -9,7 +9,7 @@ from itertools import groupby
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
-                     MultiConditional, WhileLoop, DataDeclaration)
+                     MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, Operation, Index, InlineCall, LiteralList)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
@@ -224,6 +224,12 @@ class IRGenerator(GenericVisitor):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, ptr=True, source=source)
+
+    def visit_specification(self, o, source=None):
+        body = tuple(self.visit(c) for c in o.getchildren())
+        body = tuple(c for c in body if c is not None)
+        # Wrap spec area into a separate Scope
+        return Section(body=body, source=source)
 
     def visit_declaration(self, o, source=None):
         if len(o.attrib) == 0:

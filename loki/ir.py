@@ -224,24 +224,40 @@ class MaskedStatement(Node):
         return tuple([as_tuple(self.body), as_tuple(self.default)])
 
 
-class Scope(Node):
+class Section(Node):
     """
-    Internal representation of a code region with specific properties,
-    eg. variable associations.
+    Internal representation of a single code region.
     """
 
     _traversable = ['body']
 
-    def __init__(self, body=None, associations=None, source=None):
-        super(Scope, self).__init__(source=source)
+    def __init__(self, body=None, source=None):
+        super(Section, self).__init__(source=source)
 
         self.body = body
-        self.associations = associations
 
     @property
     def children(self):
         # Note: Needs to be one tuple per `traversable`
         return tuple([self.body])
+
+    def append(self, node):
+        self._update(body=self.body + as_tuple(node))
+
+    def prepend(self, node):
+        self._update(body=as_tuple(node) + self.body)
+
+
+class Scope(Section):
+    """
+    Internal representation of a code region with specific properties,
+    eg. variable associations.
+    """
+
+    def __init__(self, body=None, associations=None, source=None):
+        super(Scope, self).__init__(body=body, source=source)
+
+        self.associations = associations
 
 
 class Declaration(Node):
@@ -255,7 +271,7 @@ class Declaration(Node):
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
-        self.variables = variables
+        self.variables = as_tuple(variables)
         self.dimensions = dimensions
         self.type = type
 

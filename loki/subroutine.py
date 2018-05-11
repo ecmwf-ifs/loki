@@ -1,7 +1,7 @@
 from collections import Mapping
 
 from loki.generator import generate, extract_source
-from loki.ir import Declaration, Allocation, Import, TypeDef
+from loki.ir import Declaration, Allocation, Import, TypeDef, Section
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor
@@ -223,6 +223,16 @@ class Subroutine(object):
         Intermediate representation (AST) of the body in this subroutine
         """
         return self._ir
+
+    @property
+    def spec(self):
+        """
+        :class:`Section` that contains variable declarations and module imports.
+        """
+        # Spec should always be the first section
+        spec = FindNodes(Section).visit(self.ir)[0]
+        assert len(FindNodes(Declaration).visit(spec)) > 0
+        return spec
 
     @property
     def argnames(self):
