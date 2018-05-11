@@ -39,6 +39,16 @@ class Node(object):
 
     clone = _rebuild
 
+    def _update(self, *args, **kwargs):
+        """
+        In-place update that modifies (re-initializes) the node
+        without rebuilding it. Use with care!
+        """
+        argnames = [i for i in self._traversable if i not in kwargs]
+        self._args.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        self._args.update(kwargs)
+        self.__init__(**self._args)
+
     @property
     def args(self):
         """Arguments used to construct the Node."""
