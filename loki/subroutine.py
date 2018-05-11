@@ -109,18 +109,34 @@ class Subroutine(object):
         self._ast = ast
         self._raw_source = raw_source
 
-        # The actual lines in the source for this subroutine
-        # TODO: Turn Section._source into a real `Source` object
-        self._source = extract_source(self._ast.attrib, raw_source).string
-
         # Create a IRs for declarations section and the loop body
         self._ir = generate(self._ast.find('body'), self._raw_source)
+
+        # Apply postprocessing rules to re-insert information lost during preprocessing
+        for name, rule in blacklist.items():
+            info = pp_info[name] if pp_info is not None and name in pp_info else None
+            self._ir = rule.postprocess(self._ir, info)
+
+        # Parse "member" subroutines recursively
+        self.members = None
+        if self._ast.find('members'):
+            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
+                                       typedefs=typedefs, pp_info=pp_info)
+                            for s in self._ast.findall('members/subroutine')]
 
         # Store the names of variables in the subroutine signature
         arg_ast = self._ast.findall('header/arguments/argument')
         self._argnames = [arg.attrib['name'].upper() for arg in arg_ast]
 
-        # Attach derived-type information to variables from given typedefs
+        # Enrich internal representation with meta-data
+        self._attach_derived_types(typedefs=typedefs)
+        self._derive_variable_shape(self.ir, typedefs=typedefs)
+
+    def _attach_derived_types(self, typedefs=None):
+        """
+        Attaches the derived type definition from external header
+        files to all :class:`Variable` instances (in-place).
+        """
         for v in self.variables:
             if typedefs is not None and v.type is not None and v.type.name in typedefs:
                 typedef = typedefs[v.type.name]
@@ -128,32 +144,6 @@ class Subroutine(object):
                                            intent=v.type.intent, allocatable=v.type.allocatable,
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
-
-        # Infers the original shape (dimensions) of each variable from declarations
-        self._derive_variable_shape(self.ir, typedefs=typedefs)
-
-        # Apply postprocessing rules to re-insert information lost during preprocessing
-        for name, rule in blacklist.items():
-            info = pp_info[name] if pp_info is not None and name in pp_info else None
-            self._ir = rule.postprocess(self._ir, info)
-
-        # And finally we parse "member" subroutines
-        self.members = None
-        if self._ast.find('members'):
-            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
-                                       typedefs=typedefs, pp_info=pp_info)
-                            for s in self._ast.findall('members/subroutine')]
-
-    def _infer_variable_dimensions(self):
-        """
-        Try to infer variable dimensions for ALLOCATABLEs
-        """
-        allocs = FindNodes(Allocation).visit(self.ir)
-        for v in self.variables:
-            if v.type.allocatable:
-                alloc = [a for a in allocs if a.variable.name == v.name]
-                if len(alloc) > 0:
-                    v.dimensions = alloc[0].variable.dimensions
 
     def _derive_variable_shape(self, ir, declarations=None, typedefs=None):
         """
