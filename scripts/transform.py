@@ -14,9 +14,20 @@ from raps_deps import RapsDependencyFile, Rule
 from scheduler import TaskScheduler
 
 
+def get_typedefs(typedef):
+    """
+    Read derived type definitions from typedef modules.
+    """
+    definitions = {}
+    for tfile in typedef:
+        module = FortranSourceFile(tfile).modules[0]
+        definitions.update(module.typedefs)
+    return definitions
+
+
 class VariableTransformer(ExpressionVisitor, Visitor):
     """
-    In-place transformer that applies string replacements
+    In-place transformer that applies string replacements to
     :class:`Variable`s.
     """
 
@@ -35,29 +46,15 @@ class VariableTransformer(ExpressionVisitor, Visitor):
             o.subvar = o.subvar.subvar
 
 
-def get_typedefs(typedef):
-    # Read derived type definitions from typedef modules
-    definitions = {}
-    for tfile in typedef:
-        module = FortranSourceFile(tfile).modules[0]
-        definitions.update(module.typedefs)
-    return definitions
-
-
-def flatten_derived_arguments(routine, driver):
+def _derived_type_arguments(routine):
     """
-    Unroll all derived-type arguments used in the subroutine signature,
-    declarations and body, as well as all call arguments for a
-    particular driver/kernel pair.
+    Find all derived-type arguments used in a given routine.
 
-    The convention used is simply: ``derived%var => derived_var``
+    :return: A map of ``arg => [type_vars]``, where ``type_var``
+             is a :class:`Variable` for each derived sub-variable
+             defined in the original compound type.
     """
     variables = FindVariables().visit(routine.ir)
-
-    # Establish candidate sub-variables based on usage in the
-    # kernel routine. These are stored in a map of
-    # ``arg => [type_vars]``, where ``arg%type_var`` is to be
-    # replaced by ``arg_type_var``
     candidates = defaultdict(list)
     for arg in routine.arguments:
         if isinstance(arg.type, DerivedType):
@@ -67,18 +64,27 @@ def flatten_derived_arguments(routine, driver):
             candidates[arg] += [v for v in arg.type.variables.values()
                                 if v.name in argsubvars]
 
-    # Caller: Tandem-walk the argument lists of the kernel for each call
+    return candidates
+
+
+def flatten_derived_args_caller(caller):
+    """
+    Flatten all derived-type call arguments used in the target
+    :class:`Subroutine` for all active :class:`Call` nodes.
+
+    The convention used is: ``derived%var => derived_var``.
+
+    :param caller: The calling :class:`Subroutine`.
+    """
+
     call_mapper = {}
-    for call in FindNodes(Call).visit(driver._ir):
-        if call.name.lower() == routine.name.lower():
+    for call in FindNodes(Call).visit(caller.ir):
+        if call.context is not None and call.context.active:
+            candidates = _derived_type_arguments(call.context.routine)
 
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
-
-            # Simultaneously walk driver and kernel arguments
+            # Simultaneously walk caller and subroutine arguments
             new_arguments = list(deepcopy(call.arguments))
-            for d_arg, k_arg in zip(call.arguments, routine.arguments):
+            for d_arg, k_arg in zip(call.arguments, call.context.routine.arguments):
                 if k_arg in candidates:
                     # Found derived-type argument, unroll according to candidate map
                     new_args = []
@@ -97,10 +103,21 @@ def flatten_derived_arguments(routine, driver):
             # Set the new call signature on the IR ndoe
             call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
 
-    driver._ir = Transformer(call_mapper).visit(driver.ir)
+    # Rebuild the caller's IR tree
+    caller._ir = Transformer(call_mapper).visit(caller.ir)
+
+
+def flatten_derived_args_routine(routine):
+    """
+    Unroll all derived-type arguments used in the subroutine
+    signature, declarations and body.
+
+    The convention used is: ``derived%var => derived_var``
+    """
+    candidates = _derived_type_arguments(routine)
+    declarations = FindNodes(Declaration).visit(routine.ir)
 
     # Callee: Establish replacements for declarations and dummy arguments
-    declarations = FindNodes(Declaration).visit(routine.ir)
     decl_mapper = defaultdict(list)
     for arg, type_vars in candidates.items():
         old_decl = [d for d in declarations if arg in d.variables][0]
@@ -248,7 +265,7 @@ def remove_dimension(routine, target):
     routine._ir = Transformer(replacements).visit(routine.ir)
 
 
-def hoist_dimension_from_call(routine, driver, wrap=True):
+def hoist_dimension_from_call(caller, wrap=True):
     """
     Remove all indices and variables of a target dimension from
     caller (driver) and callee (kernel) routines, and insert the
@@ -259,15 +276,12 @@ def hoist_dimension_from_call(routine, driver, wrap=True):
     before they are stripped from the kernel itself.
     """
     size_expressions = target.size_expressions
-    vmap = driver.variable_map
+    vmap = caller.variable_map
     replacements = {}
 
-    for call in FindNodes(Call).visit(driver.ir):
-        if call.name.lower() == routine.name.lower():
-
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
+    for call in FindNodes(Call).visit(caller.ir):
+        if call.context is not None and call.context.active:
+            routine = call.context.routine
 
             # Replace target dimension with a loop index in arguments
             for darg, karg in zip(call.arguments, routine.arguments):
@@ -310,11 +324,11 @@ def hoist_dimension_from_call(routine, driver, wrap=True):
             else:
                 replacements[call] = new_call
 
-    driver._ir = Transformer(replacements).visit(driver.ir)
+    caller._ir = Transformer(replacements).visit(caller.ir)
 
     # Finally, we add the declaration of the loop variable
-    if wrap and target.variable not in driver.variables:
-        driver.spec.append(Declaration(variables=Variable(name=target.variable),
+    if wrap and target.variable not in caller.variables:
+        caller.spec.append(Declaration(variables=Variable(name=target.variable),
                                        type=BaseType(name='INTEGER', kind='JPIM')))
 
 
@@ -372,10 +386,13 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
     # Parse the original driver (caller)
     f_driver = FortranSourceFile(driver)
     driver = f_driver.subroutines[0]
+    driver.enrich_calls(routines=routine)
 
     # Unroll derived-type arguments into multiple arguments
     if flatten_args:
-        flatten_derived_arguments(routine, driver)
+        # Caller must go first, as it needs info from routine
+        flatten_derived_args_caller(driver)
+        flatten_derived_args_routine(routine)
 
     if openmp:
         for loop in FindNodes(Loop).visit(routine.ir):
@@ -434,6 +451,7 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     # Parse the original driver (caller)
     f_driver = FortranSourceFile(driver, typedefs=typedefs)
     driver = f_driver.subroutines[0]
+    driver.enrich_calls(routines=routine)
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
@@ -441,8 +459,9 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     # Remove horizontal dimension from kernels and hoist loop to
     # driver to transform a subroutine invocation to SCA format.
-    flatten_derived_arguments(routine, driver)
-    hoist_dimension_from_call(routine, driver)
+    flatten_derived_args_caller(driver)
+    flatten_derived_args_routine(routine)
+    hoist_dimension_from_call(driver)
     remove_dimension(routine=routine, target=target)
 
     if mode == 'claw':
@@ -489,11 +508,7 @@ def adjust_calls_and_imports(routine, mode, processor):
 
     # Replace the non-reference call in the driver for evaluation
     for call in FindNodes(Call).visit(routine.ir):
-        if call.name.lower() in (r.name for r in processor.routines):
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
-
+        if call.context is not None and call.context.active:
             # Re-generate the call IR node with a new name
             replacements[call] = call.clone(name='%s_%s' % (call.name, mode.upper()))
 
@@ -618,19 +633,12 @@ def physics_sca_kernel(source_file, config=None, processor=None):
     original = routine.name
     routine.name = '%s_%s' % (routine.name, mode.upper())
 
-    # Perform caller-side transformations for all children in the callgraph
-    # Note: We need to filter multiple calls to the came child, so
-    # that we apply transformations only once.
-    child_calls = [c.name.lower() for c in FindNodes(Call).visit(routine.ir)
-                   if c.name.lower() in (r.name for r in processor.routines)]
-    child_nodes = set(processor.item_map[c].routine for c in child_calls)
-    for child in child_nodes:
+    # Apply inter-procedural part of the conversion
+    flatten_derived_args_caller(caller=routine)
+    flatten_derived_args_routine(routine=routine)
 
-        # Apply inter-procedural part of the conversion
-        flatten_derived_arguments(routine=child, driver=routine)
-
-        # Hoist dimension, but do not wrap in new loop
-        hoist_dimension_from_call(routine=child, driver=routine, wrap=False)
+    # Hoist dimension, but do not wrap in new loop
+    hoist_dimension_from_call(caller=routine, wrap=False)
 
     # Remove the target dimension from all loops and variables
     remove_dimension(routine=routine, target=target)
@@ -656,13 +664,9 @@ def physics_sca_driver(source, config, processor):
 
     info('Processing driver: %s, mode=%s' % (driver.name, mode))
 
-    for call in FindNodes(Call).visit(driver.ir):
-        if call.name.lower() in (r.name for r in processor.routines):
-            routine = processor.item_map[call.name.lower()].routine
-
-            # Apply inter-procedural part of the conversion
-            flatten_derived_arguments(routine, driver)
-            hoist_dimension_from_call(routine, driver, wrap=True)
+    # Apply inter-procedural part of the conversion
+    flatten_derived_args_caller(caller=driver)
+    hoist_dimension_from_call(caller=driver, wrap=True)
 
     # Housekeeping for injecting re-generated routines into the build
     adjust_calls_and_imports(driver, mode, processor)
@@ -673,6 +677,15 @@ def physics_sca_driver(source, config, processor):
 
     # Add dependencies for newly created source files into RAPS build
     adjust_dependencies(original=driver.name, config=config, processor=processor)
+
+def physics_flatten_driver(source, config, processor):
+    routine = source.subroutines[0]
+    flatten_derived_args_caller(caller=routine)
+
+def physics_flatten_kernel(source, config, processor):
+    routine = source.subroutines[0]
+    flatten_derived_args_caller(caller=routine)
+    flatten_derived_args_routine(routine=routine)
 
 
 @cli.command('physics')
@@ -727,8 +740,18 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         if 'blacklist' in opts:
             processor.blacklist += [b.upper() for b in opts['blacklist']]
 
-    # Execute and extract the resulting callgraph
-    processor.process(discovery=False)
+    # Construct and execute transformations on the taskgraph
+    processor.populate()
+
+    # Flatten derived-type arguments from call signatures.
+    # Note, this needs to be done across the entire callgraph first,
+    # so that caller/routine pairs stay synced.
+    flatten_map = {'sca': {'driver': physics_flatten_driver,
+                           'kernel': physics_flatten_kernel}}
+    processor.process(kernel_map=flatten_map)
+    processor.process(kernel_map=kernel_map)
+
+    # Output the resulting callgraph
     if callgraph:
         processor.graph.render('callgraph', view=False)
 
