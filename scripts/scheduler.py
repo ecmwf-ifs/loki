@@ -67,6 +67,9 @@ class Task(object):
         """
         return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir))
 
+    def enrich(self, routines):
+        self.routine.enrich_calls(routines=routines)
+
 
 class TaskScheduler(object):
     """
@@ -103,7 +106,7 @@ class TaskScheduler(object):
 
     @property
     def routines(self):
-        return self.taskgraph.nodes
+        return [task.routine for task in self.taskgraph.nodes]
 
     def find_path(self, source):
         """
@@ -175,8 +178,12 @@ class TaskScheduler(object):
                                             fillcolor='lightblue', style='filled')
                         self.graph.edge(item.name.upper(), child.upper())
 
+        # Enrich subroutine calls for inter-procedural transformations
+        for item in self.taskgraph:
+            item.enrich(routines=self.routines)
+
         # Traverse the generated DAG with topological ordering
-        # to ensure that parent get processed before children.
+        # to ensure that parents get processed before children.
         for item in nx.topological_sort(self.taskgraph):
             # Process work item with appropriate kernel
             mode = item.config['mode']

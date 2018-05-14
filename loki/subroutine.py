@@ -1,11 +1,12 @@
 from collections import Mapping
 
 from loki.generator import generate, extract_source
-from loki.ir import Declaration, Allocation, Import, TypeDef, Section
+from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
+                     Call, CallContext)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor
-from loki.tools import flatten
+from loki.tools import flatten, as_tuple
 from loki.preprocessing import blacklist
 
 
@@ -131,6 +132,30 @@ class Subroutine(object):
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
         self._derive_variable_shape(self.ir, typedefs=typedefs)
+
+    def enrich_calls(self, routines):
+        """
+        Attach target :class:`Subroutine` object to :class:`Call`
+        objects in the IR tree.
+
+        :param call_targets: :class:`Subroutine` objects for corresponding
+                             :class:`Call` nodes in the IR tree.
+        :param active: Additional flag indicating whether this :call:`Call`
+                       represents an active/inactive edge in the
+                       interprocedural callgraph.
+        """
+        routine_map = {r.name.upper(): r for r in as_tuple(routines)}
+
+        for call in FindNodes(Call).visit(self.ir):
+            if call.name.upper() in routine_map:
+                # Calls marked as 'reference' are inactive and thus skipped
+                active = call.pragma is None or call.pragma.keyword != 'reference'
+                context = CallContext(routine=routine_map[call.name],
+                                      active=active)
+                call._update(context=context)
+
+        # TODO: Could extend this to module and header imports to
+        # facilitate user-directed inlining.
 
     def _attach_derived_types(self, typedefs=None):
         """

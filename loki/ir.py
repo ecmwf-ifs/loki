@@ -4,9 +4,9 @@ import inspect
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
-           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
-           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
+           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
+           'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
            'MultiConditional']
 
 
@@ -348,18 +348,31 @@ class Call(Node):
 
     _traversable = ['arguments']
 
-    def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, context=None,
+                 pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
         self.kwarguments = kwarguments
+        self.context = context
         self.pragma = pragma
 
     @property
     def children(self):
         return tuple([self.arguments])
 
+
+class CallContext(Node):
+    """
+    Special node type to encapsulate the target of a :class:`Call`
+    node (usually a :call:`Subroutine`) alongside context-specific
+    meta-information. This is required for future context-sensitive
+    interprocedural-analysis (IPA).
+    """
+    def __init__(self, routine, active):
+        self.routine = routine
+        self.active = active
 
 class TypeDef(Node):
     """
