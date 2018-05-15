@@ -8,7 +8,8 @@ from loki import (FortranSourceFile, Visitor, Loop, Variable,
                   Declaration, FindNodes, Call, Pragma, fgen,
                   BaseType, Module, info, DerivedType,
                   ExpressionVisitor, Transformer, Import, as_tuple,
-                  FindVariables, Index, Allocation)
+                  FindVariables, Index, Allocation,
+                  BasicTransformation)
 
 from raps_deps import RapsDependencyFile, Rule
 from scheduler import TaskScheduler
@@ -379,48 +380,50 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
     """
     typedefs = get_typedefs(typedef)
 
-    # Parse original kernel routine
-    f_source = FortranSourceFile(source, typedefs=typedefs)
-    routine = f_source.subroutines[0]
-
-    # Parse the original driver (caller)
-    f_driver = FortranSourceFile(driver)
-    driver = f_driver.subroutines[0]
+    # Parse original driver and kernel routine, and enrich the driver
+    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
+    driver = FortranSourceFile(driver).subroutines[0]
     driver.enrich_calls(routines=routine)
 
-    # Unroll derived-type arguments into multiple arguments
-    if flatten_args:
-        # Caller must go first, as it needs info from routine
-        flatten_derived_args_caller(driver)
-        flatten_derived_args_routine(routine)
+    class IdemTransformation(BasicTransformation):
+        """
+        Here we define a custom transformation pipeline to re-generate
+        separate kernel and driver versions, adding some optional changes
+        like derived-type argument removal or an experimental low-level
+        OpenMP wrapping.
+        """
 
-    if openmp:
-        for loop in FindNodes(Loop).visit(routine.ir):
-            if loop.variable == target.variable:
-                # HACK! Should re-generate the node
-                loop.pragma = Pragma(keyword='omp', content='do simd')
-                loop.pragma_post = Pragma(keyword='omp', content='end do simd nowait')
+        def _pipeline(self, routine, **kwargs):
 
-    # Update the kernel routine name (after modification!)
-    routine.name = '%s_IDEM' % routine.name
+            # Unroll derived-type arguments into multiple arguments
+            if flatten_args:
+                # Caller must go first, as it needs info from routine
+                flatten_derived_args_caller(driver)
+                flatten_derived_args_routine(routine)
 
-    # Replace the non-reference call in the driver for evaluation
-    for call in FindNodes(Call).visit(driver._ir):
-        if call.name == target_routine:
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
+            if openmp:
+                for loop in FindNodes(Loop).visit(routine.ir):
+                    if loop.variable == target.variable:
+                        # Update the loop in-place with new OpenMP pragmas
+                        pragma = Pragma(keyword='omp', content='do simd')
+                        pragma_nowait = Pragma(keyword='omp',
+                                               content='end do simd nowait')
+                        loop._update(pragma=pragma, pragma_post=pragma_nowait)
 
-            call.name = '%s_IDEM' % call.name
+            # Perform necessary housekeeking tasks
+            self.rename_routine(routine, suffix='IDEM')
+            self.write_to_file(routine, **kwargs)
 
-    # Re-generate the target routine with the updated name
-    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
-    f_source.write(source=fgen(module), filename=source_out)
+    # Now we instantiate our pipeline and apply the changes
+    transformation = IdemTransformation()
+    transformation.apply(routine, filename=source_out)
 
     # Insert new module import into the driver and re-generate
+    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
     driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
                                symbols=[routine.name.upper()]))
-    f_driver.write(source=fgen(driver), filename=driver_out)
+    transformation.rename_caller(driver, suffix='IDEM')
+    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
 @cli.command()

@@ -9,6 +9,7 @@ from loki.tools import * # noqa
 from loki.logging import * # noqa
 from loki.codegen import * # noqa
 from loki.preprocessing import * # noqa
+from loki.transformation import * # noqa
 
 from pkg_resources import get_distribution, DistributionNotFound
 try:
