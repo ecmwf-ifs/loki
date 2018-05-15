@@ -72,7 +72,7 @@ class Module(object):
             for v in typedef.variables:
                 if v._source.lines[0]-1 in pragmas:
                     pragma = pragmas[v._source.lines[0]-1]
-                    if pragma.keyword == 'dimension':
+                    if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
                         # Found dimension override for variable
                         dims = pragma._source.string.split('dimension(')[-1]
                         dims = dims.split(')')[0].split(',')
@@ -154,7 +154,10 @@ class Subroutine(object):
         for call in FindNodes(Call).visit(self.ir):
             if call.name.upper() in routine_map:
                 # Calls marked as 'reference' are inactive and thus skipped
-                active = call.pragma is None or call.pragma.keyword != 'reference'
+                active = True
+                if call.pragma is not None and call.pragma.keyword == 'loki':
+                    active = not call.pragma.content.startswith('reference')
+
                 context = CallContext(routine=routine_map[call.name],
                                       active=active)
                 call._update(context=context)

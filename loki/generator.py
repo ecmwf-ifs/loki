@@ -159,14 +159,15 @@ class IRGenerator(GenericVisitor):
         bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
         return MultiConditional(expr=expr, values=values, bodies=bodies)
 
-    _re_pragma = re.compile('\!\$loki\s+(?P<keyword>\w+)', re.IGNORECASE)
+    # TODO: Deal with line-continuation pragmas!
+    _re_pragma = re.compile('\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
     def visit_comment(self, o, source=None):
         match_pragma = self._re_pragma.search(source.string)
         if match_pragma:
             # Found pragma, generate this instead
-            keyword = match_pragma.groupdict()['keyword']
-            return Pragma(keyword=keyword, source=source)
+            gd = match_pragma.groupdict()
+            return Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
         else:
             return Comment(text=o.attrib['text'], source=source)
 
