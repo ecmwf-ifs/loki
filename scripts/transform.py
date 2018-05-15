@@ -60,9 +60,14 @@ class DerivedArgsTransformation(AbstractTransformation):
     """
 
     def _pipeline(self, routine, **kwargs):
+        # Determine role in bulk-processing use case
+        config = kwargs.get('config', None)
+        role = 'kernel' if config is None else config['role']
+
         # Apply argument transformation, caller first!
         self.flatten_derived_args_caller(routine)
-        self.flatten_derived_args_routine(routine)
+        if role == 'kernel':
+            self.flatten_derived_args_routine(routine)
 
     def _derived_type_arguments(self, routine):
         """
@@ -216,12 +221,14 @@ class SCATransformation(AbstractTransformation):
         self.dimension = dimension
 
     def _pipeline(self, routine, **kwargs):
-        role = kwargs.get('role', 'kernel')
+        config = kwargs.get('config', None)
+        role = kwargs['role'] if config is None else config['role']
 
         if role == 'driver':
             self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
 
         elif role == 'kernel':
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
             self.remove_dimension(routine, target=self.dimension)
 
     def remove_dimension(self, routine, target):
@@ -448,7 +455,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
     # TODO: Needs internalising into `BasicTransformation.module_wrap()`
     driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
                                symbols=[routine.name.upper()]))
-    transformation.rename_caller(driver, suffix='IDEM')
+    transformation.rename_calls(driver, suffix='IDEM')
     transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
@@ -512,201 +519,107 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     # TODO: Needs internalising into `BasicTransformation.module_wrap()`
     driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
                                symbols=[routine.name.upper()]))
-    BasicTransformation().rename_caller(driver, suffix=mode.upper())
+    BasicTransformation().rename_calls(driver, suffix=mode.upper())
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
-def adjust_calls_and_imports(routine, mode, processor):
+class RapsTransformation(BasicTransformation):
     """
-    Utility routine to rename all calls to relevant subroutines and
-    adjust the relevant imports.
-
-    Note: This will always assume that any non-blacklisted routines
-    will be re-generated wrapped in a module with the naming
-    convention ``<KERNEL>_<MODE>_MOD``.
+    Dedicated housekeeping pipeline for dealing with module wrapping
+    and dependency management for RAPS.
     """
-    replacements = {}
 
-    # Replace the non-reference call in the driver for evaluation
-    for call in FindNodes(Call).visit(routine.ir):
-        if call.context is not None and call.context.active:
-            # Re-generate the call IR node with a new name
-            replacements[call] = call.clone(name='%s_%s' % (call.name, mode.upper()))
+    def __init__(self, raps_deps=None, loki_deps=None):
+        self.raps_deps = raps_deps
+        self.loki_deps = loki_deps
 
-    # Update all relevant interface imports
-    new_imports = []
-    for im in FindNodes(Import).visit(routine.ir):
+    def _pipeline(self, routine, **kwargs):
+        config = kwargs.get('config')
+        mode = config['mode']
+        role = config['role']
+        # TODO: Need enrichment for Imports to get rid of this!
+        processor = kwargs.get('processor', None)
+
+        info('Processing %s (role=%s, mode=%s)' % (routine.name, role, mode))
+
+        original = routine.name
+        if role == 'kernel':
+            self.rename_routine(routine, suffix=mode.upper())
+
+        self.rename_calls(routine, suffix=mode.upper())
+        self.adjust_imports(routine, mode, processor)
+
+        filename = routine.sourcefile.path.with_suffix('.%s.F90' % mode)
+        if role == 'driver':
+            self.write_to_file(routine, filename=filename, module_wrap=False)
+        else:
+            self.write_to_file(routine, filename=filename, module_wrap=True)
+
+        self.adjust_dependencies(original=original, config=config, processor=processor)
+
+    def adjust_imports(self, routine, mode, processor):
+        """
+        Utility routine to rename all calls to relevant subroutines and
+        adjust the relevant imports.
+
+        Note: This will always assume that any non-blacklisted routines
+        will be re-generated wrapped in a module with the naming
+        convention ``<KERNEL>_<MODE>_MOD``.
+        """
+        replacements = {}
+
+        # Update all relevant interface imports
+        new_imports = []
+        for im in FindNodes(Import).visit(routine.ir):
+            for r in processor.routines:
+                if im.c_import and r.name.lower() == im.module.split('.')[0]:
+                    replacements[im] = None  # Drop old C-style import
+                    new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
+                                           symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
+
+        # A hacky way to insert new imports at the end of module imports
+        last_module = [im for im in FindNodes(Import).visit(routine.ir)
+                       if not im.c_import][-1]
+        replacements[last_module] = [deepcopy(last_module)] + new_imports
+
+        routine._ir = Transformer(replacements).visit(routine.ir)
+
+    def adjust_dependencies(self, original, config, processor):
+        """
+        Utility routine to generate Loki-specific build dependencies from
+        RAPS-generated dependency files.
+
+        Hack alert: The two dependency files are stashed on the transformation
+        and modified on-the-fly. This is required to get selective replication
+        until we have some smarter dependency generation and globbing support.
+        """
+        mode = config['mode']
+        whitelist = config['whitelist']
+        original = original.lower()
+
+        # Adjust the object entry in the dependency file
+        orig_path = 'ifs/phys_ec/%s.o' % original
+        r_deps = deepcopy(self.raps_deps.content_map[orig_path])
+        r_deps.replace('ifs/phys_ec/%s.o' % original,
+                       'ifs/phys_ec/%s.%s.o' % (original, mode))
+        r_deps.replace('ifs/phys_ec/%s.F90' % original,
+                       'ifs/phys_ec/%s.%s.F90' % (original, mode))
         for r in processor.routines:
-            if im.c_import and r.name.lower() == im.module.split('.')[0]:
-                replacements[im] = None  # Drop old C-style import
-                new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
-                                       symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
+            routine = r.name.lower()
+            r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
+                           'ifs/phys_ec/%s.%s.o' % (routine, mode))
+        self.loki_deps.content += [r_deps]
 
-    # A hacky way to insert new imports at the end of module imports
-    last_module = [im for im in FindNodes(Import).visit(routine.ir)
-                   if not im.c_import][-1]
-    replacements[last_module] = [deepcopy(last_module)] + new_imports
-
-    routine._ir = Transformer(replacements).visit(routine.ir)
-
-
-def adjust_dependencies(original, config, processor):
-    """
-    Utility routine to generate Loki-specific build dependencies from
-    RAPS-generated dependency files.
-
-    Hack alert: The two dependency files are stashed in the `config` and
-    modified on-the-fly. This is required to get selective replication
-    until we have some smarter dependency generation and globbing support.
-    """
-    mode = config['default']['mode']
-    whitelist = config['default']['whitelist']
-    original = original.lower()
-
-    # Adjust the object entry in the dependency file
-    orig_path = 'ifs/phys_ec/%s.o' % original
-    r_deps = deepcopy(config['raps_deps'].content_map[orig_path])
-    r_deps.replace('ifs/phys_ec/%s.o' % original,
-                   'ifs/phys_ec/%s.%s.o' % (original, mode))
-    r_deps.replace('ifs/phys_ec/%s.F90' % original,
-                   'ifs/phys_ec/%s.%s.F90' % (original, mode))
-    for r in processor.routines:
-        routine = r.name.lower()
-        r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
-                       'ifs/phys_ec/%s.%s.o' % (routine, mode))
-    config['loki_deps'].content += [r_deps]
-
-    # Inject new object into the final binary libs
-    objs_ifsloki = config['loki_deps'].content_map['OBJS_ifsloki']
-    if original in whitelist:
-        # Add new dependency inplace, next to the old one
-        objs_ifsloki.append_inplace('ifs/phys_ec/%s.o' % original,
-                                    'ifs/phys_ec/%s.%s.o' % (original, mode))
-    else:
-        # Replace old dependency to avoid ghosting where possible
-        objs_ifsloki.replace('ifs/phys_ec/%s.o' % original,
-                             'ifs/phys_ec/%s.%s.o' % (original, mode))
-
-
-def physics_idem_kernel(source_file, config=None, processor=None):
-    """
-    Processing method for kernel routines that recreates a mode-specific
-    version of the kernel and swaps out all subroutine calls.
-    """
-    mode = config['default']['mode']
-    routine = source_file.subroutines[0]
-
-    info('Processing kernel: %s, mode=%s' % (routine.name, mode))
-
-    # Rename kernel routine to mode-specific variant
-    original = routine.name
-    routine.name = '%s_%s' % (routine.name, mode.upper())
-
-    # Housekeeping for injecting re-generated routines into the build
-    adjust_calls_and_imports(routine, mode, processor)
-
-    # Generate mode-specific kernel subroutine with module wrappers
-    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
-    source_file.write(source=fgen(module),
-                      filename=source_file.path.with_suffix('.idem.F90'))
-
-    # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=original, config=config, processor=processor)
-
-
-def physics_idem_driver(source, config, processor):
-    """
-    Processing method for driver (root) routines that creates a clone
-    of the driver routine in the usual style and swaps out all
-    relevant subroutine calls.
-
-    Note: We do not change the driver routine's name and we do not
-    module-wrap it either. This way it can be slotted into a build
-    as a straight replacement via object dependencies.
-    """
-    mode = config['default']['mode']
-    driver = source.subroutines[0]
-
-    info('Processing driver: %s, mode=%s' % (driver.name, mode))
-
-    # Housekeeping for injecting re-generated routines into the build
-    adjust_calls_and_imports(driver, mode, processor)
-
-    # Re-generate updated driver subroutine (do not module-wrap!)
-    source.write(source=fgen(driver),
-                 filename=source.path.with_suffix('.%s.F90' % mode))
-
-    # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=driver.name, config=config, processor=processor)
-
-
-def physics_sca_kernel(source_file, config=None, processor=None):
-    """
-    Processing method to convert kernel routines into Single Column Abstract (SCA)
-    format by removing the horizontal dimension (KLON/NPROMA) from the subroutine.
-    """
-    mode = config['default']['mode']
-    routine = source_file.subroutines[0]
-
-    info('Processing kernel: %s, mode=%s' % (routine.name, mode))
-
-    # Rename kernel routine to mode-specific variant
-    original = routine.name
-    routine.name = '%s_%s' % (routine.name, mode.upper())
-
-    # Apply inter-procedural part of the conversion
-    flatten_derived_args_caller(caller=routine)
-    flatten_derived_args_routine(routine=routine)
-
-    # Hoist dimension, but do not wrap in new loop
-    hoist_dimension_from_call(caller=routine, wrap=False)
-
-    # Remove the target dimension from all loops and variables
-    remove_dimension(routine=routine, target=target)
-
-    # Housekeeping for injecting re-generated routines into the build
-    adjust_calls_and_imports(routine, mode, processor)
-
-    # Generate mode-specific kernel subroutine with module wrappers
-    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
-    source_file.write(source=fgen(module),
-                      filename=source_file.path.with_suffix('.sca.F90'))
-
-    # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=original, config=config, processor=processor)
-
-
-def physics_sca_driver(source, config, processor):
-    """
-    Processing method for driver (root) routines for SCA
-    """
-    mode = config['default']['mode']
-    driver = source.subroutines[0]
-
-    info('Processing driver: %s, mode=%s' % (driver.name, mode))
-
-    # Apply inter-procedural part of the conversion
-    flatten_derived_args_caller(caller=driver)
-    hoist_dimension_from_call(caller=driver, wrap=True)
-
-    # Housekeeping for injecting re-generated routines into the build
-    adjust_calls_and_imports(driver, mode, processor)
-
-    # Re-generate updated driver subroutine (do not module-wrap!)
-    source.write(source=fgen(driver),
-                 filename=source.path.with_suffix('.%s.F90' % mode))
-
-    # Add dependencies for newly created source files into RAPS build
-    adjust_dependencies(original=driver.name, config=config, processor=processor)
-
-def physics_flatten_driver(source, config, processor):
-    routine = source.subroutines[0]
-    flatten_derived_args_caller(caller=routine)
-
-def physics_flatten_kernel(source, config, processor):
-    routine = source.subroutines[0]
-    flatten_derived_args_caller(caller=routine)
-    flatten_derived_args_routine(routine=routine)
+        # Inject new object into the final binary libs
+        objs_ifsloki = self.loki_deps.content_map['OBJS_ifsloki']
+        if original in whitelist:
+            # Add new dependency inplace, next to the old one
+            objs_ifsloki.append_inplace('ifs/phys_ec/%s.o' % original,
+                                        'ifs/phys_ec/%s.%s.o' % (original, mode))
+        else:
+            # Replace old dependency to avoid ghosting where possible
+            objs_ifsloki.replace('ifs/phys_ec/%s.o' % original,
+                                 'ifs/phys_ec/%s.%s.o' % (original, mode))
 
 
 @cli.command('physics')
@@ -721,13 +634,11 @@ def physics_flatten_kernel(source, config, processor):
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
 def physics(config, source, typedef, raps_dependencies, callgraph):
-
-    kernel_map = {'noop': {'driver': None, 'kernel': None},
-                  'idem': {'driver': physics_idem_driver,
-                           'kernel': physics_idem_kernel},
-                  'sca': {'driver': physics_sca_driver,
-                          'kernel': physics_sca_kernel}}
-
+    """
+    Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
+    source-to-source transformations, such as the Single Column Abstraction (SCA),
+    to large sets of interdependent subroutines.
+    """
     # Get external derived-type definitions
     typedefs = get_typedefs(typedef)
 
@@ -738,48 +649,55 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
     # Convert 'routines' to an ordered dictionary
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
-    if raps_dependencies:
-        # Load RAPS dependency file for injection into the build system
-        config['raps_deps'] = RapsDependencyFile.from_file(raps_dependencies)
-
-        # Create new deps file with lib dependencies and a build rule
-        objs_ifsloki = deepcopy(config['raps_deps'].content_map['OBJS_ifs'])
-        objs_ifsloki.target = 'OBJS_ifsloki'
-        rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
-                            cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
-        config['loki_deps'] = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
-
-    # Create and setup the bulk source processor
-    processor = TaskScheduler(paths=source, config=config,
-                              kernel_map=kernel_map, typedefs=typedefs)
-    processor.append(config['routines'].keys())
+    # Create and setup the scheduler for bulk-processing
+    scheduler = TaskScheduler(paths=source, config=config, typedefs=typedefs)
+    scheduler.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes
     if 'blacklist' in config['default']:
-        processor.blacklist += [b.upper() for b in config['default']['blacklist']]
+        scheduler.blacklist += [b.upper() for b in config['default']['blacklist']]
     for opts in config['routines'].values():
         if 'blacklist' in opts:
-            processor.blacklist += [b.upper() for b in opts['blacklist']]
+            scheduler.blacklist += [b.upper() for b in opts['blacklist']]
 
-    # Construct and execute transformations on the taskgraph
-    processor.populate()
+    scheduler.populate()
 
-    # Flatten derived-type arguments from call signatures.
-    # Note, this needs to be done across the entire callgraph first,
-    # so that caller/routine pairs stay synced.
-    flatten_map = {'sca': {'driver': physics_flatten_driver,
-                           'kernel': physics_flatten_kernel}}
-    processor.process(kernel_map=flatten_map)
-    processor.process(kernel_map=kernel_map)
+    raps_deps = None
+    loki_deps = None
+    if raps_dependencies:
+        # Load RAPS dependency file for injection into the build system
+        raps_deps = RapsDependencyFile.from_file(raps_dependencies)
+
+        # Create new deps file with lib dependencies and a build rule
+        objs_ifsloki = deepcopy(raps_deps.content_map['OBJS_ifs'])
+        objs_ifsloki.target = 'OBJS_ifsloki'
+        rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
+                            cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
+        loki_deps = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
+
+    # Create the RapsTransformation to manage dependency injection
+    raps_transform = RapsTransformation(raps_deps, loki_deps)
+
+    mode = config['default']['mode']
+    if mode == 'sca':
+        # Define the target dimension to strip from kernel and caller
+        horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
+                               variable='JL', iteration=('KIDIA', 'KFDIA'))
+
+        # First, remove derived-type arguments, then remove horizontal dimension
+        scheduler.process(transformation=DerivedArgsTransformation())
+        scheduler.process(transformation=SCATransformation(dimension=horizontal))
+
+    # Finalize by applying the RapsTransformation
+    scheduler.process(transformation=raps_transform)
+    if raps_dependencies:
+        # Write new mode-specific dependency rules file
+        loki_config_path = raps_deps.path.with_suffix('.loki.def')
+        raps_transform.loki_deps.write(path=loki_config_path)
 
     # Output the resulting callgraph
     if callgraph:
-        processor.graph.render('callgraph', view=False)
-
-    if raps_dependencies:
-        # Write new mode-specific dependency rules file
-        loki_config_path = config['raps_deps'].path.with_suffix('.loki.def')
-        config['loki_deps'].write(path=loki_config_path)
+        scheduler.graph.render('callgraph', view=False)
 
 
 if __name__ == "__main__":

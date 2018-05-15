@@ -46,7 +46,7 @@ class BasicTransformation(AbstractTransformation):
         """
 
         self.rename_routine(routine, **kwargs)
-        self.rename_caller(routine, **kwargs)
+        self.rename_calls(routine, **kwargs)
         self.write_to_file(routine, **kwargs)
 
     def rename_routine(self, routine, **kwargs):
@@ -62,14 +62,14 @@ class BasicTransformation(AbstractTransformation):
             # Rename the current subroutine
             routine.name += '_%s' % suffix
 
-    def rename_caller(self, routine, **kwargs):
+    def rename_calls(self, routine, **kwargs):
         """
         Update calls to actively transformed subroutines.
         """
         suffix = kwargs.get('suffix', None)
         for call in FindNodes(Call).visit(routine.ir):
             if call.context is not None and call.context.active:
-                call.name += '_%s' % suffix
+                call._update(name='%s_%s' % (call.name, suffix))
 
     def write_to_file(self, routine, **kwargs):
         """

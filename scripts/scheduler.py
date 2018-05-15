@@ -85,10 +85,9 @@ class TaskScheduler(object):
 
     _deadlist = ['dr_hook', 'abor1']
 
-    def __init__(self, paths, config=None, kernel_map=None, typedefs=None):
+    def __init__(self, paths, config=None, typedefs=None):
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
-        self.kernel_map = kernel_map
         self.typedefs = typedefs
         # TODO: Remove; should be done per item
         self.blacklist = []
@@ -182,24 +181,19 @@ class TaskScheduler(object):
         for item in self.taskgraph:
             item.enrich(routines=self.routines)
 
-    def process(self, kernel_map=None):
+    def process(self, transformation):
         """
         Process all enqueued source modules and routines with the
-        stored kernel.
+        stored kernel. The traversal is performed in topological
+        order, which ensures that :class:`Call`s are always processed
+        before their target :class:`Subroutine`s.
         """
-        kernel_map = kernel_map or self.kernel_map
-
-        # Traverse the generated DAG with topological ordering
-        # to ensure that parents get processed before children.
         for item in nx.topological_sort(self.taskgraph):
-            # Process work item with appropriate kernel
-            mode = item.config['mode']
-            role = item.config['role']
-            kernel = kernel_map[mode][role]
-            if kernel is not None:
-                kernel(item.source_file, config=self.config, processor=self)
 
-            # Finally mark item as processed in list and graph
+            # Process work item with appropriate kernel
+            transformation.apply(item.routine, config=item.config, processor=self)
+
+            # Mark item as processed in list and graph
             self.processed.append(item)
 
             if self.graph:
