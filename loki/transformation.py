@@ -45,7 +45,7 @@ class BasicTransformation(AbstractTransformation):
         module to file.
         """
 
-        self.rename_subroutine(routine, **kwargs)
+        self.rename_routine(routine, **kwargs)
         self.rename_caller(routine, **kwargs)
         self.write_to_file(routine, **kwargs)
 

@@ -9,7 +9,7 @@ from loki import (FortranSourceFile, Visitor, Loop, Variable,
                   BaseType, Module, info, DerivedType,
                   ExpressionVisitor, Transformer, Import, as_tuple,
                   FindVariables, Index, Allocation,
-                  BasicTransformation)
+                  AbstractTransformation, BasicTransformation)
 
 from raps_deps import RapsDependencyFile, Rule
 from scheduler import TaskScheduler
@@ -28,8 +28,8 @@ def get_typedefs(typedef):
 
 class VariableTransformer(ExpressionVisitor, Visitor):
     """
-    In-place transformer that applies string replacements to
-    :class:`Variable`s.
+    Utility :class:`Transformer` that applies string replacements to
+    :class:`Variable`s in-place.
     """
 
     def __init__(self, argnames):
@@ -47,107 +47,121 @@ class VariableTransformer(ExpressionVisitor, Visitor):
             o.subvar = o.subvar.subvar
 
 
-def _derived_type_arguments(routine):
+class DerivedArgsTransformation(AbstractTransformation):
     """
-    Find all derived-type arguments used in a given routine.
+    Pipeline to remove derived types from subroutine signatures by replacing
+    the relevant derived arguments with the sub-variables used in the called
+    routine. The equivalent change is also applied to all callers of the
+    transformed subroutines.
 
-    :return: A map of ``arg => [type_vars]``, where ``type_var``
-             is a :class:`Variable` for each derived sub-variable
-             defined in the original compound type.
-    """
-    variables = FindVariables().visit(routine.ir)
-    candidates = defaultdict(list)
-    for arg in routine.arguments:
-        if isinstance(arg.type, DerivedType):
-            # Add candidate type variables, preserving order from the typedef
-            argvars = [v for v in variables if v.name == arg.name]
-            argsubvars = set(v.subvar.name for v in argvars if v.subvar is not None)
-            candidates[arg] += [v for v in arg.type.variables.values()
-                                if v.name in argsubvars]
-
-    return candidates
-
-
-def flatten_derived_args_caller(caller):
-    """
-    Flatten all derived-type call arguments used in the target
-    :class:`Subroutine` for all active :class:`Call` nodes.
-
-    The convention used is: ``derived%var => derived_var``.
-
-    :param caller: The calling :class:`Subroutine`.
+    Note, due to the dependency between caller and callee, this transformation
+    should be applied atomically to sets of subroutine, if further transformations
+    depend on the accurate signatures and call arguments.
     """
 
-    call_mapper = {}
-    for call in FindNodes(Call).visit(caller.ir):
-        if call.context is not None and call.context.active:
-            candidates = _derived_type_arguments(call.context.routine)
+    def _pipeline(self, routine, **kwargs):
+        # Apply argument transformation, caller first!
+        self.flatten_derived_args_caller(routine)
+        self.flatten_derived_args_routine(routine)
 
-            # Simultaneously walk caller and subroutine arguments
-            new_arguments = list(deepcopy(call.arguments))
-            for d_arg, k_arg in zip(call.arguments, call.context.routine.arguments):
-                if k_arg in candidates:
-                    # Found derived-type argument, unroll according to candidate map
-                    new_args = []
-                    for type_var in candidates[k_arg]:
-                        # Insert `:` range dimensions into newly generated args
-                        new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
-                        new_arg = deepcopy(d_arg)
-                        new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims,
-                                                  shape=type_var.dimensions)
-                        new_args += [new_arg]
+    def _derived_type_arguments(self, routine):
+        """
+        Find all derived-type arguments used in a given routine.
 
-                    # Replace variable in dummy signature
-                    i = new_arguments.index(d_arg)
-                    new_arguments[i:i+1] = new_args
+        :return: A map of ``arg => [type_vars]``, where ``type_var``
+                 is a :class:`Variable` for each derived sub-variable
+                 defined in the original compound type.
+        """
+        variables = FindVariables().visit(routine.ir)
+        candidates = defaultdict(list)
+        for arg in routine.arguments:
+            if isinstance(arg.type, DerivedType):
+                # Add candidate type variables, preserving order from the typedef
+                argvars = [v for v in variables if v.name == arg.name]
+                argsubvars = set(v.subvar.name for v in argvars if v.subvar is not None)
+                candidates[arg] += [v for v in arg.type.variables.values()
+                                    if v.name in argsubvars]
 
-            # Set the new call signature on the IR ndoe
-            call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
+        return candidates
 
-    # Rebuild the caller's IR tree
-    caller._ir = Transformer(call_mapper).visit(caller.ir)
+    def flatten_derived_args_caller(self, caller):
+        """
+        Flatten all derived-type call arguments used in the target
+        :class:`Subroutine` for all active :class:`Call` nodes.
 
+        The convention used is: ``derived%var => derived_var``.
 
-def flatten_derived_args_routine(routine):
-    """
-    Unroll all derived-type arguments used in the subroutine
-    signature, declarations and body.
+        :param caller: The calling :class:`Subroutine`.
+        """
+        call_mapper = {}
+        for call in FindNodes(Call).visit(caller.ir):
+            if call.context is not None and call.context.active:
+                candidates = self._derived_type_arguments(call.context.routine)
 
-    The convention used is: ``derived%var => derived_var``
-    """
-    candidates = _derived_type_arguments(routine)
-    declarations = FindNodes(Declaration).visit(routine.ir)
+                # Simultaneously walk caller and subroutine arguments
+                new_arguments = list(deepcopy(call.arguments))
+                for d_arg, k_arg in zip(call.arguments, call.context.routine.arguments):
+                    if k_arg in candidates:
+                        # Found derived-type argument, unroll according to candidate map
+                        new_args = []
+                        for type_var in candidates[k_arg]:
+                            # Insert `:` range dimensions into newly generated args
+                            new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
+                            new_arg = deepcopy(d_arg)
+                            new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims,
+                                                      shape=type_var.dimensions)
+                            new_args += [new_arg]
 
-    # Callee: Establish replacements for declarations and dummy arguments
-    decl_mapper = defaultdict(list)
-    for arg, type_vars in candidates.items():
-        old_decl = [d for d in declarations if arg in d.variables][0]
-        new_names = []
+                        # Replace variable in dummy signature
+                        i = new_arguments.index(d_arg)
+                        new_arguments[i:i+1] = new_args
 
-        for type_var in type_vars:
-            # Create new name and add to variable mapper
-            new_name = '%s_%s' % (arg.name, type_var.name)
-            new_names += [new_name]
+                # Set the new call signature on the IR ndoe
+                call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
 
-            # Create new declaration and add to declaration mapper
-            new_type = BaseType(name=type_var.type.name,
-                                kind=type_var.type.kind,
-                                intent=arg.type.intent)
-            new_var = Variable(name=new_name, type=new_type,
-                               dimensions=as_tuple(type_var.dimensions),
-                               shape=as_tuple(type_var.dimensions))
-            decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
+        # Rebuild the caller's IR tree
+        caller._ir = Transformer(call_mapper).visit(caller.ir)
 
-        # Replace variable in dummy signature
-        i = routine.argnames.index(arg)
-        routine._argnames[i:i+1] = new_names
+    def flatten_derived_args_routine(self, routine):
+        """
+        Unroll all derived-type arguments used in the subroutine
+        signature, declarations and body.
 
-    # Replace variable occurences in-place (derived%v => derived_v)
-    argnames = [arg.name for arg in candidates.keys()]
-    VariableTransformer(argnames=argnames).visit(routine.ir)
+        The convention used is: ``derived%var => derived_var``
+        """
+        candidates = self._derived_type_arguments(routine)
+        declarations = FindNodes(Declaration).visit(routine.ir)
 
-    # Replace `Declaration` nodes (re-generates the IR tree)
-    routine._ir = Transformer(decl_mapper).visit(routine.ir)
+        # Callee: Establish replacements for declarations and dummy arguments
+        decl_mapper = defaultdict(list)
+        for arg, type_vars in candidates.items():
+            old_decl = [d for d in declarations if arg in d.variables][0]
+            new_names = []
+
+            for type_var in type_vars:
+                # Create new name and add to variable mapper
+                new_name = '%s_%s' % (arg.name, type_var.name)
+                new_names += [new_name]
+
+                # Create new declaration and add to declaration mapper
+                new_type = BaseType(name=type_var.type.name,
+                                    kind=type_var.type.kind,
+                                    intent=arg.type.intent)
+                new_var = Variable(name=new_name, type=new_type,
+                                   dimensions=as_tuple(type_var.dimensions),
+                                   shape=as_tuple(type_var.dimensions))
+                decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
+
+            # Replace variable in dummy signature
+            i = routine.argnames.index(arg)
+            routine._argnames[i:i+1] = new_names
+
+        # Replace variable occurences in-place (derived%v => derived_v)
+        argnames = [arg.name for arg in candidates.keys()]
+        VariableTransformer(argnames=argnames).visit(routine.ir)
+
+        # Replace `Declaration` nodes (re-generates the IR tree)
+        routine._ir = Transformer(decl_mapper).visit(routine.ir)
 
 
 class Dimension(object):
@@ -191,147 +205,158 @@ class Dimension(object):
         return [self.variable] + i_range
 
 
-# Define the target dimension to strip from kernel and caller
-target = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
-                   variable='JL', iteration=('KIDIA', 'KFDIA'))
-target_routine = 'CLOUDSC'
-
-
-def remove_dimension(routine, target):
+class SCATransformation(AbstractTransformation):
     """
-    Remove all loops and variable indices of a given target dimension
-    from the given routine.
+    Pipeline to transform kernel into SCA format and insert CLAW directives.
+
+    Note, this requires preprocessing with the `DerivedArgsTransformation`.
     """
-    replacements = {}
-    size_expressions = target.size_expressions
-    index_expressions = target.index_expressions
 
-    # Remove all loops over the target dimensions
-    loop_map = {}
-    for loop in FindNodes(Loop).visit(routine.ir):
-        if loop.variable == target.variable:
-            loop_map[loop] = loop.body
-    routine._ir = Transformer(loop_map).visit(routine.ir)
+    def __init__(self, dimension):
+        self.dimension = dimension
 
-    # Drop declarations for dimension variables (eg. loop counter or sizes)
-    for decl in FindNodes(Declaration).visit(routine.ir):
-        new_vars = tuple(v for v in decl.variables
-                         if str(v) not in target.variables)
+    def _pipeline(self, routine, **kwargs):
+        role = kwargs.get('role', 'kernel')
 
-        # Strip target dimension from declaration-level dimensions
-        if decl.dimensions is not None and len(decl.dimensions) > 0:
-            # TODO: This is quite hacky, as we rely on the first
-            # variable in the declaration to provide the correct shape.
-            assert len(decl.dimensions) == len(decl.variables[0].shape)
-            new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
-                             if str(s) not in size_expressions)
-            if len(new_dims) == 0:
-                new_dims = None
-        else:
-            new_dims = decl.dimensions
+        if role == 'driver':
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
 
-        if len(new_vars) == 0:
-            # Drop the declaration if it becomes empty
-            replacements[decl] = None
-        else:
-            replacements[decl] = decl.clone(variables=new_vars, dimensions=new_dims)
+        elif role == 'kernel':
+            self.remove_dimension(routine, target=self.dimension)
 
-    # Remove all variable indices representing the target dimension (in-place)
-    for v in FindVariables(unique=False).visit(routine.ir):
-        if v.dimensions is not None and v.shape is not None:
-            # Filter index variables against index expressions
-            # and shape dimensions against size expressions.
-            filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
-                        if str(s) not in size_expressions and d not in index_expressions]
+    def remove_dimension(self, routine, target):
+        """
+        Remove all loops and variable indices of a given target dimension
+        from the given routine.
+        """
+        replacements = {}
+        size_expressions = target.size_expressions
+        index_expressions = target.index_expressions
 
-            # Reconstruct variable dimensions and shape from filtered
-            if len(filtered) > 0:
-                v.dimensions, v._shape = zip(*(filtered))
+        # Remove all loops over the target dimensions
+        loop_map = {}
+        for loop in FindNodes(Loop).visit(routine.ir):
+            if loop.variable == target.variable:
+                loop_map[loop] = loop.body
+        routine._ir = Transformer(loop_map).visit(routine.ir)
+
+        # Drop declarations for dimension variables (eg. loop counter or sizes)
+        for decl in FindNodes(Declaration).visit(routine.ir):
+            new_vars = tuple(v for v in decl.variables
+                             if str(v) not in target.variables)
+
+            # Strip target dimension from declaration-level dimensions
+            if decl.dimensions is not None and len(decl.dimensions) > 0:
+                # TODO: This is quite hacky, as we rely on the first
+                # variable in the declaration to provide the correct shape.
+                assert len(decl.dimensions) == len(decl.variables[0].shape)
+                new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
+                                 if str(s) not in size_expressions)
+                if len(new_dims) == 0:
+                    new_dims = None
             else:
-                v.dimensions, v._shape = (), None
+                new_dims = decl.dimensions
 
-    # Remove dimension size expressions from variable declarations (in-place)
-    # Note: We do this last, because changing the declaration affects
-    # the variable_map used above.
-    for decl in FindNodes(Declaration).visit(routine.ir):
-        for v in decl.variables:
-            if v.dimensions is not None:
-                v.dimensions = as_tuple(d for d in v.dimensions
-                                        if str(d) not in size_expressions)
-
-    # Remove dummy variables from subroutine signature (in-place)
-    routine._argnames = tuple(arg for arg in routine.argnames
-                              if arg not in target.variables)
-
-    routine._ir = Transformer(replacements).visit(routine.ir)
-
-
-def hoist_dimension_from_call(caller, wrap=True):
-    """
-    Remove all indices and variables of a target dimension from
-    caller (driver) and callee (kernel) routines, and insert the
-    necessary loop over the target dimension into the driver.
-
-    Note: In order for this routine to see the target dimensions
-    in the argument declarations of the kernel, it must be applied
-    before they are stripped from the kernel itself.
-    """
-    size_expressions = target.size_expressions
-    vmap = caller.variable_map
-    replacements = {}
-
-    for call in FindNodes(Call).visit(caller.ir):
-        if call.context is not None and call.context.active:
-            routine = call.context.routine
-
-            # Replace target dimension with a loop index in arguments
-            for darg, karg in zip(call.arguments, routine.arguments):
-                if not isinstance(darg, Variable):
-                    continue
-
-                # Skip to the innermost variable of derived types
-                while darg.subvar is not None:
-                    darg = darg.subvar
-
-                # Insert ':' for all missing dimensions in argument
-                if karg.shape is not None and len(darg.dimensions) == 0:
-                    darg.dimensions = tuple(Index(name=':') for _ in karg.shape)
-
-                # Remove target dimension sizes from caller-side argument indices
-                if darg.shape is not None:
-                    darg.dimensions = tuple(Index(name=target.variable)
-                                            if str(tdim) in size_expressions else ddim
-                                            for ddim, tdim in zip(darg.dimensions, darg.shape))
-
-            # Collect caller-side expressions for dimension sizes and bounds
-            dim_lower = None
-            dim_upper = None
-            for darg, karg in zip(call.arguments, routine.arguments):
-                if karg == target.iteration[0]:
-                    dim_lower = darg
-                if karg == target.iteration[1]:
-                    dim_upper = darg
-
-            # Remove call-side arguments (in-place)
-            arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
-                              if karg not in target.variables)
-            new_call = call.clone(arguments=arguments)
-
-            # Create and insert new loop over target dimension
-            if wrap:
-                loop = Loop(variable=Variable(name=target.variable),
-                            bounds=(dim_lower, dim_upper), body=as_tuple([new_call]))
-                replacements[call] = loop
+            if len(new_vars) == 0:
+                # Drop the declaration if it becomes empty
+                replacements[decl] = None
             else:
-                replacements[call] = new_call
+                replacements[decl] = decl.clone(variables=new_vars, dimensions=new_dims)
 
-    caller._ir = Transformer(replacements).visit(caller.ir)
+        # Remove all variable indices representing the target dimension (in-place)
+        for v in FindVariables(unique=False).visit(routine.ir):
+            if v.dimensions is not None and v.shape is not None:
+                # Filter index variables against index expressions
+                # and shape dimensions against size expressions.
+                filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
+                            if str(s) not in size_expressions and d not in index_expressions]
 
-    # Finally, we add the declaration of the loop variable
-    if wrap and target.variable not in caller.variables:
-        caller.spec.append(Declaration(variables=Variable(name=target.variable),
-                                       type=BaseType(name='INTEGER', kind='JPIM')))
+                # Reconstruct variable dimensions and shape from filtered
+                if len(filtered) > 0:
+                    v.dimensions, v._shape = zip(*(filtered))
+                else:
+                    v.dimensions, v._shape = (), None
 
+        # Remove dimension size expressions from variable declarations (in-place)
+        # Note: We do this last, because changing the declaration affects
+        # the variable_map used above.
+        for decl in FindNodes(Declaration).visit(routine.ir):
+            for v in decl.variables:
+                if v.dimensions is not None:
+                    v.dimensions = as_tuple(d for d in v.dimensions
+                                            if str(d) not in size_expressions)
+
+        # Remove dummy variables from subroutine signature (in-place)
+        routine._argnames = tuple(arg for arg in routine.argnames
+                                  if arg not in target.variables)
+
+        routine._ir = Transformer(replacements).visit(routine.ir)
+
+    def hoist_dimension_from_call(self, caller, target, wrap=True):
+        """
+        Remove all indices and variables of a target dimension from
+        caller (driver) and callee (kernel) routines, and insert the
+        necessary loop over the target dimension into the driver.
+
+        Note: In order for this routine to see the target dimensions
+        in the argument declarations of the kernel, it must be applied
+        before they are stripped from the kernel itself.
+        """
+        size_expressions = target.size_expressions
+        vmap = caller.variable_map
+        replacements = {}
+
+        for call in FindNodes(Call).visit(caller.ir):
+            if call.context is not None and call.context.active:
+                routine = call.context.routine
+
+                # Replace target dimension with a loop index in arguments
+                for darg, karg in zip(call.arguments, routine.arguments):
+                    if not isinstance(darg, Variable):
+                        continue
+
+                    # Skip to the innermost variable of derived types
+                    while darg.subvar is not None:
+                        darg = darg.subvar
+
+                    # Insert ':' for all missing dimensions in argument
+                    if karg.shape is not None and len(darg.dimensions) == 0:
+                        darg.dimensions = tuple(Index(name=':') for _ in karg.shape)
+
+                    # Remove target dimension sizes from caller-side argument indices
+                    if darg.shape is not None:
+                        darg.dimensions = tuple(Index(name=target.variable)
+                                                if str(tdim) in size_expressions else ddim
+                                                for ddim, tdim in zip(darg.dimensions, darg.shape))
+
+                # Collect caller-side expressions for dimension sizes and bounds
+                dim_lower = None
+                dim_upper = None
+                for darg, karg in zip(call.arguments, routine.arguments):
+                    if karg == target.iteration[0]:
+                        dim_lower = darg
+                    if karg == target.iteration[1]:
+                        dim_upper = darg
+
+                # Remove call-side arguments (in-place)
+                arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
+                                  if karg not in target.variables)
+                new_call = call.clone(arguments=arguments)
+
+                # Create and insert new loop over target dimension
+                if wrap:
+                    loop = Loop(variable=Variable(name=target.variable),
+                                bounds=(dim_lower, dim_upper), body=as_tuple([new_call]))
+                    replacements[call] = loop
+                else:
+                    replacements[call] = new_call
+
+        caller._ir = Transformer(replacements).visit(caller.ir)
+
+        # Finally, we add the declaration of the loop variable
+        if wrap and target.variable not in caller.variables:
+            caller.spec.append(Declaration(variables=Variable(name=target.variable),
+                                           type=BaseType(name='INTEGER', kind='JPIM')))
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
     """
@@ -395,13 +420,8 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
 
         def _pipeline(self, routine, **kwargs):
 
-            # Unroll derived-type arguments into multiple arguments
-            if flatten_args:
-                # Caller must go first, as it needs info from routine
-                flatten_derived_args_caller(driver)
-                flatten_derived_args_routine(routine)
-
             if openmp:
+                # Experimental OpenMP loop pragma insertion
                 for loop in FindNodes(Loop).visit(routine.ir):
                     if loop.variable == target.variable:
                         # Update the loop in-place with new OpenMP pragmas
@@ -413,6 +433,12 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
             # Perform necessary housekeeking tasks
             self.rename_routine(routine, suffix='IDEM')
             self.write_to_file(routine, **kwargs)
+
+    if flatten_args:
+        # Unroll derived-type arguments into multiple arguments
+        # Caller must go first, as it needs info from routine
+        DerivedArgsTransformation().apply(driver)
+        DerivedArgsTransformation().apply(routine)
 
     # Now we instantiate our pipeline and apply the changes
     transformation = IdemTransformation()
@@ -442,60 +468,52 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw']), default='sca')
 def convert(source, source_out, driver, driver_out, interface, typedef, mode):
     """
-    Single Column Abstraction: Convert kernel into SCA format and adjust driver.
+    Single Column Abstraction (SCA): Convert kernel into single-column
+    format and adjust driver to apply it over in a horizontal loop.
+
+    Optionally, this can also insert CLAW directives that may be use
+    for further downstream transformations.
     """
-    # convert_sca(source, source_out, driver, driver_out, interface, typedef, mode)
     typedefs = get_typedefs(typedef)
 
     # Parse original kernel routine and inject type definitions
-    f_source = FortranSourceFile(source, typedefs=typedefs)
-    routine = f_source.subroutines[0]
-
-    # Parse the original driver (caller)
-    f_driver = FortranSourceFile(driver, typedefs=typedefs)
-    driver = f_driver.subroutines[0]
+    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
+    driver = FortranSourceFile(driver, typedefs=typedefs).subroutines[0]
     driver.enrich_calls(routines=routine)
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
                         if len(v.dimensions) == 1]
 
-    # Remove horizontal dimension from kernels and hoist loop to
-    # driver to transform a subroutine invocation to SCA format.
-    flatten_derived_args_caller(driver)
-    flatten_derived_args_routine(routine)
-    hoist_dimension_from_call(driver)
-    remove_dimension(routine=routine, target=target)
-
-    if mode == 'claw':
-        insert_claw_directives(routine, driver, claw_scalars, target)
-
-    # Update the name of the kernel routine
-    routine.name = '%s_%s' % (routine.name, mode.upper())
-
-    # Update the names of all non-reference calls in the driver
-    for call in FindNodes(Call).visit(driver._ir):
-        if call.name == target_routine:
-            # Skip calls marked for reference data collection
-            if call.pragma is not None and call.pragma.keyword == 'reference':
-                continue
-
-            call.name = '%s_%s' % (call.name, mode.upper())
-
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
     for call in FindNodes(Call).visit(routine.ir):
         if call.name.lower() == 'ref_save':
             call.name = 'ref_error'
 
-    # Re-generate the target routine with the updated name
-    module = Module(name='%s_MOD' % routine.name.upper(), routines=[routine])
-    f_source.write(source=fgen(module), filename=source_out)
+    # First, remove all derived-type arguments; caller first!
+    DerivedArgsTransformation().apply(driver)
+    DerivedArgsTransformation().apply(routine)
 
-    # Insert new module import into the driver and re-generate
-    new_import = Import(module='%s_MOD' % routine.name.upper(),
-                        symbols=[routine.name.upper()])
-    driver._ir = tuple([new_import] + list(driver._ir))
-    f_driver.write(source=fgen(driver), filename=driver_out)
+    # Define the target dimension to strip from kernel and caller
+    horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
+                           variable='JL', iteration=('KIDIA', 'KFDIA'))
+
+    # Now we instantiate our SCA pipeline and apply the changes
+    transformation = SCATransformation(dimension=horizontal)
+    transformation.apply(driver, role='driver', filename=driver_out)
+    transformation.apply(routine, role='kernel', filename=source_out)
+
+    if mode == 'claw':
+        insert_claw_directives(routine, driver, claw_scalars, target=horizontal)
+
+    # And finally apply the necessary housekeeping changes
+    BasicTransformation().apply(routine, suffix=mode.upper(), filename=source_out)
+
+    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
+    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
+                               symbols=[routine.name.upper()]))
+    BasicTransformation().rename_caller(driver, suffix=mode.upper())
+    BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
 def adjust_calls_and_imports(routine, mode, processor):
