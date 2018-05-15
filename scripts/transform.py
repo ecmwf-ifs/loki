@@ -376,7 +376,8 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.ir):
         if loop.variable == target.variable:
-            loop.pragma = Pragma(keyword='claw', content='parallelize forward create update')
+            pragma = Pragma(keyword='claw', content='parallelize forward create update')
+            loop._update(pragma=pragma)
 
     # Generate CLAW directives and insert into routine spec
     segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
@@ -384,6 +385,18 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
                   Pragma(keyword='claw', content='parallelize &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
     routine.spec.append(directives)
+
+
+def remove_omp_do(routine):
+    """
+    Utility routine that strips existing !$opm do pragmas from driver code.
+    """
+    mapper = {}
+    for p in FindNodes(Pragma).visit(routine.ir):
+        if p.keyword.lower() == 'omp':
+            if p.content.startswith('do') or p.content.startswith('end do'):
+                mapper[p] = None
+    routine._ir = Transformer(mapper).visit(routine.ir)
 
 
 @click.group()
@@ -468,12 +481,12 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
               help='Driver file to convert.')
 @click.option('--driver-out', '-do', type=click.Path(), default=None,
               help='Path for generated driver output.')
-@click.option('--interface', '-intfb', type=click.Path(), default=None,
-              help='Path to auto-generate and interface file')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
+@click.option('--strip-omp-do', is_flag=True, default=False,
+              help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', type=click.Choice(['sca', 'claw']), default='sca')
-def convert(source, source_out, driver, driver_out, interface, typedef, mode):
+def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -512,6 +525,9 @@ def convert(source, source_out, driver, driver_out, interface, typedef, mode):
 
     if mode == 'claw':
         insert_claw_directives(routine, driver, claw_scalars, target=horizontal)
+
+    if strip_omp_do:
+        remove_omp_do(driver)
 
     # And finally apply the necessary housekeeping changes
     BasicTransformation().apply(routine, suffix=mode.upper(), filename=source_out)
