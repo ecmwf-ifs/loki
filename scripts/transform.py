@@ -348,7 +348,9 @@ class SCATransformation(AbstractTransformation):
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
                                   if karg not in target.variables)
-                new_call = call.clone(arguments=arguments)
+                kwarguments = OrderedDict((darg, karg) for darg, karg in call.kwarguments.items()
+                                          if karg not in target.variables)
+                new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
                 # Create and insert new loop over target dimension
                 if wrap:

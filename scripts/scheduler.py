@@ -84,7 +84,7 @@ class TaskScheduler(object):
     :param paths: List of locations to search for source files.
     """
 
-    _deadlist = ['dr_hook', 'abor1']
+    _deadlist = ['dr_hook', 'abor1', 'abort_surf']
 
     def __init__(self, paths, config=None, typedefs=None):
         self.paths = [Path(p) for p in as_tuple(paths)]
