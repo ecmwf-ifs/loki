@@ -16,8 +16,8 @@ __all__ = ['Task', 'TaskScheduler']
 
 class Task(object):
     """
-    A work item  that represents a single source routine  or module to
-    be processed.  Each :class:`Task` spawns new  work items according
+    A work item that represents a single source routine or module to
+    be processed. Each :class:`Task` spawns new work items according
     to its own subroutine calls and the scheduler's blacklist.
 
     Note: Each work item may have its own configuration settings that
@@ -25,10 +25,11 @@ class Task(object):
     specialised explicitly in the config file.
     """
 
-    def __init__(self, name, config, source_path, graph=None, typedefs=None):
+    def __init__(self, name, config, path, graph=None, typedefs=None):
         self.name = name
+        self.path = path
+        self.file = None
         self.routine = None
-        self.source_file = None
         self.graph = graph
 
         # Generate item-specific config settings
@@ -36,19 +37,19 @@ class Task(object):
         if name in config['routines']:
             self.config.update(config['routines'][name])
 
-        if source_path.exists():
+        if path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.source_file = FortranSourceFile(source_path, preprocess=True,
-                                                     typedefs=typedefs)
+                self.file = FortranSourceFile(path, preprocess=True,
+                                              typedefs=typedefs)
                 # TODO: Modules should be first-class items too
-                self.routine = self.source_file.subroutines[0]
+                self.routine = self.file.subroutines[0]
 
             except Exception as e:
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
-                warning('Could not parse %s:' % source_path)
+                warning('Could not parse %s:' % path)
                 if self.config['strict']:
                     raise e
                 else:
@@ -132,10 +133,9 @@ class TaskScheduler(object):
         for source in as_tuple(sources):
             if source in self.item_map:
                 continue
-            source_path = self.find_path(source)
             item = Task(name=source, config=self.config,
-                        source_path=source_path, graph=self.graph,
-                        typedefs=self.typedefs)
+                        path=self.find_path(source),
+                        graph=self.graph, typedefs=self.typedefs)
             self.queue.append(item)
             self.item_map[source] = item
 
@@ -188,18 +188,18 @@ class TaskScheduler(object):
         order, which ensures that :class:`Call`s are always processed
         before their target :class:`Subroutine`s.
         """
-        for item in nx.topological_sort(self.taskgraph):
+        for task in nx.topological_sort(self.taskgraph):
 
             # Process work item with appropriate kernel
-            transformation.apply(item.routine, config=item.config, processor=self)
+            transformation.apply(task.routine, task=task, processor=self)
 
             # Mark item as processed in list and graph
-            self.processed.append(item)
+            self.processed.append(task)
 
             if self.graph:
-                if item.name in item.config['whitelist']:
-                    self.graph.node(item.name.upper(), color='black', shape='diamond',
+                if task.name in task.config['whitelist']:
+                    self.graph.node(task.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:
-                    self.graph.node(item.name.upper(), color='black',
+                    self.graph.node(task.name.upper(), color='black',
                                     fillcolor='limegreen', style='filled')

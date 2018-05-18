@@ -76,6 +76,12 @@ class Dependency(object):
         deps = ' \\\n\t'.join(self.deps)
         return '%s: %s' % (self.target, deps)
 
+    def find(self, name):
+        hits = [d for d in self.deps if name in d]
+        if len(hits) == 0:
+            return None
+        return hits if len(hits) > 1 else hits[0]
+
     def replace(self, target, replacement):
         if target in self.target:
             self.target = self.target.replace(target, replacement)

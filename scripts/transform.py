@@ -11,7 +11,7 @@ from loki import (FortranSourceFile, Visitor, Loop, Variable,
                   FindVariables, Index, Allocation,
                   AbstractTransformation, BasicTransformation)
 
-from raps_deps import RapsDependencyFile, Rule
+from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
 
 
@@ -61,8 +61,8 @@ class DerivedArgsTransformation(AbstractTransformation):
 
     def _pipeline(self, routine, **kwargs):
         # Determine role in bulk-processing use case
-        config = kwargs.get('config', None)
-        role = 'kernel' if config is None else config['role']
+        task = kwargs.get('task', None)
+        role = 'kernel' if task is None else task.config['role']
 
         # Apply argument transformation, caller first!
         self.flatten_derived_args_caller(routine)
@@ -221,8 +221,8 @@ class SCATransformation(AbstractTransformation):
         self.dimension = dimension
 
     def _pipeline(self, routine, **kwargs):
-        config = kwargs.get('config', None)
-        role = kwargs['role'] if config is None else config['role']
+        task = kwargs.get('task', None)
+        role = kwargs['role'] if task is None else task.config['role']
 
         if role == 'driver':
             self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
@@ -545,14 +545,15 @@ class RapsTransformation(BasicTransformation):
     and dependency management for RAPS.
     """
 
-    def __init__(self, raps_deps=None, loki_deps=None):
+    def __init__(self, raps_deps=None, loki_deps=None, basepath=None):
         self.raps_deps = raps_deps
         self.loki_deps = loki_deps
+        self.basepath = basepath
 
     def _pipeline(self, routine, **kwargs):
-        config = kwargs.get('config')
-        mode = config['mode']
-        role = config['role']
+        task = kwargs.get('task')
+        mode = task.config['mode']
+        role = task.config['role']
         # TODO: Need enrichment for Imports to get rid of this!
         processor = kwargs.get('processor', None)
 
@@ -571,7 +572,7 @@ class RapsTransformation(BasicTransformation):
         else:
             self.write_to_file(routine, filename=filename, module_wrap=True)
 
-        self.adjust_dependencies(original=original, config=config, processor=processor)
+        self.adjust_dependencies(original=original, task=task, processor=processor)
 
     def adjust_imports(self, routine, mode, processor):
         """
@@ -600,7 +601,7 @@ class RapsTransformation(BasicTransformation):
 
         routine._ir = Transformer(replacements).visit(routine.ir)
 
-    def adjust_dependencies(self, original, config, processor):
+    def adjust_dependencies(self, original, task, processor):
         """
         Utility routine to generate Loki-specific build dependencies from
         RAPS-generated dependency files.
@@ -609,38 +610,46 @@ class RapsTransformation(BasicTransformation):
         and modified on-the-fly. This is required to get selective replication
         until we have some smarter dependency generation and globbing support.
         """
-        mode = config['mode']
-        whitelist = config['whitelist']
+        mode = task.config['mode']
+        whitelist = task.config['whitelist']
         original = original.lower()
+        sourcepath = task.path
 
         # Adjust the object entry in the dependency file
-        orig_path = 'ifs/phys_ec/%s.o' % original
-        r_deps = deepcopy(self.raps_deps.content_map[orig_path])
-        r_deps.replace('ifs/phys_ec/%s.o' % original,
-                       'ifs/phys_ec/%s.%s.o' % (original, mode))
-        r_deps.replace('ifs/phys_ec/%s.F90' % original,
-                       'ifs/phys_ec/%s.%s.F90' % (original, mode))
-        for r in processor.routines:
-            routine = r.name.lower()
-            r_deps.replace('flexbuild/raps17/intfb/ifs/%s.intfb.ok' % routine,
-                           'ifs/phys_ec/%s.%s.o' % (routine, mode))
+        f_path = sourcepath.relative_to(self.basepath)
+        f_mode_path = f_path.with_suffix('.%s.F90' % mode)
+        o_path = f_path.with_suffix('.o')
+        o_mode_path = o_path.with_suffix('.%s.o' % mode)
+
+        r_deps = deepcopy(self.raps_deps.content_map[str(o_path)])
+        r_deps.replace(str(o_path), str(o_mode_path))
+        r_deps.replace(str(f_path), str(f_mode_path))
         self.loki_deps.content += [r_deps]
+
+        # Run through all previous dependencies and replace any
+        # interface entries (.ok) to the current target with
+        # adependency on the newly created module.
+        for d in self.loki_deps.content:
+            if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
+                intfb = d.find('%s.intfb.ok' % original)
+                if intfb is not None:
+                    d.replace(intfb, str(o_mode_path))
 
         # Inject new object into the final binary libs
         objs_ifsloki = self.loki_deps.content_map['OBJS_ifsloki']
         if original in whitelist:
             # Add new dependency inplace, next to the old one
-            objs_ifsloki.append_inplace('ifs/phys_ec/%s.o' % original,
-                                        'ifs/phys_ec/%s.%s.o' % (original, mode))
+            objs_ifsloki.append_inplace(str(o_path), str(o_mode_path))
         else:
             # Replace old dependency to avoid ghosting where possible
-            objs_ifsloki.replace('ifs/phys_ec/%s.o' % original,
-                                 'ifs/phys_ec/%s.%s.o' % (original, mode))
+            objs_ifsloki.replace(str(o_path), str(o_mode_path))
 
 
 @cli.command('physics')
 @click.option('--config', '-cfg', type=click.Path(),
               help='Path to configuration file.')
+@click.option('--basepath', type=click.Path(),
+              help='Basepath of the IFS/RAPS installation directory.')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
@@ -649,7 +658,7 @@ class RapsTransformation(BasicTransformation):
               help='Path to RAPS-generated dependency file')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
-def physics(config, source, typedef, raps_dependencies, callgraph):
+def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
     """
     Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
     source-to-source transformations, such as the Single Column Abstraction (SCA),
@@ -692,7 +701,7 @@ def physics(config, source, typedef, raps_dependencies, callgraph):
         loki_deps = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
 
     # Create the RapsTransformation to manage dependency injection
-    raps_transform = RapsTransformation(raps_deps, loki_deps)
+    raps_transform = RapsTransformation(raps_deps, loki_deps, basepath=basepath)
 
     mode = config['default']['mode']
     if mode == 'sca':
