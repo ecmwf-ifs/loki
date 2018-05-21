@@ -4,7 +4,7 @@ from loki.visitors import GenericVisitor, Visitor
 from loki.tools import flatten, as_tuple
 
 __all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
-           'ExpressionVisitor', 'LiteralList', 'FindVariables']
+           'RangeIndex', 'ExpressionVisitor', 'LiteralList', 'FindVariables']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -262,3 +262,33 @@ class Index(Expression):
             return self.name == other.name
         else:
             return super(Index, self).__eq__(other)
+
+
+class RangeIndex(Expression):
+
+    def __init__(self, lower, upper):
+        self.lower = lower
+        self.upper = upper
+
+    @property
+    def expr(self):
+        return '%s:%s' % (self.lower, self.upper)
+
+    @property
+    def children(self):
+        return self.lower, self.upper
+
+    def __key(self):
+        return (self.lower, self.upper)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other RangeIndex objects
+        if isinstance(other, str):
+            return self.expr.upper() == other.upper()
+        elif isinstance(other, RangeIndex):
+            return self.lower == other.lower and self.upper == other.upper
+        else:
+            return super(RangeIndex, self).__eq__(other)

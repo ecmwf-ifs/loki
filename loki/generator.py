@@ -10,7 +10,8 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, Operation, Index, InlineCall, LiteralList)
+from loki.expression import (Variable, Literal, Operation, Index, RangeIndex,
+                             InlineCall, LiteralList)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
@@ -466,7 +467,7 @@ class IRGenerator(GenericVisitor):
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
-            return Index(name='%s:%s' % (lower, upper))
+            return RangeIndex(lower, upper)
         elif o.find('name'):
             return self.visit(o.find('name'))
         elif o.find('literal'):
