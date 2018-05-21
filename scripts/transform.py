@@ -541,6 +541,26 @@ def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode)
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
+class InferArgShapeTransformation(AbstractTransformation):
+    """
+    Uses IPA context information to infer the shape of arguments from
+    the caller.
+    """
+
+    def _pipeline(self, routine, **kwargs):
+        for call in FindNodes(Call).visit(routine.ir):
+            if call.context is not None and call.context.active:
+
+                # Insert shapes of call values into routine arguments
+                for arg, val in call.context.arg_iter(call):
+                    if arg.dimensions is not None and len(arg.dimensions) > 0:
+                        if all(d == ':' for d in arg.dimensions):
+                            arg.dimensions = val.shape
+
+                # Propagate the new shape through the IR
+                call.context.routine._derive_variable_shape()
+
+
 class RapsTransformation(BasicTransformation):
     """
     Dedicated housekeeping pipeline for dealing with module wrapping
@@ -711,8 +731,11 @@ def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
         horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                                variable='JL', iteration=('KIDIA', 'KFDIA'))
 
-        # First, remove derived-type arguments, then remove horizontal dimension
+        # First, remove derived-type arguments
         scheduler.process(transformation=DerivedArgsTransformation())
+        # Backward insert argument shapes (for surface routines)
+        scheduler.process(transformation=InferArgShapeTransformation())
+        # And finally, remove the horizontal dimension
         scheduler.process(transformation=SCATransformation(dimension=horizontal))
 
     # Finalize by applying the RapsTransformation

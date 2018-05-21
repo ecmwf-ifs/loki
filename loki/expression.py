@@ -173,7 +173,9 @@ class Variable(Expression):
 
     @property
     def expr(self):
-        idx = '(%s)' % ','.join([str(i) for i in self.dimensions]) if len(self.dimensions) > 0 else ''
+        idx = ''
+        if self.dimensions is not None and len(self.dimensions) > 0:
+            idx = '(%s)' % ','.join([str(i) for i in self.dimensions])
         subvar = '' if self.subvar is None else '%%%s' % str(self.subvar)
         return '%s%s%s' % (self.name, idx, subvar)
 
