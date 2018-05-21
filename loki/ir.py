@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from itertools import chain
 import inspect
 
 from loki.tools import flatten, as_tuple
@@ -346,7 +347,7 @@ class Call(Node):
     Internal representation of a function call
     """
 
-    _traversable = ['arguments']
+    _traversable = ['arguments', 'kwarguments']
 
     def __init__(self, name, arguments, kwarguments=None, context=None,
                  pragma=None, source=None):
@@ -354,25 +355,38 @@ class Call(Node):
 
         self.name = name
         self.arguments = arguments
+        # kwarguments if kept as a list of tuples!
         self.kwarguments = kwarguments
         self.context = context
         self.pragma = pragma
 
     @property
     def children(self):
-        return tuple([self.arguments])
+        return tuple([as_tuple(self.arguments), as_tuple(self.kwarguments)])
 
 
 class CallContext(Node):
     """
     Special node type to encapsulate the target of a :class:`Call`
     node (usually a :call:`Subroutine`) alongside context-specific
-    meta-information. This is required for future context-sensitive
-    interprocedural-analysis (IPA).
+    meta-information. This is required for transformations requiring
+    context-sensitive inter-procedural analysis (IPA).
     """
+
     def __init__(self, routine, active):
         self.routine = routine
         self.active = active
+
+    def arg_iter(self, call):
+        """
+        Iterator that maps argument definitions in the target :class:`Subroutine`
+        to arguments and keyword arguments in the :param:`Call` provided.
+        """
+        r_args = {arg.name: arg for arg in self.routine.arguments}
+        args = zip(self.routine.arguments, call.arguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in call.kwarguments)
+        return chain(args, kwargs)
+
 
 class TypeDef(Node):
     """

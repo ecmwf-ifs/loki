@@ -318,38 +318,38 @@ class SCATransformation(AbstractTransformation):
                 routine = call.context.routine
 
                 # Replace target dimension with a loop index in arguments
-                for darg, karg in zip(call.arguments, routine.arguments):
-                    if not isinstance(darg, Variable):
+                for arg, val in call.context.arg_iter(call):
+                    if not isinstance(val, Variable):
                         continue
 
                     # Skip to the innermost variable of derived types
-                    while darg.subvar is not None:
-                        darg = darg.subvar
+                    while val.subvar is not None:
+                        val = val.subvar
 
                     # Insert ':' for all missing dimensions in argument
-                    if karg.shape is not None and len(darg.dimensions) == 0:
-                        darg.dimensions = tuple(Index(name=':') for _ in karg.shape)
+                    if arg.shape is not None and len(val.dimensions) == 0:
+                        val.dimensions = tuple(Index(name=':') for _ in arg.shape)
 
                     # Remove target dimension sizes from caller-side argument indices
-                    if darg.shape is not None:
-                        darg.dimensions = tuple(Index(name=target.variable)
-                                                if str(tdim) in size_expressions else ddim
-                                                for ddim, tdim in zip(darg.dimensions, darg.shape))
+                    if val.shape is not None:
+                        val.dimensions = tuple(Index(name=target.variable)
+                                               if str(tdim) in size_expressions else ddim
+                                               for ddim, tdim in zip(val.dimensions, val.shape))
 
                 # Collect caller-side expressions for dimension sizes and bounds
                 dim_lower = None
                 dim_upper = None
-                for darg, karg in zip(call.arguments, routine.arguments):
-                    if karg == target.iteration[0]:
-                        dim_lower = darg
-                    if karg == target.iteration[1]:
-                        dim_upper = darg
+                for arg, val in call.context.arg_iter(call):
+                    if arg == target.iteration[0]:
+                        dim_lower = val
+                    if arg == target.iteration[1]:
+                        dim_upper = val
 
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
                                   if karg not in target.variables)
-                kwarguments = OrderedDict((darg, karg) for darg, karg in call.kwarguments.items()
-                                          if karg not in target.variables)
+                kwarguments = list((darg, karg) for darg, karg in call.kwarguments
+                                   if karg not in target.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
                 # Create and insert new loop over target dimension

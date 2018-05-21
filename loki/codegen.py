@@ -194,7 +194,7 @@ class FortranCodegen(Visitor):
 
     def visit_Call(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments

@@ -378,7 +378,7 @@ class IRGenerator(GenericVisitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        kwargs = OrderedDict([self.visit(i) for i in o.findall('name/subscripts/argument')])
+        kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
         return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_argument(self, o, source=None):

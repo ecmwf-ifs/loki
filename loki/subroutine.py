@@ -136,7 +136,7 @@ class Subroutine(object):
 
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
-        self._derive_variable_shape(self.ir, typedefs=typedefs)
+        self._derive_variable_shape(typedefs=typedefs)
 
     def enrich_calls(self, routines):
         """
@@ -178,7 +178,7 @@ class Subroutine(object):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-    def _derive_variable_shape(self, ir, declarations=None, typedefs=None):
+    def _derive_variable_shape(self, declarations=None, typedefs=None):
         """
         Propgates the allocated dimensions (shape) from variable
         declarations to :class:`Variables` instances in the code body.
@@ -192,7 +192,7 @@ class Subroutine(object):
         Note, the shape derivation from derived types is currently
         limited to first-level nesting only.
         """
-        declarations = declarations or FindNodes(Declaration).visit(ir)
+        declarations = declarations or FindNodes(Declaration).visit(self.ir)
         typedefs = typedefs or {}
 
         # Create map of variable names to allocated shape (dimensions)
@@ -211,7 +211,7 @@ class Subroutine(object):
                                if v.dimensions is not None and len(v.dimensions) > 0})
 
         # Override shapes for deferred-shape allocations
-        for alloc in FindNodes(Allocation).visit(ir):
+        for alloc in FindNodes(Allocation).visit(self.ir):
             shapes[alloc.variable.name] = alloc.variable.dimensions
 
         class VariableShapeInjector(ExpressionVisitor, Visitor):
@@ -248,7 +248,7 @@ class Subroutine(object):
                     self.visit(c)
 
         # Apply dimensions via expression visitor (in-place)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
 
     @property
     def ir(self):
