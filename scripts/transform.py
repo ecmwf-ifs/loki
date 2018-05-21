@@ -607,7 +607,7 @@ class RapsTransformation(BasicTransformation):
         """
         replacements = {}
 
-        # Update all relevant interface imports
+        # Update all relevant interface abd module imports
         new_imports = []
         for im in FindNodes(Import).visit(routine.ir):
             for r in processor.routines:
@@ -615,12 +615,13 @@ class RapsTransformation(BasicTransformation):
                     replacements[im] = None  # Drop old C-style import
                     new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
                                            symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
+                elif not im.c_import and r.name.lower() in im.module.lower():
+                    # Hacky-ish: The above use of 'in' assumes we always use _MOD in original
+                    replacements[im] = Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
+                                              symbols=['%s_%s' % (r.name.upper(), mode.upper())])
 
-        # A hacky way to insert new imports at the end of module imports
-        last_module = [im for im in FindNodes(Import).visit(routine.ir)
-                       if not im.c_import][-1]
-        replacements[last_module] = [deepcopy(last_module)] + new_imports
-
+        # Insert new declarations and transform existing ones
+        routine.spec.prepend(new_imports)
         routine._ir = Transformer(replacements).visit(routine.ir)
 
     def adjust_dependencies(self, original, task, processor):
@@ -649,22 +650,28 @@ class RapsTransformation(BasicTransformation):
         self.loki_deps.content += [r_deps]
 
         # Run through all previous dependencies and replace any
-        # interface entries (.ok) to the current target with
-        # adependency on the newly created module.
+        # interface entries (.ok) or previous module entries ('.o')
+        # for the current target with a dependency on the newly
+        # created module.
+        # TODO: Inverse traversal might help here..?
         for d in self.loki_deps.content:
             if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
                     d.replace(intfb, str(o_mode_path))
+            if isinstance(d, Dependency) and str(o_path) in d.deps:
+                d.replace(str(o_path), str(o_mode_path))
 
         # Inject new object into the final binary libs
         objs_ifsloki = self.loki_deps.content_map['OBJS_ifsloki']
         if original in whitelist:
             # Add new dependency inplace, next to the old one
             objs_ifsloki.append_inplace(str(o_path), str(o_mode_path))
-        else:
+        elif str(o_path) in objs_ifsloki.objects:
             # Replace old dependency to avoid ghosting where possible
             objs_ifsloki.replace(str(o_path), str(o_mode_path))
+        else:
+            objs_ifsloki.objects += [str(o_mode_path)]
 
 
 @cli.command('physics')
