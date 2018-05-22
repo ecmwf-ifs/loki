@@ -66,7 +66,9 @@ class Task(object):
         """
         Set of all child routines that this work item calls.
         """
-        return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir))
+        members = [m.name.lower() for m in (self.routine.members or [])]
+        return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir)
+                     if call.name.lower() not in members)
 
     def enrich(self, routines):
         self.routine.enrich_calls(routines=routines)
