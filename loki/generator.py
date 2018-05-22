@@ -9,8 +9,9 @@ from itertools import groupby
 from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
-                     MultiConditional, WhileLoop, DataDeclaration)
-from loki.expression import (Variable, Literal, Operation, Index, InlineCall, LiteralList)
+                     MultiConditional, WhileLoop, DataDeclaration, Section)
+from loki.expression import (Variable, Literal, Operation, Index, RangeIndex,
+                             InlineCall, LiteralList)
 from loki.types import BaseType
 from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
@@ -159,14 +160,15 @@ class IRGenerator(GenericVisitor):
         bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
         return MultiConditional(expr=expr, values=values, bodies=bodies)
 
-    _re_pragma = re.compile('\!\$loki\s+(?P<keyword>\w+)', re.IGNORECASE)
+    # TODO: Deal with line-continuation pragmas!
+    _re_pragma = re.compile('\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
     def visit_comment(self, o, source=None):
         match_pragma = self._re_pragma.search(source.string)
         if match_pragma:
             # Found pragma, generate this instead
-            keyword = match_pragma.groupdict()['keyword']
-            return Pragma(keyword=keyword, source=source)
+            gd = match_pragma.groupdict()
+            return Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
         else:
             return Comment(text=o.attrib['text'], source=source)
 
@@ -224,6 +226,12 @@ class IRGenerator(GenericVisitor):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
         return Statement(target=target, expr=expr, ptr=True, source=source)
+
+    def visit_specification(self, o, source=None):
+        body = tuple(self.visit(c) for c in o.getchildren())
+        body = tuple(c for c in body if c is not None)
+        # Wrap spec area into a separate Scope
+        return Section(body=body, source=source)
 
     def visit_declaration(self, o, source=None):
         if len(o.attrib) == 0:
@@ -317,12 +325,12 @@ class IRGenerator(GenericVisitor):
                 variable = self.visit(variables)
                 # Lists of literal values are again nested, so extract
                 # them recursively.
-                l = values.find('literal')  # We explicitly recurse on l
+                lit = values.find('literal')  # We explicitly recurse on l
                 vals = []
-                while l.find('literal') is not None:
-                    vals += [self.visit(l)]
-                    l = l.find('literal')
-                vals += [self.visit(l)]
+                while lit.find('literal') is not None:
+                    vals += [self.visit(lit)]
+                    lit = lit.find('literal')
+                vals += [self.visit(lit)]
                 declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
             return tuple(declarations)
         else:
@@ -371,7 +379,7 @@ class IRGenerator(GenericVisitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        kwargs = OrderedDict([self.visit(i) for i in o.findall('name/subscripts/argument')])
+        kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
         return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_argument(self, o, source=None):
@@ -459,7 +467,7 @@ class IRGenerator(GenericVisitor):
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
-            return Index(name='%s:%s' % (lower, upper))
+            return RangeIndex(lower, upper)
         elif o.find('name'):
             return self.visit(o.find('name'))
         elif o.find('literal'):

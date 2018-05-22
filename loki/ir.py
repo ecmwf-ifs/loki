@@ -1,12 +1,13 @@
 from collections import OrderedDict
+from itertools import chain
 import inspect
 
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'Comment',
-           'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Import',
-           'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
+           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
+           'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
            'MultiConditional']
 
 
@@ -39,6 +40,16 @@ class Node(object):
 
     clone = _rebuild
 
+    def _update(self, *args, **kwargs):
+        """
+        In-place update that modifies (re-initializes) the node
+        without rebuilding it. Use with care!
+        """
+        argnames = [i for i in self._traversable if i not in kwargs]
+        self._args.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        self._args.update(kwargs)
+        self.__init__(**self._args)
+
     @property
     def args(self):
         """Arguments used to construct the Node."""
@@ -69,6 +80,7 @@ class Comment(Node):
         super(Comment, self).__init__(source=source)
 
         self.text = text
+
 
 class CommentBlock(Node):
     """
@@ -104,7 +116,7 @@ class Loop(Node):
     _traversable = ['body']
 
     def __init__(self, variable, body=None, bounds=None, pragma=None,
-                 source=None):
+                 pragma_post=None, source=None):
         super(Loop, self).__init__(source=source)
 
         self.variable = variable
@@ -113,6 +125,7 @@ class Loop(Node):
         self.bounds = tuple(bounds[i] if len(bounds) > i else None
                             for i in range(3))
         self.pragma = pragma
+        self.pragma_post = pragma_post
 
     @property
     def children(self):
@@ -181,6 +194,7 @@ class MultiConditional(Node):
     def children(self):
         return tuple([self.bodies])
 
+
 class Statement(Node):
     """
     Internal representation of a variable assignment
@@ -213,24 +227,40 @@ class MaskedStatement(Node):
         return tuple([as_tuple(self.body), as_tuple(self.default)])
 
 
-class Scope(Node):
+class Section(Node):
     """
-    Internal representation of a code region with specific properties,
-    eg. variable associations.
+    Internal representation of a single code region.
     """
 
     _traversable = ['body']
 
-    def __init__(self, body=None, associations=None, source=None):
-        super(Scope, self).__init__(source=source)
+    def __init__(self, body=None, source=None):
+        super(Section, self).__init__(source=source)
 
         self.body = body
-        self.associations = associations
 
     @property
     def children(self):
         # Note: Needs to be one tuple per `traversable`
         return tuple([self.body])
+
+    def append(self, node):
+        self._update(body=self.body + as_tuple(node))
+
+    def prepend(self, node):
+        self._update(body=as_tuple(node) + self.body)
+
+
+class Scope(Section):
+    """
+    Internal representation of a code region with specific properties,
+    eg. variable associations.
+    """
+
+    def __init__(self, body=None, associations=None, source=None):
+        super(Scope, self).__init__(body=body, source=source)
+
+        self.associations = associations
 
 
 class Declaration(Node):
@@ -244,7 +274,7 @@ class Declaration(Node):
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
-        self.variables = variables
+        self.variables = as_tuple(variables)
         self.dimensions = dimensions
         self.type = type
 
@@ -319,19 +349,45 @@ class Call(Node):
     Internal representation of a function call
     """
 
-    _traversable = ['arguments']
+    _traversable = ['arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, context=None,
+                 pragma=None, source=None):
         super(Call, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
+        # kwarguments if kept as a list of tuples!
         self.kwarguments = kwarguments
+        self.context = context
         self.pragma = pragma
 
     @property
     def children(self):
-        return tuple([self.arguments])
+        return tuple([as_tuple(self.arguments), as_tuple(self.kwarguments)])
+
+
+class CallContext(Node):
+    """
+    Special node type to encapsulate the target of a :class:`Call`
+    node (usually a :call:`Subroutine`) alongside context-specific
+    meta-information. This is required for transformations requiring
+    context-sensitive inter-procedural analysis (IPA).
+    """
+
+    def __init__(self, routine, active):
+        self.routine = routine
+        self.active = active
+
+    def arg_iter(self, call):
+        """
+        Iterator that maps argument definitions in the target :class:`Subroutine`
+        to arguments and keyword arguments in the :param:`Call` provided.
+        """
+        r_args = {arg.name: arg for arg in self.routine.arguments}
+        args = zip(self.routine.arguments, call.arguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in call.kwarguments)
+        return chain(args, kwargs)
 
 
 class TypeDef(Node):

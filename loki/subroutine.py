@@ -1,11 +1,10 @@
-from collections import Mapping
-
-from loki.generator import generate, extract_source
-from loki.ir import Declaration, Allocation, Import, TypeDef
+from loki.generator import generate
+from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
+                     Call, CallContext)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor
-from loki.tools import flatten
+from loki.tools import flatten, as_tuple
 from loki.preprocessing import blacklist
 
 
@@ -31,9 +30,10 @@ class Module(object):
                        appeared in the parsed source file.
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None,
-                 raw_source=None):
+    def __init__(self, name=None, sourcefile=None, spec=None, routines=None,
+                 ast=None, raw_source=None):
         self.name = name or ast.attrib['name']
+        self.sourcefile = sourcefile
         self.spec = spec
         self.routines = routines
 
@@ -41,7 +41,7 @@ class Module(object):
         self._raw_source = raw_source
 
     @classmethod
-    def from_source(cls, ast, raw_source, name=None):
+    def from_source(cls, ast, raw_source, sourcefile=None, name=None):
         # Process module-level type specifications
         name = name or ast.attrib['name']
 
@@ -51,12 +51,14 @@ class Module(object):
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine(ast, raw_source) for ast in routine_asts)
+        routines = tuple(Subroutine(ast, raw_source, sourcefile=sourcefile)
+                         for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source)
+        return cls(name=name, sourcefile=sourcefile, spec=spec,
+                   routines=routines, ast=ast, raw_source=raw_source)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -68,7 +70,7 @@ class Module(object):
             for v in typedef.variables:
                 if v._source.lines[0]-1 in pragmas:
                     pragma = pragmas[v._source.lines[0]-1]
-                    if pragma.keyword == 'dimension':
+                    if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
                         # Found dimension override for variable
                         dims = pragma._source.string.split('dimension(')[-1]
                         dims = dims.split(')')[0].split(',')
@@ -104,23 +106,68 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None, typedefs=None, pp_info=None):
+    def __init__(self, ast, raw_source, name=None, sourcefile=None,
+                 typedefs=None, pp_info=None):
         self.name = name or ast.attrib['name']
+        self.sourcefile = sourcefile
         self._ast = ast
         self._raw_source = raw_source
 
-        # The actual lines in the source for this subroutine
-        # TODO: Turn Section._source into a real `Source` object
-        self._source = extract_source(self._ast.attrib, raw_source).string
-
         # Create a IRs for declarations section and the loop body
         self._ir = generate(self._ast.find('body'), self._raw_source)
+
+        # Apply postprocessing rules to re-insert information lost during preprocessing
+        for name, rule in blacklist.items():
+            info = pp_info[name] if pp_info is not None and name in pp_info else None
+            self._ir = rule.postprocess(self._ir, info)
+
+        # Parse "member" subroutines recursively
+        self.members = None
+        if self._ast.find('members'):
+            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
+                                       typedefs=typedefs, pp_info=pp_info)
+                            for s in self._ast.findall('members/subroutine')]
 
         # Store the names of variables in the subroutine signature
         arg_ast = self._ast.findall('header/arguments/argument')
         self._argnames = [arg.attrib['name'].upper() for arg in arg_ast]
 
-        # Attach derived-type information to variables from given typedefs
+        # Enrich internal representation with meta-data
+        self._attach_derived_types(typedefs=typedefs)
+        self._derive_variable_shape(typedefs=typedefs)
+
+    def enrich_calls(self, routines):
+        """
+        Attach target :class:`Subroutine` object to :class:`Call`
+        objects in the IR tree.
+
+        :param call_targets: :class:`Subroutine` objects for corresponding
+                             :class:`Call` nodes in the IR tree.
+        :param active: Additional flag indicating whether this :call:`Call`
+                       represents an active/inactive edge in the
+                       interprocedural callgraph.
+        """
+        routine_map = {r.name.upper(): r for r in as_tuple(routines)}
+
+        for call in FindNodes(Call).visit(self.ir):
+            if call.name.upper() in routine_map:
+                # Calls marked as 'reference' are inactive and thus skipped
+                active = True
+                if call.pragma is not None and call.pragma.keyword == 'loki':
+                    active = not call.pragma.content.startswith('reference')
+
+                context = CallContext(routine=routine_map[call.name],
+                                      active=active)
+                call._update(context=context)
+
+        # TODO: Could extend this to module and header imports to
+        # facilitate user-directed inlining.
+
+    def _attach_derived_types(self, typedefs=None):
+        """
+        Attaches the derived type definition from external header
+        files to all :class:`Variable` instances (in-place).
+        """
         for v in self.variables:
             if typedefs is not None and v.type is not None and v.type.name in typedefs:
                 typedef = typedefs[v.type.name]
@@ -129,33 +176,7 @@ class Subroutine(object):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-        # Infers the original shape (dimensions) of each variable from declarations
-        self._derive_variable_shape(self.ir, typedefs=typedefs)
-
-        # Apply postprocessing rules to re-insert information lost during preprocessing
-        for name, rule in blacklist.items():
-            info = pp_info[name] if pp_info is not None and name in pp_info else None
-            self._ir = rule.postprocess(self._ir, info)
-
-        # And finally we parse "member" subroutines
-        self.members = None
-        if self._ast.find('members'):
-            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
-                                       typedefs=typedefs, pp_info=pp_info)
-                            for s in self._ast.findall('members/subroutine')]
-
-    def _infer_variable_dimensions(self):
-        """
-        Try to infer variable dimensions for ALLOCATABLEs
-        """
-        allocs = FindNodes(Allocation).visit(self.ir)
-        for v in self.variables:
-            if v.type.allocatable:
-                alloc = [a for a in allocs if a.variable.name == v.name]
-                if len(alloc) > 0:
-                    v.dimensions = alloc[0].variable.dimensions
-
-    def _derive_variable_shape(self, ir, declarations=None, typedefs=None):
+    def _derive_variable_shape(self, declarations=None, typedefs=None):
         """
         Propgates the allocated dimensions (shape) from variable
         declarations to :class:`Variables` instances in the code body.
@@ -169,7 +190,7 @@ class Subroutine(object):
         Note, the shape derivation from derived types is currently
         limited to first-level nesting only.
         """
-        declarations = declarations or FindNodes(Declaration).visit(ir)
+        declarations = declarations or FindNodes(Declaration).visit(self.ir)
         typedefs = typedefs or {}
 
         # Create map of variable names to allocated shape (dimensions)
@@ -188,7 +209,7 @@ class Subroutine(object):
                                if v.dimensions is not None and len(v.dimensions) > 0})
 
         # Override shapes for deferred-shape allocations
-        for alloc in FindNodes(Allocation).visit(ir):
+        for alloc in FindNodes(Allocation).visit(self.ir):
             shapes[alloc.variable.name] = alloc.variable.dimensions
 
         class VariableShapeInjector(ExpressionVisitor, Visitor):
@@ -225,7 +246,7 @@ class Subroutine(object):
                     self.visit(c)
 
         # Apply dimensions via expression visitor (in-place)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
 
     @property
     def ir(self):
@@ -233,6 +254,16 @@ class Subroutine(object):
         Intermediate representation (AST) of the body in this subroutine
         """
         return self._ir
+
+    @property
+    def spec(self):
+        """
+        :class:`Section` that contains variable declarations and module imports.
+        """
+        # Spec should always be the first section
+        spec = FindNodes(Section).visit(self.ir)[0]
+        assert len(FindNodes(Declaration).visit(spec)) > 0
+        return spec
 
     @property
     def argnames(self):

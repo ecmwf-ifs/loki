@@ -7,8 +7,8 @@ try:
 except ImportError:
     gviz = None
 
-from loki import (as_tuple, debug, info, warning, error,
-                  FortranSourceFile, FindNodes, Call)
+from loki import (as_tuple, info, warning, error, FortranSourceFile,
+                  FindNodes, Call)
 
 
 __all__ = ['Task', 'TaskScheduler']
@@ -16,8 +16,8 @@ __all__ = ['Task', 'TaskScheduler']
 
 class Task(object):
     """
-    A work item  that represents a single source routine  or module to
-    be processed.  Each :class:`Task` spawns new  work items according
+    A work item that represents a single source routine or module to
+    be processed. Each :class:`Task` spawns new work items according
     to its own subroutine calls and the scheduler's blacklist.
 
     Note: Each work item may have its own configuration settings that
@@ -25,10 +25,11 @@ class Task(object):
     specialised explicitly in the config file.
     """
 
-    def __init__(self, name, config, source_path, graph=None, typedefs=None):
+    def __init__(self, name, config, path, graph=None, typedefs=None):
         self.name = name
+        self.path = path
+        self.file = None
         self.routine = None
-        self.source_file = None
         self.graph = graph
 
         # Generate item-specific config settings
@@ -36,19 +37,19 @@ class Task(object):
         if name in config['routines']:
             self.config.update(config['routines'][name])
 
-        if source_path.exists():
+        if path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.source_file = FortranSourceFile(source_path, preprocess=True,
-                                                     typedefs=typedefs)
+                self.file = FortranSourceFile(path, preprocess=True,
+                                              typedefs=typedefs)
                 # TODO: Modules should be first-class items too
-                self.routine = self.source_file.subroutines[0]
+                self.routine = self.file.subroutines[0]
 
             except Exception as e:
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
-                warning('Could not parse %s:' % source_path)
+                warning('Could not parse %s:' % path)
                 if self.config['strict']:
                     raise e
                 else:
@@ -59,13 +60,17 @@ class Task(object):
                 self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
             info("Could not find source file %s; skipping..." % name)
 
-
     @property
     def children(self):
         """
         Set of all child routines that this work item calls.
         """
-        return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir))
+        members = [m.name.lower() for m in (self.routine.members or [])]
+        return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir)
+                     if call.name.lower() not in members)
+
+    def enrich(self, routines):
+        self.routine.enrich_calls(routines=routines)
 
 
 class TaskScheduler(object):
@@ -80,12 +85,11 @@ class TaskScheduler(object):
     :param paths: List of locations to search for source files.
     """
 
-    _deadlist = ['dr_hook', 'abor1']
+    _deadlist = ['dr_hook', 'abor1', 'abort_surf']
 
-    def __init__(self, paths, config=None, kernel_map=None, typedefs=None):
+    def __init__(self, paths, config=None, typedefs=None):
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
-        self.kernel_map = kernel_map
         self.typedefs = typedefs
         # TODO: Remove; should be done per item
         self.blacklist = []
@@ -103,7 +107,7 @@ class TaskScheduler(object):
 
     @property
     def routines(self):
-        return self.taskgraph.nodes
+        return [task.routine for task in self.taskgraph.nodes]
 
     def find_path(self, source):
         """
@@ -130,16 +134,15 @@ class TaskScheduler(object):
         for source in as_tuple(sources):
             if source in self.item_map:
                 continue
-            source_path = self.find_path(source)
             item = Task(name=source, config=self.config,
-                        source_path=source_path, graph=self.graph,
-                        typedefs=self.typedefs)
+                        path=self.find_path(source),
+                        graph=self.graph, typedefs=self.typedefs)
             self.queue.append(item)
             self.item_map[source] = item
 
             self.taskgraph.add_node(item)
 
-    def process(self, discovery=False):
+    def populate(self):
         """
         Process all enqueued source modules and routines with the
         stored kernel.
@@ -175,23 +178,29 @@ class TaskScheduler(object):
                                             fillcolor='lightblue', style='filled')
                         self.graph.edge(item.name.upper(), child.upper())
 
-        # Traverse the generated DAG with topological ordering
-        # to ensure that parent get processed before children.
-        for item in nx.topological_sort(self.taskgraph):
-            # Process work item with appropriate kernel
-            mode = item.config['mode']
-            role = item.config['role']
-            kernel = self.kernel_map[mode][role]
-            if kernel is not None:
-                kernel(item.source_file, config=self.config, processor=self)
+        # Enrich subroutine calls for inter-procedural transformations
+        for item in self.taskgraph:
+            item.enrich(routines=self.routines)
 
-            # Finally mark item as processed in list and graph
-            self.processed.append(item)
+    def process(self, transformation):
+        """
+        Process all enqueued source modules and routines with the
+        stored kernel. The traversal is performed in topological
+        order, which ensures that :class:`Call`s are always processed
+        before their target :class:`Subroutine`s.
+        """
+        for task in nx.topological_sort(self.taskgraph):
+
+            # Process work item with appropriate kernel
+            transformation.apply(task.routine, task=task, processor=self)
+
+            # Mark item as processed in list and graph
+            self.processed.append(task)
 
             if self.graph:
-                if item.name in item.config['whitelist']:
-                    self.graph.node(item.name.upper(), color='black', shape='diamond',
+                if task.name in task.config['whitelist']:
+                    self.graph.node(task.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:
-                    self.graph.node(item.name.upper(), color='black',
+                    self.graph.node(task.name.upper(), color='black',
                                     fillcolor='limegreen', style='filled')

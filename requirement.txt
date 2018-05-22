@@ -1,2 +1,5 @@
 open-fortran-parser
 click
+toml
+networkx
+graphviz

@@ -1,9 +1,6 @@
-from collections import Iterable
-
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
-from loki.types import BaseType, DataType
-from loki.expression import Literal
+from loki.types import BaseType
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
@@ -120,12 +117,13 @@ class FortranCodegen(Visitor):
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
+        pragma_post = ('\n' + self.visit(o.pragma_post)) if o.pragma_post else ''
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
         header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
                                   ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
-        return pragma + self.indent + 'DO %s\n%s\n%sEND DO' % (header, body, self.indent)
+        return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
         condition = fexprgen(o.condition, op_spaces=True)
@@ -182,6 +180,9 @@ class FortranCodegen(Visitor):
         default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
         return header + body + default + footer
 
+    def visit_Section(self, o):
+        return self.visit(o.body)
+
     def visit_Scope(self, o):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)
@@ -190,7 +191,7 @@ class FortranCodegen(Visitor):
 
     def visit_Call(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments.items())
+            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments
