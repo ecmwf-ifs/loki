@@ -1,6 +1,4 @@
-from collections import Mapping
-
-from loki.generator import generate, extract_source
+from loki.generator import generate
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
                      Call, CallContext)
 from loki.expression import Variable, ExpressionVisitor

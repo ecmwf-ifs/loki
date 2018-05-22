@@ -148,5 +148,5 @@ blacklist = {
     'IBM_DIRECTIVES': PPRule(match=re.compile('(@PROCESS.*\n)'), replace='\n'),
 
     # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-    'CONTIGUOUS' : PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
+    'CONTIGUOUS': PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
 }

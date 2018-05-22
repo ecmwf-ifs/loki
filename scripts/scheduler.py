@@ -7,8 +7,8 @@ try:
 except ImportError:
     gviz = None
 
-from loki import (as_tuple, debug, info, warning, error,
-                  FortranSourceFile, FindNodes, Call)
+from loki import (as_tuple, info, warning, error, FortranSourceFile,
+                  FindNodes, Call)
 
 
 __all__ = ['Task', 'TaskScheduler']
@@ -59,7 +59,6 @@ class Task(object):
             if self.graph:
                 self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
             info("Could not find source file %s; skipping..." % name)
-
 
     @property
     def children(self):

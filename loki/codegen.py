@@ -1,9 +1,6 @@
-from collections import Iterable
-
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
-from loki.types import BaseType, DataType
-from loki.expression import Literal
+from loki.types import BaseType
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 

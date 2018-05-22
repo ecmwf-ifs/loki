@@ -325,12 +325,12 @@ class IRGenerator(GenericVisitor):
                 variable = self.visit(variables)
                 # Lists of literal values are again nested, so extract
                 # them recursively.
-                l = values.find('literal')  # We explicitly recurse on l
+                lit = values.find('literal')  # We explicitly recurse on l
                 vals = []
-                while l.find('literal') is not None:
-                    vals += [self.visit(l)]
-                    l = l.find('literal')
-                vals += [self.visit(l)]
+                while lit.find('literal') is not None:
+                    vals += [self.visit(lit)]
+                    lit = lit.find('literal')
+                vals += [self.visit(lit)]
                 declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
             return tuple(declarations)
         else:

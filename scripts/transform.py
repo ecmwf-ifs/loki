@@ -4,11 +4,10 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (FortranSourceFile, Visitor, Loop, Variable,
-                  Declaration, FindNodes, Call, Pragma, fgen,
-                  BaseType, Module, info, DerivedType,
-                  ExpressionVisitor, Transformer, Import, as_tuple,
-                  FindVariables, Index, Allocation,
+from loki import (FortranSourceFile, Visitor, ExpressionVisitor,
+                  Transformer, FindNodes, FindVariables, info,
+                  as_tuple, Loop, Variable, Declaration, Call, Pragma,
+                  BaseType, DerivedType, Import, Index,
                   AbstractTransformation, BasicTransformation)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
@@ -310,7 +309,6 @@ class SCATransformation(AbstractTransformation):
         before they are stripped from the kernel itself.
         """
         size_expressions = target.size_expressions
-        vmap = caller.variable_map
         replacements = {}
 
         for call in FindNodes(Call).visit(caller.ir):
@@ -366,6 +364,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in caller.variables:
             caller.spec.append(Declaration(variables=Variable(name=target.variable),
                                            type=BaseType(name='INTEGER', kind='JPIM')))
+
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
     """
@@ -441,11 +440,14 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
         """
 
         def _pipeline(self, routine, **kwargs):
+            # Define the horizontal dimension
+            horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
+                                   variable='JL', iteration=('KIDIA', 'KFDIA'))
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
                 for loop in FindNodes(Loop).visit(routine.ir):
-                    if loop.variable == target.variable:
+                    if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
                         pragma_nowait = Pragma(keyword='omp',

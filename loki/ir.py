@@ -81,6 +81,7 @@ class Comment(Node):
 
         self.text = text
 
+
 class CommentBlock(Node):
     """
     Internal representation of a block comment.
@@ -192,6 +193,7 @@ class MultiConditional(Node):
     @property
     def children(self):
         return tuple([self.bodies])
+
 
 class Statement(Node):
     """

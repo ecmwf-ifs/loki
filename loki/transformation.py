@@ -15,7 +15,7 @@ class AbstractTransformation(object):
     """
 
     __metaclass__ = ABCMeta
-    
+
     @abstractmethod
     def _pipeline(self, routine, **kwargs):
         return
@@ -79,7 +79,7 @@ class BasicTransformation(AbstractTransformation):
         """
         filename = kwargs.get('filename')
         module_wrap = kwargs.get('module_wrap', True)
-        
+
         if module_wrap:
             name = '%s_MOD' % routine.name.upper()
             content = Module(name=name, routines=[routine])
