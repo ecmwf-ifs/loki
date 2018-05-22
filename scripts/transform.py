@@ -548,6 +548,7 @@ class InferArgShapeTransformation(AbstractTransformation):
     """
 
     def _pipeline(self, routine, **kwargs):
+
         for call in FindNodes(Call).visit(routine.ir):
             if call.context is not None and call.context.active:
 
@@ -555,7 +556,17 @@ class InferArgShapeTransformation(AbstractTransformation):
                 for arg, val in call.context.arg_iter(call):
                     if arg.dimensions is not None and len(arg.dimensions) > 0:
                         if all(d == ':' for d in arg.dimensions):
-                            arg.dimensions = val.shape
+                            if len(val.shape) == len(arg.dimensions):
+                                # We're passing the full value array, copy shape
+                                arg.dimensions = val.shape
+                            else:
+                                # Passing a sub-array of val, find the right index
+                                idx = [s for s, d in zip(val.shape, val.dimensions)
+                                       if d == ':']
+                                arg.dimensions = as_tuple(idx)
+
+                # TODO: The derived call-side dimensions can be undefined in the
+                # called routine, so we need to add them to the call signature.
 
                 # Propagate the new shape through the IR
                 call.context.routine._derive_variable_shape()
