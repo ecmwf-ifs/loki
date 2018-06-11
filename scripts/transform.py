@@ -4,7 +4,7 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (FortranSourceFile, Visitor, ExpressionVisitor,
+from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
                   BaseType, DerivedType, Import, Index,
@@ -20,7 +20,7 @@ def get_typedefs(typedef):
     """
     definitions = {}
     for tfile in typedef:
-        module = FortranSourceFile(tfile).modules[0]
+        module = SourceFile.from_file(tfile).modules[0]
         definitions.update(module.typedefs)
     return definitions
 
@@ -425,8 +425,8 @@ def idempotence(out_path, source, driver, header, flatten_args, openmp):
     typedefs = get_typedefs(header)
 
     # Parse original driver and kernel routine, and enrich the driver
-    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
-    driver = FortranSourceFile(driver).subroutines[0]
+    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
+    driver = SourceFile.from_file(driver).subroutines[0]
     driver.enrich_calls(routines=routine)
 
     # Prepare output paths
@@ -503,8 +503,8 @@ def convert(out_path, source, driver, header, strip_omp_do, mode):
     typedefs = get_typedefs(header)
 
     # Parse original kernel routine and inject type definitions
-    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
-    driver = FortranSourceFile(driver, typedefs=typedefs).subroutines[0]
+    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
+    driver = SourceFile.from_file(driver, typedefs=typedefs).subroutines[0]
     driver.enrich_calls(routines=routine)
 
     # Prepare output paths
@@ -608,7 +608,7 @@ class RapsTransformation(BasicTransformation):
         self.rename_calls(routine, suffix=mode.upper())
         self.adjust_imports(routine, mode, processor)
 
-        filename = routine.sourcefile.path.with_suffix('.%s.F90' % mode)
+        filename = task.path.with_suffix('.%s.F90' % mode)
         if role == 'driver':
             self.write_to_file(routine, filename=filename, module_wrap=False)
         else:

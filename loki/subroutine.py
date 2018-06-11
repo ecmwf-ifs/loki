@@ -30,10 +30,9 @@ class Module(object):
                        appeared in the parsed source file.
     """
 
-    def __init__(self, name=None, sourcefile=None, spec=None, routines=None,
+    def __init__(self, name=None, spec=None, routines=None,
                  ast=None, raw_source=None):
         self.name = name or ast.attrib['name']
-        self.sourcefile = sourcefile
         self.spec = spec
         self.routines = routines
 
@@ -41,7 +40,7 @@ class Module(object):
         self._raw_source = raw_source
 
     @classmethod
-    def from_source(cls, ast, raw_source, sourcefile=None, name=None):
+    def from_source(cls, ast, raw_source, name=None):
         # Process module-level type specifications
         name = name or ast.attrib['name']
 
@@ -51,14 +50,14 @@ class Module(object):
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine(ast, raw_source, sourcefile=sourcefile)
+        routines = tuple(Subroutine(ast, raw_source)
                          for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
 
-        return cls(name=name, sourcefile=sourcefile, spec=spec,
-                   routines=routines, ast=ast, raw_source=raw_source)
+        return cls(name=name, spec=spec, routines=routines,
+                   ast=ast, raw_source=raw_source)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -108,10 +107,8 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None, sourcefile=None,
-                 typedefs=None, pp_info=None):
+    def __init__(self, ast, raw_source, name=None, typedefs=None, pp_info=None):
         self.name = name or ast.attrib['name']
-        self.sourcefile = sourcefile
         self._ast = ast
         self._raw_source = raw_source
 

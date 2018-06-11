@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, FortranSourceFile, fgen
+from loki import clean, compile_and_load, SourceFile, fgen
 
 
 @pytest.fixture(scope='module')
@@ -23,7 +23,7 @@ def generate_identity(refpath, routinename, modulename=None, suffix=None):
     Generate the "identity" of a single subroutine with a specific suffix.
     """
     testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, suffix))
-    source = FortranSourceFile(refpath)
+    source = SourceFile.from_file(refpath)
     if suffix:
         for routine in source.subroutines:
             routine.name += '_%s' % suffix

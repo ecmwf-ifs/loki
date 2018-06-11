@@ -7,7 +7,7 @@ try:
 except ImportError:
     gviz = None
 
-from loki import (as_tuple, info, warning, error, FortranSourceFile,
+from loki import (as_tuple, info, warning, error, SourceFile,
                   FindNodes, Call)
 
 
@@ -40,8 +40,8 @@ class Task(object):
         if path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.file = FortranSourceFile(path, preprocess=True,
-                                              typedefs=typedefs)
+                self.file = SourceFile.from_file(path, preprocess=True,
+                                                 typedefs=typedefs)
                 # TODO: Modules should be first-class items too
                 self.routine = self.file.subroutines[0]
 
