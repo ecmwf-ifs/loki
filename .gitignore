@@ -20,3 +20,9 @@ tests/**/*_ofp.py
 tests/**/*_omni.f90
 tests/**/*_omni.py
 tests/**/.f2py_f2cmap
+
+# CMake oevrhead of hand-crafted test
+tests/test_transpile/CMakeFiles/*
+tests/test_transpile/CMakeCache.txt
+tests/test_transpile/Makefile
+tests/test_transpile/cmake_install.cmake
