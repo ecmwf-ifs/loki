@@ -4,12 +4,12 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (SourceFile, Visitor, ExpressionVisitor,
-                  Transformer, FindNodes, FindVariables, info,
-                  as_tuple, Loop, Variable, Call, Pragma,
-                  BaseType, DerivedType, Import, Index, RangeIndex,
+from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
+                  FindNodes, FindVariables, info, as_tuple, Loop,
+                  Variable, Call, Pragma, BaseType,
+                  DerivedType, Import, Index, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
-                  Frontend, OFP)
+                  Frontend, OMNI, OFP, cgen)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -523,6 +523,78 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                                symbols=[routine.name.upper()]))
     BasicTransformation().rename_calls(driver, suffix=mode.upper())
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
+
+
+class ISOCTransformation(BasicTransformation):
+    """
+    Conversion to C kernels with ISO_C bindings interfaces
+    """
+
+    def _pipeline(self, routine, **kwargs):
+        self.generate_kernel(routine, **kwargs)
+        # self.generate_wrapper(routine, **kwargs)
+
+        # Perform necessary housekeeking tasks
+        self.rename_routine(routine, suffix='C')
+        self.write_to_file(routine, **kwargs)
+
+    def generate_kernel(self, routine, **kwargs):
+        """
+        Extract and strip the Fortran IR and re-generate in C.
+        """
+        c_path = kwargs.get('c_path')
+        c_kernel = Subroutine(name='%s_c' % routine.name, args=routine.argnames,
+                              spec=routine.spec, body=routine.body)
+        SourceFile.to_file(source=cgen(c_kernel), path=c_path)
+
+
+@cli.command()
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--source', '-s', type=click.Path(),
+              help='Source file to convert.')
+@click.option('--driver', '-d', type=click.Path(),
+              help='Driver file to convert.')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
+def transpile(out_path, header, source, driver, xmod, include):
+    """
+    Convert kernels to C and generate ISO-C bindings and interfaces.
+    """
+
+    # Parse original driver and kernel routine, and enrich the driver
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
+                                   includes=include, frontend=OMNI).subroutines[0]
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=OMNI).subroutines[0]
+    driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path / routine.name.lower()).with_suffix('.c.F90')
+    driver_out = (out_path / driver.name.lower()).with_suffix('.c.F90')
+    c_path = (out_path / ('%s_c' % routine.name.lower())).with_suffix('.c')
+
+    # Unroll derived-type arguments into multiple arguments
+    # Caller must go first, as it needs info from routine
+    DerivedArgsTransformation().apply(driver)
+    DerivedArgsTransformation().apply(routine)
+
+    # Now we instantiate our pipeline and apply the changes
+    transformation = ISOCTransformation()
+    transformation.apply(routine, filename=source_out, c_path=c_path)
+
+    # Insert new module import into the driver and re-generate
+    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
+    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
+                               symbols=[routine.name.upper()]))
+    transformation.rename_calls(driver, suffix='C')
+    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
 class InferArgShapeTransformation(AbstractTransformation):

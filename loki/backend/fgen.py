@@ -15,7 +15,7 @@ class FortranCodegen(Visitor):
         self.linewidth = linewidth
         self.conservative = conservative
         self.chunking = chunking
-        self._depth = 0
+        self._depth = depth
 
     @classmethod
     def default_retval(cls):
