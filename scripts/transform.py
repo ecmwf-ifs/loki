@@ -628,7 +628,7 @@ class RapsTransformation(BasicTransformation):
                     replacements[im] = None  # Drop old C-style import
                     new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
                                            symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
-                elif not im.c_import and r.name.lower() in im.module.lower():
+                elif not im.c_import and r.name.lower() == im.module.lower():
                     # Hacky-ish: The above use of 'in' assumes we always use _MOD in original
                     replacements[im] = Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
                                               symbols=['%s_%s' % (r.name.upper(), mode.upper())])
@@ -671,7 +671,7 @@ class RapsTransformation(BasicTransformation):
             if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
-                    d.replace(intfb, str(o_mode_path))
+                    d.replace(intfb[0], str(o_mode_path))
             if isinstance(d, Dependency) and str(o_path) in d.deps:
                 d.replace(str(o_path), str(o_mode_path))
 
