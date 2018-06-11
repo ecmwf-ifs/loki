@@ -3,7 +3,7 @@ from pathlib import Path
 
 from loki.module import Module
 from loki.sourcefile import SourceFile
-from loki.codegen import fgen
+from loki.backend import fgen
 from loki.visitors import FindNodes
 from loki.ir import Call
 

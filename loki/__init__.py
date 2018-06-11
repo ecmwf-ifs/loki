@@ -8,7 +8,7 @@ from loki.types import *  # noqa
 from loki.visitors import *  # noqa
 from loki.tools import * # noqa
 from loki.logging import * # noqa
-from loki.codegen import * # noqa
+from loki.backend import * # noqa
 from loki.transformation import * # noqa
 from loki.build import * # noqa
 from loki.debug import * # noqa
