@@ -58,8 +58,8 @@ class SourceFile(object):
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
-        routines = [Subroutine(ast=r, raw_source=raw_source,
-                               typedefs=typedefs, pp_info=pp_info)
+        routines = [Subroutine.from_source(ast=r, raw_source=raw_source,
+                                           typedefs=typedefs, pp_info=pp_info)
                     for r in ast.findall('file/subroutine')]
         modules = [Module.from_source(ast=m, raw_source=raw_source)
                    for m in ast.findall('file/module')]

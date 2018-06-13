@@ -50,7 +50,7 @@ class Module(object):
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine(ast, raw_source)
+        routines = tuple(Subroutine.from_source(ast, raw_source)
                          for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
@@ -107,33 +107,44 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, ast, raw_source, name=None, typedefs=None, pp_info=None):
-        self.name = name or ast.attrib['name']
+    def __init__(self, name, ir, args=None, members=None, ast=None):
+        self.name = name
         self._ast = ast
-        self._raw_source = raw_source
+
+        self._ir = ir
+        self._argnames = args
+        self.members = members
+
+    @classmethod
+    def from_source(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
+        name = name or ast.attrib['name']
 
         # Create a IRs for declarations section and the loop body
-        self._ir = parse(self._ast.find('body'), self._raw_source)
+        ir = parse(ast.find('body'), raw_source)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
-        for name, rule in blacklist.items():
-            info = pp_info[name] if pp_info is not None and name in pp_info else None
-            self._ir = rule.postprocess(self._ir, info)
+        for r_name, rule in blacklist.items():
+            info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
+            ir = rule.postprocess(ir, info)
 
         # Parse "member" subroutines recursively
-        self.members = None
-        if self._ast.find('members'):
-            self.members = [Subroutine(ast=s, raw_source=self._raw_source,
-                                       typedefs=typedefs, pp_info=pp_info)
-                            for s in self._ast.findall('members/subroutine')]
+        members = None
+        if ast.find('members'):
+            members = [Subroutine.from_source(ast=s, raw_source=raw_source,
+                                              typedefs=typedefs, pp_info=pp_info)
+                       for s in ast.findall('members/subroutine')]
 
         # Store the names of variables in the subroutine signature
-        arg_ast = self._ast.findall('header/arguments/argument')
-        self._argnames = [arg.attrib['name'].upper() for arg in arg_ast]
+        arg_ast = ast.findall('header/arguments/argument')
+        args = [arg.attrib['name'].upper() for arg in arg_ast]
+
+        obj = cls(name=name, ir=ir, args=args, members=members, ast=ast)
 
         # Enrich internal representation with meta-data
-        self._attach_derived_types(typedefs=typedefs)
-        self._derive_variable_shape(typedefs=typedefs)
+        obj._attach_derived_types(typedefs=typedefs)
+        obj._derive_variable_shape(typedefs=typedefs)
+
+        return obj
 
     def enrich_calls(self, routines):
         """
