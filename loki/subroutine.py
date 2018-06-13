@@ -1,11 +1,11 @@
-from loki.generator import generate
+from loki.frontend.generator import parse
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
                      Call, CallContext)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor
 from loki.tools import flatten, as_tuple
-from loki.preprocessing import blacklist
+from loki.frontend.preprocessing import blacklist
 
 
 __all__ = ['Subroutine', 'Module']
@@ -47,7 +47,7 @@ class Module(object):
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = generate(spec_ast, raw_source)
+        spec = parse(spec_ast, raw_source)
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
@@ -116,7 +116,7 @@ class Subroutine(object):
         self._raw_source = raw_source
 
         # Create a IRs for declarations section and the loop body
-        self._ir = generate(self._ast.find('body'), self._raw_source)
+        self._ir = parse(self._ast.find('body'), self._raw_source)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for name, rule in blacklist.items():

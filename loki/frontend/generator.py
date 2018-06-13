@@ -17,7 +17,7 @@ from loki.visitors import GenericVisitor, Visitor, NestedTransformer
 from loki.tools import as_tuple, timeit
 from loki.logging import DEBUG
 
-__all__ = ['generate', 'extract_source', 'Source']
+__all__ = ['parse', 'extract_source', 'Source']
 
 
 class Source(object):
@@ -578,7 +578,7 @@ class PatternFinder(Visitor):
 
 
 @timeit(log_level=DEBUG)
-def generate(ofp_ast, raw_source):
+def parse(ofp_ast, raw_source):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
     output.

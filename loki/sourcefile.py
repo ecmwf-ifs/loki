@@ -10,7 +10,7 @@ from collections import OrderedDict
 from loki.subroutine import Subroutine, Module
 from loki.tools import disk_cached, timeit, flatten, as_tuple
 from loki.logging import info, DEBUG
-from loki.preprocessing import blacklist
+from loki.frontend.preprocessing import blacklist
 
 
 __all__ = ['FortranSourceFile']
