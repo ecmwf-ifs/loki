@@ -10,7 +10,7 @@ from collections import OrderedDict
 from loki.subroutine import Subroutine, Module
 from loki.tools import disk_cached, timeit, flatten, as_tuple
 from loki.logging import info, DEBUG
-from loki.frontend.preprocessing import blacklist
+from loki.frontend import OMNI, OFP, blacklist
 
 
 __all__ = ['SourceFile']
@@ -33,7 +33,16 @@ class SourceFile(object):
         self._ast = ast
 
     @classmethod
-    def from_file(cls, filename, preprocess=False, typedefs=None):
+    def from_file(cls, filename, preprocess=False, typedefs=None, frontend=OFP):
+        if frontend == OMNI:
+            raise NotImplementedError('No OMNI frontend yet')
+        elif frontend == OFP:
+            return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
+        else:
+            raise NotImplementedError('Unknown frontend: %s' % frontend)
+
+    @classmethod
+    def from_ofp(cls, filename, preprocess=False, typedefs=None):
         file_path = Path(filename)
         info_path = file_path.with_suffix('.pp.info')
 

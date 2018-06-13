@@ -1,11 +1,11 @@
-from loki.frontend.generator import parse
+from loki.frontend.parse import parse
+from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
                      Call, CallContext)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor
 from loki.tools import flatten, as_tuple
-from loki.frontend.preprocessing import blacklist
 
 
 __all__ = ['Subroutine', 'Module']

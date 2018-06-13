@@ -1,93 +1,25 @@
-"""
-Module to manage loops and statements via an internal representation(IR)/AST.
-"""
-
-import re
-from collections import OrderedDict, deque
-from itertools import groupby
-
-from loki.ir import (Loop, Statement, Conditional, Call, Comment, CommentBlock,
+from loki.frontend.source import extract_source
+from loki.visitors import GenericVisitor
+from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, Operation, Index, RangeIndex,
                              InlineCall, LiteralList)
 from loki.types import BaseType
-from loki.visitors import GenericVisitor, Visitor, NestedTransformer
-from loki.tools import as_tuple, timeit
-from loki.logging import DEBUG
+from loki.tools import as_tuple
 
-__all__ = ['parse', 'extract_source', 'Source']
-
-
-class Source(object):
-
-    def __init__(self, string, lines):
-        self.string = string
-        self.lines = lines
-
-    def __repr__(self):
-        return 'Source<lines %s-%s>' % (self.lines[0], self.lines[1])
+import re
+from collections import OrderedDict, deque
 
 
-def extract_source(ast, text, full_lines=False):
-    """
-    Extract the marked string from source text.
-    """
-    attrib = ast.attrib if hasattr(ast, 'attrib') else ast
-    lstart = int(attrib['line_begin'])
-    lend = int(attrib['line_end'])
-    cstart = int(attrib['col_begin'])
-    cend = int(attrib['col_end'])
-
-    text = text.splitlines(keepends=True)
-
-    if full_lines:
-        return Source(string=''.join(text[lstart-1:lend]),
-                      lines=(lstart, lend))
-
-    lines = text[lstart-1:lend]
-
-    # Scan for line continuations and honour inline
-    # comments in between continued lines
-    def continued(line):
-        if '!' in line:
-            line = line.split('!')[0]
-        return line.strip().endswith('&')
-
-    def is_comment(line):
-        return line.strip().startswith('!')
-
-    # We only honour line continuation if we're not parsing a comment
-    if not is_comment(lines[-1]):
-        while continued(lines[-1]) or is_comment(lines[-1]):
-            lend += 1
-            # TODO: Strip the leading empty space before the '&'
-            lines.append(text[lend-1])
-
-    # If line continuation is used, move column index to the relevant parts
-    while cstart >= len(lines[0]):
-        if not is_comment(lines[0]):
-            cstart -= len(lines[0])
-            cend -= len(lines[0])
-        lines = lines[1:]
-        lstart += 1
-
-    # TODO: The column indexes are still not right, so source strings
-    # for sub-expressions are likely wrong!
-    if lstart == lend:
-        lines[0] = lines[0][cstart:cend]
-    else:
-        lines[0] = lines[0][cstart:]
-        lines[-1] = lines[-1][:cend]
-
-    return Source(string=''.join(lines), lines=(lstart, lend))
+__all__ = ['OFP2IR']
 
 
-class IRGenerator(GenericVisitor):
+class OFP2IR(GenericVisitor):
 
     def __init__(self, raw_source):
-        super(IRGenerator, self).__init__()
+        super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
 
@@ -99,7 +31,7 @@ class IRGenerator(GenericVisitor):
         if tag in self._handlers:
             return self._handlers[tag]
         else:
-            return super(IRGenerator, self).lookup_method(instance)
+            return super(OFP2IR, self).lookup_method(instance)
 
     def visit(self, o):
         """
@@ -109,7 +41,7 @@ class IRGenerator(GenericVisitor):
             source = extract_source(o.attrib, self._raw_source)
         except KeyError:
             source = None
-        return super(IRGenerator, self).visit(o, source=source)
+        return super(OFP2IR, self).visit(o, source=source)
 
     def visit_Element(self, o, source=None):
         """
@@ -505,127 +437,3 @@ class IRGenerator(GenericVisitor):
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
-
-
-class SequenceFinder(Visitor):
-    """
-    Utility visitor that finds repeated nodes of the same type in
-    lists/tuples within a given tree.
-    """
-
-    def __init__(self, node_type):
-        super(SequenceFinder, self).__init__()
-        self.node_type = node_type
-
-    @classmethod
-    def default_retval(cls):
-        return []
-
-    def visit_tuple(self, o):
-        groups = []
-        for c in o:
-            # First recurse...
-            subgroups = self.visit(c)
-            if subgroups is not None and len(subgroups) > 0:
-                groups += subgroups
-        for t, group in groupby(o, lambda o: type(o)):
-            # ... then add new groups
-            g = tuple(group)
-            if t is self.node_type and len(g) > 1:
-                groups.append(g)
-        return groups
-
-    visit_list = visit_tuple
-
-
-class PatternFinder(Visitor):
-    """
-    Utility visitor that finds a pattern of nodes given as tuple/list
-    of types within a given tree.
-    """
-
-    def __init__(self, pattern):
-        super(PatternFinder, self).__init__()
-        self.pattern = pattern
-
-    @classmethod
-    def default_retval(cls):
-        return []
-
-    def match_indices(self, pattern, sequence):
-        """ Return indices of matched patterns in sequence. """
-        matches = []
-        for i in range(len(sequence)):
-            if sequence[i] == pattern[0]:
-                if tuple(sequence[i:i+len(pattern)]) == tuple(pattern):
-                    matches.append(i)
-        return matches
-
-    def visit_tuple(self, o):
-        matches = []
-        for c in o:
-            # First recurse...
-            submatches = self.visit(c)
-            if submatches is not None and len(submatches) > 0:
-                matches += submatches
-        types = list(map(type, o))
-        idx = self.match_indices(self.pattern, types)
-        for i in idx:
-            matches.append(o[i:i+len(self.pattern)])
-        return matches
-
-    visit_list = visit_tuple
-
-
-@timeit(log_level=DEBUG)
-def parse(ofp_ast, raw_source):
-    """
-    Generate an internal IR from the raw OFP (Open Fortran Parser)
-    output.
-
-    The internal IR is intended to represent the code at a much higher
-    level than the raw langage constructs that OFP returns.
-    """
-
-    # Parse the OFP AST into a raw IR
-    ir = IRGenerator(raw_source).visit(ofp_ast)
-
-    # Identify inline comments and merge them onto statements
-    pairs = PatternFinder(pattern=(Statement, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(Declaration, Comment)).visit(ir)
-    mapper = {}
-    for pair in pairs:
-        if pair[0]._source.lines[0] == pair[1]._source.lines[0]:
-            # Comment is in-line and can be merged
-            # Note, we need to re-create the statement node
-            # so that Transformers don't throw away the changes.
-            mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-            mapper[pair[1]] = None  # Mark for deletion
-    ir = NestedTransformer(mapper).visit(ir)
-
-    # Cluster comments into comment blocks
-    comment_mapper = {}
-    comment_groups = SequenceFinder(node_type=Comment).visit(ir)
-    for comments in comment_groups:
-        # Build a CommentBlock and map it to first comment
-        # and map remaining comments to None for removal
-        block = CommentBlock(comments)
-        comment_mapper[comments[0]] = block
-        for c in comments[1:]:
-            comment_mapper[c] = None
-    ir = NestedTransformer(comment_mapper).visit(ir)
-
-    # Find pragmas and merge them onto declarations and subroutine calls
-    # Note: Pragmas in derived types are already associated with the
-    # declaration due to way we parse derived types.
-    pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
-    pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
-    mapper = {}
-    for pair in pairs:
-        if pair[0]._source.lines[0] == pair[1]._source.lines[0] - 1:
-            # Merge pragma with declaration and delete
-            mapper[pair[0]] = None  # Mark for deletion
-            mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
-    ir = NestedTransformer(mapper).visit(ir)
-
-    return ir
