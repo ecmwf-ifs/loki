@@ -54,7 +54,7 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def disk_cached(argname):
+def disk_cached(argname, suffix='cache'):
     """
     A function that creates a decorator which will cache the result of a function
 
@@ -72,7 +72,7 @@ def disk_cached(argname):
             to that file with the suffix ``.cache``.
             """
             filename = kwargs[argname]
-            cachefile = '%s.cache' % filename
+            cachefile = '%s.%s' % (filename, suffix)
             if os.path.exists(cachefile):
                 # Only use cache if it is newer than the file
                 filetime = os.path.getmtime(filename)

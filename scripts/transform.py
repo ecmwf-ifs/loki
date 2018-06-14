@@ -8,20 +8,20 @@ from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
                   BaseType, DerivedType, Import, Index,
-                  AbstractTransformation, BasicTransformation)
+                  AbstractTransformation, BasicTransformation, OMNI, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
 
 
-def get_typedefs(typedef):
+def get_typedefs(typedef, xmods=None):
     """
     Read derived type definitions from typedef modules.
     """
     definitions = {}
     for tfile in typedef:
-        module = SourceFile.from_file(tfile).modules[0]
-        definitions.update(module.typedefs)
+        source = SourceFile.from_file(tfile, xmods=xmods)
+        definitions.update(source.modules[0].typedefs)
     return definitions
 
 
@@ -410,6 +410,8 @@ def cli():
               help='Path for generated souce files.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
@@ -418,11 +420,11 @@ def cli():
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-def idempotence(out_path, source, driver, header, flatten_args, openmp):
+def idempotence(out_path, source, driver, header, xmod, flatten_args, openmp):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    typedefs = get_typedefs(header)
+    typedefs = get_typedefs(header, xmods=xmod)
 
     # Parse original driver and kernel routine, and enrich the driver
     routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]

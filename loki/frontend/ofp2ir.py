@@ -1,3 +1,8 @@
+import open_fortran_parser
+from collections import OrderedDict, deque
+from pathlib import Path
+import re
+
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
 from loki.ir import (Loop, Statement, Conditional, Call, Comment,
@@ -7,13 +12,24 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
 from loki.expression import (Variable, Literal, Operation, Index, RangeIndex,
                              InlineCall, LiteralList)
 from loki.types import BaseType
-from loki.tools import as_tuple
-
-import re
-from collections import OrderedDict, deque
+from loki.tools import as_tuple, timeit, disk_cached
+from loki.logging import info, DEBUG
 
 
-__all__ = ['OFP2IR']
+__all__ = ['parse_ofp', 'OFP2IR']
+
+
+@timeit(log_level=DEBUG)
+@disk_cached(argname='filename', suffix='ofpast')
+def parse_ofp(filename):
+    """
+    Read and parse a source file using the Open Fortran Parser (OFP).
+
+    Note: The parsing is cached on disk in ``<filename>.cache``.
+    """
+    filepath = Path(filename)
+    info("[Frontend.OFP] Parsing %s" % filepath.name)
+    return open_fortran_parser.parse(filepath)
 
 
 class OFP2IR(GenericVisitor):

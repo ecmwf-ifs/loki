@@ -40,7 +40,7 @@ class Module(object):
         self._raw_source = raw_source
 
     @classmethod
-    def from_source(cls, ast, raw_source, name=None):
+    def from_ofp(cls, ast, raw_source, name=None):
         # Process module-level type specifications
         name = name or ast.attrib['name']
 
@@ -50,7 +50,7 @@ class Module(object):
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine.from_source(ast, raw_source)
+        routines = tuple(Subroutine.from_ofp(ast, raw_source)
                          for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
@@ -58,6 +58,10 @@ class Module(object):
 
         return cls(name=name, spec=spec, routines=routines,
                    ast=ast, raw_source=raw_source)
+
+    @classmethod
+    def from_omni(cls, ast, raw_source, name=None):
+        raise NotImplementedError('OMNI->IR conversion missing')
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -116,7 +120,7 @@ class Subroutine(object):
         self.members = members
 
     @classmethod
-    def from_source(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
         name = name or ast.attrib['name']
 
         # Create a IRs for declarations section and the loop body
@@ -130,8 +134,8 @@ class Subroutine(object):
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_source(ast=s, raw_source=raw_source,
-                                              typedefs=typedefs, pp_info=pp_info)
+            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source,
+                                           typedefs=typedefs, pp_info=pp_info)
                        for s in ast.findall('members/subroutine')]
 
         # Store the names of variables in the subroutine signature
@@ -145,6 +149,10 @@ class Subroutine(object):
         obj._derive_variable_shape(typedefs=typedefs)
 
         return obj
+
+    @classmethod
+    def from_omni(cls, ast, raw_source, name=None, typedefs=None):
+        raise NotImplementedError('OMNI->IR conversion missing')
 
     def enrich_calls(self, routines):
         """

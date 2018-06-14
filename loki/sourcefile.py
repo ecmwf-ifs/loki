@@ -3,14 +3,13 @@ Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
 import pickle
-import open_fortran_parser
 from pathlib import Path
 from collections import OrderedDict
 
 from loki.subroutine import Subroutine, Module
-from loki.tools import disk_cached, timeit, flatten, as_tuple
-from loki.logging import info, DEBUG
-from loki.frontend import OMNI, OFP, blacklist
+from loki.tools import flatten, as_tuple
+from loki.logging import info
+from loki.frontend import OMNI, OFP, blacklist, parse_omni, parse_ofp
 
 
 __all__ = ['SourceFile']
@@ -33,13 +32,32 @@ class SourceFile(object):
         self._ast = ast
 
     @classmethod
-    def from_file(cls, filename, preprocess=False, typedefs=None, frontend=OFP):
+    def from_file(cls, filename, preprocess=False, typedefs=None,
+                  xmods=None, frontend=OFP):
         if frontend == OMNI:
-            raise NotImplementedError('No OMNI frontend yet')
+            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods)
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
+
+    @classmethod
+    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None):
+        """
+        Use the OMNI compiler frontend to generate internal subroutine
+        and module IRs.
+        """
+        filepath = Path(filename)
+
+        with filepath.open() as f:
+            raw_source = f.read()
+
+        # Parse the file content into an OMNI Fortran AST
+        ast = parse_omni(filename=filename, xmods=xmods)
+
+        routines = []  # TODO: Parse subrotuines properly
+        modules = []  # TODO: Parse modules properly
+        return cls(filename, routines=routines, modules=modules, ast=ast)
 
     @classmethod
     def from_ofp(cls, filename, preprocess=False, typedefs=None):
@@ -59,7 +77,7 @@ class SourceFile(object):
             raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        ast = cls.parse_ast(filename=str(file_path))
+        ast = parse_ofp(filename=str(file_path))
 
         # Extract subroutines and pre/post sections from file
         pp_info = None
@@ -67,10 +85,10 @@ class SourceFile(object):
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
-        routines = [Subroutine.from_source(ast=r, raw_source=raw_source,
-                                           typedefs=typedefs, pp_info=pp_info)
+        routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source,
+                                        typedefs=typedefs, pp_info=pp_info)
                     for r in ast.findall('file/subroutine')]
-        modules = [Module.from_source(ast=m, raw_source=raw_source)
+        modules = [Module.from_ofp(ast=m, raw_source=raw_source)
                    for m in ast.findall('file/module')]
         return cls(filename, routines=routines, modules=modules, ast=ast)
 
@@ -113,18 +131,6 @@ class SourceFile(object):
 
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
-
-    @classmethod
-    @timeit(log_level=DEBUG)
-    @disk_cached(argname='filename')
-    def parse_ast(cls, filename):
-        """
-        Read and parse a source file usign the Open Fortran Parser.
-
-        Note: The parsing is cached on disk in ``<filename>.cache``.
-        """
-        info("Parsing %s" % filename)
-        return open_fortran_parser.parse(filename)
 
     @property
     def source(self):
