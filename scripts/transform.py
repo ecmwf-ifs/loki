@@ -406,30 +406,33 @@ def cli():
 
 
 @cli.command('idem')
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
-@click.option('--source-out', '-so', type=click.Path(),
-              help='Path for generated source output.')
-@click.option('--driver', '-d', type=click.Path(), default=None,
+@click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--driver-out', '-do', type=click.Path(), default=None,
-              help='Path for generated driver output.')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional soUrce file(s) containing type definitions')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, openmp):
+def idempotence(out_path, source, driver, header, flatten_args, openmp):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    typedefs = get_typedefs(typedef)
+    typedefs = get_typedefs(header)
 
     # Parse original driver and kernel routine, and enrich the driver
     routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
     driver = FortranSourceFile(driver).subroutines[0]
     driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path/routine.name.lower()).with_suffix('.idem.F90')
+    driver_out = (out_path/driver.name.lower()).with_suffix('.idem.F90')
 
     class IdemTransformation(BasicTransformation):
         """
@@ -477,20 +480,19 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
 
 
 @cli.command()
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
-@click.option('--source-out', '-so', type=click.Path(),
-              help='Path for generated source output.')
-@click.option('--driver', '-d', type=click.Path(), default=None,
+@click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--driver-out', '-do', type=click.Path(), default=None,
-              help='Path for generated driver output.')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional source file(s) containing type definitions')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
-@click.option('--mode', '-m', type=click.Choice(['sca', 'claw']), default='sca')
-def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode):
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['sca', 'claw']))
+def convert(out_path, source, driver, header, strip_omp_do, mode):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -498,12 +500,17 @@ def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode)
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
-    typedefs = get_typedefs(typedef)
+    typedefs = get_typedefs(header)
 
     # Parse original kernel routine and inject type definitions
     routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
     driver = FortranSourceFile(driver, typedefs=typedefs).subroutines[0]
     driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path/routine.name.lower()).with_suffix('.%s.F90' % mode)
+    driver_out = (out_path/driver.name.lower()).with_suffix('.%s.F90' % mode)
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
