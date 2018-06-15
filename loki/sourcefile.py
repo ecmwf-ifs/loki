@@ -9,7 +9,8 @@ from collections import OrderedDict
 from loki.subroutine import Subroutine, Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, blacklist, parse_omni, parse_ofp
+from loki.frontend import OMNI, OFP, blacklist, parse_ofp
+from loki.frontend.omni2ir import preprocess_omni, parse_omni
 
 
 __all__ = ['SourceFile']
@@ -33,27 +34,29 @@ class SourceFile(object):
 
     @classmethod
     def from_file(cls, filename, preprocess=False, typedefs=None,
-                  xmods=None, frontend=OFP):
+                  xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
-            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods)
+            return cls.from_omni(filename, typedefs=typedefs,
+                                 xmods=xmods, includes=includes)
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None):
+    def from_omni(cls, filename, preprocess=False, typedefs=None,
+                  xmods=None, includes=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
         filepath = Path(filename)
+        outpath = Path(filename).with_suffix('.omni.F90')
 
-        with filepath.open() as f:
-            raw_source = f.read()
+        preprocess_omni(filename, outpath, includes=includes)
 
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni(filename=filename, xmods=xmods)
+        ast = parse_omni(filename=str(outpath), xmods=xmods)
 
         routines = []  # TODO: Parse subrotuines properly
         modules = []  # TODO: Parse modules properly

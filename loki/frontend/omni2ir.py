@@ -10,14 +10,35 @@ from loki.tools import timeit, disk_cached
 __all__ = ['parse_omni']
 
 
+def preprocess_omni(filename, outname, includes=None):
+    """
+    Call C-preprocessor to sanitize input for OMNI frontend.
+    """
+    filepath = Path(filename)
+    outpath = Path(outname)
+    includes = [Path(incl) for incl in includes or []]
+
+    # TODO Make CPP driveable via flags/config
+    cmd = ['gfortran', '-E', '-cpp']
+    for incl in includes:
+        cmd += ['-I', '%s' % Path(incl)]
+    cmd += ['-o', '%s' % outpath]
+    cmd += ['%s' % filepath]
+
+    try:
+        check_call(cmd)
+    except CalledProcessError as e:
+        error('[%s] Preprocessing failed: %s' % (OMNI, ' '.join(cmd)))
+        raise e
+
+
 @timeit(log_level=DEBUG)
-@disk_cached(argname='filename', suffix='omniast')
 def parse_omni(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
     """
     filepath = Path(filename)
-    info("[Frontend.OFP] Parsing %s" % filepath.name)
+    info("[Frontend.OMNI] Parsing %s" % filepath.name)
 
     xml_path = filepath.with_suffix('.omni.F90')
     xmods = xmods or []
