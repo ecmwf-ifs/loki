@@ -51,14 +51,21 @@ class SourceFile(object):
         and module IRs.
         """
         filepath = Path(filename)
-        outpath = Path(filename).with_suffix('.omni.F90')
+        pppath = Path(filename).with_suffix('.omni.F90')
 
-        preprocess_omni(filename, outpath, includes=includes)
+        preprocess_omni(filename, pppath, includes=includes)
+
+        with pppath.open() as f:
+            raw_source = f.read()
 
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni(filename=str(outpath), xmods=xmods)
+        ast = parse_omni(filename=str(pppath), xmods=xmods)
+        typetable = ast.find('typeTable')
 
-        routines = []  # TODO: Parse subrotuines properly
+        ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
+        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source,
+                                         typetable=typetable)
+                    for ast in ast_r]
         modules = []  # TODO: Parse modules properly
         return cls(filename, routines=routines, modules=modules, ast=ast)
 

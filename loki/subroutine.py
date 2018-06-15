@@ -1,5 +1,6 @@
 from loki.frontend.parse import parse
 from loki.frontend.preprocessing import blacklist
+from loki.frontend.omni2ir import convert_omni_to_ir
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
                      Call, CallContext, CommentBlock)
 from loki.expression import Variable, ExpressionVisitor
@@ -161,8 +162,24 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, name=None, typedefs=None):
-        raise NotImplementedError('OMNI->IR conversion missing')
+    def from_omni(cls, ast, raw_source, typetable=None, name=None, typedefs=None):
+        name = name or ast.find('name').text
+
+        # spec = convert_omni_to_ir(ast.find('declarations'), raw_source)
+        ir = convert_omni_to_ir(ast.find('body'), raw_source)
+
+        # TODO: Parse member functions properly
+        members = None
+
+        # Store the names of dummy variables in the subroutine signature
+        fhash = ast.find('name').attrib['type']
+        ftype = [ft for ft in typetable.findall('FfunctionType')
+                 if ft.attrib['type'] == fhash][0]
+        args = [name.text for name in ftype.findall('params/name')]
+
+        obj = cls(name=name, ir=ir, args=args, members=members, ast=ast)
+
+        return obj
 
     def enrich_calls(self, routines):
         """
