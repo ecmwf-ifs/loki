@@ -7,7 +7,7 @@ from loki.frontend import OMNI
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, Index, Operation, InlineCall, RangeIndex
-from loki.ir import Scope, Statement, Conditional, Call, Loop
+from loki.ir import Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
 
@@ -168,12 +168,37 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=o.text)
 
     def visit_functionCall(self, o, source=None):
-        args = [self.visit(a) for a in o.find('arguments')]
-        if 'is_intrinsic' in o.attrib and o.attrib['is_intrinsic'] == 'true':
-            return InlineCall(name=o.find('name').text, arguments=args)
+        name = o.find('name').text
+        args = o.find('arguments') or tuple()
+        args = as_tuple(self.visit(a) for a in args)
+        # TODO: Slightly hacky logic to determine inline calls
+        # from generic subroutine calls. Should we follow suit
+        # and unify both types?
+        inline = o.attrib.get('is_intrinsic', 'false') == 'true'
+        inline = inline or o.attrib.get('type', 'Fvoid') != 'Fvoid'
+        if inline:
+            return InlineCall(name=name, arguments=args)
         else:
-            return Call(name=o.find('name').text, arguments=args)
+            return Call(name=name, arguments=args)
         return o.text
+
+    def visit_FallocateStatement(self, o, source=None):
+        allocs = o.findall('alloc')
+        allocations = []
+        for a in allocs:
+            v = self.visit(a[0])
+            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
+            allocations += [Allocation(variable=v)]
+        return allocations[0] if len(allocations) == 1 else as_tuple(allocations)
+
+    def visit_FdeallocateStatement(self, o, source=None):
+        allocs = o.findall('alloc')
+        deallocations = []
+        for a in allocs:
+            v = self.visit(a[0])
+            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
+            deallocations += [Deallocation(variable=v)]
+        return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
 
     def visit_plusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]

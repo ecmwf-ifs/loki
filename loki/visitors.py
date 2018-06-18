@@ -292,7 +292,7 @@ class PrintAST(Visitor):
         body = self.visit(o.children)
         self._depth -= 2
         if self.verbose and o.bounds is not None:
-            bounds = ' :: %s' % (', '.join(str(b) for b in o.bounds))
+            bounds = ' :: %s' % str(o.bounds)
         else:
             bounds = ''
         return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)
