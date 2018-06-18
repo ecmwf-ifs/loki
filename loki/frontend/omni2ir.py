@@ -45,7 +45,7 @@ def parse_omni(filename, xmods=None):
     filepath = Path(filename)
     info("[Frontend.OMNI] Parsing %s" % filepath.name)
 
-    xml_path = filepath.with_suffix('.omni.F90')
+    xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
 
     cmd = ['F_Front']
@@ -60,7 +60,7 @@ def parse_omni(filename, xmods=None):
         error('[%s] Parsing failed: %s' % (OMNI, ' '.join(cmd)))
         raise e
 
-    return ET.parse(xml_path).getroot()
+    return ET.parse(str(xml_path)).getroot()
 
 
 class OMNI2IR(GenericVisitor):

@@ -265,11 +265,13 @@ class FExprCodegen(Visitor):
     :param op_spaces: Flag indicating whether to use spaces around operators.
     """
 
-    def __init__(self, linewidth=90, indent='', op_spaces=False):
+    def __init__(self, linewidth=90, indent='', op_spaces=False,
+                 parenthesise=True):
         super(FExprCodegen, self).__init__()
         self.linewidth = linewidth
         self.indent = indent
         self.op_spaces = op_spaces
+        self.parenthesise = parenthesise
 
         # We ignore outer indents and count from 0
         self._width = 0
@@ -331,22 +333,22 @@ class FExprCodegen(Visitor):
     def visit_Operation(self, o, line):
         if len(o.ops) == 1 and len(o.operands) == 1:
             # Special case: a unary operator
-            if o.parenthesis:
+            if o.parenthesis or self.parenthesise:
                 line = self.append(line, '(')
             line = self.append(line, o.ops[0])
             line = self.visit(o.operands[0], line=line)
-            if o.parenthesis:
+            if o.parenthesis or self.parenthesise:
                 line = self.append(line, ')')
             return line
 
-        if o.parenthesis:
+        if o.parenthesis or self.parenthesise:
             line = self.append(line, '(')
         line = self.visit(o.operands[0], line=line)
         for op, operand in zip(o.ops, o.operands[1:]):
             s_op = (' %s ' % op) if self.op_spaces else str(op)
             line = self.append(line, s_op)
             line = self.visit(operand, line=line)
-        if o.parenthesis:
+        if o.parenthesis or self.parenthesise:
             line = self.append(line, ')')
         return line
 
@@ -370,9 +372,9 @@ class FExprCodegen(Visitor):
         return self.append(line, ')')
 
 
-def fexprgen(expr, linewidth=90, indent='', op_spaces=False):
+def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=True):
     """
     Generate Fortran expression code from a tree of sub-expressions.
     """
-    return FExprCodegen(linewidth=linewidth, indent=indent,
-                        op_spaces=op_spaces).visit(expr, line='')
+    return FExprCodegen(linewidth=linewidth, indent=indent, op_spaces=op_spaces,
+                        parenthesise=parenthesise).visit(expr, line='')
