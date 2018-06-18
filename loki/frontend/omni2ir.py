@@ -126,7 +126,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FifStatement(self, o, source=None):
         conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
-        bodies = [self.visit(o.find('then/body'))]
+        bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
         return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
 
@@ -171,12 +171,9 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name').text
         args = o.find('arguments') or tuple()
         args = as_tuple(self.visit(a) for a in args)
-        # TODO: Slightly hacky logic to determine inline calls
-        # from generic subroutine calls. Should we follow suit
-        # and unify both types?
-        inline = o.attrib.get('is_intrinsic', 'false') == 'true'
-        inline = inline or o.attrib.get('type', 'Fvoid') != 'Fvoid'
-        if inline:
+        # Slightly hacky: inlining is decided based on return type
+        # TODO: Unify the two call types?
+        if o.attrib.get('type', 'Fvoid') != 'Fvoid':
             return InlineCall(name=name, arguments=args)
         else:
             return Call(name=name, arguments=args)

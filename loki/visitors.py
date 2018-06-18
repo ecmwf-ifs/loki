@@ -247,6 +247,8 @@ class FindNodes(Visitor):
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
 
+    visit_list = visit_tuple
+
     def visit_Node(self, o, ret=None):
         if ret is None:
             ret = self.default_retval()
