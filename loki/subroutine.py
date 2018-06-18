@@ -201,7 +201,7 @@ class Subroutine(object):
                 if call.pragma is not None and call.pragma.keyword == 'loki':
                     active = not call.pragma.content.startswith('reference')
 
-                context = CallContext(routine=routine_map[call.name],
+                context = CallContext(routine=routine_map[call.name.upper()],
                                       active=active)
                 call._update(context=context)
 
