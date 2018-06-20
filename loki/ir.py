@@ -239,7 +239,7 @@ class Section(Node):
     def __init__(self, body=None, source=None):
         super(Section, self).__init__(source=source)
 
-        self.body = body
+        self.body = as_tuple(body)
 
     @property
     def children(self):

@@ -1,8 +1,8 @@
 from loki.frontend.parse import parse
 from loki.frontend.preprocessing import blacklist
-from loki.frontend.omni2ir import convert_omni_to_ir
+from loki.frontend.omni2ir import convert_omni2ir
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
-                     Call, CallContext, CommentBlock)
+                     Call, CallContext, CommentBlock, Intrinsic)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor, Transformer
@@ -162,22 +162,31 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable=None, name=None, typedefs=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None):
         name = name or ast.find('name').text
+        file = ast.attrib['file']
 
-        # spec = convert_omni_to_ir(ast.find('declarations'), raw_source)
-        ir = convert_omni_to_ir(ast.find('body'), raw_source)
+        # Get the names of dummy variables from the type_map
+        fhash = ast.find('name').attrib['type']
+        ftype = [t for t in typetable.findall('FfunctionType')
+                 if t.attrib['type'] == fhash][0]
+        args = as_tuple(name.text for name in ftype.findall('params/name'))
+
+        # Generate spec, filter out external declarations and insert `implicit none`
+        spec = convert_omni2ir(ast.find('declarations'), typetable=typetable,
+                               symbols=ast.find('symbols'))
+        mapper = {d: None for d in FindNodes(Declaration).visit(spec)
+                  if d._source['file'] != file or d.variables[0] == name}
+        spec = Section(body=Transformer(mapper).visit(spec))
+
+        # Convert the core kernel to IR
+        body = convert_omni2ir(ast.find('body'), typetable=typetable)
 
         # TODO: Parse member functions properly
         members = None
 
-        # Store the names of dummy variables in the subroutine signature
-        fhash = ast.find('name').attrib['type']
-        ftype = [ft for ft in typetable.findall('FfunctionType')
-                 if ft.attrib['type'] == fhash][0]
-        args = [name.text for name in ftype.findall('params/name')]
-
-        obj = cls(name=name, ir=ir, args=args, members=members, ast=ast)
+        obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
+                  members=members, ast=ast)
 
         return obj
 

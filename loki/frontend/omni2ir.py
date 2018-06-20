@@ -7,12 +7,14 @@ from loki.frontend import OMNI
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, Index, Operation, InlineCall, RangeIndex
-from loki.ir import Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation
+from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
+                     Import, Declaration, TypeDef)
+from loki.types import BaseType, DerivedType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
 
 
-__all__ = ['preprocess_omni', 'parse_omni', 'convert_omni_to_ir']
+__all__ = ['preprocess_omni', 'parse_omni', 'convert_omni2ir']
 
 
 def preprocess_omni(filename, outname, includes=None):
@@ -65,10 +67,17 @@ def parse_omni(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, raw_source):
+    def __init__(self, typetable=None, symbols=None):
         super(OMNI2IR, self).__init__()
 
-        self._raw_source = raw_source
+        self.type_map = None
+        self.symbol_map = None
+
+        if typetable is not None:
+            self.type_map = {t.attrib['type']: t for t in typetable}
+
+        if symbols is not None:
+            self.symbol_map = {s.attrib['type']: s for s in symbols}
 
     def lookup_method(self, instance):
         """
@@ -84,10 +93,9 @@ class OMNI2IR(GenericVisitor):
         """
         Generic dispatch method that tries to generate meta-data from source.
         """
-        try:
-            source = extract_source(o.attrib, self._raw_source)
-        except KeyError:
-            source = None
+        file = o.attrib.get('file', None)
+        lineno = o.attrib.get('lineno', None)
+        source = {'file': file, 'lineno': lineno}
         return super(OMNI2IR, self).visit(o, source=source)
 
     def visit_Element(self, o, source=None):
@@ -102,6 +110,56 @@ class OMNI2IR(GenericVisitor):
             return children if len(children) > 0 else None
 
     visit_body = visit_Element
+
+    def visit_FuseOnlyDecl(self, o, source=None):
+        symbols = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
+        return Import(module=o.attrib['name'], symbols=symbols, c_import=False)
+
+    def visit_varDecl(self, o, source=None):
+        name = o.find('name')
+        if name.attrib['type'] in self.type_map:
+            tast = self.type_map[name.attrib['type']]
+            type = self.visit(tast)
+            dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
+            dimensions = None if len(dimensions) == 0 else dimensions
+        else:
+            t = name.attrib['type']
+            type = BaseType(name=BaseType._omni_types.get(t, t))
+            dimensions = None
+
+        variable = Variable(name=name.text, dimensions=dimensions)
+        return Declaration(variables=as_tuple(variable), type=type, source=source)
+
+    def visit_FstructDecl(self, o, source=None):
+        name = o.find('name')
+        type = self.type_map[name.attrib['type']]
+        decls = as_tuple(self.visit(t) for t in type)
+        return TypeDef(name=name.text, declarations=decls)
+
+    def visit_FbasicType(self, o, source=None):
+        name = o.attrib.get('ref', None)
+        if name in self.type_map:
+            return self.visit(self.type_map[name])
+        else:
+            name = BaseType._omni_types.get(name, name)
+            kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
+            intent = o.attrib.get('intent', None)
+            allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
+            pointer = o.attrib.get('is_pointer', 'false') == 'true'
+            optional = o.attrib.get('is_optional', 'false') == 'true'
+            parameter = o.attrib.get('is_parameter', 'false') == 'true'
+            target = o.attrib.get('is_target', 'false') == 'true'
+            contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
+            return BaseType(name=name, kind=kind, intent=intent, allocatable=allocatable,
+                            pointer=pointer, optional=optional, parameter=parameter,
+                            target=target, contiguous=contiguous)
+
+    def visit_FstructType(self, o, source=None):
+        name = o.attrib['type']
+        if self.symbol_map is not None and name in self.symbol_map:
+            name = self.symbol_map[name].find('name').text
+        symbols = as_tuple(self.visit(s) for s in o.find('symbols'))
+        return DerivedType(name=name, variables=symbols)
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -140,7 +198,11 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FarrayRef(self, o, source=None):
         v = self.visit(o[0])
-        v.dimensions = as_tuple(self.visit(i) for i in o[1:])
+        subv = v
+        # TODO: Dirty hack; should rethink variable ref cascade
+        while subv.subvar is not None:
+            subv = subv.subvar
+        subv.dimensions = as_tuple(self.visit(i) for i in o[1:])
         return v
 
     def visit_arrayIndex(self, o, source=None):
@@ -163,6 +225,9 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text)
+
+    def visit_FcharacterConstant(self, o, source=None):
+        return Literal(value='"%s"' % o.text)
 
     def visit_FintConstant(self, o, source=None):
         return Literal(value=o.text)
@@ -217,6 +282,10 @@ class OMNI2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/'], operands=exprs)
 
+    def visit_FpowerExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['**'], operands=exprs)
+
     def visit_logOrExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['.or.'], operands=exprs)
@@ -249,13 +318,8 @@ class OMNI2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/='], operands=exprs)
 
-def convert_omni_to_ir(omni_ast, raw_source):
+def convert_omni2ir(omni_ast, typetable=None, symbols=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
-    output.
     """
-
-    # Parse the OFP AST into a raw IR
-    ir = OMNI2IR(raw_source).visit(omni_ast)
-
-    return ir
+    return OMNI2IR(typetable=typetable, symbols=symbols).visit(omni_ast)

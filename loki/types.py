@@ -22,6 +22,12 @@ class BaseType(object):
 
     _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
 
+    _omni_types = {
+        'Fint': 'INTEGER',
+        'Freal': 'REAL',
+        'Flogical': 'LOGICAL',
+    }
+
     def __init__(self, name, kind=None, intent=None, allocatable=False, pointer=False,
                  optional=None, parameter=None, target=None, contiguous=None, source=None):
         self._source = source

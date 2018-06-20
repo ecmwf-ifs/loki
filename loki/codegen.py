@@ -372,7 +372,7 @@ class FExprCodegen(Visitor):
         return self.append(line, ')')
 
 
-def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=True):
+def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=False):
     """
     Generate Fortran expression code from a tree of sub-expressions.
     """
