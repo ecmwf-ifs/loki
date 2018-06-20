@@ -8,7 +8,7 @@ from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, Index, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
-                     Import, Declaration, TypeDef)
+                     Import, Declaration, TypeDef, Intrinsic)
 from loki.types import BaseType, DerivedType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
@@ -67,17 +67,12 @@ def parse_omni(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, typetable=None, symbols=None):
+    def __init__(self, type_map=None, symbol_map=None, raw_source=None):
         super(OMNI2IR, self).__init__()
 
-        self.type_map = None
-        self.symbol_map = None
-
-        if typetable is not None:
-            self.type_map = {t.attrib['type']: t for t in typetable}
-
-        if symbols is not None:
-            self.symbol_map = {s.attrib['type']: s for s in symbols}
+        self.type_map = type_map
+        self.symbol_map = symbol_map
+        self.raw_source = raw_source
 
     def lookup_method(self, instance):
         """
@@ -127,7 +122,8 @@ class OMNI2IR(GenericVisitor):
             type = BaseType(name=BaseType._omni_types.get(t, t))
             dimensions = None
 
-        variable = Variable(name=name.text, dimensions=dimensions)
+        value = self.visit(o.find('value')) if o.find('value') is not None else None
+        variable = Variable(name=name.text, dimensions=dimensions, initial=value)
         return Declaration(variables=as_tuple(variable), type=type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -173,6 +169,11 @@ class OMNI2IR(GenericVisitor):
         target = self.visit(o[0])
         expr = self.visit(o[1])
         return Statement(target=target, expr=expr)
+
+    def visit_FpointerAssignStatement(self, o, source=None):
+        target = self.visit(o[0])
+        expr = self.visit(o[1])
+        return Statement(target=target, expr=expr, ptr=True)
 
     def visit_FdoStatement(self, o, source=None):
         assert (o.find('Var') is not None)
@@ -262,6 +263,43 @@ class OMNI2IR(GenericVisitor):
             deallocations += [Deallocation(variable=v)]
         return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
 
+    def visit_FopenStatement(self, o, source):
+        nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
+        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
+        return Intrinsic(text='open(%s)' % nargs)
+
+    def visit_FcloseStatement(self, o, source):
+        nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
+        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
+        return Intrinsic(text='close(%s)' % nargs)
+
+    def visit_FreadStatement(self, o, source):
+        nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
+        values = [self.visit(v) for v in o.find('valueList')]
+        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
+        args = ', '.join('%s' % v for v in values)
+        return Intrinsic(text='read(%s) %s' % (nargs, args))
+
+    def visit_FwriteStatement(self, o, source):
+        nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
+        values = [self.visit(v) for v in o.find('valueList')]
+        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
+        args = ', '.join('%s' % v for v in values)
+        return Intrinsic(text='write(%s) %s' % (nargs, args))
+
+    def visit_FformatDecl(self, o, source):
+        # Hackery galore; this is wrong on soooo many levels! :(
+        lineno = int(o.attrib['lineno'])
+        line = self.raw_source.splitlines(keepends=False)[lineno-1]
+        return Intrinsic(text=line)
+
+    def visit_namedValue(self, o, source):
+        name = o.attrib['name']
+        if 'value' in o.attrib:
+            return name, o.attrib['value']
+        else:
+            return name, self.visit(o.getchildren()[0])
+
     def visit_plusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['+'], operands=exprs)
@@ -318,8 +356,9 @@ class OMNI2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/='], operands=exprs)
 
-def convert_omni2ir(omni_ast, typetable=None, symbols=None):
+def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
-    return OMNI2IR(typetable=typetable, symbols=symbols).visit(omni_ast)
+    return OMNI2IR(type_map=type_map, symbol_map=symbol_map,
+                   raw_source=raw_source).visit(omni_ast)

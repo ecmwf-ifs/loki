@@ -55,7 +55,7 @@ class SourceFile(object):
 
         preprocess_omni(filename, pppath, includes=includes)
 
-        with pppath.open() as f:
+        with filepath.open() as f:
             raw_source = f.read()
 
         # Parse the file content into an OMNI Fortran AST

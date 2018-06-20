@@ -162,9 +162,11 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
+        type_map = {t.attrib['type']: t for t in typetable}
+        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
 
         # Get the names of dummy variables from the type_map
         fhash = ast.find('name').attrib['type']
@@ -173,17 +175,26 @@ class Subroutine(object):
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
         # Generate spec, filter out external declarations and insert `implicit none`
-        spec = convert_omni2ir(ast.find('declarations'), typetable=typetable,
-                               symbols=ast.find('symbols'))
+        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
+                               symbol_map=symbol_map, raw_source=raw_source)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source['file'] != file or d.variables[0] == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
-        # Convert the core kernel to IR
-        body = convert_omni2ir(ast.find('body'), typetable=typetable)
-
         # TODO: Parse member functions properly
+        contains = ast.find('body/FcontainsStatement')
         members = None
+        if contains is not None:
+            members = [Subroutine.from_omni(ast=s, typetable=typetable,
+                                            symbol_map=symbol_map,
+                                            raw_source=raw_source)
+                       for s in contains]
+            # Strip members from the XML before we proceed
+            ast.find('body').remove(contains)
+
+        # Convert the core kernel to IR
+        body = convert_omni2ir(ast.find('body'), type_map=type_map,
+                               symbol_map=symbol_map, raw_source=raw_source)
 
         obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
                   members=members, ast=ast)

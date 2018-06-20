@@ -368,7 +368,11 @@ class FExprCodegen(Visitor):
             line = self.visit(o.arguments[0], line=line)
             for arg in o.arguments[1:]:
                 line = self.append(line, ',')
-                line = self.visit(arg, line=line)
+                if isinstance(arg, tuple):
+                    line = self.append(line, '%s=' % arg[0])
+                    line = self.visit(arg[1], line=line)
+                else:
+                    line = self.visit(arg, line=line)
         return self.append(line, ')')
 
 
