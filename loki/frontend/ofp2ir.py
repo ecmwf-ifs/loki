@@ -163,7 +163,7 @@ class OFP2IR(GenericVisitor):
         return 'ENDWHERE_CONSTRUCT'
 
     def visit_cycle(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     def visit_assignment(self, o, source=None):
         target = self.visit(o.find('target'))
@@ -185,12 +185,12 @@ class OFP2IR(GenericVisitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.find('implicit-stmt') is not None:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.find('access-spec') is not None:
             # PUBLIC or PRIVATE declarations
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
@@ -270,9 +270,9 @@ class OFP2IR(GenericVisitor):
                 return Declaration(variables=variables, type=type,
                                    dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
@@ -319,10 +319,10 @@ class OFP2IR(GenericVisitor):
             module = match.groupdict()['module']
             return Import(module=module, c_import=True, source=source)
         else:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
 
     def visit_open(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     visit_close = visit_open
     visit_read = visit_open
@@ -343,7 +343,7 @@ class OFP2IR(GenericVisitor):
         return key, val
 
     def visit_exit(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     # Expression parsing below; maye move to its own parser..?
 

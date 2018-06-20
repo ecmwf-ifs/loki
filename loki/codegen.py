@@ -42,7 +42,7 @@ class FortranCodegen(Visitor):
         return self.indent + '! <%s>' % o.__class__.__name__
 
     def visit_Intrinsic(self, o):
-        return o._source.string
+        return o.text
 
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
