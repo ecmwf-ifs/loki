@@ -1,10 +1,10 @@
 from loki.frontend.parse import parse
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
-                     Call, CallContext)
+                     Call, CallContext, CommentBlock)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
-from loki.visitors import FindNodes, Visitor
+from loki.visitors import FindNodes, Visitor, Transformer
 from loki.tools import flatten, as_tuple
 
 
@@ -111,25 +111,33 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, name, ir, args=None, members=None, ast=None):
+    def __init__(self, name, args=None, docstring=None, spec=None,
+                 body=None, members=None, ast=None):
         self.name = name
+
+        self._argnames = args
         self._ast = ast
 
-        self._ir = ir
-        self._argnames = args
+        self.docstring = docstring
+        self.spec = spec
+        self.ir = body
         self.members = members
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
         name = name or ast.attrib['name']
 
+        # Store the names of variables in the subroutine signature
+        arg_ast = ast.findall('header/arguments/argument')
+        args = [arg.attrib['name'].upper() for arg in arg_ast]
+
         # Create a IRs for declarations section and the loop body
-        ir = parse(ast.find('body'), raw_source)
+        body = parse(ast.find('body'), raw_source)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for r_name, rule in blacklist.items():
             info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-            ir = rule.postprocess(ir, info)
+            body = rule.postprocess(body, info)
 
         # Parse "member" subroutines recursively
         members = None
@@ -138,11 +146,13 @@ class Subroutine(object):
                                            typedefs=typedefs, pp_info=pp_info)
                        for s in ast.findall('members/subroutine')]
 
-        # Store the names of variables in the subroutine signature
-        arg_ast = ast.findall('header/arguments/argument')
-        args = [arg.attrib['name'].upper() for arg in arg_ast]
+        # Separate docstring and declarations
+        docstring = body[0] if isinstance(body[0], CommentBlock) else None
+        spec = FindNodes(Section).visit(body)[0]
+        body = Transformer({docstring: None, spec: None}).visit(body)
 
-        obj = cls(name=name, ir=ir, args=args, members=members, ast=ast)
+        obj = cls(name=name, args=args, docstring=docstring,
+                  spec=spec, body=body, members=members, ast=ast)
 
         # Enrich internal representation with meta-data
         obj._attach_derived_types(typedefs=typedefs)
@@ -267,23 +277,6 @@ class Subroutine(object):
         VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
 
     @property
-    def ir(self):
-        """
-        Intermediate representation (AST) of the body in this subroutine
-        """
-        return self._ir
-
-    @property
-    def spec(self):
-        """
-        :class:`Section` that contains variable declarations and module imports.
-        """
-        # Spec should always be the first section
-        spec = FindNodes(Section).visit(self.ir)[0]
-        assert len(FindNodes(Declaration).visit(spec)) > 0
-        return spec
-
-    @property
     def argnames(self):
         return self._argnames
 
@@ -300,7 +293,7 @@ class Subroutine(object):
         """
         List of all declared variables
         """
-        decls = FindNodes(Declaration).visit(self.ir)
+        decls = FindNodes(Declaration).visit(self.spec)
         return flatten([d.variables for d in decls])
 
     @property
@@ -309,13 +302,6 @@ class Subroutine(object):
         Map of variable names to `Variable` objects
         """
         return {v.name.upper(): v for v in self.variables}
-
-    @property
-    def imports(self):
-        """
-        List of all module imports via USE statements
-        """
-        return FindNodes(Import).visit(self.ir)
 
     @property
     def interface(self):
