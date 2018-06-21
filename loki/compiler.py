@@ -7,7 +7,7 @@ import shutil
 from loki.logging import info, error
 
 
-__all__ = ['execute', 'compile_and_load']
+__all__ = ['execute', 'clean', 'compile_and_load']
 
 
 def execute(args):
@@ -18,15 +18,27 @@ def execute(args):
         error('Execution failed with:')
         info(e.output.decode("utf-8"))
 
-def clean(filename):
+
+def delete(filename, force=False):
+    filepath = Path(filename)
+    if force:
+        shutil.rmtree('%s' % filepath, ignore_errors=True)
+    else:
+        if filepath.exists():
+            os.remove('%s' % filepath)
+
+
+def clean(filename, suffixes=None):
     """
     Clean up compilation files of previous runs.
 
     :param filename: Filename that triggered the original compilation.
+    :param suffixes: Optional list of filetype suffixes to delete.
     """
     filepath = Path(filename)
-    shutil.rmtree('%s' % filepath.with_suffix('.cpython*.so'), ignore_errors=True)
-    # os.remove('%s' % filepath.with_suffix('.cpython*.so'))
+    suffixes = suffixes or ['.f90.cache', '.cpython*.so']
+    for suffix in suffixes:
+        delete('%s' % filepath.with_suffix(suffix))
 
 
 def compile_and_load(filename, use_f90wrap=False):
