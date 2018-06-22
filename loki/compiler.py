@@ -17,7 +17,7 @@ def execute(args):
         run(args, check=True, stdout=PIPE, stderr=STDOUT)
     except CalledProcessError as e:
         error('Execution failed with:')
-        info(e.output.decode("utf-8"))
+        error(e.output.decode("utf-8"))
 
 
 def delete(filename, force=False):
@@ -64,7 +64,7 @@ def compile_and_load(filename, use_f90wrap=False):
         clean(filename, pattern=pattern)
 
         # First, compile the module and object files
-        build = ['gfortran', '-c', '%s' % filepath.absolute()]
+        build = ['gfortran', '-c', '-fpic', '%s' % filepath.absolute()]
         execute(build)
 
         # Generate the Python interfaces

@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from pathlib import Path
 
 from loki import clean, compile_and_load, FortranSourceFile, fgen
@@ -56,3 +57,32 @@ def test_simple_loops(reference):
     item.matrix[:, :] = 4.
     test.simple_loops_test(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
+
+
+def test_array_indexing(reference):
+    """
+    item.a(:, :) = 666.
+
+    do i=1, 3
+       item%b(:, i) = vals(i)
+    end do
+    """
+    from loki import logger, DEBUG; logger.setLevel(DEBUG)
+
+    clean(filename=reference)  # Delete parser cache
+
+    # Test the reference solution
+    ref = compile_and_load(reference, use_f90wrap=True)
+    item = ref.Structure()
+    ref.array_indexing(item)
+    assert (item.vector == 666.).all()
+    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+
+    # Test the generated identity
+    test = generate_identity(reference, modulename='derived_types',
+                             routinename='array_indexing', suffix='test')
+
+    item = test.Structure()
+    test.array_indexing_test(item)
+    assert (item.vector == 666.).all()
+    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()

@@ -27,4 +27,18 @@ CONTAINS
 
   END SUBROUTINE simple_loops
 
+  SUBROUTINE array_indexing(item)
+    ! Simple vector/matrix arithmetic with a derived type
+    TYPE(structure), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%vector(:) = 666.
+
+    do i=1, 3
+       item%matrix(:, i) = vals(i)
+    end do
+
+  END SUBROUTINE array_indexing
+
 END MODULE derived_types
