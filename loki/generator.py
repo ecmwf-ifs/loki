@@ -286,7 +286,7 @@ class IRGenerator(GenericVisitor):
                         variables += [Variable(name=v.attrib['name'], type=type,
                                                dimensions=dimensions, source=v_source)]
 
-                    declarations += [Declaration(variables=variables, type=type)]
+                    declarations += [Declaration(variables=variables, type=type, source=t_source)]
                 return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
             else:
