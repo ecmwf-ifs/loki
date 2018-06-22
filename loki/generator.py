@@ -248,37 +248,38 @@ class IRGenerator(GenericVisitor):
                 # We are dealing with a derived type
                 derived_name = o.find('end-type-stmt').attrib['id']
                 declarations = []
-                pragmas = []
-                comments = []
+
+                # Process any associated comments or pragams
+                comments = [self.visit(c) for c in o.findall('comment')]
+                pragmas = [c for c in comments if isinstance(c, Pragma)]
+                comments = [c for c in comments if not isinstance(c, Pragma)]
 
                 # This is customized in our dedicated branch atm,
                 # and possibly not particularly safe either...
                 types = o.findall('type')
                 components = o.findall('components')
-                for t, comps in zip(types, components):
+                attributes = o.findall('attributes')
+                for t, comps, attr in zip(types, components, attributes):
                     # Process the type of the individual declaration
-                    attributes = [a.attrib['attrKeyword'].upper()
-                                  for a in t.findall('component-attr-spec')]
+                    attrs = [a.attrib['attrKeyword'].upper()
+                             for a in attr.findall('attribute/component-attr-spec')]
                     typename = t.attrib['name']
                     t_source = extract_source(t.attrib, self._raw_source)
                     kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
-                    type = BaseType(typename, kind=kind, pointer='POINTER' in attributes,
+                    type = BaseType(typename, kind=kind, pointer='POINTER' in attrs,
                                     source=t_source)
-
-                    # Process any associated comments or pragams
-                    if t.find('comment') is not None:
-                        comment = self.visit(t.find('comment'))
-                        if isinstance(comment, Pragma):
-                            pragmas.insert(0, comment)
-                        else:
-                            comments.insert(0, comment)
 
                     # Derive variables for this declaration entry
                     variables = []
                     for v in comps.findall('component'):
                         if len(v.attrib) == 0:
                             continue
-                        dimensions = as_tuple(self.visit(c) for c in v)
+                        deferred_shape = v.find('deferred-shape-spec-list')
+                        if deferred_shape is not None:
+                            dim_count = int(deferred_shape.attrib['count'])
+                            dimensions = [Index(':') for _ in range(dim_count)]
+                        else:
+                            dimensions = as_tuple(self.visit(c) for c in v)
                         dimensions = as_tuple(d for d in dimensions if d is not None)
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
