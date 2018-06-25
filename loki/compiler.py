@@ -18,6 +18,7 @@ def execute(args):
     except CalledProcessError as e:
         error('Execution failed with:')
         error(e.output.decode("utf-8"))
+        raise e
 
 
 def delete(filename, force=False):
