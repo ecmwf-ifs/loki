@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, fgen
+from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
 
 
 @pytest.fixture(scope='module')
@@ -19,18 +19,17 @@ def reference(refpath):
     return compile_and_load(refpath, use_f90wrap=True)
 
 
-def generate_identity(refpath, routinename, modulename=None, suffix=None):
+def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     """
-    Generate the "identity" of a single subroutine with a specific suffix.
+    Generate the "identity" of a single subroutine with a frontend-specific suffix.
     """
-    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, suffix))
-    source = SourceFile.from_file(refpath)
-    if suffix:
-        for routine in source.subroutines:
-            routine.name += '_%s' % suffix
+    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, frontend))
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    for routine in source.subroutines:
+        routine.name += '_%s' % frontend
     if modulename:
         module = [m for m in source.modules if m.name == modulename][0]
-        module.name += '_%s_%s' % (routinename, suffix)
+        module.name += '_%s_%s' % (routinename, frontend)
         source.write(source=fgen(module), filename=testname)
     else:
         routine = [r for r in source.subroutines if r.name == routinename][0]
@@ -39,7 +38,8 @@ def generate_identity(refpath, routinename, modulename=None, suffix=None):
     return compile_and_load(testname, use_f90wrap=modulename is not None)
 
 
-def test_simple_loops(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_simple_loops(refpath, reference, frontend):
     """
     item%vector = item%vector + vec
     item%matrix = item%matrix + item%scalar
@@ -54,16 +54,17 @@ def test_simple_loops(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='simple_loops', suffix='test')
+                             routinename='simple_loops', frontend=frontend)
     item = test.Explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
-    test.simple_loops_test(item)
+    getattr(test, 'simple_loops_%s' % frontend)(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
 
-def test_array_indexing_explicit(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_array_indexing_explicit(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
 
@@ -79,14 +80,15 @@ def test_array_indexing_explicit(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_explicit', suffix='test')
+                             routinename='array_indexing_explicit', frontend=frontend)
     item = test.Explicit()
-    test.array_indexing_explicit_test(item)
+    getattr(test, 'array_indexing_explicit_%s' % frontend)(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
 
-def test_array_indexing_deferred(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_array_indexing_deferred(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
 
@@ -104,10 +106,10 @@ def test_array_indexing_deferred(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_deferred', suffix='test')
+                             routinename='array_indexing_deferred', frontend=frontend)
     item = test.Deferred()
     reference.alloc_deferred(item)
-    test.array_indexing_deferred_test(item)
+    getattr(test, 'array_indexing_deferred_%s' % frontend)(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     reference.free_deferred(item)

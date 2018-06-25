@@ -18,6 +18,9 @@ class Frontend(IntEnum):
     OMNI = 1
     OFP = 2
 
+    def __str__(self):
+        return self.name.lower()
+
 
 OMNI = Frontend.OMNI
 OFP = Frontend.OFP
