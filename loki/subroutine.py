@@ -67,16 +67,18 @@ class Module(object):
         """
         for typedef in FindNodes(TypeDef).visit(spec):
             pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
-            for v in typedef.variables:
-                if v._source.lines[0]-1 in pragmas:
-                    pragma = pragmas[v._source.lines[0]-1]
-                    if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
-                        # Found dimension override for variable
-                        dims = pragma._source.string.split('dimension(')[-1]
-                        dims = dims.split(')')[0].split(',')
-                        dims = [d.strip() for d in dims]
-                        # Override dimensions (hacky: not transformer-safe!)
-                        v.dimensions = dims
+            for decl in typedef.declarations:
+                # Map pragmas by declaration line, not var line
+                if decl._source.lines[0]-1 in pragmas:
+                    pragma = pragmas[decl._source.lines[0]-1]
+                    for v in decl.variables:
+                        if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
+                            # Found dimension override for variable
+                            dims = pragma._source.string.split('dimension(')[-1]
+                            dims = dims.split(')')[0].split(',')
+                            dims = [d.strip() for d in dims]
+                            # Override dimensions (hacky: not transformer-safe!)
+                            v.dimensions = dims
 
     @property
     def typedefs(self):

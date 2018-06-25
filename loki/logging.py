@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-__all__ = ['debug', 'info', 'warning', 'error', 'log',
+__all__ = ['logger', 'debug', 'info', 'warning', 'error', 'log',
            'DEBUG', 'INFO', 'WARNING', 'ERROR']
 
 

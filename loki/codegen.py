@@ -226,7 +226,7 @@ class FortranCodegen(Visitor):
         return '%s%s%s' % (o.name, dims, initial)
 
     def visit_BaseType(self, o):
-        tname = o.name if o.name in BaseType._base_types else 'TYPE(%s)' % o.name
+        tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name
         return '%s%s%s%s%s%s%s%s%s' % (
             tname,
             '(KIND=%s)' % o.kind if o.kind else '',

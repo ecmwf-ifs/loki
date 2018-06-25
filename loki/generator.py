@@ -245,49 +245,56 @@ class IRGenerator(GenericVisitor):
             return Intrinsic(source=source)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
-                # We are dealing with a derived type:
-                # Things get really messy here, since derived types are
-                # (mis-)handled horribly by the OFP: Effectively, each
-                # component is hidden recursively in a depth-first
-                # hierarchy of 'type' nodes.
+                # We are dealing with a derived type
                 derived_name = o.find('end-type-stmt').attrib['id']
                 declarations = []
-                pragmas = []
-                comments = []
 
-                t = o  # We explicitly recurse on t
-                while t.find('type') is not None:
-                    # Process any associated comments or pragams
-                    if t.find('type/comment') is not None:
-                        comment = self.visit(t.find('type/comment'))
-                        if isinstance(comment, Pragma):
-                            pragmas.insert(0, comment)
-                        else:
-                            comments.insert(0, comment)
+                # Process any associated comments or pragams
+                comments = [self.visit(c) for c in o.findall('comment')]
+                pragmas = [c for c in comments if isinstance(c, Pragma)]
+                comments = [c for c in comments if not isinstance(c, Pragma)]
 
-                    # Derive type and variables for this entry
+                # This is customized in our dedicated branch atm,
+                # and really, really hacky! :(
+                types = o.findall('type')
+                components = o.findall('components')
+                attributes = [None] * len(types)
+                elements = o.getchildren()
+                # YUCK!!!
+                for i, (t, comps) in enumerate(zip(types, components)):
+                    attributes[i] = elements[elements.index(t)+1:elements.index(comps)]
+
+                for t, comps, attr in zip(types, components, attributes):
+                    # Process the type of the individual declaration
+                    attrs = {}
+                    if len(attr) > 0:
+                        attrs = [a.attrib['attrKeyword'].upper()
+                                 for a in attr[0].findall('attribute/component-attr-spec')]
+                    typename = t.attrib['name']
+                    t_source = extract_source(t.attrib, self._raw_source)
+                    kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
+                    type = BaseType(typename, kind=kind, pointer='POINTER' in attrs,
+                                    allocatable='ALLOCATABLE' in attrs,
+                                    source=t_source)
+
+                    # Derive variables for this declaration entry
                     variables = []
-                    attributes = [a.attrib['attrKeyword'].upper()
-                                  for a in t.findall('component-attr-spec')]
-                    typename = t.find('type').attrib['name']  # :(
-                    kind = t.find('type/kind/name').attrib['id'] if t.find('type/kind') else None
-                    type = BaseType(typename, kind=kind, pointer='POINTER' in attributes)
-                    v_source = extract_source(t.attrib, self._raw_source)
-                    v_line = int(t.find('type').attrib['line_end'])
-                    v_source.lines = (v_line, v_line)  # HACK!!!
-                    for v in t.findall('component-decl'):
-                        deferred_shape = t.find('deferred-shape-spec-list')
+                    for v in comps.findall('component'):
+                        if len(v.attrib) == 0:
+                            continue
+                        deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [':' for _ in range(dim_count)]
+                            dimensions = [Index(':') for _ in range(dim_count)]
                         else:
-                            dimensions = None
-                        variables.append(Variable(name=v.attrib['id'], type=type,
-                                                  dimensions=dimensions, source=v_source))
-                    # Pre-pend current variables to list for this DerivedType
-                    declarations.insert(0, Declaration(variables=variables, type=type))
-                    # Recurse on 'type' nodes
-                    t = t.find('type')
+                            dimensions = as_tuple(self.visit(c) for c in v)
+                        dimensions = as_tuple(d for d in dimensions if d is not None)
+                        dimensions = dimensions if len(dimensions) > 0 else None
+                        v_source = extract_source(v.attrib, self._raw_source)
+                        variables += [Variable(name=v.attrib['name'], type=type,
+                                               dimensions=dimensions, source=v_source)]
+
+                    declarations += [Declaration(variables=variables, type=type, source=t_source)]
                 return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
             else:
