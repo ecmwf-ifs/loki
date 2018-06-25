@@ -9,6 +9,7 @@ from loki import clean, compile_and_load, SourceFile, fgen
 def refpath():
     return Path(__file__).parent / 'derived_types.f90'
 
+
 @pytest.fixture(scope='module')
 def reference(refpath):
     """
