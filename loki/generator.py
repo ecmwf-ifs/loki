@@ -255,18 +255,26 @@ class IRGenerator(GenericVisitor):
                 comments = [c for c in comments if not isinstance(c, Pragma)]
 
                 # This is customized in our dedicated branch atm,
-                # and possibly not particularly safe either...
+                # and really, really hacky! :(
                 types = o.findall('type')
                 components = o.findall('components')
-                attributes = o.findall('attributes')
+                attributes = [None] * len(types)
+                elements = o.getchildren()
+                # YUCK!!!
+                for i, (t, comps) in enumerate(zip(types, components)):
+                    attributes[i] = elements[elements.index(t)+1:elements.index(comps)]
+
                 for t, comps, attr in zip(types, components, attributes):
                     # Process the type of the individual declaration
-                    attrs = [a.attrib['attrKeyword'].upper()
-                             for a in attr.findall('attribute/component-attr-spec')]
+                    attrs = {}
+                    if len(attr) > 0:
+                        attrs = [a.attrib['attrKeyword'].upper()
+                                 for a in attr[0].findall('attribute/component-attr-spec')]
                     typename = t.attrib['name']
                     t_source = extract_source(t.attrib, self._raw_source)
                     kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
                     type = BaseType(typename, kind=kind, pointer='POINTER' in attrs,
+                                    allocatable='ALLOCATABLE' in attrs,
                                     source=t_source)
 
                     # Derive variables for this declaration entry
