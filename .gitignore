@@ -2,6 +2,11 @@
 *.pyc
 
 loki.egg-info/*
+.eggs/*
+.cache/*
+.pytest_cache/*
 
-# Let's not worry about input Fortran files for now
-*.F90
+# Basic Fortran compilation overheads
+*.o
+*.mod
+*.so
