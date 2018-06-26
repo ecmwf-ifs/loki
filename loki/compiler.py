@@ -11,10 +11,10 @@ from loki.tools import as_tuple
 __all__ = ['execute', 'clean', 'compile_and_load']
 
 
-def execute(args):
+def execute(args, cwd=None):
     debug('Executing: %s' % ' '.join(args))
     try:
-        run(args, check=True, stdout=PIPE, stderr=STDOUT)
+        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
     except CalledProcessError as e:
         error('Execution failed with:')
         error(e.output.decode("utf-8"))
@@ -45,7 +45,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, use_f90wrap=False):
+def compile_and_load(filename, cwd=None, use_f90wrap=False):
     """
     Just-in-time compiles Fortran source code and loads the respective
     module or class. Both paths, classic subroutine-only and modern
@@ -60,26 +60,26 @@ def compile_and_load(filename, use_f90wrap=False):
     clean(filename)
 
     if use_f90wrap:
-        pattern=['*.f90.cache', '*.o', '*.mod', 'f90wrap_*.f90',
-                 '*.cpython*.so', '%s.py' % filepath.stem]
+        pattern = ['*.f90.cache', '*.o', '*.mod', 'f90wrap_*.f90',
+                   '%s.cpython*.so' % filepath.stem, '%s.py' % filepath.stem]
         clean(filename, pattern=pattern)
 
         # First, compile the module and object files
         build = ['gfortran', '-c', '-fpic', '%s' % filepath.absolute()]
-        execute(build)
+        execute(build, cwd=cwd)
 
         # Generate the Python interfaces
         f90wrap = ['f90wrap']
         f90wrap += ['-m', '%s' % filepath.stem]
         f90wrap += ['-k', str(filepath.parent/'kind_map')]  # TODO: Generalize as option
         f90wrap += ['%s' % filepath.absolute()]
-        execute(f90wrap)
+        execute(f90wrap, cwd=cwd)
 
         # Compile the dynamic library
         f2py = ['f2py-f90wrap', '-c']
         f2py += ['-m', '_%s' % filepath.stem]
         f2py += ['f90wrap_%s.f90' % filepath.stem, '%s.o' % filepath.stem]
-        execute(f2py)
+        execute(f2py, cwd=cwd)
 
         modname = '_'.join(s.capitalize() for s in filepath.stem.split('_'))
 
@@ -92,5 +92,5 @@ def compile_and_load(filename, use_f90wrap=False):
         cmd += ['-m', '%s' % filepath.stem]
 
         # Execute the f2py and load the resulting module
-        execute(cmd)
+        execute(cmd, cwd=cwd)
         return import_module(filepath.stem)

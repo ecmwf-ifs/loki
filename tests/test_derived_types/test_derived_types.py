@@ -16,7 +16,7 @@ def reference(refpath):
     Compile and load the reference solution
     """
     clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath, use_f90wrap=True)
+    return compile_and_load(refpath, cwd=str(refpath.parent), use_f90wrap=True)
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -35,7 +35,8 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
         routine = [r for r in source.subroutines if r.name == routinename][0]
         source.write(source=fgen(routine), filename=testname)
 
-    return compile_and_load(testname, use_f90wrap=modulename is not None)
+    return compile_and_load(testname, cwd=str(refpath.parent),
+                            use_f90wrap=modulename is not None)
 
 
 @pytest.mark.parametrize('frontend', [OFP])

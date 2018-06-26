@@ -16,7 +16,7 @@ def reference(refpath):
     Compile and load the reference solution
     """
     clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath)
+    return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
 def generate_identity(refpath, routinename, frontend=OFP):
@@ -28,7 +28,7 @@ def generate_identity(refpath, routinename, frontend=OFP):
     routine = [r for r in source.subroutines if r.name == routinename][0]
     routine.name += '_%s' % frontend
     source.write(source=fgen(routine), filename=testname)
-    return compile_and_load(testname)
+    return compile_and_load(testname, cwd=str(refpath.parent))
 
 
 @pytest.mark.parametrize('frontend', [OFP])
