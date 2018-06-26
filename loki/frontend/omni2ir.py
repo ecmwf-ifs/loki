@@ -133,22 +133,24 @@ class OMNI2IR(GenericVisitor):
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
-        name = o.attrib.get('ref', None)
-        if name in self.type_map:
-            return self.visit(self.type_map[name])
+        ref = o.attrib.get('ref', None)
+        if ref in self.type_map:
+            t = self.visit(self.type_map[ref])
+            name = t.name
+            kind = t.kind
         else:
-            name = BaseType._omni_types.get(name, name)
+            name = BaseType._omni_types.get(ref, ref)
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-            intent = o.attrib.get('intent', None)
-            allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
-            pointer = o.attrib.get('is_pointer', 'false') == 'true'
-            optional = o.attrib.get('is_optional', 'false') == 'true'
-            parameter = o.attrib.get('is_parameter', 'false') == 'true'
-            target = o.attrib.get('is_target', 'false') == 'true'
-            contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
-            return BaseType(name=name, kind=kind, intent=intent, allocatable=allocatable,
-                            pointer=pointer, optional=optional, parameter=parameter,
-                            target=target, contiguous=contiguous)
+        intent = o.attrib.get('intent', None)
+        allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
+        pointer = o.attrib.get('is_pointer', 'false') == 'true'
+        optional = o.attrib.get('is_optional', 'false') == 'true'
+        parameter = o.attrib.get('is_parameter', 'false') == 'true'
+        target = o.attrib.get('is_target', 'false') == 'true'
+        contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
+        return BaseType(name=name, kind=kind, intent=intent, allocatable=allocatable,
+                        pointer=pointer, optional=optional, parameter=parameter,
+                        target=target, contiguous=contiguous)
 
     def visit_FstructType(self, o, source=None):
         name = o.attrib['type']
