@@ -349,15 +349,14 @@ class OFP2IR(GenericVisitor):
 
     def visit_name(self, o, source=None):
 
-        def generate_variable(vname, indices, subvar, source):
+        def generate_variable(vname, indices, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                return Variable(name=vname, dimensions=indices,
-                                subvar=variable, source=source)
+                return Variable(name=vname, dimensions=indices, source=source)
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
@@ -368,22 +367,23 @@ class OFP2IR(GenericVisitor):
         # popping them off the back of our deque...
         indices = None
         variable = None
+        base = None
         while len(_children) > 0:
             item = _children.pop()
             if len(_children) > 0 and isinstance(_children[-1], tuple):
                 indices = _children.pop()
 
-            if len(_children) > 0 and isinstance(item, Variable):
-                # A subvar was processed separately, so move over
-                if variable is None:
-                    variable = item
-                    continue
-
             # The "append" base case
-            variable = generate_variable(vname=item, indices=indices,
-                                         subvar=variable, source=source)
+            if variable is None:
+                base = generate_variable(vname=item, indices=indices,
+                                         source=source)
+                variable = base
+            else:
+                variable.ref = generate_variable(vname=item, indices=indices,
+                                                 source=source)
+                variable = variable.ref
             indices = None
-        return variable
+        return base
 
     def visit_variable(self, o, source=None):
         if 'id' not in o.attrib and 'name' not in o.attrib:

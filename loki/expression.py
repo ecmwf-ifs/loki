@@ -159,15 +159,15 @@ class LiteralList(Expression):
 
 class Variable(Expression):
 
-    def __init__(self, name, type=None, shape=None, dimensions=None, subvar=None,
-                 initial=None, source=None):
+    def __init__(self, name, type=None, shape=None, dimensions=None,
+                 ref=None, initial=None, source=None):
         super(Variable, self).__init__(source=source)
         self._source = source
 
         self.name = name
         self._type = type
         self._shape = shape
-        self.subvar = subvar
+        self.ref = ref  # Derived-type parent object
         self.dimensions = dimensions or ()
         self.initial = initial
 
@@ -176,8 +176,8 @@ class Variable(Expression):
         idx = ''
         if self.dimensions is not None and len(self.dimensions) > 0:
             idx = '(%s)' % ','.join([str(i) for i in self.dimensions])
-        subvar = '' if self.subvar is None else '%%%s' % str(self.subvar)
-        return '%s%s%s' % (self.name, idx, subvar)
+        ref = '' if self.ref is None else '%s%%' % str(self.ref)
+        return '%s%s%s' % (ref, self.name, idx)
 
     @property
     def type(self):
@@ -191,7 +191,7 @@ class Variable(Expression):
         return self._shape
 
     def __key(self):
-        return (self.name, self.type, self.dimensions, self.subvar)
+        return (self.name, self.type, self.dimensions, self.ref)
 
     def __hash__(self):
         return hash(self.__key())
@@ -208,8 +208,8 @@ class Variable(Expression):
     @property
     def children(self):
         c = self.dimensions
-        if self.subvar is not None:
-            c += (self.subvar, )
+        if self.ref is not None:
+            c += (self.ref, )
         return c
 
 

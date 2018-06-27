@@ -310,10 +310,10 @@ class Subroutine(object):
                 if o.name in self.shapes:
                     o._shape = self.shapes[o.name]
 
-                if o.subvar is not None and o.name in self.derived:
+                if o.ref is not None and o.ref.name in self.derived:
                     # We currently only follow a single level of nesting
-                    typevars = {v.name.upper(): v for v in self.derived[o.name].variables}
-                    o.subvar._shape = typevars[o.subvar.name.upper()].dimensions
+                    typevars = {v.name.upper(): v for v in self.derived[o.ref.name].variables}
+                    o._shape = typevars[o.name.upper()].dimensions
 
                 # Recurse over children
                 for c in o.children:

@@ -36,14 +36,10 @@ class VariableTransformer(ExpressionVisitor, Visitor):
         self.argnames = argnames
 
     def visit_Variable(self, o):
-        if o.name in self.argnames and o.subvar is not None:
-            # HACK: In-place merging of var with subvar
-            o.name = '%s_%s' % (o.name, o.subvar.name)
-            o._type = o.subvar._type
-            o._shape = o.subvar._shape
-            o.dimensions = o.subvar.dimensions
-            o.initial = o.subvar.initial
-            o.subvar = o.subvar.subvar
+        if o.ref is not None and o.ref.name in self.argnames:
+            # HACK: In-place merging of var with its parent ref
+            o.name = '%s_%s' % (o.ref.name, o.name)
+            o.ref = None
 
 
 class DerivedArgsTransformation(AbstractTransformation):
@@ -81,10 +77,10 @@ class DerivedArgsTransformation(AbstractTransformation):
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
                 # Add candidate type variables, preserving order from the typedef
-                argvars = [v for v in variables if v.name == arg.name]
-                argsubvars = set(v.subvar.name for v in argvars if v.subvar is not None)
+                arg_member_vars = set(v.name for v in variables
+                                      if v.ref is not None and v.ref.name == arg.name)
                 candidates[arg] += [v for v in arg.type.variables.values()
-                                    if v.name in argsubvars]
+                                    if v.name in arg_member_vars]
 
         return candidates
 
@@ -111,9 +107,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
-                            new_arg = deepcopy(d_arg)
-                            new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims,
-                                                      shape=type_var.dimensions)
+                            new_arg = Variable(name=type_var.name, dimensions=new_dims,
+                                               shape=type_var.dimensions, ref=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -319,10 +314,6 @@ class SCATransformation(AbstractTransformation):
                 for arg, val in call.context.arg_iter(call):
                     if not isinstance(val, Variable):
                         continue
-
-                    # Skip to the innermost variable of derived types
-                    while val.subvar is not None:
-                        val = val.subvar
 
                     # Insert ':' for all missing dimensions in argument
                     if arg.shape is not None and len(val.dimensions) == 0:

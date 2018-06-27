@@ -199,8 +199,9 @@ class OMNI2IR(GenericVisitor):
         return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_FmemberRef(self, o, source=None):
-        var = self.visit(o.find('varRef'))
-        var.subvar = Variable(name=o.attrib['member'])
+        vtype = self.visit(self.type_map[o.attrib['type']])
+        var = Variable(name=o.attrib['member'], type=vtype)
+        var.ref = self.visit(o.find('varRef'))
         return var
 
     def visit_Var(self, o, source=None):
@@ -208,11 +209,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FarrayRef(self, o, source=None):
         v = self.visit(o[0])
-        subv = v
-        # TODO: Dirty hack; should rethink variable ref cascade
-        while subv.subvar is not None:
-            subv = subv.subvar
-        subv.dimensions = as_tuple(self.visit(i) for i in o[1:])
+        v.dimensions = as_tuple(self.visit(i) for i in o[1:])
         return v
 
     def visit_arrayIndex(self, o, source=None):

@@ -314,14 +314,14 @@ class FExprCodegen(Visitor):
     visit_list = visit_tuple
 
     def visit_Variable(self, o, line):
+        if o.ref is not None:
+            line = self.visit(o.ref, line=line)
+            line = self.append(line, '%')
         line = self.append(line, o.name)
         if o.dimensions is not None and len(o.dimensions) > 0:
             line = self.append(line, '(')
             line = self.visit(o.dimensions, line=line)
             line = self.append(line, ')')
-        if o.subvar is not None:
-            line = self.append(line, '%')
-            line = self.visit(o.subvar, line=line)
         return line
 
     def visit_Statement(self, o, line):
