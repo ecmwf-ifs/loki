@@ -64,9 +64,12 @@ class SourceFile(object):
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
         routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source,
-                                         typetable=typetable)
-                    for ast in ast_r]
-        modules = []  # TODO: Parse modules properly
+                                         typetable=typetable) for ast in ast_r]
+
+        ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
+        modules = [Module.from_omni(ast=ast, raw_source=raw_source,
+                                    typetable=typetable) for ast in ast_m]
+
         return cls(filename, routines=routines, modules=modules, ast=ast)
 
     @classmethod

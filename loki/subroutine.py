@@ -61,8 +61,27 @@ class Module(object):
                    ast=ast, raw_source=raw_source)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, name=None):
-        raise NotImplementedError('OMNI->IR conversion missing')
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+        name = name or ast.attrib['name']
+
+        type_map = {t.attrib['type']: t for t in typetable}
+        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+
+        # Generate spec, filter out external declarations and insert `implicit none`
+        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
+                               symbol_map=symbol_map, raw_source=raw_source)
+        spec = Section(body=spec)
+
+        # TODO: Parse member functions properly
+        contains = ast.find('FcontainsStatement')
+        routines = None
+        if contains is not None:
+            routines = [Subroutine.from_omni(ast=s, typetable=typetable,
+                                             symbol_map=symbol_map,
+                                             raw_source=raw_source)
+                        for s in contains]
+
+        return cls(name=name, spec=spec, routines=routines, ast=ast)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -174,7 +193,7 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        # Generate spec, filter out external declarations and insert `implicit none`
+        # Generate spec, filter out external declarations
         spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
                                symbol_map=symbol_map, raw_source=raw_source)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)

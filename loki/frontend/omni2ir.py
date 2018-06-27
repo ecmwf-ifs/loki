@@ -128,8 +128,9 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        type = self.type_map[name.attrib['type']]
-        decls = as_tuple(self.visit(t) for t in type)
+        derived = self.visit(self.type_map[name.attrib['type']])
+        decls = as_tuple(Declaration(variables=(v, ), type=v.type)
+                         for v in derived._variables)
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
@@ -156,8 +157,14 @@ class OMNI2IR(GenericVisitor):
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
-        symbols = as_tuple(self.visit(s) for s in o.find('symbols'))
-        return DerivedType(name=name, variables=symbols)
+        variables = []
+        for s in o.find('symbols'):
+            vname = s.find('name').text
+            stype = self.type_map[s.attrib['type']]
+            vtype = self.visit(stype)
+            dimensions = [self.visit(d) for d in stype]
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype)]
+        return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
