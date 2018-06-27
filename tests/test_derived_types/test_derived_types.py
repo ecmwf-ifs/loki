@@ -17,7 +17,8 @@ def reference(refpath):
     Compile and load the reference solution
     """
     clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath, cwd=str(refpath.parent), use_f90wrap=True)
+    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
+    return getattr(pymod, refpath.stem)
 
 
 @pytest.mark.parametrize('frontend', [OFP])

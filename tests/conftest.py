@@ -21,5 +21,10 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
         routine.name += '_%s' % frontend
         source.write(source=fgen(routine), filename=testname)
 
-    return compile_and_load(testname, cwd=str(refpath.parent),
-                            use_f90wrap=modulename is not None)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+
+    if modulename:
+        modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
+        return getattr(pymod, testname.stem)
+    else:
+        return pymod

@@ -1,0 +1,10 @@
+{
+ 'real':     {'': 'float',
+              '4': 'float',
+              '8': 'double',
+              'jprb': 'double',
+              'JPRB': 'double',
+              'selected_real_kind(13,300)': 'double',
+              'selected_real_kind13,300': 'double',
+	      },
+}

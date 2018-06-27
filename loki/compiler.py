@@ -11,6 +11,9 @@ from loki.tools import as_tuple
 __all__ = ['execute', 'clean', 'compile_and_load']
 
 
+_test_base_dir = Path(__file__).parent.parent/'tests'
+
+
 def execute(args, cwd=None):
     debug('Executing: %s' % ' '.join(args))
     try:
@@ -45,7 +48,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, use_f90wrap=False):
+def compile_and_load(filename, cwd=None, use_f90wrap=True):
     """
     Just-in-time compiles Fortran source code and loads the respective
     module or class. Both paths, classic subroutine-only and modern
@@ -59,38 +62,28 @@ def compile_and_load(filename, cwd=None, use_f90wrap=False):
     filepath = Path(filename)
     clean(filename)
 
-    if use_f90wrap:
-        pattern = ['*.f90.cache', '*.o', '*.mod', 'f90wrap_*.f90',
-                   '%s.cpython*.so' % filepath.stem, '%s.py' % filepath.stem]
-        clean(filename, pattern=pattern)
+    pattern = ['*.f90.cache', '*.o', '*.mod', 'f90wrap_*.f90',
+               '%s.cpython*.so' % filepath.stem, '%s.py' % filepath.stem]
+    clean(filename, pattern=pattern)
 
-        # First, compile the module and object files
-        build = ['gfortran', '-c', '-fpic', '%s' % filepath.absolute()]
-        execute(build, cwd=cwd)
+    # First, compile the module and object files
+    build = ['gfortran', '-c', '-fpic', '%s' % filepath.absolute()]
+    execute(build, cwd=cwd)
 
-        # Generate the Python interfaces
-        f90wrap = ['f90wrap']
-        f90wrap += ['-m', '%s' % filepath.stem]
-        f90wrap += ['-k', str(filepath.parent/'kind_map')]  # TODO: Generalize as option
-        f90wrap += ['%s' % filepath.absolute()]
-        execute(f90wrap, cwd=cwd)
+    # Generate the Python interfaces
+    f90wrap = ['f90wrap']
+    f90wrap += ['-m', '%s' % filepath.stem]
+    f90wrap += ['-k', str(_test_base_dir/'kind_map')]  # TODO: Generalize as option
+    f90wrap += ['%s' % filepath.absolute()]
+    execute(f90wrap, cwd=cwd)
 
-        # Compile the dynamic library
-        f2py = ['f2py-f90wrap', '-c']
-        f2py += ['-m', '_%s' % filepath.stem]
-        f2py += ['f90wrap_%s.f90' % filepath.stem, '%s.o' % filepath.stem]
-        execute(f2py, cwd=cwd)
+    # Compile the dynamic library
+    f2py = ['f2py-f90wrap', '-c']
+    f2py += ['-m', '_%s' % filepath.stem]
+    f2py += ['%s.o' % filepath.stem]
+    for sourcefile in ['f90wrap_%s.f90' % filepath.stem, 'f90wrap_toplevel.f90']:
+        if (filepath.parent/sourcefile).exists():
+            f2py += [sourcefile]
+    execute(f2py, cwd=cwd)
 
-        modname = '_'.join(s.capitalize() for s in filepath.stem.split('_'))
-
-        return getattr(import_module(filepath.stem), modname)
-
-    else:
-        # Basic subroutine compilation via f2py
-        cmd = ['f2py']
-        cmd += ['-c', '%s' % filepath.absolute()]
-        cmd += ['-m', '%s' % filepath.stem]
-
-        # Execute the f2py and load the resulting module
-        execute(cmd, cwd=cwd)
-        return import_module(filepath.stem)
+    return import_module(filepath.stem)
