@@ -6,8 +6,8 @@ from collections import OrderedDict
 from loki.frontend import OMNI
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, Index, Operation, InlineCall
-from loki.ir import Scope, Statement
+from loki.expression import Variable, Literal, Index, Operation, InlineCall, RangeIndex
+from loki.ir import Scope, Statement, Conditional, Call, Loop
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
 
@@ -117,10 +117,18 @@ class OMNI2IR(GenericVisitor):
         return Statement(target=target, expr=expr)
 
     def visit_FdoStatement(self, o, source=None):
-        pass
+        assert (o.find('Var') is not None)
+        assert (o.find('body') is not None)
+        variable = self.visit(o.find('Var'))
+        body = self.visit(o.find('body'))
+        bounds = self.visit(o.find('indexRange'))
+        return Loop(variable=variable, body=body, bounds=bounds)
 
     def visit_FifStatement(self, o, source=None):
-        pass
+        conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
+        bodies = [self.visit(o.find('then/body'))]
+        else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
+        return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_FmemberRef(self, o, source=None):
         var = self.visit(o.find('varRef'))
@@ -139,13 +147,19 @@ class OMNI2IR(GenericVisitor):
         return self.visit(o[0])
 
     def visit_indexRange(self, o, source=None):
-        if o.attrib['is_assumed_shape']:
+        if 'is_assumed_shape' in o.attrib and o.attrib['is_assumed_shape'] == 'true':
             return Index(name=':')
         else:
-            raise NotImplementedError('Unknown indexRange element')
+            lbound = o.find('lowerBound')
+            lower = self.visit(lbound) if lbound is not None else None
+            ubound = o.find('upperBound')
+            upper = self.visit(ubound) if ubound is not None else None
+            st = o.find('step')
+            step = self.visit(st) if st is not None else None
+            return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=o.text, kind=o.attrib['kind'])
+        return Literal(value=o.text, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text)
@@ -154,9 +168,11 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=o.text)
 
     def visit_functionCall(self, o, source=None):
-        if o.attrib['is_intrinsic'] == 'true':
-            args = [self.visit(a) for a in o.find('arguments')]
+        args = [self.visit(a) for a in o.find('arguments')]
+        if 'is_intrinsic' in o.attrib and o.attrib['is_intrinsic'] == 'true':
             return InlineCall(name=o.find('name').text, arguments=args)
+        else:
+            return Call(name=o.find('name').text, arguments=args)
         return o.text
 
     def visit_plusExpr(self, o, source=None):
@@ -174,6 +190,42 @@ class OMNI2IR(GenericVisitor):
     def visit_divExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/'], operands=exprs)
+
+    def visit_divExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['/'], operands=exprs)
+
+    def visit_logOrExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['.or.'], operands=exprs)
+
+    def visit_logAndExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['.and.'], operands=exprs)
+
+    def visit_logLTExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['<'], operands=exprs)
+
+    def visit_logLEExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['<='], operands=exprs)
+
+    def visit_logGTExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['>'], operands=exprs)
+
+    def visit_logGEExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['>='], operands=exprs)
+
+    def visit_logEQExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['=='], operands=exprs)
+
+    def visit_logNEQExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['/='], operands=exprs)
 
 def convert_omni_to_ir(omni_ast, raw_source):
     """
