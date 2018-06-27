@@ -7,7 +7,7 @@ from pathlib import Path
 from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
-                  BaseType, DerivedType, Import, Index,
+                  BaseType, DerivedType, Import, Index, RangeIndex,
                   AbstractTransformation, BasicTransformation, OMNI, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
@@ -353,7 +353,8 @@ class SCATransformation(AbstractTransformation):
                 # Create and insert new loop over target dimension
                 if wrap:
                     loop = Loop(variable=Variable(name=target.variable),
-                                bounds=(dim_lower, dim_upper), body=as_tuple([new_call]))
+                                bounds=RangeIndex(dim_lower, dim_upper),
+                                body=as_tuple([new_call]))
                     replacements[call] = loop
                 else:
                     replacements[call] = new_call

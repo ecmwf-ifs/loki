@@ -121,8 +121,8 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
-                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
+        header = '%s=%s, %s%s' % (o.variable, o.bounds.lower, o.bounds.upper,
+                                  ', %s' % o.bounds.step if o.bounds.step is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):

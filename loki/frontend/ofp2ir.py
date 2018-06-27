@@ -86,12 +86,12 @@ class OFP2IR(GenericVisitor):
             step = None
             if o.find('header/index-variable/step') is not None:
                 step = self.visit(o.find('header/index-variable/step'))
+            bounds = RangeIndex(lower=lower, upper=upper, step=step)
 
             body = as_tuple(self.visit(o.find('body')))
             # Store full lines with loop body for easy replacement
             source = extract_source(o.attrib, self._raw_source, full_lines=True)
-            return Loop(variable=variable, body=body, bounds=(lower, upper, step),
-                        source=source)
+            return Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
