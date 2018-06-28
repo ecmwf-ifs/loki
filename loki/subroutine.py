@@ -200,6 +200,14 @@ class Subroutine(object):
                   if d._source['file'] != file or d.variables[0] == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
+        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
+        implicit_none = Intrinsic(text='IMPLICIT NONE')
+        first_decl = FindNodes(Declaration).visit(spec)[0]
+        spec_body = list(spec.body)
+        i = spec_body.index(first_decl)
+        spec_body.insert(i, implicit_none)
+        spec._update(body=as_tuple(spec_body))
+
         # TODO: Parse member functions properly
         contains = ast.find('body/FcontainsStatement')
         members = None

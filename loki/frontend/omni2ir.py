@@ -110,6 +110,10 @@ class OMNI2IR(GenericVisitor):
         symbols = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
         return Import(module=o.attrib['name'], symbols=symbols, c_import=False)
 
+    def visit_FinterfaceDecl(self, o, source=None):
+        header = Path(o.attrib['file']).name
+        return Import(module=header, c_import=True)
+
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
         if name.attrib['type'] in self.type_map:
