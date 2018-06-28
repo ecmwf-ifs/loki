@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 
 from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
+from conftest import generate_identity
 
 
 @pytest.fixture(scope='module')
@@ -17,18 +18,6 @@ def reference(refpath):
     """
     clean(filename=refpath)  # Delete parser cache
     return compile_and_load(refpath, cwd=str(refpath.parent))
-
-
-def generate_identity(refpath, routinename, frontend=OFP):
-    """
-    Generate the "identity" of a single subroutine with a frontend-specific suffix.
-    """
-    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, frontend))
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = [r for r in source.subroutines if r.name == routinename][0]
-    routine.name += '_%s' % frontend
-    source.write(source=fgen(routine), filename=testname)
-    return compile_and_load(testname, cwd=str(refpath.parent))
 
 
 @pytest.mark.parametrize('frontend', [OFP])
