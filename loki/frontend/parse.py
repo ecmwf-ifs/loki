@@ -11,7 +11,7 @@ from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
 from loki.tools import timeit
 from loki.logging import DEBUG
 
-__all__ = ['parse', 'OMNI', 'OFP']
+__all__ = ['parse', 'Frontend', 'OMNI', 'OFP']
 
 
 class Frontend(IntEnum):

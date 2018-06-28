@@ -8,7 +8,8 @@ from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
                   BaseType, DerivedType, Import, Index, RangeIndex,
-                  AbstractTransformation, BasicTransformation, OMNI, OFP)
+                  AbstractTransformation, BasicTransformation,
+                  Frontend, OMNI, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -414,18 +415,26 @@ def cli():
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-def idempotence(out_path, source, driver, header, xmod, include, flatten_args, openmp):
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
+def idempotence(out_path, source, driver, header, xmod, include, flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    typedefs = get_typedefs(header, xmods=xmod)
-
-    # Parse original driver and kernel routine, and enrich the driver
-    routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
-                                   includes=include).subroutines[0]
-    driver = SourceFile.from_file(driver, xmods=xmod,
-                                  includes=include).subroutines[0]
-    driver.enrich_calls(routines=routine)
+    frontend = Frontend[frontend.upper()]
+    if frontend == OFP:
+        # Parse original driver and kernel routine, and enrich the driver
+        typedefs = get_typedefs(header, xmods=xmod)
+        routine = SourceFile.from_file(source, typedefs=typedefs,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
+    else:
+        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                      frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)

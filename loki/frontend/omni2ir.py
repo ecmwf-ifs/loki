@@ -285,6 +285,9 @@ class OMNI2IR(GenericVisitor):
             deallocations += [Deallocation(variable=v)]
         return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
 
+    def visit_FcycleStatement(self, o, source=None):
+        return Intrinsic(text='cycle')
+
     def visit_FopenStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
