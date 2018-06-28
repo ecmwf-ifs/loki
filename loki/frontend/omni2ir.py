@@ -6,7 +6,7 @@ from collections import OrderedDict
 from loki.frontend import OMNI
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, Index, Operation, InlineCall, RangeIndex
+from loki.expression import Variable, Literal, LiteralList, Index, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic)
 from loki.types import BaseType, DerivedType
@@ -238,6 +238,10 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FintConstant(self, o, source=None):
         return Literal(value=o.text)
+
+    def visit_FarrayConstructor(self, o, source=None):
+        values = as_tuple(self.visit(v) for v in o)
+        return LiteralList(values=values)
 
     def visit_functionCall(self, o, source=None):
         name = o.find('name').text

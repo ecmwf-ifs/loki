@@ -330,8 +330,7 @@ class Subroutine(object):
                     self.visit(c)
 
         # Apply dimensions via expression visitor (in-place)
-        ir = (self.spec, self.body)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
 
     @property
     def ir(self):
