@@ -2,12 +2,14 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, FortranSourceFile, fgen
+from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
+from conftest import generate_identity
 
 
 @pytest.fixture(scope='module')
 def refpath():
     return Path(__file__).parent / 'derived_types.f90'
+
 
 @pytest.fixture(scope='module')
 def reference(refpath):
@@ -15,30 +17,12 @@ def reference(refpath):
     Compile and load the reference solution
     """
     clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath, use_f90wrap=True)
+    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
+    return getattr(pymod, refpath.stem)
 
 
-def generate_identity(refpath, routinename, modulename=None, suffix=None):
-    """
-    Generate the "identity" of a single subroutine with a specific suffix.
-    """
-    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, suffix))
-    source = FortranSourceFile(refpath)
-    if suffix:
-        for routine in source.subroutines:
-            routine.name += '_%s' % suffix
-    if modulename:
-        module = [m for m in source.modules if m.name == modulename][0]
-        module.name += '_%s_%s' % (routinename, suffix)
-        source.write(source=fgen(module), filename=testname)
-    else:
-        routine = [r for r in source.subroutines if r.name == routinename][0]
-        source.write(source=fgen(routine), filename=testname)
-
-    return compile_and_load(testname, use_f90wrap=modulename is not None)
-
-
-def test_simple_loops(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_simple_loops(refpath, reference, frontend):
     """
     item%vector = item%vector + vec
     item%matrix = item%matrix + item%scalar
@@ -53,16 +37,17 @@ def test_simple_loops(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='simple_loops', suffix='test')
+                             routinename='simple_loops', frontend=frontend)
     item = test.Explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
-    test.simple_loops_test(item)
+    getattr(test, 'simple_loops_%s' % frontend)(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
 
-def test_array_indexing_explicit(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_array_indexing_explicit(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
 
@@ -78,14 +63,15 @@ def test_array_indexing_explicit(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_explicit', suffix='test')
+                             routinename='array_indexing_explicit', frontend=frontend)
     item = test.Explicit()
-    test.array_indexing_explicit_test(item)
+    getattr(test, 'array_indexing_explicit_%s' % frontend)(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
 
-def test_array_indexing_deferred(refpath, reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_array_indexing_deferred(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
 
@@ -103,10 +89,10 @@ def test_array_indexing_deferred(refpath, reference):
 
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_deferred', suffix='test')
+                             routinename='array_indexing_deferred', frontend=frontend)
     item = test.Deferred()
     reference.alloc_deferred(item)
-    test.array_indexing_deferred_test(item)
+    getattr(test, 'array_indexing_deferred_%s' % frontend)(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     reference.free_deferred(item)

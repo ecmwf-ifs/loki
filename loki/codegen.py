@@ -60,8 +60,10 @@ class FortranCodegen(Visitor):
     def visit_Subroutine(self, o):
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
-        body = self.visit(o.ir)
-        header = 'SUBROUTINE %s%s' % (o.name, argument)
+        header = 'SUBROUTINE %s%s\n' % (o.name, argument)
+        docstring = '%s\n\n' % self.visit(o.docstring)
+        spec = '%s\n\n' % self.visit(o.spec)
+        body = self.visit(o.body)
         footer = '\nEND SUBROUTINE %s\n' % o.name
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)
@@ -69,7 +71,7 @@ class FortranCodegen(Visitor):
         else:
             members = ''
             contains = ''
-        return header + body + contains + members + footer
+        return header + docstring + spec + body + contains + members + footer
 
     def visit_InterfaceBlock(self, o):
         arguments = self.segment([a.name for a in o.arguments])
@@ -121,8 +123,8 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
-                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
+        header = '%s=%s, %s%s' % (o.variable, o.bounds.lower, o.bounds.upper,
+                                  ', %s' % o.bounds.step if o.bounds.step is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):

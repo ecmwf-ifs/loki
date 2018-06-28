@@ -1,6 +1,8 @@
 from abc import ABCMeta, abstractmethod
+from pathlib import Path
 
 from loki.subroutine import Module, Call
+from loki.sourcefile import SourceFile
 from loki.codegen import fgen
 from loki.visitors import FindNodes
 
@@ -67,7 +69,7 @@ class BasicTransformation(AbstractTransformation):
         Update calls to actively transformed subroutines.
         """
         suffix = kwargs.get('suffix', None)
-        for call in FindNodes(Call).visit(routine.ir):
+        for call in FindNodes(Call).visit(routine.body):
             if call.context is not None and call.context.active:
                 call._update(name='%s_%s' % (call.name, suffix))
 
@@ -87,4 +89,4 @@ class BasicTransformation(AbstractTransformation):
             content = routine
 
         # Re-generate source code for content and write to file
-        routine.sourcefile.write(source=fgen(content), filename=filename)
+        SourceFile.to_file(source=fgen(content), path=Path(filename))

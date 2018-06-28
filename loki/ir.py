@@ -95,7 +95,7 @@ class CommentBlock(Node):
 
 class Pragma(Node):
     """
-    Internal representation of a EcIR-specific pragma
+    Internal representation of a pragma
     """
 
     def __init__(self, keyword, content=None, source=None):
@@ -122,8 +122,7 @@ class Loop(Node):
         self.variable = variable
         self.body = body
         # Ensure three-entry tuple
-        self.bounds = tuple(bounds[i] if len(bounds) > i else None
-                            for i in range(3))
+        self.bounds = bounds
         self.pragma = pragma
         self.pragma_post = pragma_post
 

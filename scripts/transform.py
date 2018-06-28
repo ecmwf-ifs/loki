@@ -4,24 +4,24 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (FortranSourceFile, Visitor, ExpressionVisitor,
+from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
-                  BaseType, DerivedType, Import, Index,
-                  AbstractTransformation, BasicTransformation)
+                  BaseType, DerivedType, Import, Index, RangeIndex,
+                  AbstractTransformation, BasicTransformation, OMNI, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
 
 
-def get_typedefs(typedef):
+def get_typedefs(typedef, xmods=None):
     """
     Read derived type definitions from typedef modules.
     """
     definitions = {}
     for tfile in typedef:
-        module = FortranSourceFile(tfile).modules[0]
-        definitions.update(module.typedefs)
+        source = SourceFile.from_file(tfile, xmods=xmods)
+        definitions.update(source.modules[0].typedefs)
     return definitions
 
 
@@ -98,7 +98,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         :param caller: The calling :class:`Subroutine`.
         """
         call_mapper = {}
-        for call in FindNodes(Call).visit(caller.ir):
+        for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
                 candidates = self._derived_type_arguments(call.context.routine)
 
@@ -124,7 +124,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                 call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
 
         # Rebuild the caller's IR tree
-        caller._ir = Transformer(call_mapper).visit(caller.ir)
+        caller.body = Transformer(call_mapper).visit(caller.body)
 
     def flatten_derived_args_routine(self, routine):
         """
@@ -134,7 +134,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         The convention used is: ``derived%var => derived_var``
         """
         candidates = self._derived_type_arguments(routine)
-        declarations = FindNodes(Declaration).visit(routine.ir)
+        declarations = FindNodes(Declaration).visit(routine.spec)
 
         # Callee: Establish replacements for declarations and dummy arguments
         decl_mapper = defaultdict(list)
@@ -165,7 +165,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         VariableTransformer(argnames=argnames).visit(routine.ir)
 
         # Replace `Declaration` nodes (re-generates the IR tree)
-        routine._ir = Transformer(decl_mapper).visit(routine.ir)
+        routine.spec = Transformer(decl_mapper).visit(routine.spec)
 
 
 class Dimension(object):
@@ -241,13 +241,13 @@ class SCATransformation(AbstractTransformation):
 
         # Remove all loops over the target dimensions
         loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.ir):
+        for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == target.variable:
                 loop_map[loop] = loop.body
-        routine._ir = Transformer(loop_map).visit(routine.ir)
+        routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        for decl in FindNodes(Declaration).visit(routine.ir):
+        for decl in FindNodes(Declaration).visit(routine.spec):
             new_vars = tuple(v for v in decl.variables
                              if str(v) not in target.variables)
 
@@ -286,7 +286,7 @@ class SCATransformation(AbstractTransformation):
         # Remove dimension size expressions from variable declarations (in-place)
         # Note: We do this last, because changing the declaration affects
         # the variable_map used above.
-        for decl in FindNodes(Declaration).visit(routine.ir):
+        for decl in FindNodes(Declaration).visit(routine.spec):
             for v in decl.variables:
                 if v.dimensions is not None:
                     v.dimensions = as_tuple(d for d in v.dimensions
@@ -296,7 +296,7 @@ class SCATransformation(AbstractTransformation):
         routine._argnames = tuple(arg for arg in routine.argnames
                                   if arg not in target.variables)
 
-        routine._ir = Transformer(replacements).visit(routine.ir)
+        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -311,7 +311,7 @@ class SCATransformation(AbstractTransformation):
         size_expressions = target.size_expressions
         replacements = {}
 
-        for call in FindNodes(Call).visit(caller.ir):
+        for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
 
@@ -353,12 +353,13 @@ class SCATransformation(AbstractTransformation):
                 # Create and insert new loop over target dimension
                 if wrap:
                     loop = Loop(variable=Variable(name=target.variable),
-                                bounds=(dim_lower, dim_upper), body=as_tuple([new_call]))
+                                bounds=RangeIndex(dim_lower, dim_upper),
+                                body=as_tuple([new_call]))
                     replacements[call] = loop
                 else:
                     replacements[call] = new_call
 
-        caller._ir = Transformer(replacements).visit(caller.ir)
+        caller.body = Transformer(replacements).visit(caller.body)
 
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in caller.variables:
@@ -375,7 +376,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
     from loki import FortranCodegen
 
     # Insert loop pragmas in driver (in-place)
-    for loop in FindNodes(Loop).visit(driver.ir):
+    for loop in FindNodes(Loop).visit(driver.body):
         if loop.variable == target.variable:
             pragma = Pragma(keyword='claw', content='parallelize forward create update')
             loop._update(pragma=pragma)
@@ -393,11 +394,11 @@ def remove_omp_do(routine):
     Utility routine that strips existing !$opm do pragmas from driver code.
     """
     mapper = {}
-    for p in FindNodes(Pragma).visit(routine.ir):
+    for p in FindNodes(Pragma).visit(routine.body):
         if p.keyword.lower() == 'omp':
             if p.content.startswith('do') or p.content.startswith('end do'):
                 mapper[p] = None
-    routine._ir = Transformer(mapper).visit(routine.ir)
+    routine.body = Transformer(mapper).visit(routine.body)
 
 
 @click.group()
@@ -406,30 +407,35 @@ def cli():
 
 
 @cli.command('idem')
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
-@click.option('--source-out', '-so', type=click.Path(),
-              help='Path for generated source output.')
-@click.option('--driver', '-d', type=click.Path(), default=None,
+@click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--driver-out', '-do', type=click.Path(), default=None,
-              help='Path for generated driver output.')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional soUrce file(s) containing type definitions')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, openmp):
+def idempotence(out_path, source, driver, header, xmod, flatten_args, openmp):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    typedefs = get_typedefs(typedef)
+    typedefs = get_typedefs(header, xmods=xmod)
 
     # Parse original driver and kernel routine, and enrich the driver
-    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
-    driver = FortranSourceFile(driver).subroutines[0]
+    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
+    driver = SourceFile.from_file(driver).subroutines[0]
     driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path/routine.name.lower()).with_suffix('.idem.F90')
+    driver_out = (out_path/driver.name.lower()).with_suffix('.idem.F90')
 
     class IdemTransformation(BasicTransformation):
         """
@@ -446,7 +452,7 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(routine.ir):
+                for loop in FindNodes(Loop).visit(routine.body):
                     if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
@@ -477,20 +483,19 @@ def idempotence(source, source_out, driver, driver_out, typedef, flatten_args, o
 
 
 @cli.command()
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
-@click.option('--source-out', '-so', type=click.Path(),
-              help='Path for generated source output.')
-@click.option('--driver', '-d', type=click.Path(), default=None,
+@click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--driver-out', '-do', type=click.Path(), default=None,
-              help='Path for generated driver output.')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional source file(s) containing type definitions')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
-@click.option('--mode', '-m', type=click.Choice(['sca', 'claw']), default='sca')
-def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode):
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['sca', 'claw']))
+def convert(out_path, source, driver, header, strip_omp_do, mode):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -498,19 +503,24 @@ def convert(source, source_out, driver, driver_out, typedef, strip_omp_do, mode)
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
-    typedefs = get_typedefs(typedef)
+    typedefs = get_typedefs(header)
 
     # Parse original kernel routine and inject type definitions
-    routine = FortranSourceFile(source, typedefs=typedefs).subroutines[0]
-    driver = FortranSourceFile(driver, typedefs=typedefs).subroutines[0]
+    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
+    driver = SourceFile.from_file(driver, typedefs=typedefs).subroutines[0]
     driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path/routine.name.lower()).with_suffix('.%s.F90' % mode)
+    driver_out = (out_path/driver.name.lower()).with_suffix('.%s.F90' % mode)
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
                         if len(v.dimensions) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
-    for call in FindNodes(Call).visit(routine.ir):
+    for call in FindNodes(Call).visit(routine.body):
         if call.name.lower() == 'ref_save':
             call.name = 'ref_error'
 
@@ -551,7 +561,7 @@ class InferArgShapeTransformation(AbstractTransformation):
 
     def _pipeline(self, routine, **kwargs):
 
-        for call in FindNodes(Call).visit(routine.ir):
+        for call in FindNodes(Call).visit(routine.body):
             if call.context is not None and call.context.active:
 
                 # Insert shapes of call values into routine arguments
@@ -601,7 +611,7 @@ class RapsTransformation(BasicTransformation):
         self.rename_calls(routine, suffix=mode.upper())
         self.adjust_imports(routine, mode, processor)
 
-        filename = routine.sourcefile.path.with_suffix('.%s.F90' % mode)
+        filename = task.path.with_suffix('.%s.F90' % mode)
         if role == 'driver':
             self.write_to_file(routine, filename=filename, module_wrap=False)
         else:
@@ -621,6 +631,7 @@ class RapsTransformation(BasicTransformation):
         replacements = {}
 
         # Update all relevant interface abd module imports
+        # Note: C-style header imports live in routine.body!
         new_imports = []
         for im in FindNodes(Import).visit(routine.ir):
             for r in processor.routines:
@@ -635,7 +646,7 @@ class RapsTransformation(BasicTransformation):
 
         # Insert new declarations and transform existing ones
         routine.spec.prepend(new_imports)
-        routine._ir = Transformer(replacements).visit(routine.ir)
+        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def adjust_dependencies(self, original, task, processor):
         """

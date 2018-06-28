@@ -2,45 +2,43 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, FortranSourceFile, fgen
+from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
+from conftest import generate_identity
 
 
-@pytest.fixture
-def reference():
+@pytest.fixture(scope='module')
+def refpath():
     return Path(__file__).parent / 'expression.f90'
 
 
-def generate_identity(reference, routinename, suffix):
+@pytest.fixture(scope='module')
+def reference(refpath):
     """
-    Generate the "identity" of a single subroutine with a specific suffix.
+    Compile and load the reference solution
     """
-    testname = reference.parent/('%s_%s_%s.f90' % (reference.stem, routinename, suffix))
-    source = FortranSourceFile(reference)
-    routine = [r for r in source.subroutines if r.name == routinename][0]
-    routine.name += '_%s' % suffix
-    source.write(source=fgen(routine), filename=testname)
-    return compile_and_load(testname)
+    clean(filename=refpath)  # Delete parser cache
+    return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
-def test_expression(reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_simple_expr(refpath, reference, frontend):
     """
     v5 = (v1 + v2) * (v3 - v4)
     v6 = (v1 ** v2) - (v3 / v4)
     """
-    clean(filename=reference)  # Delete parser cache
-
     # Test the reference solution
-    ref = compile_and_load(reference)
-    v5, v6 = ref.simple_expr(2., 3., 10., 5.)
+    v5, v6 = reference.simple_expr(2., 3., 10., 5.)
     assert v5 == 25. and v6 == 6.
 
     # Test the generated identity
-    test = generate_identity(reference, 'simple_expr', suffix='test')
-    v5, v6 = test.simple_expr_test(2., 3., 10., 5.)
+    test = generate_identity(refpath, 'simple_expr', frontend=frontend)
+    function = getattr(test, 'simple_expr_%s' % frontend)
+    v5, v6 = function(2., 3., 10., 5.)
     assert v5 == 25. and v6 == 6.
 
 
-def test_intrinsic_functions(reference):
+@pytest.mark.parametrize('frontend', [OFP])
+def test_intrinsic_functions(refpath, reference, frontend):
     """
     vmin = min(v1, v2)
     vmax = max(v1, v2)
@@ -49,16 +47,14 @@ def test_intrinsic_functions(reference):
     vsqrt = sqrt(v1 + v2)
     vlog = log(v1 + v2)
     """
-    clean(filename=reference)  # Delete parser cache
-
     # Test the reference solution
-    ref = compile_and_load(reference)
-    vmin, vmax, vabs, vexp, vsqrt, vlog = ref.intrinsic_functions(2., 4.)
+    vmin, vmax, vabs, vexp, vsqrt, vlog = reference.intrinsic_functions(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
 
     # Test the generated identity
-    test = generate_identity(reference, 'intrinsic_functions', suffix='test')
-    vmin, vmax, vabs, vexp, vsqrt, vlog = test.intrinsic_functions_test(2., 4.)
+    test = generate_identity(refpath, 'intrinsic_functions', frontend=frontend)
+    function = getattr(test, 'intrinsic_functions_%s' % frontend)
+    vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)

@@ -266,20 +266,22 @@ class Index(Expression):
 
 class RangeIndex(Expression):
 
-    def __init__(self, lower, upper):
+    def __init__(self, lower, upper, step=None):
         self.lower = lower
         self.upper = upper
+        self.step = step
 
     @property
     def expr(self):
-        return '%s:%s' % (self.lower, self.upper)
+        step = '' if self.step is None else ':%s' % self.step
+        return '%s:%s%s' % (self.lower, self.upper, step)
 
     @property
     def children(self):
-        return self.lower, self.upper
+        return self.lower, self.upper, self.step
 
     def __key(self):
-        return (self.lower, self.upper)
+        return (self.lower, self.upper, self.step)
 
     def __hash__(self):
         return hash(self.__key())
@@ -289,6 +291,6 @@ class RangeIndex(Expression):
         if isinstance(other, str):
             return self.expr.upper() == other.upper()
         elif isinstance(other, RangeIndex):
-            return self.lower == other.lower and self.upper == other.upper
+            return self.lower == other.lower and self.upper == other.upper and self.step == other.step
         else:
             return super(RangeIndex, self).__eq__(other)

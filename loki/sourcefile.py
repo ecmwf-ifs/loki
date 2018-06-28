@@ -3,45 +3,81 @@ Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
 import pickle
-import open_fortran_parser
 from pathlib import Path
 from collections import OrderedDict
 
 from loki.subroutine import Subroutine, Module
-from loki.tools import disk_cached, timeit, flatten, as_tuple
-from loki.logging import info, DEBUG
-from loki.preprocessing import blacklist
+from loki.tools import flatten, as_tuple
+from loki.logging import info
+from loki.frontend import OMNI, OFP, blacklist, parse_omni, parse_ofp
 
 
-__all__ = ['FortranSourceFile']
+__all__ = ['SourceFile']
 
 
-class FortranSourceFile(object):
+class SourceFile(object):
     """
-    Class to handle and manipulate Fortran source files.
+    Class to handle and manipulate source files.
 
-    :param filename: Name of the input source file
+    :param filename: Name of the source file
+    :param routines: Subroutines (functions) contained in this source
+    :param modules: Fortran modules contained in this source
+    :param ast: Optional parser-AST of the original source file
     """
 
-    def __init__(self, filename, preprocess=False, typedefs=None):
+    def __init__(self, filename, routines=None, modules=None, ast=None):
         self.path = Path(filename)
-        info_path = self.path.with_suffix('.pp.info')
-        file_path = self.path
+        self.routines = routines
+        self.modules = modules
+        self._ast = ast
+
+    @classmethod
+    def from_file(cls, filename, preprocess=False, typedefs=None,
+                  xmods=None, frontend=OFP):
+        if frontend == OMNI:
+            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods)
+        elif frontend == OFP:
+            return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
+        else:
+            raise NotImplementedError('Unknown frontend: %s' % frontend)
+
+    @classmethod
+    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None):
+        """
+        Use the OMNI compiler frontend to generate internal subroutine
+        and module IRs.
+        """
+        filepath = Path(filename)
+
+        with filepath.open() as f:
+            raw_source = f.read()
+
+        # Parse the file content into an OMNI Fortran AST
+        ast = parse_omni(filename=filename, xmods=xmods)
+
+        routines = []  # TODO: Parse subrotuines properly
+        modules = []  # TODO: Parse modules properly
+        return cls(filename, routines=routines, modules=modules, ast=ast)
+
+    @classmethod
+    def from_ofp(cls, filename, preprocess=False, typedefs=None):
+        file_path = Path(filename)
+        info_path = file_path.with_suffix('.pp.info')
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the OFP, as it will otherwise drop certain
         # terms due to advanced bugged-ness! :(
         if preprocess:
-            pp_path = self.path.with_suffix('.pp.F90')
-            self.preprocess(pp_path, info_path)
+            pp_path = file_path.with_suffix('.pp.F90')
+            cls.preprocess(file_path, pp_path, info_path)
             file_path = pp_path
 
         # Import and store the raw file content
         with file_path.open() as f:
-            self._raw_source = f.read()
+            raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        self._ast = self.parse_ast(filename=str(file_path))
+        ast = parse_ofp(filename=str(file_path))
 
         # Extract subroutines and pre/post sections from file
         pp_info = None
@@ -49,15 +85,15 @@ class FortranSourceFile(object):
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
-        self.routines = [Subroutine(ast=r, raw_source=self._raw_source,
-                                    sourcefile=self, typedefs=typedefs,
-                                    pp_info=pp_info)
-                         for r in self._ast.findall('file/subroutine')]
-        self.modules = [Module.from_source(ast=m, raw_source=self._raw_source,
-                                           sourcefile=self)
-                        for m in self._ast.findall('file/module')]
+        routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source,
+                                        typedefs=typedefs, pp_info=pp_info)
+                    for r in ast.findall('file/subroutine')]
+        modules = [Module.from_ofp(ast=m, raw_source=raw_source)
+                   for m in ast.findall('file/module')]
+        return cls(filename, routines=routines, modules=modules, ast=ast)
 
-    def preprocess(self, pp_path, info_path, kinds=None):
+    @classmethod
+    def preprocess(cls, file_path, pp_path, info_path, kinds=None):
         """
         A dedicated pre-processing step to ensure smooth source parsing.
 
@@ -68,12 +104,12 @@ class FortranSourceFile(object):
         this information after the AST parse when creating `Subroutine`s.
         """
         if pp_path.exists():
-            if pp_path.stat().st_mtime > self.path.stat().st_mtime:
+            if pp_path.stat().st_mtime > file_path.stat().st_mtime:
                 # Already pre-processed this one, skip!
                 return
-        info("Pre-processing %s => %s" % (self.path, pp_path))
+        info("Pre-processing %s => %s" % (file_path, pp_path))
 
-        with self.path.open() as f:
+        with file_path.open() as f:
             source = f.read()
 
         # Apply preprocessing rules and store meta-information
@@ -96,17 +132,6 @@ class FortranSourceFile(object):
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
 
-    @timeit(log_level=DEBUG)
-    @disk_cached(argname='filename')
-    def parse_ast(self, filename):
-        """
-        Read and parse a source file usign the Open Fortran Parser.
-
-        Note: The parsing is cached on disk in ``<filename>.cache``.
-        """
-        info("Parsing %s" % filename)
-        return open_fortran_parser.parse(filename)
-
     @property
     def source(self):
         content = self.modules + self.subroutines
@@ -125,6 +150,14 @@ class FortranSourceFile(object):
         """
         path = Path(filename or self.path)
         source = self.source if source is None else source
+        self.to_file(source=source, path=path)
+
+    @classmethod
+    def to_file(cls, source, path):
+        """
+        Same as ``write(source, filename)``, but can be called from a
+        static context.
+        """
         info("Writing %s" % path)
         with path.open('w') as f:
             f.write(source)
