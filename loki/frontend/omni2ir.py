@@ -160,9 +160,13 @@ class OMNI2IR(GenericVisitor):
         variables = []
         for s in o.find('symbols'):
             vname = s.find('name').text
-            stype = self.type_map[s.attrib['type']]
-            vtype = self.visit(stype)
-            dimensions = [self.visit(d) for d in stype]
+            t = s.attrib['type']
+            if t in self.type_map:
+                vtype = self.visit(self.type_map[t])
+                dimensions = [self.visit(d) for d in self.type_map[t]]
+            else:
+                vtype = BaseType(name=BaseType._omni_types.get(t, t))
+                dimensions = None
             variables += [Variable(name=vname, dimensions=dimensions, type=vtype)]
         return DerivedType(name=name, variables=as_tuple(variables))
 
@@ -199,7 +203,11 @@ class OMNI2IR(GenericVisitor):
         return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_FmemberRef(self, o, source=None):
-        vtype = self.visit(self.type_map[o.attrib['type']])
+        t = o.attrib['type']
+        if t in self.type_map:
+            vtype = self.visit(self.type_map[t])
+        else:
+            vtype = BaseType(name=BaseType._omni_types.get(t, t))
         var = Variable(name=o.attrib['member'], type=vtype)
         var.ref = self.visit(o.find('varRef'))
         return var
