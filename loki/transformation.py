@@ -69,7 +69,7 @@ class BasicTransformation(AbstractTransformation):
         Update calls to actively transformed subroutines.
         """
         suffix = kwargs.get('suffix', None)
-        for call in FindNodes(Call).visit(routine.ir):
+        for call in FindNodes(Call).visit(routine.body):
             if call.context is not None and call.context.active:
                 call._update(name='%s_%s' % (call.name, suffix))
 

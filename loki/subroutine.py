@@ -120,7 +120,7 @@ class Subroutine(object):
 
         self.docstring = docstring
         self.spec = spec
-        self.ir = body
+        self.body = body
         self.members = members
 
     @classmethod
@@ -177,7 +177,7 @@ class Subroutine(object):
         """
         routine_map = {r.name.upper(): r for r in as_tuple(routines)}
 
-        for call in FindNodes(Call).visit(self.ir):
+        for call in FindNodes(Call).visit(self.body):
             if call.name.upper() in routine_map:
                 # Calls marked as 'reference' are inactive and thus skipped
                 active = True
@@ -218,7 +218,7 @@ class Subroutine(object):
         Note, the shape derivation from derived types is currently
         limited to first-level nesting only.
         """
-        declarations = declarations or FindNodes(Declaration).visit(self.ir)
+        declarations = declarations or FindNodes(Declaration).visit(self.spec)
         typedefs = typedefs or {}
 
         # Create map of variable names to allocated shape (dimensions)
@@ -237,7 +237,7 @@ class Subroutine(object):
                                if v.dimensions is not None and len(v.dimensions) > 0})
 
         # Override shapes for deferred-shape allocations
-        for alloc in FindNodes(Allocation).visit(self.ir):
+        for alloc in FindNodes(Allocation).visit(self.body):
             shapes[alloc.variable.name] = alloc.variable.dimensions
 
         class VariableShapeInjector(ExpressionVisitor, Visitor):
@@ -274,7 +274,15 @@ class Subroutine(object):
                     self.visit(c)
 
         # Apply dimensions via expression visitor (in-place)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
+        ir = (self.spec, self.body)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
+
+    @property
+    def ir(self):
+        """
+        Intermediate representation (AST) of the body in this subroutine
+        """
+        return (self.docstring, self.spec, self.body)
 
     @property
     def argnames(self):
@@ -306,7 +314,7 @@ class Subroutine(object):
     @property
     def interface(self):
         arguments = self.arguments
-        declarations = tuple(d for d in FindNodes(Declaration).visit(self.ir)
+        declarations = tuple(d for d in FindNodes(Declaration).visit(self.spec)
                              if any(v in arguments for v in d.variables))
 
         # Collect unknown symbols that we might need to import

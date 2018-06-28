@@ -98,7 +98,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         :param caller: The calling :class:`Subroutine`.
         """
         call_mapper = {}
-        for call in FindNodes(Call).visit(caller.ir):
+        for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
                 candidates = self._derived_type_arguments(call.context.routine)
 
@@ -124,7 +124,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                 call_mapper[call] = call.clone(arguments=as_tuple(new_arguments))
 
         # Rebuild the caller's IR tree
-        caller._ir = Transformer(call_mapper).visit(caller.ir)
+        caller.body = Transformer(call_mapper).visit(caller.body)
 
     def flatten_derived_args_routine(self, routine):
         """
@@ -134,7 +134,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         The convention used is: ``derived%var => derived_var``
         """
         candidates = self._derived_type_arguments(routine)
-        declarations = FindNodes(Declaration).visit(routine.ir)
+        declarations = FindNodes(Declaration).visit(routine.spec)
 
         # Callee: Establish replacements for declarations and dummy arguments
         decl_mapper = defaultdict(list)
@@ -165,7 +165,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         VariableTransformer(argnames=argnames).visit(routine.ir)
 
         # Replace `Declaration` nodes (re-generates the IR tree)
-        routine._ir = Transformer(decl_mapper).visit(routine.ir)
+        routine.spec = Transformer(decl_mapper).visit(routine.spec)
 
 
 class Dimension(object):
@@ -241,13 +241,13 @@ class SCATransformation(AbstractTransformation):
 
         # Remove all loops over the target dimensions
         loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.ir):
+        for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == target.variable:
                 loop_map[loop] = loop.body
-        routine._ir = Transformer(loop_map).visit(routine.ir)
+        routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        for decl in FindNodes(Declaration).visit(routine.ir):
+        for decl in FindNodes(Declaration).visit(routine.spec):
             new_vars = tuple(v for v in decl.variables
                              if str(v) not in target.variables)
 
@@ -286,7 +286,7 @@ class SCATransformation(AbstractTransformation):
         # Remove dimension size expressions from variable declarations (in-place)
         # Note: We do this last, because changing the declaration affects
         # the variable_map used above.
-        for decl in FindNodes(Declaration).visit(routine.ir):
+        for decl in FindNodes(Declaration).visit(routine.spec):
             for v in decl.variables:
                 if v.dimensions is not None:
                     v.dimensions = as_tuple(d for d in v.dimensions
@@ -296,7 +296,7 @@ class SCATransformation(AbstractTransformation):
         routine._argnames = tuple(arg for arg in routine.argnames
                                   if arg not in target.variables)
 
-        routine._ir = Transformer(replacements).visit(routine.ir)
+        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -311,7 +311,7 @@ class SCATransformation(AbstractTransformation):
         size_expressions = target.size_expressions
         replacements = {}
 
-        for call in FindNodes(Call).visit(caller.ir):
+        for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
 
@@ -359,7 +359,7 @@ class SCATransformation(AbstractTransformation):
                 else:
                     replacements[call] = new_call
 
-        caller._ir = Transformer(replacements).visit(caller.ir)
+        caller.body = Transformer(replacements).visit(caller.body)
 
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in caller.variables:
@@ -376,7 +376,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
     from loki import FortranCodegen
 
     # Insert loop pragmas in driver (in-place)
-    for loop in FindNodes(Loop).visit(driver.ir):
+    for loop in FindNodes(Loop).visit(driver.body):
         if loop.variable == target.variable:
             pragma = Pragma(keyword='claw', content='parallelize forward create update')
             loop._update(pragma=pragma)
@@ -394,11 +394,11 @@ def remove_omp_do(routine):
     Utility routine that strips existing !$opm do pragmas from driver code.
     """
     mapper = {}
-    for p in FindNodes(Pragma).visit(routine.ir):
+    for p in FindNodes(Pragma).visit(routine.body):
         if p.keyword.lower() == 'omp':
             if p.content.startswith('do') or p.content.startswith('end do'):
                 mapper[p] = None
-    routine._ir = Transformer(mapper).visit(routine.ir)
+    routine.body = Transformer(mapper).visit(routine.body)
 
 
 @click.group()
@@ -452,7 +452,7 @@ def idempotence(out_path, source, driver, header, xmod, flatten_args, openmp):
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(routine.ir):
+                for loop in FindNodes(Loop).visit(routine.body):
                     if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
@@ -520,7 +520,7 @@ def convert(out_path, source, driver, header, strip_omp_do, mode):
                         if len(v.dimensions) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
-    for call in FindNodes(Call).visit(routine.ir):
+    for call in FindNodes(Call).visit(routine.body):
         if call.name.lower() == 'ref_save':
             call.name = 'ref_error'
 
@@ -561,7 +561,7 @@ class InferArgShapeTransformation(AbstractTransformation):
 
     def _pipeline(self, routine, **kwargs):
 
-        for call in FindNodes(Call).visit(routine.ir):
+        for call in FindNodes(Call).visit(routine.body):
             if call.context is not None and call.context.active:
 
                 # Insert shapes of call values into routine arguments
@@ -631,6 +631,7 @@ class RapsTransformation(BasicTransformation):
         replacements = {}
 
         # Update all relevant interface abd module imports
+        # Note: C-style header imports live in routine.body!
         new_imports = []
         for im in FindNodes(Import).visit(routine.ir):
             for r in processor.routines:
@@ -645,7 +646,7 @@ class RapsTransformation(BasicTransformation):
 
         # Insert new declarations and transform existing ones
         routine.spec.prepend(new_imports)
-        routine._ir = Transformer(replacements).visit(routine.ir)
+        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def adjust_dependencies(self, original, task, processor):
         """

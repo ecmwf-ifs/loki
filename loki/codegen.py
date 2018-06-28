@@ -63,7 +63,7 @@ class FortranCodegen(Visitor):
         header = 'SUBROUTINE %s%s\n' % (o.name, argument)
         docstring = '%s\n\n' % self.visit(o.docstring)
         spec = '%s\n\n' % self.visit(o.spec)
-        body = self.visit(o.ir)
+        body = self.visit(o.body)
         footer = '\nEND SUBROUTINE %s\n' % o.name
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)
