@@ -6,6 +6,7 @@ from itertools import groupby
 from enum import IntEnum
 
 from loki.frontend.ofp2ir import OFP2IR
+from loki.frontend.omni2ir import convert_omni2ir
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
 from loki.tools import timeit
@@ -97,7 +98,7 @@ class PatternFinder(Visitor):
 
 
 @timeit(log_level=DEBUG)
-def parse(ofp_ast, raw_source):
+def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
     output.
@@ -105,21 +106,24 @@ def parse(ofp_ast, raw_source):
     The internal IR is intended to represent the code at a much higher
     level than the raw langage constructs that OFP returns.
     """
-
-    # Parse the OFP AST into a raw IR
-    ir = OFP2IR(raw_source).visit(ofp_ast)
+    if frontend == OFP:
+        ir = OFP2IR(raw_source).visit(ast)
+    elif frontend == OMNI:
+        ir = convert_omni2ir(ast, type_map=type_map, symbol_map=symbol_map,
+                             raw_source=raw_source)
+    else:
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     # Identify inline comments and merge them onto statements
     pairs = PatternFinder(pattern=(Statement, Comment)).visit(ir)
     pairs += PatternFinder(pattern=(Declaration, Comment)).visit(ir)
     mapper = {}
     for pair in pairs:
-        if pair[0]._source.lines[0] == pair[1]._source.lines[0]:
-            # Comment is in-line and can be merged
-            # Note, we need to re-create the statement node
-            # so that Transformers don't throw away the changes.
-            mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-            mapper[pair[1]] = None  # Mark for deletion
+        # Comment is in-line and can be merged
+        # Note, we need to re-create the statement node
+        # so that Transformers don't throw away the changes.
+        mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
+        mapper[pair[1]] = None  # Mark for deletion
     ir = NestedTransformer(mapper).visit(ir)
 
     # Cluster comments into comment blocks
@@ -141,10 +145,9 @@ def parse(ofp_ast, raw_source):
     pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
     mapper = {}
     for pair in pairs:
-        if pair[0]._source.lines[0] == pair[1]._source.lines[0] - 1:
-            # Merge pragma with declaration and delete
-            mapper[pair[0]] = None  # Mark for deletion
-            mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
+        # Merge pragma with declaration and delete
+        mapper[pair[0]] = None  # Mark for deletion
+        mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
     ir = NestedTransformer(mapper).visit(ir)
 
     return ir

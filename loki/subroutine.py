@@ -1,4 +1,4 @@
-from loki.frontend.parse import parse
+from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.omni2ir import convert_omni2ir
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
@@ -47,7 +47,7 @@ class Module(object):
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse(spec_ast, raw_source)
+        spec = parse(spec_ast, raw_source=raw_source)
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
@@ -152,7 +152,7 @@ class Subroutine(object):
         args = [arg.attrib['name'].upper() for arg in arg_ast]
 
         # Create a IRs for declarations section and the loop body
-        body = parse(ast.find('body'), raw_source)
+        body = parse(ast.find('body'), raw_source=raw_source, frontend=OFP)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for r_name, rule in blacklist.items():
@@ -193,11 +193,11 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        # Generate spec, filter out external declarations
-        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
-                               symbol_map=symbol_map, raw_source=raw_source)
+        # Generate spec, filter out external declarations and docstring
+        spec = parse(ast.find('declarations'), type_map=type_map,
+                     symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-                  if d._source['file'] != file or d.variables[0] == name}
+                  if d._source.file != file or d.variables[0] == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
@@ -220,8 +220,8 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = convert_omni2ir(ast.find('body'), type_map=type_map,
-                               symbol_map=symbol_map, raw_source=raw_source)
+        body = parse(ast.find('body'), type_map=type_map, symbol_map=symbol_map,
+                     raw_source=raw_source, frontend=OMNI)
 
         obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
                   members=members, ast=ast)
