@@ -5,12 +5,14 @@ __all = ['Source', 'extract_source']
 
 class Source(object):
 
-    def __init__(self, string, lines):
-        self.string = string
+    def __init__(self, lines, string=None, file=None):
         self.lines = lines
+        self.string = string
+        self.file = file
 
     def __repr__(self):
-        return 'Source<lines %s-%s>' % (self.lines[0], self.lines[1])
+        line_end = '-%s' % self.lines[1] if self.lines[1] else ''
+        return 'Source<line %s%s>' % (self.lines[0], line_end)
 
 
 def extract_source(ast, text, full_lines=False):

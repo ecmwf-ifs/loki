@@ -3,12 +3,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 
-from loki.frontend import OMNI
-from loki.frontend.source import extract_source
+from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, LiteralList, Index, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
-                     Import, Declaration, TypeDef, Intrinsic)
+                     Import, Declaration, TypeDef, Intrinsic, Pragma)
 from loki.types import BaseType, DerivedType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
@@ -50,7 +49,7 @@ def parse_omni(filename, xmods=None):
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
 
-    cmd = ['F_Front']
+    cmd = ['F_Front', '-fleave-comment']
     for m in xmods:
         cmd += ['-M', '%s' % Path(m)]
     cmd += ['-o', '%s' % xml_path]
@@ -59,7 +58,7 @@ def parse_omni(filename, xmods=None):
     try:
         check_call(cmd)
     except CalledProcessError as e:
-        error('[%s] Parsing failed: %s' % (OMNI, ' '.join(cmd)))
+        error('[%s] Parsing failed: %s' % ('omni', ' '.join(cmd)))
         raise e
 
     return ET.parse(str(xml_path)).getroot()
@@ -90,7 +89,7 @@ class OMNI2IR(GenericVisitor):
         """
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
-        source = {'file': file, 'lineno': lineno}
+        source = Source(lines=(lineno, None), file=file)
         return super(OMNI2IR, self).visit(o, source=source)
 
     def visit_Element(self, o, source=None):
@@ -181,6 +180,11 @@ class OMNI2IR(GenericVisitor):
             associations[var] = Variable(name=i.find('name').text)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
+
+    def visit_FpragmaStatement(self, o, source=None):
+        keyword = o.text.split(' ')[0]
+        content = ' '.join(o.text.split(' ')[1:])
+        return Pragma(keyword=keyword, content=content, source=source)
 
     def visit_FassignStatement(self, o, source=None):
         target = self.visit(o[0])
