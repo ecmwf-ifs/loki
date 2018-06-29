@@ -7,7 +7,7 @@ from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, LiteralList, Index, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
-                     Import, Declaration, TypeDef, Intrinsic, Pragma)
+                     Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, disk_cached
@@ -181,6 +181,9 @@ class OMNI2IR(GenericVisitor):
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
+    def visit_FcommentLine(self, o, source=None):
+        return Comment(text=o.text, source=source)
+
     def visit_FpragmaStatement(self, o, source=None):
         keyword = o.text.split(' ')[0]
         content = ' '.join(o.text.split(' ')[1:])
@@ -352,6 +355,10 @@ class OMNI2IR(GenericVisitor):
     def visit_FpowerExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['**'], operands=exprs)
+
+    def visit_unaryMinusExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['-'], operands=exprs)
 
     def visit_logOrExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
