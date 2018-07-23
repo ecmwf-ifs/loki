@@ -11,7 +11,7 @@ from loki.tools import as_tuple
 __all__ = ['execute', 'clean', 'compile_and_load']
 
 
-_test_base_dir = Path(__file__).parent.parent/'tests'
+_test_base_dir = Path(__file__).parent.parent.parent/'tests'
 
 
 def execute(args, cwd=None):
