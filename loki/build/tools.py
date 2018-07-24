@@ -1,4 +1,7 @@
-__all__ = ['as_tuple']
+from collections import Iterable
+
+
+__all__ = ['as_tuple', 'filter_ordered', 'flatten']
 
 
 def as_tuple(item, type=None, length=None):
@@ -24,3 +27,33 @@ def as_tuple(item, type=None, length=None):
     if type and not all(isinstance(i, type) for i in t):
         raise TypeError("Items need to be of type %s" % type)
     return t
+
+
+def filter_ordered(elements, key=None):
+    """
+    Filter elements in a list while preserving order.
+
+    Partly extracted from: https://github.com/opesci/devito.
+
+    :param key: Optional conversion key used during equality comparison.
+    """
+    seen = set()
+    if key is None:
+        key = lambda x: x
+    return [e for e in elements if not (key(e) in seen or seen.add(key(e)))]
+
+
+def flatten(l):
+    """
+    Flatten a hierarchy of nested lists into a plain list.
+
+    Partly extracted from: https://github.com/opesci/devito.
+    """
+    newlist = []
+    for el in l:
+        if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
+            for sub in flatten(el):
+                newlist.append(sub)
+        else:
+            newlist.append(el)
+    return newlist

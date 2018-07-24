@@ -6,9 +6,10 @@ import shutil
 
 from loki.logging import debug, info, error
 from loki.tools import as_tuple
+from loki.build.toolchain import _default_toolchain
 
 
-__all__ = ['execute', 'clean', 'compile_and_load']
+__all__ = ['execute', 'clean', 'compile', 'compile_and_load']
 
 
 _test_base_dir = Path(__file__).parent.parent.parent/'tests'
@@ -46,6 +47,14 @@ def clean(filename, pattern=None):
     for p in as_tuple(pattern):
         for f in filepath.parent.glob(p):
             delete(f)
+
+
+def compile(filename, include_dirs=None, toolchain=None, cwd=None):
+    filepath = Path(filename)
+    toolchain = toolchain or _default_toolchain
+    args = toolchain.build_args(source=filepath.absolute(),
+                                include_dirs=include_dirs)
+    execute(args, cwd=cwd)
 
 
 def compile_and_load(filename, cwd=None, use_f90wrap=True):
