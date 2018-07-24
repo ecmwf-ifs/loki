@@ -11,7 +11,7 @@ INFO = logging.INFO
 WARNING = logging.WARNING
 ERROR = logging.ERROR
 
-logger = logging.getLogger('ecir')
+logger = logging.getLogger('loki')
 _ch = logging.StreamHandler()
 logger.addHandler(_ch)
 logger.setLevel(INFO)
