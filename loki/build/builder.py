@@ -49,7 +49,12 @@ class BuildItem(object):
         """
         Names of build items that this item depends on.
         """
-        return as_tuple('%s.F90' % u for u in self.uses)
+        modules = ['%s.F90' % u for u in self.uses]
+        includes = [Path(incl).stem for incl in self.includes]
+        includes = [Path(incl).stem if '.intfb' in incl else incl
+                    for incl in includes]
+        includes = ['%s.F90' % incl for incl in includes]
+        return as_tuple(modules + includes)
 
     def build(self, toolchain, include_dirs=None, build_dir=None):
         """
@@ -137,7 +142,7 @@ class Builder(object):
 
         return g
 
-    def build(self, filename, target=None):
+    def build(self, filename, target=None, shared=True):
         item = self.get_item(filename)
         info("Building %s" % item)
 
@@ -162,11 +167,11 @@ class Builder(object):
         wrappers for the :param filename: and load it dynamically.
         """
         item = self.get_item(filename)
-        target = 'lib%s.so' % item.path.stem
+        target = 'lib%s.a' % item.path.stem
         build_dir = str(self.build_dir) if self.build_dir else None
 
         # First, ensure all base objects are built
-        self.build(filename, target=target)
+        self.build(filename, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
         info('Python-wrapping %s' % item)
@@ -175,6 +180,7 @@ class Builder(object):
                                                    source=str(item.path))
         execute(f90wrap_args, cwd=build_dir)
 
+        # Execute the second-level wrapper (f2py-f90wrap)
         pywrapper = (self.build_dir/('f90wrap_%s.f90' % item.path.stem))
         source = pywrapper if pywrapper.exists() else 'f90wrap_toplevel.f90'
         lib_dirs = ['%s' % self.build_dir.absolute()]

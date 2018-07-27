@@ -25,7 +25,7 @@ class Toolchain(object):
         self.f90 = f90 or 'gfortran'
         self.f90flags = f90flags or ['-g', '-fPIC']
         self.ld = ld or 'gfortran'
-        self.ldflags = ['-shared']
+        self.ldflags = []
 
     def build_args(self, source, target=None, include_dirs=[]):
         """
@@ -38,12 +38,13 @@ class Toolchain(object):
         args += [str(source)]
         return args
 
-    def linker_args(self, objs, target):
+    def linker_args(self, objs, target, shared=True):
         """
         Generate arguments for the linker line.
         """
         args = [self.ld]
         args += self.ldflags
+        args += ['-shared'] if shared else []
         args += ['-o', '%s' % target]
         args += objs
         return args
