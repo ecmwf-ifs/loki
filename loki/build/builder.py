@@ -1,9 +1,10 @@
-from pathlib import Path
+import sys
 import re
-# from cachetools import cached, LRUCache
+from pathlib import Path
 from functools import lru_cache
 import networkx as nx
 from collections import deque, OrderedDict
+from importlib import import_module
 
 from loki.logging import info, debug  # The only upwards dependency!
 
@@ -53,7 +54,10 @@ class BuildItem(object):
     def build(self, toolchain, include_dirs=None, build_dir=None):
         """
         Execute the respective build command according to the given
-        :class:`Toolchain`.
+        :param toochain:.
+
+        Please note that this does not build any dependencies. For this
+        a :class:`Builder` is requried.
         """
         debug('Building item %s' % self)
         args = toolchain.build_args(source=self.path.absolute(),
@@ -133,19 +137,52 @@ class Builder(object):
 
         return g
 
-    def build(self, filename, target=None, build_dependencies=True):
+    def build(self, filename, target=None):
         item = self.get_item(filename)
         info("Building %s" % item)
 
         build_dir = str(self.build_dir) if self.build_dir else None
 
-        if build_dependencies:
-            # Build the entire dependency graph
-            dependencies = self.get_dependency_graph(item)
-            for dep in reversed(list(nx.topological_sort(dependencies))):
-                dep.build(toolchain=self.toolchain, build_dir=build_dir,
-                          include_dirs=self.include_dirs)
-        else:
-            # Build only the target object
-            item.build(toolchain=self.toolchain, build_dir=build_dir,
-                       include_dirs=self.include_dirs)
+        # Build the entire dependency graph, including the source object
+        objs = []
+        dependencies = self.get_dependency_graph(item)
+        for dep in reversed(list(nx.topological_sort(dependencies))):
+            dep.build(toolchain=self.toolchain, build_dir=build_dir,
+                      include_dirs=self.include_dirs)
+            objs += ['%s.o' % dep.path.stem]
+
+        if target is not None:
+            debug('Linking target: %s' % target)
+            args = self.toolchain.linker_args(objs=objs, target=target)
+            execute(args, cwd=build_dir)
+
+    def compile_and_load(self, filename):
+        """
+        Performs the necessary build steps to compile the source and
+        wrappers for the :param filename: and load it dynamically.
+        """
+        item = self.get_item(filename)
+        target = 'lib%s.so' % item.path.stem
+        build_dir = str(self.build_dir) if self.build_dir else None
+
+        # First, ensure all base objects are built
+        self.build(filename, target=target)
+
+        # Execute the first-level wrapper (f90wrap)
+        info('Python-wrapping %s' % item)
+        modname = item.path.stem
+        f90wrap_args = self.toolchain.f90wrap_args(modname=modname,
+                                                   source=str(item.path))
+        execute(f90wrap_args, cwd=build_dir)
+
+        pywrapper = (self.build_dir/('f90wrap_%s.f90' % item.path.stem))
+        source = pywrapper if pywrapper.exists() else 'f90wrap_toplevel.f90'
+        lib_dirs = ['%s' % self.build_dir.absolute()]
+        f2py_args = self.toolchain.f2py_args(modname=modname, source=source,
+                                             libs=[modname], lib_dirs=lib_dirs)
+        execute(f2py_args, cwd=build_dir)
+
+        # Handle import paths and load the compiled module
+        if str(self.build_dir.absolute()) not in sys.path:
+            sys.path.insert(0, str(self.build_dir.absolute()))
+        return import_module(item.path.stem)
