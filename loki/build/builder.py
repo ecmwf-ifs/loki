@@ -161,34 +161,43 @@ class Builder(object):
             args = self.toolchain.linker_args(objs=objs, target=target)
             execute(args, cwd=build_dir)
 
-    def compile_and_load(self, filename):
+    def wrap_and_load(self, sources, modname=None):
         """
-        Performs the necessary build steps to compile the source and
-        wrappers for the :param filename: and load it dynamically.
+        Performs the necessary build steps to compile and wrap a set
+        of sources using ``f90wrap``. It returns return dynamically
+        loaded Python module containinig wrappers for each Fortran
+        procedure and module specified in :param sources:.
+
+        :param source: Name(s) of source files to wrap
+        :param modname: Optional module name for f90wrap to use
         """
-        item = self.get_item(filename)
-        target = 'lib%s.a' % item.path.stem
+        items = as_tuple(self.get_item(s) for s in as_tuple(sources))
         build_dir = str(self.build_dir) if self.build_dir else None
+        modname = modname or items[0].path.stem
 
         # First, ensure all base objects are built
-        self.build(filename, target=target, shared=False)
+        for item in items:
+            target = 'lib%s.a' % item.path.stem
+            self.build(item.path.name, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
         info('Python-wrapping %s' % item)
-        modname = item.path.stem
+        sourcepaths = [str(i.path) for i in items]
         f90wrap_args = self.toolchain.f90wrap_args(modname=modname,
-                                                   source=str(item.path))
+                                                   source=sourcepaths)
         execute(f90wrap_args, cwd=build_dir)
 
         # Execute the second-level wrapper (f2py-f90wrap)
-        pywrapper = (self.build_dir/('f90wrap_%s.f90' % item.path.stem))
-        source = pywrapper if pywrapper.exists() else 'f90wrap_toplevel.f90'
+        wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
+        wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
+        wrappers = [w for w in wrappers if (self.build_dir/w).exists()]
         lib_dirs = ['%s' % self.build_dir.absolute()]
-        f2py_args = self.toolchain.f2py_args(modname=modname, source=source,
+
+        f2py_args = self.toolchain.f2py_args(modname=modname, source=wrappers,
                                              libs=[modname], lib_dirs=lib_dirs)
         execute(f2py_args, cwd=build_dir)
 
         # Handle import paths and load the compiled module
         if str(self.build_dir.absolute()) not in sys.path:
             sys.path.insert(0, str(self.build_dir.absolute()))
-        return import_module(item.path.stem)
+        return import_module(modname)

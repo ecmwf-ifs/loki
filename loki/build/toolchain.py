@@ -56,7 +56,7 @@ class Toolchain(object):
         args = ['f90wrap']
         args += ['-m', '%s' % modname]
         args += ['-k', str(_test_base_dir/'kind_map')]  # TODO: Generalize as option
-        args += ['%s' % source]
+        args += ['%s' % s for s in source]
         return args
 
     def f2py_args(self, modname, source, libs=[], lib_dirs=[]):
@@ -70,7 +70,7 @@ class Toolchain(object):
             args += ['-l%s' % lib]
         for lib_dir in lib_dirs:
             args += ['-L%s' %lib_dir]
-        args += ['%s' % source]
+        args += ['%s' % s for s in source]
         return args
 
 
