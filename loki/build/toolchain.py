@@ -2,7 +2,7 @@ from pathlib import Path
 from loki.build.tools import flatten
 
 
-__all__ = ['Toolchain']
+__all__ = ['Toolchain', 'GNUToolchain', 'EscapeGNUToolchain']
 
 
 """
@@ -19,13 +19,20 @@ class Toolchain(object):
     Note, we are currently using GCC settings as default.
     """
 
-    def __init__(self, cc=None, cflags=None, f90=None, f90flags=None, ld=None, ldflags=None):
-        self.cc = cc or 'gcc'
-        self.cflag = cflags or ['-g', '-fPIC']
-        self.f90 = f90 or 'gfortran'
-        self.f90flags = f90flags or ['-g', '-fPIC']
-        self.ld = ld or 'gfortran'
-        self.ldflags = []
+    CC = None
+    CFLAGS = None
+    F90 = None
+    F90FLAGS = None
+    LD = None
+    LDFLAGS = None
+
+    def __init__(self):
+        self.cc = self.CC or 'gcc'
+        self.cflag = self.CFLAGS or ['-g', '-fPIC']
+        self.f90 = self.F90 or 'gfortran'
+        self.f90flags = self.F90FLAGS or ['-g', '-fPIC']
+        self.ld = self.LD or 'gfortran'
+        self.ldflags = self.LDFLAGS or []
 
     def build_args(self, source, target=None, include_dirs=[]):
         """
@@ -78,4 +85,23 @@ class Toolchain(object):
 _default_toolchain = Toolchain()
 
 
-# TODO: Build more common and custom presets
+class GNUToolchain(Toolchain):
+
+    CC = 'gcc'
+    CFLAGS = ['-g', '-fPIC']
+    F90 = 'gfortran'
+    F90FLAGS = ['-g', '-fPIC']
+    LD = 'gfortran'
+    LDFLAGS = []
+
+
+class EscapeGNUToolchain(GNUToolchain):
+
+    F90FLAGS = ['-O3', '-g', '-fPIC',
+                '-ffpe-trap=invalid,zero,overflow', '-fstack-arrays',
+                '-fconvert=big-endian',
+                '-fbacktrace',
+                '-fno-second-underscore',
+                '-ffree-form',
+                '-ffast-math',
+                '-fno-unsafe-math-optimizations']

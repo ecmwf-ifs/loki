@@ -79,9 +79,10 @@ class Builder(object):
     :param includes: One or more paths to that include header files
     """
 
-    def __init__(self, source_dirs, include_dirs=None, root_dir=None, build_dir=None):
+    def __init__(self, source_dirs, include_dirs=None, root_dir=None,
+                 build_dir=None, toolchain=None):
         # TODO: Make configurable and supply more presets
-        self.toolchain = _default_toolchain
+        self.toolchain = toolchain or _default_toolchain
 
         # Source dirs for auto-detection and include dis for preprocessing
         self.source_dirs = [Path(p).resolve() for p in as_tuple(source_dirs)]
