@@ -28,7 +28,7 @@ class Toolchain(object):
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
-        self.cflag = self.CFLAGS or ['-g', '-fPIC']
+        self.cflags = self.CFLAGS or ['-g', '-fPIC']
         self.f90 = self.F90 or 'gfortran'
         self.f90flags = self.F90FLAGS or ['-g', '-fPIC']
         self.ld = self.LD or 'gfortran'
@@ -66,17 +66,18 @@ class Toolchain(object):
         args += ['%s' % s for s in source]
         return args
 
-    def f2py_args(self, modname, source, libs=[], lib_dirs=[]):
+    def f2py_args(self, modname, source, libs=[], lib_dirs=[], incl_dirs=[]):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """
         args = ['f2py-f90wrap', '-c']
         args += ['-m', '_%s' % modname]
-        args += ['%s.o' % modname]
+        for incl_dir in incl_dirs:
+            args += ['-I%s' % incl_dir]
         for lib in libs:
             args += ['-l%s' % lib]
         for lib_dir in lib_dirs:
-            args += ['-L%s' %lib_dir]
+            args += ['-L%s' % lib_dir]
         args += ['%s' % s for s in source]
         return args
 
