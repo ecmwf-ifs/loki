@@ -28,7 +28,7 @@ def test_simple_loops(refpath, reference, frontend):
     item%matrix = item%matrix + item%scalar
     """
     # Test the reference solution
-    item = reference.Explicit()
+    item = reference.explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
@@ -38,7 +38,7 @@ def test_simple_loops(refpath, reference, frontend):
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='simple_loops', frontend=frontend)
-    item = test.Explicit()
+    item = test.explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
@@ -56,7 +56,7 @@ def test_array_indexing_explicit(refpath, reference, frontend):
     end do
     """
     # Test the reference solution
-    item = reference.Explicit()
+    item = reference.explicit()
     reference.array_indexing_explicit(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
@@ -64,7 +64,7 @@ def test_array_indexing_explicit(refpath, reference, frontend):
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='array_indexing_explicit', frontend=frontend)
-    item = test.Explicit()
+    item = test.explicit()
     getattr(test, 'array_indexing_explicit_%s' % frontend)(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
@@ -80,7 +80,7 @@ def test_array_indexing_deferred(refpath, reference, frontend):
     end do
     """
     # Test the reference solution
-    item = reference.Deferred()
+    item = reference.deferred()
     reference.alloc_deferred(item)
     reference.array_indexing_deferred(item)
     assert (item.vector == 666.).all()
@@ -90,7 +90,7 @@ def test_array_indexing_deferred(refpath, reference, frontend):
     # Test the generated identity
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='array_indexing_deferred', frontend=frontend)
-    item = test.Deferred()
+    item = test.deferred()
     reference.alloc_deferred(item)
     getattr(test, 'array_indexing_deferred_%s' % frontend)(item)
     assert (item.vector == 666.).all()
