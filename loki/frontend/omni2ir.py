@@ -34,7 +34,7 @@ def preprocess_omni(filename, outname, includes=None):
     try:
         check_call(cmd)
     except CalledProcessError as e:
-        error('[%s] Preprocessing failed: %s' % (OMNI, ' '.join(cmd)))
+        error('[OMNI] Preprocessing failed: %s' % ' '.join(cmd))
         raise e
 
 
