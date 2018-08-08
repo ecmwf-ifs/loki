@@ -206,7 +206,8 @@ class FortranCodegen(Visitor):
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
-        return self.indent + 'ALLOCATE(%s)' % o.variable
+        source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
+        return self.indent + 'ALLOCATE(%s%s)' % (o.variable, source)
 
     def visit_Deallocation(self, o):
         return self.indent + 'DEALLOCATE(%s)' % o.variable

@@ -263,24 +263,39 @@ class OMNI2IR(GenericVisitor):
         return LiteralList(values=values)
 
     def visit_functionCall(self, o, source=None):
-        name = o.find('name').text
+        if o.find('name') is not None:
+            name = o.find('name').text
+        elif o[0].tag == 'FmemberRef':
+            # TODO: Super-hacky for now!
+            # We need to deal with member function (type-bound procedures)
+            # and integrate FfunctionType into our own IR hierachy.
+            var = self.visit(o[0][0])
+            name = '%s%%%s' % (var.name, o[0].attrib['member'])
+        else:
+            raise RuntimeError('Could not determine name of function call')
         args = o.find('arguments') or tuple()
         args = as_tuple(self.visit(a) for a in args)
+        # Separate keyrword argument from positional arguments
+        kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
+        args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            return InlineCall(name=name, arguments=args)
+            return InlineCall(name=name, arguments=args, kwarguments=kwargs)
         else:
-            return Call(name=name, arguments=args)
+            return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
         allocations = []
+        data_source = None
+        if o.find('allocOpt') is not None:
+            data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
             v = self.visit(a[0])
             v.dimensions = as_tuple(self.visit(i) for i in a[1:])
-            allocations += [Allocation(variable=v)]
+            allocations += [Allocation(variable=v, data_source=data_source)]
         return allocations[0] if len(allocations) == 1 else as_tuple(allocations)
 
     def visit_FdeallocateStatement(self, o, source=None):

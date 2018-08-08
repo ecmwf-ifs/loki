@@ -217,13 +217,16 @@ class InlineCall(Expression):
     """
     Internal representation of an in-line function call
     """
-    def __init__(self, name, arguments):
+    def __init__(self, name, arguments=None, kwarguments=None):
         self.name = name
         self.arguments = arguments
+        self.kwarguments = kwarguments
 
     @property
     def expr(self):
-        return '%s(%s)' % (self.name, ','.join(str(a) for a in self.arguments))
+        kwargs = tuple('%s=%s' % (k, v) for k, v in as_tuple(self.kwarguments))
+        args = as_tuple(self.arguments) + kwargs
+        return '%s(%s)' % (self.name, ','.join(str(a) for a in args))
 
     @property
     def type(self):

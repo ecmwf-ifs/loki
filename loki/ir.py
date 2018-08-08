@@ -316,10 +316,11 @@ class Allocation(Node):
     Internal representation of a variable allocation
     """
 
-    def __init__(self, variable, source=None):
+    def __init__(self, variable, data_source=None, source=None):
         super(Allocation, self).__init__(source=source)
 
         self.variable = variable
+        self.data_source = data_source  # Argh, Fortran...!
 
     @property
     def children(self):
