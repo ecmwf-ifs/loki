@@ -383,6 +383,10 @@ class OMNI2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['.and.'], operands=exprs)
 
+    def visit_logNotExpr(self, o, source=None):
+        exprs = [self.visit(c) for c in o]
+        return Operation(ops=['.not.'], operands=exprs)
+
     def visit_logLTExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['<'], operands=exprs)
