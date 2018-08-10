@@ -1,9 +1,9 @@
 
-SUBROUTINE loop_nest_fixed(in1, in2, out1, out2)
-  ! Test basic loops and reductions with fixed sizes
-  INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
-  REAL(KIND=JPRB), dimension(3, 2), intent(in) :: in1, in2
-  REAL(KIND=JPRB), intent(inout) :: out1(3, 2), out2(2)
+subroutine loop_nest_fixed(in1, in2, out1, out2)
+  ! test basic loops and reductions with fixed sizes
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), dimension(3, 2), intent(in) :: in1, in2
+  real(kind=jprb), intent(inout) :: out1(3, 2), out2(2)
 
   integer :: i, j
 
@@ -20,15 +20,15 @@ SUBROUTINE loop_nest_fixed(in1, in2, out1, out2)
      end do
   end do
 
-END SUBROUTINE loop_nest_fixed
+end subroutine loop_nest_fixed
 
 
-SUBROUTINE loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
-  ! Test basic loops and reductions with passed sizes
-  INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
-  INTEGER, intent(in) :: dim1, dim2
-  REAL(KIND=JPRB), dimension(dim1, dim2), intent(in) :: in1, in2
-  REAL(KIND=JPRB), intent(inout) :: out1(dim1, dim2), out2(dim2)
+subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
+  ! test basic loops and reductions with passed sizes
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: dim1, dim2
+  real(kind=jprb), dimension(dim1, dim2), intent(in) :: in1, in2
+  real(kind=jprb), intent(inout) :: out1(dim1, dim2), out2(dim2)
 
   integer :: i, j
 
@@ -45,4 +45,4 @@ SUBROUTINE loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
      end do
   end do
 
-END SUBROUTINE loop_nest_variable
+end subroutine loop_nest_variable

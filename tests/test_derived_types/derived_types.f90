@@ -1,34 +1,34 @@
-MODULE derived_types
+module derived_types
 
-  INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+  integer, parameter :: jprb = selected_real_kind(13,300)
 
-  TYPE explicit
-     REAL(KIND=JPRB) :: scalar, vector(3), matrix(3, 3)
-     REAL(KIND=JPRB) :: red_herring
-  END TYPE explicit
+  type explicit
+     real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+     real(kind=jprb) :: red_herring
+  end type explicit
 
-  TYPE deferred
-     REAL(KIND=JPRB), allocatable :: scalar, vector(:), matrix(:, :)
-     REAL(KIND=JPRB), allocatable :: red_herring
-  END TYPE deferred
+  type deferred
+     real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+     real(kind=jprb), allocatable :: red_herring
+  end type deferred
 
-CONTAINS
+contains
 
-  SUBROUTINE alloc_deferred(item)
-    TYPE(deferred), intent(inout) :: item
+  subroutine alloc_deferred(item)
+    type(deferred), intent(inout) :: item
     allocate(item%vector(3))
     allocate(item%matrix(3, 3))
-  END SUBROUTINE alloc_deferred
+  end subroutine alloc_deferred
 
-  SUBROUTINE free_deferred(item)
-    TYPE(deferred), intent(inout) :: item
+  subroutine free_deferred(item)
+    type(deferred), intent(inout) :: item
     deallocate(item%vector)
     deallocate(item%matrix)
-  END SUBROUTINE free_deferred
+  end subroutine free_deferred
 
-  SUBROUTINE simple_loops(item)
-    ! Simple vector/matrix arithmetic with a derived type
-    TYPE(explicit), intent(inout) :: item
+  subroutine simple_loops(item)
+    ! simple vector/matrix arithmetic with a derived type
+    type(explicit), intent(inout) :: item
     integer :: i, j, n
 
     n = 3
@@ -42,11 +42,11 @@ CONTAINS
        end do
     end do
 
-  END SUBROUTINE simple_loops
+  end subroutine simple_loops
 
-  SUBROUTINE array_indexing_explicit(item)
-    ! Simple vector/matrix arithmetic with a derived type
-    TYPE(explicit), intent(inout) :: item
+  subroutine array_indexing_explicit(item)
+    ! simple vector/matrix arithmetic with a derived type
+    type(explicit), intent(inout) :: item
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
     integer :: i
 
@@ -56,11 +56,11 @@ CONTAINS
        item%matrix(:, i) = vals(i)
     end do
 
-  END SUBROUTINE array_indexing_explicit
+  end subroutine array_indexing_explicit
 
-  SUBROUTINE array_indexing_deferred(item)
-    ! Simple vector/matrix arithmetic with a derived type
-    TYPE(deferred), intent(inout) :: item
+  subroutine array_indexing_deferred(item)
+    ! simple vector/matrix arithmetic with a derived type
+    type(deferred), intent(inout) :: item
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
     integer :: i
 
@@ -70,6 +70,6 @@ CONTAINS
        item%matrix(:, i) = vals(i)
     end do
 
-  END SUBROUTINE array_indexing_deferred
+  end subroutine array_indexing_deferred
 
-END MODULE derived_types
+end module derived_types
