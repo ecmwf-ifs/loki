@@ -20,7 +20,14 @@ class BaseType(object):
     Basic Fortran variable type with data type, kind, intent, allocatable, etc.
     """
 
-    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX']
+    _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX', 'CHARACTER']
+
+    _omni_types = {
+        'Fint': 'INTEGER',
+        'Freal': 'REAL',
+        'Flogical': 'LOGICAL',
+        'Fcharacter': 'CHARACTER',
+    }
 
     def __init__(self, name, kind=None, intent=None, allocatable=False, pointer=False,
                  optional=None, parameter=None, target=None, contiguous=None, source=None):

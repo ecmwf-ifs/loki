@@ -69,7 +69,10 @@ class Intrinsic(Node):
     """
     Catch-all generic node for corner-cases.
     """
-    pass
+    def __init__(self, text=None, source=None):
+        super(Intrinsic, self).__init__(source=source)
+
+        self.text = text
 
 
 class Comment(Node):
@@ -236,7 +239,7 @@ class Section(Node):
     def __init__(self, body=None, source=None):
         super(Section, self).__init__(source=source)
 
-        self.body = body
+        self.body = as_tuple(body)
 
     @property
     def children(self):
@@ -313,10 +316,11 @@ class Allocation(Node):
     Internal representation of a variable allocation
     """
 
-    def __init__(self, variable, source=None):
+    def __init__(self, variable, data_source=None, source=None):
         super(Allocation, self).__init__(source=source)
 
         self.variable = variable
+        self.data_source = data_source  # Argh, Fortran...!
 
     @property
     def children(self):

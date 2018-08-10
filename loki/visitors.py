@@ -247,6 +247,8 @@ class FindNodes(Visitor):
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
 
+    visit_list = visit_tuple
+
     def visit_Node(self, o, ret=None):
         if ret is None:
             ret = self.default_retval()
@@ -292,7 +294,7 @@ class PrintAST(Visitor):
         body = self.visit(o.children)
         self._depth -= 2
         if self.verbose and o.bounds is not None:
-            bounds = ' :: %s' % (', '.join(str(b) for b in o.bounds))
+            bounds = ' :: %s' % str(o.bounds)
         else:
             bounds = ''
         return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)

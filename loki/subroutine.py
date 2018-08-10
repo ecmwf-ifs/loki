@@ -1,7 +1,8 @@
-from loki.frontend.parse import parse
+from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
+from loki.frontend.omni2ir import convert_omni2ir
 from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
-                     Call, CallContext, CommentBlock)
+                     Call, CallContext, CommentBlock, Intrinsic)
 from loki.expression import Variable, ExpressionVisitor
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Visitor, Transformer
@@ -46,7 +47,7 @@ class Module(object):
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse(spec_ast, raw_source)
+        spec = parse(spec_ast, raw_source=raw_source)
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
@@ -60,8 +61,27 @@ class Module(object):
                    ast=ast, raw_source=raw_source)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, name=None):
-        raise NotImplementedError('OMNI->IR conversion missing')
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+        name = name or ast.attrib['name']
+
+        type_map = {t.attrib['type']: t for t in typetable}
+        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+
+        # Generate spec, filter out external declarations and insert `implicit none`
+        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
+                               symbol_map=symbol_map, raw_source=raw_source)
+        spec = Section(body=spec)
+
+        # TODO: Parse member functions properly
+        contains = ast.find('FcontainsStatement')
+        routines = None
+        if contains is not None:
+            routines = [Subroutine.from_omni(ast=s, typetable=typetable,
+                                             symbol_map=symbol_map,
+                                             raw_source=raw_source)
+                        for s in contains]
+
+        return cls(name=name, spec=spec, routines=routines, ast=ast)
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -132,7 +152,7 @@ class Subroutine(object):
         args = [arg.attrib['name'].upper() for arg in arg_ast]
 
         # Create a IRs for declarations section and the loop body
-        body = parse(ast.find('body'), raw_source)
+        body = parse(ast.find('body'), raw_source=raw_source, frontend=OFP)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for r_name, rule in blacklist.items():
@@ -161,8 +181,52 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, name=None, typedefs=None):
-        raise NotImplementedError('OMNI->IR conversion missing')
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+        name = name or ast.find('name').text
+        file = ast.attrib['file']
+        type_map = {t.attrib['type']: t for t in typetable}
+        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+
+        # Get the names of dummy variables from the type_map
+        fhash = ast.find('name').attrib['type']
+        ftype = [t for t in typetable.findall('FfunctionType')
+                 if t.attrib['type'] == fhash][0]
+        args = as_tuple(name.text for name in ftype.findall('params/name'))
+
+        # Generate spec, filter out external declarations and docstring
+        spec = parse(ast.find('declarations'), type_map=type_map,
+                     symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
+        mapper = {d: None for d in FindNodes(Declaration).visit(spec)
+                  if d._source.file != file or d.variables[0] == name}
+        spec = Section(body=Transformer(mapper).visit(spec))
+
+        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
+        implicit_none = Intrinsic(text='IMPLICIT NONE')
+        first_decl = FindNodes(Declaration).visit(spec)[0]
+        spec_body = list(spec.body)
+        i = spec_body.index(first_decl)
+        spec_body.insert(i, implicit_none)
+        spec._update(body=as_tuple(spec_body))
+
+        # TODO: Parse member functions properly
+        contains = ast.find('body/FcontainsStatement')
+        members = None
+        if contains is not None:
+            members = [Subroutine.from_omni(ast=s, typetable=typetable,
+                                            symbol_map=symbol_map,
+                                            raw_source=raw_source)
+                       for s in contains]
+            # Strip members from the XML before we proceed
+            ast.find('body').remove(contains)
+
+        # Convert the core kernel to IR
+        body = parse(ast.find('body'), type_map=type_map, symbol_map=symbol_map,
+                     raw_source=raw_source, frontend=OMNI)
+
+        obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
+                  members=members, ast=ast)
+
+        return obj
 
     def enrich_calls(self, routines):
         """
@@ -184,7 +248,7 @@ class Subroutine(object):
                 if call.pragma is not None and call.pragma.keyword == 'loki':
                     active = not call.pragma.content.startswith('reference')
 
-                context = CallContext(routine=routine_map[call.name],
+                context = CallContext(routine=routine_map[call.name.upper()],
                                       active=active)
                 call._update(context=context)
 
@@ -254,10 +318,10 @@ class Subroutine(object):
                 if o.name in self.shapes:
                     o._shape = self.shapes[o.name]
 
-                if o.subvar is not None and o.name in self.derived:
+                if o.ref is not None and o.ref.name in self.derived:
                     # We currently only follow a single level of nesting
-                    typevars = {v.name.upper(): v for v in self.derived[o.name].variables}
-                    o.subvar._shape = typevars[o.subvar.name.upper()].dimensions
+                    typevars = {v.name.upper(): v for v in self.derived[o.ref.name].variables}
+                    o._shape = typevars[o.name.upper()].dimensions
 
                 # Recurse over children
                 for c in o.children:
@@ -274,8 +338,7 @@ class Subroutine(object):
                     self.visit(c)
 
         # Apply dimensions via expression visitor (in-place)
-        ir = (self.spec, self.body)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(ir)
+        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
 
     @property
     def ir(self):

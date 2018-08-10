@@ -8,7 +8,8 @@ from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
                   as_tuple, Loop, Variable, Declaration, Call, Pragma,
                   BaseType, DerivedType, Import, Index, RangeIndex,
-                  AbstractTransformation, BasicTransformation, OMNI, OFP)
+                  AbstractTransformation, BasicTransformation,
+                  Frontend, OMNI, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -36,14 +37,10 @@ class VariableTransformer(ExpressionVisitor, Visitor):
         self.argnames = argnames
 
     def visit_Variable(self, o):
-        if o.name in self.argnames and o.subvar is not None:
-            # HACK: In-place merging of var with subvar
-            o.name = '%s_%s' % (o.name, o.subvar.name)
-            o._type = o.subvar._type
-            o._shape = o.subvar._shape
-            o.dimensions = o.subvar.dimensions
-            o.initial = o.subvar.initial
-            o.subvar = o.subvar.subvar
+        if o.ref is not None and o.ref.name in self.argnames:
+            # HACK: In-place merging of var with its parent ref
+            o.name = '%s_%s' % (o.ref.name, o.name)
+            o.ref = None
 
 
 class DerivedArgsTransformation(AbstractTransformation):
@@ -81,10 +78,10 @@ class DerivedArgsTransformation(AbstractTransformation):
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
                 # Add candidate type variables, preserving order from the typedef
-                argvars = [v for v in variables if v.name == arg.name]
-                argsubvars = set(v.subvar.name for v in argvars if v.subvar is not None)
+                arg_member_vars = set(v.name for v in variables
+                                      if v.ref is not None and v.ref.name == arg.name)
                 candidates[arg] += [v for v in arg.type.variables.values()
-                                    if v.name in argsubvars]
+                                    if v.name in arg_member_vars]
 
         return candidates
 
@@ -111,9 +108,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
-                            new_arg = deepcopy(d_arg)
-                            new_arg.subvar = Variable(name=type_var.name, dimensions=new_dims,
-                                                      shape=type_var.dimensions)
+                            new_arg = Variable(name=type_var.name, dimensions=new_dims,
+                                               shape=type_var.dimensions, ref=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -320,10 +316,6 @@ class SCATransformation(AbstractTransformation):
                     if not isinstance(val, Variable):
                         continue
 
-                    # Skip to the innermost variable of derived types
-                    while val.subvar is not None:
-                        val = val.subvar
-
                     # Insert ':' for all missing dimensions in argument
                     if arg.shape is not None and len(val.dimensions) == 0:
                         val.dimensions = tuple(Index(name=':') for _ in arg.shape)
@@ -409,28 +401,40 @@ def cli():
 @cli.command('idem')
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-def idempotence(out_path, source, driver, header, xmod, flatten_args, openmp):
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
+def idempotence(out_path, source, driver, header, xmod, include, flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    typedefs = get_typedefs(header, xmods=xmod)
-
-    # Parse original driver and kernel routine, and enrich the driver
-    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
-    driver = SourceFile.from_file(driver).subroutines[0]
-    driver.enrich_calls(routines=routine)
+    frontend = Frontend[frontend.upper()]
+    if frontend == OFP:
+        # Parse original driver and kernel routine, and enrich the driver
+        typedefs = get_typedefs(header, xmods=xmod)
+        routine = SourceFile.from_file(source, typedefs=typedefs,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
+    else:
+        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                      frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)

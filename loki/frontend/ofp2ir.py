@@ -163,7 +163,7 @@ class OFP2IR(GenericVisitor):
         return 'ENDWHERE_CONSTRUCT'
 
     def visit_cycle(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     def visit_assignment(self, o, source=None):
         target = self.visit(o.find('target'))
@@ -185,12 +185,12 @@ class OFP2IR(GenericVisitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         elif o.find('save-stmt') is not None:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.find('implicit-stmt') is not None:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.find('access-spec') is not None:
             # PUBLIC or PRIVATE declarations
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
@@ -270,9 +270,9 @@ class OFP2IR(GenericVisitor):
                 return Declaration(variables=variables, type=type,
                                    dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
@@ -319,10 +319,10 @@ class OFP2IR(GenericVisitor):
             module = match.groupdict()['module']
             return Import(module=module, c_import=True, source=source)
         else:
-            return Intrinsic(source=source)
+            return Intrinsic(text=source.string, source=source)
 
     def visit_open(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     visit_close = visit_open
     visit_read = visit_open
@@ -343,21 +343,20 @@ class OFP2IR(GenericVisitor):
         return key, val
 
     def visit_exit(self, o, source=None):
-        return Intrinsic(source=source)
+        return Intrinsic(text=source.string, source=source)
 
     # Expression parsing below; maye move to its own parser..?
 
     def visit_name(self, o, source=None):
 
-        def generate_variable(vname, indices, subvar, source):
+        def generate_variable(vname, indices, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                return Variable(name=vname, dimensions=indices,
-                                subvar=variable, source=source)
+                return Variable(name=vname, dimensions=indices, source=source)
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
@@ -368,22 +367,23 @@ class OFP2IR(GenericVisitor):
         # popping them off the back of our deque...
         indices = None
         variable = None
+        base = None
         while len(_children) > 0:
             item = _children.pop()
             if len(_children) > 0 and isinstance(_children[-1], tuple):
                 indices = _children.pop()
 
-            if len(_children) > 0 and isinstance(item, Variable):
-                # A subvar was processed separately, so move over
-                if variable is None:
-                    variable = item
-                    continue
-
             # The "append" base case
-            variable = generate_variable(vname=item, indices=indices,
-                                         subvar=variable, source=source)
+            if variable is None:
+                base = generate_variable(vname=item, indices=indices,
+                                         source=source)
+                variable = base
+            else:
+                variable.ref = generate_variable(vname=item, indices=indices,
+                                                 source=source)
+                variable = variable.ref
             indices = None
-        return variable
+        return base
 
     def visit_variable(self, o, source=None):
         if 'id' not in o.attrib and 'name' not in o.attrib:

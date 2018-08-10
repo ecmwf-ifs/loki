@@ -20,7 +20,7 @@ def reference(refpath):
     return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_simple_expr(refpath, reference, frontend):
     """
     v5 = (v1 + v2) * (v3 - v4)
@@ -37,7 +37,7 @@ def test_simple_expr(refpath, reference, frontend):
     assert v5 == 25. and v6 == 6.
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_intrinsic_functions(refpath, reference, frontend):
     """
     vmin = min(v1, v2)

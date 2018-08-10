@@ -42,7 +42,7 @@ class FortranCodegen(Visitor):
         return self.indent + '! <%s>' % o.__class__.__name__
 
     def visit_Intrinsic(self, o):
-        return o._source.string
+        return o.text
 
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])
@@ -206,7 +206,8 @@ class FortranCodegen(Visitor):
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
-        return self.indent + 'ALLOCATE(%s)' % o.variable
+        source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
+        return self.indent + 'ALLOCATE(%s%s)' % (o.variable, source)
 
     def visit_Deallocation(self, o):
         return self.indent + 'DEALLOCATE(%s)' % o.variable
@@ -265,11 +266,13 @@ class FExprCodegen(Visitor):
     :param op_spaces: Flag indicating whether to use spaces around operators.
     """
 
-    def __init__(self, linewidth=90, indent='', op_spaces=False):
+    def __init__(self, linewidth=90, indent='', op_spaces=False,
+                 parenthesise=True):
         super(FExprCodegen, self).__init__()
         self.linewidth = linewidth
         self.indent = indent
         self.op_spaces = op_spaces
+        self.parenthesise = parenthesise
 
         # We ignore outer indents and count from 0
         self._width = 0
@@ -312,14 +315,14 @@ class FExprCodegen(Visitor):
     visit_list = visit_tuple
 
     def visit_Variable(self, o, line):
+        if o.ref is not None:
+            line = self.visit(o.ref, line=line)
+            line = self.append(line, '%')
         line = self.append(line, o.name)
         if o.dimensions is not None and len(o.dimensions) > 0:
             line = self.append(line, '(')
             line = self.visit(o.dimensions, line=line)
             line = self.append(line, ')')
-        if o.subvar is not None:
-            line = self.append(line, '%')
-            line = self.visit(o.subvar, line=line)
         return line
 
     def visit_Statement(self, o, line):
@@ -331,22 +334,22 @@ class FExprCodegen(Visitor):
     def visit_Operation(self, o, line):
         if len(o.ops) == 1 and len(o.operands) == 1:
             # Special case: a unary operator
-            if o.parenthesis:
+            if o.parenthesis or self.parenthesise:
                 line = self.append(line, '(')
             line = self.append(line, o.ops[0])
             line = self.visit(o.operands[0], line=line)
-            if o.parenthesis:
+            if o.parenthesis or self.parenthesise:
                 line = self.append(line, ')')
             return line
 
-        if o.parenthesis:
+        if o.parenthesis or self.parenthesise:
             line = self.append(line, '(')
         line = self.visit(o.operands[0], line=line)
         for op, operand in zip(o.ops, o.operands[1:]):
             s_op = (' %s ' % op) if self.op_spaces else str(op)
             line = self.append(line, s_op)
             line = self.visit(operand, line=line)
-        if o.parenthesis:
+        if o.parenthesis or self.parenthesise:
             line = self.append(line, ')')
         return line
 
@@ -366,13 +369,17 @@ class FExprCodegen(Visitor):
             line = self.visit(o.arguments[0], line=line)
             for arg in o.arguments[1:]:
                 line = self.append(line, ',')
-                line = self.visit(arg, line=line)
+                if isinstance(arg, tuple):
+                    line = self.append(line, '%s=' % arg[0])
+                    line = self.visit(arg[1], line=line)
+                else:
+                    line = self.visit(arg, line=line)
         return self.append(line, ')')
 
 
-def fexprgen(expr, linewidth=90, indent='', op_spaces=False):
+def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=True):
     """
     Generate Fortran expression code from a tree of sub-expressions.
     """
-    return FExprCodegen(linewidth=linewidth, indent=indent,
-                        op_spaces=op_spaces).visit(expr, line='')
+    return FExprCodegen(linewidth=linewidth, indent=indent, op_spaces=op_spaces,
+                        parenthesise=parenthesise).visit(expr, line='')

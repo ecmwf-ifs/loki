@@ -20,7 +20,7 @@ def reference(refpath):
     return compile_and_load(refpath, cwd=str(refpath.parent), use_f90wrap=True)
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_loop_nest_fixed(refpath, reference, frontend):
     """
     Basic loop nest loop:
@@ -52,7 +52,7 @@ def test_loop_nest_fixed(refpath, reference, frontend):
     assert (out2 == [20, 38]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_loop_nest_variable(refpath, reference, frontend):
     """
     Basic loop nest loop:
