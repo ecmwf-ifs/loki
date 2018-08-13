@@ -226,6 +226,10 @@ class Subroutine(object):
         obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
                   members=members, ast=ast)
 
+        # Enrich internal representation with meta-data
+        # TODO: No typedefs given, careful!
+        obj._derive_variable_shape()
+
         return obj
 
     def enrich_calls(self, routines):
