@@ -244,8 +244,7 @@ class SCATransformation(AbstractTransformation):
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
         for decl in FindNodes(Declaration).visit(routine.spec):
-            new_vars = tuple(v for v in decl.variables
-                             if str(v) not in target.variables)
+            new_vars = tuple(v for v in decl.variables if v not in target.variables)
 
             # Strip target dimension from declaration-level dimensions
             if decl.dimensions is not None and len(decl.dimensions) > 0:
@@ -253,7 +252,7 @@ class SCATransformation(AbstractTransformation):
                 # variable in the declaration to provide the correct shape.
                 assert len(decl.dimensions) == len(decl.variables[0].shape)
                 new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
-                                 if str(s) not in size_expressions)
+                                 if s not in size_expressions)
                 if len(new_dims) == 0:
                     new_dims = None
             else:
@@ -271,7 +270,7 @@ class SCATransformation(AbstractTransformation):
                 # Filter index variables against index expressions
                 # and shape dimensions against size expressions.
                 filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
-                            if str(s) not in size_expressions and d not in index_expressions]
+                            if s not in size_expressions and d not in index_expressions]
 
                 # Reconstruct variable dimensions and shape from filtered
                 if len(filtered) > 0:
@@ -286,11 +285,11 @@ class SCATransformation(AbstractTransformation):
             for v in decl.variables:
                 if v.dimensions is not None:
                     v.dimensions = as_tuple(d for d in v.dimensions
-                                            if str(d) not in size_expressions)
+                                            if d not in size_expressions)
 
         # Remove dummy variables from subroutine signature (in-place)
         routine._argnames = tuple(arg for arg in routine.argnames
-                                  if arg not in target.variables)
+                                  if arg.upper() not in target.variables)
 
         routine.spec = Transformer(replacements).visit(routine.spec)
 
@@ -405,7 +404,7 @@ def cli():
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
+@click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
@@ -489,17 +488,23 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
+@click.option('--header', '-h', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
-def convert(out_path, source, driver, header, strip_omp_do, mode):
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
+def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -507,12 +512,20 @@ def convert(out_path, source, driver, header, strip_omp_do, mode):
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
-    typedefs = get_typedefs(header)
-
-    # Parse original kernel routine and inject type definitions
-    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
-    driver = SourceFile.from_file(driver, typedefs=typedefs).subroutines[0]
-    driver.enrich_calls(routines=routine)
+    frontend = Frontend[frontend.upper()]
+    if frontend == OFP:
+        # Parse original driver and kernel routine, and enrich the driver
+        typedefs = get_typedefs(header, xmods=xmod)
+        routine = SourceFile.from_file(source, typedefs=typedefs,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
+    else:
+        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                      frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)
