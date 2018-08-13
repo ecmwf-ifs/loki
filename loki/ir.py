@@ -123,7 +123,7 @@ class Loop(Node):
         super(Loop, self).__init__(source=source)
 
         self.variable = variable
-        self.body = body
+        self.body = as_tuple(body)
         # Ensure three-entry tuple
         self.bounds = bounds
         self.pragma = pragma
