@@ -238,7 +238,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_indexRange(self, o, source=None):
         if 'is_assumed_shape' in o.attrib and o.attrib['is_assumed_shape'] == 'true':
-            return Index(name=':')
+            return RangeIndex(lower=None, upper=None, step=None)
         else:
             lbound = o.find('lowerBound')
             lower = self.visit(lbound) if lbound is not None else None

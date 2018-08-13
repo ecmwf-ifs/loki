@@ -267,6 +267,9 @@ class OFP2IR(GenericVisitor):
                     v._type = type
                 dims = o.find('dimensions')
                 dimensions = None if dims is None else as_tuple(self.visit(dims))
+                if dimensions is not None:
+                    # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
+                    dimensions = as_tuple(d.upper if d == d.upper else d for d in dimensions)
                 return Declaration(variables=variables, type=type,
                                    dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
@@ -432,7 +435,7 @@ class OFP2IR(GenericVisitor):
         elif o.find('array-constructor-values'):
             return self.visit(o.find('array-constructor-values'))
         else:
-            return Index(name=':')
+            return RangeIndex(lower=None, upper=None, step=None)
 
     visit_dimension = visit_subscript
 

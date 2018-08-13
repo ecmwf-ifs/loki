@@ -292,7 +292,9 @@ class RangeIndex(Expression):
     @property
     def expr(self):
         step = '' if self.step is None else ':%s' % self.step
-        return '%s:%s%s' % (self.lower, self.upper, step)
+        lower = '' if self.lower is None else self.lower
+        upper = '' if self.upper is None else self.upper
+        return '%s:%s%s' % (lower, upper, step)
 
     @property
     def children(self):
