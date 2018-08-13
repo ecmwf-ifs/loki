@@ -15,13 +15,13 @@ from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
 
 
-def get_typedefs(typedef, xmods=None):
+def get_typedefs(typedef, xmods=None, frontend=OFP):
     """
     Read derived type definitions from typedef modules.
     """
     definitions = {}
     for tfile in typedef:
-        source = SourceFile.from_file(tfile, xmods=xmods)
+        source = SourceFile.from_file(tfile, xmods=xmods, frontend=frontend)
         definitions.update(source.modules[0].typedefs)
     return definitions
 
@@ -78,10 +78,10 @@ class DerivedArgsTransformation(AbstractTransformation):
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name for v in variables
-                                      if v.ref is not None and v.ref.name == arg.name)
+                arg_member_vars = set(v.name.lower() for v in variables
+                                      if v.ref is not None and v.ref.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables.values()
-                                    if v.name in arg_member_vars]
+                                    if v.name.lower() in arg_member_vars]
 
         return candidates
 
@@ -429,8 +429,9 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
         driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)
     else:
+        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
         routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                       frontend=frontend).subroutines[0]
+                                       frontend=frontend, typedefs=typedefs).subroutines[0]
         driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                       frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)
@@ -521,8 +522,9 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
         driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)
     else:
-        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                       frontend=frontend).subroutines[0]
+        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+        routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
+                                       includes=include, frontend=frontend).subroutines[0]
         driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                       frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)

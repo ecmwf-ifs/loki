@@ -135,7 +135,7 @@ class Subroutine(object):
                  body=None, members=None, ast=None):
         self.name = name
 
-        self._argnames = args
+        self._argnames = list(args)
         self._ast = ast
 
         self.docstring = docstring
@@ -181,7 +181,7 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, typedefs=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
@@ -212,9 +212,8 @@ class Subroutine(object):
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable,
-                                            symbol_map=symbol_map,
-                                            raw_source=raw_source)
+            members = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
+                                            typedefs=typedefs, raw_source=raw_source)
                        for s in contains]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
@@ -227,8 +226,8 @@ class Subroutine(object):
                   members=members, ast=ast)
 
         # Enrich internal representation with meta-data
-        # TODO: No typedefs given, careful!
-        obj._derive_variable_shape()
+        obj._attach_derived_types(typedefs=typedefs)
+        obj._derive_variable_shape(typedefs=typedefs)
 
         return obj
 
@@ -265,8 +264,8 @@ class Subroutine(object):
         files to all :class:`Variable` instances (in-place).
         """
         for v in self.variables:
-            if typedefs is not None and v.type is not None and v.type.name in typedefs:
-                typedef = typedefs[v.type.name]
+            if typedefs is not None and v.type is not None and v.type.name.upper() in typedefs:
+                typedef = typedefs[v.type.name.upper()]
                 derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
                                            intent=v.type.intent, allocatable=v.type.allocatable,
                                            pointer=v.type.pointer, optional=v.type.optional)
@@ -294,8 +293,8 @@ class Subroutine(object):
         shapes = {}
         derived = {}
         for decl in declarations:
-            if decl.type.name in typedefs:
-                derived.update({v.name: typedefs[decl.type.name]
+            if decl.type.name.upper() in typedefs:
+                derived.update({v.name: typedefs[decl.type.name.upper()]
                                 for v in decl.variables})
 
             if decl.dimensions is not None:

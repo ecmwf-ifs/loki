@@ -63,7 +63,7 @@ class SourceFile(object):
         typetable = ast.find('typeTable')
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
-        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source,
+        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source, typedefs=typedefs,
                                          typetable=typetable) for ast in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')

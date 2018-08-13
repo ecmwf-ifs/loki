@@ -128,7 +128,7 @@ class OMNI2IR(GenericVisitor):
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = Variable(name=name.text, dimensions=dimensions, initial=value)
+        variable = Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
         return Declaration(variables=as_tuple(variable), type=type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
