@@ -79,3 +79,20 @@ def test_routine_local_variables(refpath, reference, frontend):
     function = getattr(test, 'routine_local_variables_%s' % frontend)
     maximum = function(x=3, y=4)
     assert np.all(maximum == 38.)  # 10*x + 2*y
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_dim_shapes(refpath, reference, frontend):
+    """
+    A set of test to ensure matching different dimension and shape
+    expressions against strings and other expressions works as expected.
+    """
+    # TODO: Need a named subroutine lookup
+    routine = SourceFile.from_file(refpath, frontend=frontend).routines[3]
+    assert routine.arguments == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(v1,v2-1)']
+
+    # Make sure variable/argument shapes work
+    shapes = [v.shape for v in routine.arguments]
+    assert shapes == [None, None, ('v1',), ('v1','v2'), ('v1','v2-1')]
+
+    # TODO: More in-depth (compoenent-wise) equivalence against strings

@@ -56,6 +56,21 @@ subroutine routine_local_variables (x, y, maximum)
 
 end subroutine routine_local_variables
 
+
+subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
+  ! Simple varaible assignments with non-trivial sizes and indices
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1, v2
+  real(kind=jprb), allocatable, intent(out) :: v3(:)
+  real(kind=jprb), intent(out) :: v4(v1,v2), v5(1:v1,v2-1)
+
+  allocate(v3(v1))
+  v3(v1-v2+1) = 1.
+  v4(3:v1,1:v2-3) = 2.
+
+end subroutine routine_dim_shapes
+
+
 ! TODO: Below are placeholders for more testing
 ! subroutine routine_imports (...)
 !   ! Test submodule and header imports
