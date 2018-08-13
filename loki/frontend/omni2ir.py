@@ -119,6 +119,8 @@ class OMNI2IR(GenericVisitor):
             tast = self.type_map[name.attrib['type']]
             type = self.visit(tast)
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
+            # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
+            dimensions = as_tuple(d.upper if d == d.upper else d for d in dimensions)
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = name.attrib['type']

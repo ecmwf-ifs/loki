@@ -146,6 +146,21 @@ class Literal(Expression):
     def type(self):
         return self._type
 
+    def __key(self):
+        return (self.value, self.kind, self._type)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.value.upper() == other.upper()
+        elif isinstance(other, Literal):
+            return self.__key() == other.__key()
+        else:
+            return super(Literal, self).__eq__(other)
+
 
 class LiteralList(Expression):
 
@@ -290,10 +305,15 @@ class RangeIndex(Expression):
         return hash(self.__key())
 
     def __eq__(self, other):
-        # Allow direct comparisong to string and other RangeIndex objects
+        # Short-cut for "trivial ranges", ie. `1:v:1` -> `v`
+        if (self.lower is None or self.lower == '1') and (self.step is None or self.step == '1'):
+            if self.upper is not None:
+                return self.upper == other
+
+        # Basic comparison agaisnt strings or other ranges
         if isinstance(other, str):
             return self.expr.upper() == other.upper()
         elif isinstance(other, RangeIndex):
-            return self.lower == other.lower and self.upper == other.upper and self.step == other.step
+            return self.__key() == other.__key()
         else:
             return super(RangeIndex, self).__eq__(other)
