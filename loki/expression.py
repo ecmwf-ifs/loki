@@ -105,8 +105,8 @@ class Operation(Expression):
 
     def __init__(self, ops, operands, parenthesis=False, source=None):
         super(Operation, self).__init__(source=source)
-        self.ops = ops
-        self.operands = operands
+        self.ops = as_tuple(ops)
+        self.operands = as_tuple(operands)
         self.parenthesis = parenthesis
 
     @property
@@ -129,6 +129,20 @@ class Operation(Expression):
     def children(self):
         return self.operands
 
+    def __key(self):
+        return (self.ops, self.operands, self.parenthesis)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.expr.upper() == other.upper()
+        elif isinstance(other, Operation):
+            return self.__key() == other.__key()
+        else:
+            return super(Operation, self).__eq__(other)
 
 class Literal(Expression):
 
