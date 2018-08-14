@@ -9,7 +9,7 @@ from importlib import import_module
 from loki.logging import info, debug  # The only upwards dependency!
 
 from loki.build.tools import as_tuple
-from loki.build.compiler import execute
+from loki.build.compiler import execute, delete
 from loki.build.toolchain import _default_toolchain
 
 
@@ -142,6 +142,29 @@ class Builder(object):
                 g.add_edge(item, node)
 
         return g
+
+    def clean(self, rules, path=None):
+        """
+        Clean up a build directory according, either according to
+        globbing rules or via explicit file paths.
+
+        :param rules: String or list of strings with either explicit
+                      filepaths or globbing rules; default is
+                      ``'*.o *.mod *.so f90wrap*.f90'``.
+        :param path: Optional directory path to clean; defaults
+                     first to ``self.build_dir``, then simply ``./``.
+        """
+        # Derive defaults, split string rules and ensure iterability
+        rules = rules or '*.o *.mod *.so f90wrap*.f90'
+        if isinstance(rules, str):
+            rules = rules.split(' ')
+        rules = as_tuple(rules)
+
+        path = path or self.build_dir or Path('.')
+
+        for r in rules:
+            for f in path.glob(r):
+                delete(f)
 
     def build(self, filename, target=None, shared=True):
         item = self.get_item(filename)
