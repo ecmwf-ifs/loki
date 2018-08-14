@@ -123,7 +123,7 @@ class Loop(Node):
         super(Loop, self).__init__(source=source)
 
         self.variable = variable
-        self.body = body
+        self.body = as_tuple(body)
         # Ensure three-entry tuple
         self.bounds = bounds
         self.pragma = pragma
@@ -168,8 +168,8 @@ class Conditional(Node):
         super(Conditional, self).__init__(source=source)
 
         self.conditions = conditions
-        self.bodies = bodies
-        self.else_body = else_body
+        self.bodies = as_tuple(bodies)
+        self.else_body = as_tuple(else_body)
         self.inline = inline
 
     @property

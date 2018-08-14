@@ -15,13 +15,13 @@ from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
 
 
-def get_typedefs(typedef, xmods=None):
+def get_typedefs(typedef, xmods=None, frontend=OFP):
     """
     Read derived type definitions from typedef modules.
     """
     definitions = {}
     for tfile in typedef:
-        source = SourceFile.from_file(tfile, xmods=xmods)
+        source = SourceFile.from_file(tfile, xmods=xmods, frontend=frontend)
         definitions.update(source.modules[0].typedefs)
     return definitions
 
@@ -78,10 +78,10 @@ class DerivedArgsTransformation(AbstractTransformation):
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name for v in variables
-                                      if v.ref is not None and v.ref.name == arg.name)
+                arg_member_vars = set(v.name.lower() for v in variables
+                                      if v.ref is not None and v.ref.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables.values()
-                                    if v.name in arg_member_vars]
+                                    if v.name.lower() in arg_member_vars]
 
         return candidates
 
@@ -107,7 +107,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
+                            new_dims = tuple(RangeIndex(None, None) for _ in type_var.dimensions)
                             new_arg = Variable(name=type_var.name, dimensions=new_dims,
                                                shape=type_var.dimensions, ref=deepcopy(d_arg))
                             new_args += [new_arg]
@@ -236,16 +236,16 @@ class SCATransformation(AbstractTransformation):
         index_expressions = target.index_expressions
 
         # Remove all loops over the target dimensions
-        loop_map = {}
+        loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == target.variable:
                 loop_map[loop] = loop.body
+
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
         for decl in FindNodes(Declaration).visit(routine.spec):
-            new_vars = tuple(v for v in decl.variables
-                             if str(v) not in target.variables)
+            new_vars = tuple(v for v in decl.variables if v not in target.variables)
 
             # Strip target dimension from declaration-level dimensions
             if decl.dimensions is not None and len(decl.dimensions) > 0:
@@ -253,7 +253,7 @@ class SCATransformation(AbstractTransformation):
                 # variable in the declaration to provide the correct shape.
                 assert len(decl.dimensions) == len(decl.variables[0].shape)
                 new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
-                                 if str(s) not in size_expressions)
+                                 if s not in size_expressions)
                 if len(new_dims) == 0:
                     new_dims = None
             else:
@@ -271,7 +271,7 @@ class SCATransformation(AbstractTransformation):
                 # Filter index variables against index expressions
                 # and shape dimensions against size expressions.
                 filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
-                            if str(s) not in size_expressions and d not in index_expressions]
+                            if s not in size_expressions and d not in index_expressions]
 
                 # Reconstruct variable dimensions and shape from filtered
                 if len(filtered) > 0:
@@ -286,11 +286,11 @@ class SCATransformation(AbstractTransformation):
             for v in decl.variables:
                 if v.dimensions is not None:
                     v.dimensions = as_tuple(d for d in v.dimensions
-                                            if str(d) not in size_expressions)
+                                            if d not in size_expressions)
 
         # Remove dummy variables from subroutine signature (in-place)
         routine._argnames = tuple(arg for arg in routine.argnames
-                                  if arg not in target.variables)
+                                  if arg.upper() not in target.variables)
 
         routine.spec = Transformer(replacements).visit(routine.spec)
 
@@ -323,7 +323,7 @@ class SCATransformation(AbstractTransformation):
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         val.dimensions = tuple(Index(name=target.variable)
-                                               if str(tdim) in size_expressions else ddim
+                                               if tdim in size_expressions else ddim
                                                for ddim, tdim in zip(val.dimensions, val.shape))
 
                 # Collect caller-side expressions for dimension sizes and bounds
@@ -405,7 +405,7 @@ def cli():
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
+@click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
@@ -430,8 +430,9 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
         driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)
     else:
+        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
         routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                       frontend=frontend).subroutines[0]
+                                       frontend=frontend, typedefs=typedefs).subroutines[0]
         driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                       frontend=frontend).subroutines[0]
         driver.enrich_calls(routines=routine)
@@ -489,17 +490,23 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
+@click.option('--header', '-h', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
-def convert(out_path, source, driver, header, strip_omp_do, mode):
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
+def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -507,12 +514,21 @@ def convert(out_path, source, driver, header, strip_omp_do, mode):
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
-    typedefs = get_typedefs(header)
-
-    # Parse original kernel routine and inject type definitions
-    routine = SourceFile.from_file(source, typedefs=typedefs).subroutines[0]
-    driver = SourceFile.from_file(driver, typedefs=typedefs).subroutines[0]
-    driver.enrich_calls(routines=routine)
+    frontend = Frontend[frontend.upper()]
+    if frontend == OFP:
+        # Parse original driver and kernel routine, and enrich the driver
+        typedefs = get_typedefs(header, xmods=xmod)
+        routine = SourceFile.from_file(source, typedefs=typedefs,
+                                       frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
+    else:
+        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+        routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
+                                       includes=include, frontend=frontend).subroutines[0]
+        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                      frontend=frontend).subroutines[0]
+        driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)

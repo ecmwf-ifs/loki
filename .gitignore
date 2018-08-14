@@ -10,3 +10,13 @@ loki.egg-info/*
 *.o
 *.mod
 *.so
+
+# Explicit testing temporaries
+tests/**/*.f90.ofpast
+tests/**/*.omni.F90
+tests/**/*.omni.xml
+tests/**/*_ofp.f90
+tests/**/*_ofp.py
+tests/**/*_omni.f90
+tests/**/*_omni.py
+tests/**/.f2py_f2cmap

@@ -233,7 +233,7 @@ class OFP2IR(GenericVisitor):
                         deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [Index(':') for _ in range(dim_count)]
+                            dimensions = [RangeIndex(None, None) for _ in range(dim_count)]
                         else:
                             dimensions = as_tuple(self.visit(c) for c in v)
                         dimensions = as_tuple(d for d in dimensions if d is not None)
@@ -265,6 +265,11 @@ class OFP2IR(GenericVisitor):
                 # Propagate type onto variables
                 for v in variables:
                     v._type = type
+                    if v.dimensions is not None:
+                        # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
+                        v.dimensions = as_tuple(d.upper if isinstance(d, RangeIndex) and d == d.upper else d
+                                                for d in v.dimensions)
+
                 dims = o.find('dimensions')
                 dimensions = None if dims is None else as_tuple(self.visit(dims))
                 return Declaration(variables=variables, type=type,
@@ -432,7 +437,7 @@ class OFP2IR(GenericVisitor):
         elif o.find('array-constructor-values'):
             return self.visit(o.find('array-constructor-values'))
         else:
-            return Index(name=':')
+            return RangeIndex(lower=None, upper=None, step=None)
 
     visit_dimension = visit_subscript
 

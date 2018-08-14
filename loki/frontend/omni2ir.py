@@ -119,6 +119,8 @@ class OMNI2IR(GenericVisitor):
             tast = self.type_map[name.attrib['type']]
             type = self.visit(tast)
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
+            # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
+            dimensions = as_tuple(d.upper if d == d.upper else d for d in dimensions)
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = name.attrib['type']
@@ -126,7 +128,7 @@ class OMNI2IR(GenericVisitor):
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = Variable(name=name.text, dimensions=dimensions, initial=value)
+        variable = Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
         return Declaration(variables=as_tuple(variable), type=type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -211,7 +213,7 @@ class OMNI2IR(GenericVisitor):
         conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
         bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
+        return Conditional(conditions=conditions, bodies=(bodies, ), else_body=else_body)
 
     def visit_FmemberRef(self, o, source=None):
         t = o.attrib['type']
@@ -236,7 +238,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_indexRange(self, o, source=None):
         if 'is_assumed_shape' in o.attrib and o.attrib['is_assumed_shape'] == 'true':
-            return Index(name=':')
+            return RangeIndex(lower=None, upper=None, step=None)
         else:
             lbound = o.find('lowerBound')
             lower = self.visit(lbound) if lbound is not None else None

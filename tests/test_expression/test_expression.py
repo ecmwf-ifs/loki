@@ -58,3 +58,26 @@ def test_intrinsic_functions(refpath, reference, frontend):
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_logical_expr(refpath, reference, frontend):
+    """
+    vand_t = t .and. t
+    vand_f = t .and. f
+    vor_t = t .or. f
+    vor_f = f .or. f
+    vnot_t = .not. f
+    vnot_f = .not. t
+    """
+    # Test the reference solution
+    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse = reference.logical_expr(True, False)
+    assert vand_t and vor_t and vnot_t and vtrue
+    assert not(vand_f and vor_f and vnot_f and vfalse)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'logical_expr', frontend=frontend)
+    function = getattr(test, 'logical_expr_%s' % frontend)
+    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse = function(True, False)
+    assert vand_t and vor_t and vnot_t and vtrue
+    assert not(vand_f and vor_f and vnot_f and vfalse)

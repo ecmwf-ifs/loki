@@ -105,8 +105,8 @@ class Operation(Expression):
 
     def __init__(self, ops, operands, parenthesis=False, source=None):
         super(Operation, self).__init__(source=source)
-        self.ops = ops
-        self.operands = operands
+        self.ops = as_tuple(ops)
+        self.operands = as_tuple(operands)
         self.parenthesis = parenthesis
 
     @property
@@ -129,6 +129,20 @@ class Operation(Expression):
     def children(self):
         return self.operands
 
+    def __key(self):
+        return (self.ops, self.operands, self.parenthesis)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.expr.upper() == other.upper()
+        elif isinstance(other, Operation):
+            return self.__key() == other.__key()
+        else:
+            return super(Operation, self).__eq__(other)
 
 class Literal(Expression):
 
@@ -145,6 +159,21 @@ class Literal(Expression):
     @property
     def type(self):
         return self._type
+
+    def __key(self):
+        return (self.value, self.kind, self._type)
+
+    def __hash__(self):
+        return hash(self.__key())
+
+    def __eq__(self, other):
+        # Allow direct comparisong to string and other Index objects
+        if isinstance(other, str):
+            return self.value.upper() == other.upper()
+        elif isinstance(other, Literal):
+            return self.__key() == other.__key()
+        else:
+            return super(Literal, self).__eq__(other)
 
 
 class LiteralList(Expression):
@@ -277,7 +306,9 @@ class RangeIndex(Expression):
     @property
     def expr(self):
         step = '' if self.step is None else ':%s' % self.step
-        return '%s:%s%s' % (self.lower, self.upper, step)
+        lower = '' if self.lower is None else self.lower
+        upper = '' if self.upper is None else self.upper
+        return '%s:%s%s' % (lower, upper, step)
 
     @property
     def children(self):
@@ -290,10 +321,15 @@ class RangeIndex(Expression):
         return hash(self.__key())
 
     def __eq__(self, other):
-        # Allow direct comparisong to string and other RangeIndex objects
+        # Short-cut for "trivial ranges", ie. `1:v:1` -> `v`
+        if (self.lower is None or self.lower == '1') and (self.step is None or self.step == '1'):
+            if self.upper is not None:
+                return self.upper == other
+
+        # Basic comparison agaisnt strings or other ranges
         if isinstance(other, str):
             return self.expr.upper() == other.upper()
         elif isinstance(other, RangeIndex):
-            return self.lower == other.lower and self.upper == other.upper and self.step == other.step
+            return self.__key() == other.__key()
         else:
             return super(RangeIndex, self).__eq__(other)
