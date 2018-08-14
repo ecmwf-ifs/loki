@@ -35,7 +35,7 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None):
+                 members=None, ast=None, typedefs=None, bind=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -55,6 +55,8 @@ class Subroutine(object):
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
         self._derive_variable_shape(typedefs=typedefs)
+
+        self.bind = bind
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
@@ -324,10 +326,10 @@ class Subroutine(object):
         return InterfaceBlock(name=self.name, imports=imports,
                               arguments=arguments, declarations=declarations)
 
-    def generate_iso_c_wrapper(self, suffix='_c'):
+    def generate_iso_c_wrapper(self, suffix='_iso_c'):
         kind_c_map = {'real': 'c_double', 'integer': 'c_int', 'logical': 'c_int'}
 
-        # Gnerate the ISO-C subroutine interface
+        # Generate the ISO-C subroutine interface
         intf_name = '%s_fc' % self.name
         intf_spec = [Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))]
         intf_spec += [Intrinsic(text='implicit none')]
@@ -340,9 +342,9 @@ class Subroutine(object):
                            shape=arg.shape, type=ctype)
             intf_spec += [Declaration(variables=(var, ), type=ctype)]
 
-        # TODO: Add bind=c keyword...
+        c_name = '%s_c' % self.name
         intf_routine = Subroutine(name=intf_name, args=self.argnames,
-                                  spec=intf_spec, body=None)
+                                  spec=intf_spec, body=None, bind=c_name)
         interface = Interface(body=(intf_routine, ))
 
         # Generate the wrapper function

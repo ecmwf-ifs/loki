@@ -24,7 +24,7 @@ def c_transpile(routine, refpath):
     """
     Generate the C-wrapper with ISO-C bindings
     """
-    wrapper = routine.generate_iso_c_wrapper(suffix='_c')
+    wrapper = routine.generate_iso_c_wrapper(suffix='_iso_c')
     wrapperpath = (refpath.parent/wrapper.name).with_suffix('.f90')
     SourceFile.to_file(source=fgen(wrapper), path=wrapperpath)
     return compile_and_load(wrapperpath, cwd=str(refpath.parent))
@@ -56,7 +56,7 @@ def test_transpile_simple_loops(refpath, reference):
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
-    c_kernel.transpile_simple_loops_c(n, m, scalar, vector, tensor)
+    c_kernel.transpile_simple_loops_iso_c(n, m, scalar, vector, tensor)
     assert np.all(vector == 8.)
     assert np.all(tensor == [[11., 21., 31., 41.],
                              [12., 22., 32., 42.],
