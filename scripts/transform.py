@@ -107,7 +107,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(Index(name=':') for _ in type_var.dimensions)
+                            new_dims = tuple(RangeIndex(None, None) for _ in type_var.dimensions)
                             new_arg = Variable(name=type_var.name, dimensions=new_dims,
                                                shape=type_var.dimensions, ref=deepcopy(d_arg))
                             new_args += [new_arg]
@@ -240,6 +240,7 @@ class SCATransformation(AbstractTransformation):
         for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == target.variable:
                 loop_map[loop] = loop.body
+
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
@@ -322,7 +323,7 @@ class SCATransformation(AbstractTransformation):
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         val.dimensions = tuple(Index(name=target.variable)
-                                               if str(tdim) in size_expressions else ddim
+                                               if tdim in size_expressions else ddim
                                                for ddim, tdim in zip(val.dimensions, val.shape))
 
                 # Collect caller-side expressions for dimension sizes and bounds

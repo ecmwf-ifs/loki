@@ -168,8 +168,8 @@ class Conditional(Node):
         super(Conditional, self).__init__(source=source)
 
         self.conditions = conditions
-        self.bodies = bodies
-        self.else_body = else_body
+        self.bodies = as_tuple(bodies)
+        self.else_body = as_tuple(else_body)
         self.inline = inline
 
     @property
