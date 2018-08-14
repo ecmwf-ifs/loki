@@ -213,7 +213,7 @@ class OMNI2IR(GenericVisitor):
         conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
         bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return Conditional(conditions=conditions, bodies=bodies, else_body=else_body)
+        return Conditional(conditions=conditions, bodies=(bodies, ), else_body=else_body)
 
     def visit_FmemberRef(self, o, source=None):
         t = o.attrib['type']

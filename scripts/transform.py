@@ -236,7 +236,7 @@ class SCATransformation(AbstractTransformation):
         index_expressions = target.index_expressions
 
         # Remove all loops over the target dimensions
-        loop_map = {}
+        loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
             if loop.variable == target.variable:
                 loop_map[loop] = loop.body
