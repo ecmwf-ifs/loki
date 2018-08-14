@@ -30,7 +30,8 @@ class BaseType(object):
     }
 
     def __init__(self, name, kind=None, intent=None, allocatable=False, pointer=False,
-                 optional=None, parameter=None, target=None, contiguous=None, source=None):
+                 optional=None, parameter=None, target=None, contiguous=None, value=None,
+                 source=None):
         self._source = source
 
         self.name = name
@@ -42,6 +43,7 @@ class BaseType(object):
         self.parameter = parameter
         self.target = target
         self.contiguous = contiguous
+        self.value = value
 
     def __repr__(self):
         return '<Type %s%s%s%s%s%s%s%s%s>' % (

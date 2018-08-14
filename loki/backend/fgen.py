@@ -50,8 +50,10 @@ class FortranCodegen(Visitor):
     visit_list = visit_tuple
 
     def visit_Module(self, o):
+        self._depth += 1
         body = self.visit(o.routines)
         spec = self.visit(o.spec)
+        self._depth -= 1
         header = 'MODULE %s \n\n' % o.name
         contains = '\ncontains\n\n'
         footer = '\nEND MODULE %s\n' % o.name
@@ -64,17 +66,19 @@ class FortranCodegen(Visitor):
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
         header = 'SUBROUTINE %s%s\n' % (o.name, argument)
-        docstring = '%s\n\n' % self.visit(o.docstring)
-        spec = '%s\n\n' % self.visit(o.spec)
-        body = self.visit(o.body)
-        footer = '\nEND SUBROUTINE %s\n' % o.name
+        self._depth += 1
+        docstring = '%s\n\n' % self.visit(o.docstring) if o.docstring else ''
+        spec = '%s\n\n' % self.visit(o.spec) if o.spec else ''
+        body = self.visit(o.body) if o.body else ''
+        self._depth -= 1
+        footer = '\n%sEND SUBROUTINE %s\n' % (self.indent, o.name)
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)
             contains = '\nCONTAINS\n\n'
         else:
             members = ''
             contains = ''
-        return header + docstring + spec + body + contains + members + footer
+        return self.indent + header + docstring + spec + body + contains + members + footer
 
     def visit_InterfaceBlock(self, o):
         arguments = self.segment([a.name for a in o.arguments])
@@ -118,7 +122,13 @@ class FortranCodegen(Visitor):
             return '#include "%s"' % o.module
         else:
             only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
-            return 'USE %s%s' % (o.module, only)
+            return self.indent + 'USE %s%s' % (o.module, only)
+
+    def visit_Interface(self, o):
+        self._depth += 1
+        body = self.visit(o.body)
+        self._depth -= 1
+        return self.indent + 'INTERFACE\n%s\n%sEND INTERFACE\n' % (body, self.indent)
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -237,11 +247,12 @@ class FortranCodegen(Visitor):
 
     def visit_BaseType(self, o):
         tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name
-        return '%s%s%s%s%s%s%s%s%s' % (
+        return '%s%s%s%s%s%s%s%s%s%s' % (
             tname,
             '(KIND=%s)' % o.kind if o.kind else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',
+            ', VALUE' if o.value else '',
             ', OPTIONAL' if o.optional else '',
             ', PARAMETER' if o.parameter else '',
             ', TARGET' if o.target else '',

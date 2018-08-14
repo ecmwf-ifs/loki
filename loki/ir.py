@@ -8,7 +8,7 @@ from loki.tools import flatten, as_tuple
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional']
+           'MultiConditional', 'Interface', 'Intrinsic']
 
 
 class Node(object):
@@ -309,6 +309,16 @@ class Import(Node):
         self.module = module
         self.symbols = symbols or ()
         self.c_import = c_import
+
+
+class Interface(Node):
+    """
+    Internal representation of a Fortran interace block.
+    """
+    def __init__(self, body=None, source=None):
+        super(Interface, self).__init__(source=source)
+
+        self.body = as_tuple(body)
 
 
 class Allocation(Node):

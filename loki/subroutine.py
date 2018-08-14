@@ -2,8 +2,8 @@ from collections import OrderedDict
 
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
-from loki.ir import (Declaration, Allocation, Import, Section, Call,
-                     CallContext, CommentBlock, Intrinsic)
+from loki.ir import (Declaration, Allocation, Import, Section,
+                     Call, CallContext, CommentBlock, Intrinsic, Interface)
 from loki.expression import Variable, FindVariables
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Transformer
@@ -323,3 +323,31 @@ class Subroutine(object):
 
         return InterfaceBlock(name=self.name, imports=imports,
                               arguments=arguments, declarations=declarations)
+
+    def generate_iso_c_wrapper(self, suffix='_c'):
+        kind_c_map = {'real': 'c_double', 'integer': 'c_int', 'logical': 'c_int'}
+
+        # Gnerate the ISO-C subroutine interface
+        intf_name = '%s_fc' % self.name
+        intf_spec = [Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))]
+        intf_spec += [Intrinsic(text='implicit none')]
+        for arg in self.arguments:
+            tname = arg.type.name.lower()
+            kind = kind_c_map.get(tname, arg.type.kind)
+            value = arg.dimensions is None or len(arg.dimensions) == 0
+            ctype = BaseType(name=arg.type.name, kind=kind, value=value)
+            var = Variable(name=arg.name, dimensions=arg.dimensions,
+                           shape=arg.shape, type=ctype)
+            intf_spec += [Declaration(variables=(var, ), type=ctype)]
+
+        # TODO: Add bind=c keyword...
+        intf_routine = Subroutine(name=intf_name, args=self.argnames,
+                                  spec=intf_spec, body=None)
+        interface = Interface(body=(intf_routine, ))
+
+        # Generate the wrapper function
+        wrapper_spec = Transformer().visit(self.spec)
+        wrapper_spec.append(interface)
+        wrapper_body = [Call(name=intf_name, arguments=self.argnames)]
+        return Subroutine(name='%s%s' % (self.name, suffix), args=self.argnames,
+                          spec=wrapper_spec, body=wrapper_body)

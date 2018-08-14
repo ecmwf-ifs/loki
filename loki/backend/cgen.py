@@ -55,7 +55,7 @@ class CExprCodegen(Visitor):
     """
 
     def __init__(self, linewidth=90, indent='', op_spaces=False):
-        super(FExprCodegen, self).__init__()
+        super(CExprCodegen, self).__init__()
         self.linewidth = linewidth
         self.indent = indent
         self.op_spaces = op_spaces
