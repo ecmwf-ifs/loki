@@ -57,10 +57,10 @@ class Toolchain(object):
         """
         Generate arguments for the linker line.
         """
-        args = [self.ld]
+        args = [self.ld] if shared else ['ar', 'src']
         args += self.ldflags
         args += ['-shared'] if shared else []
-        args += ['-o', '%s' % target]
+        args += ['-o', '%s' % target] if shared else [target]
         args += objs
         return args
 
