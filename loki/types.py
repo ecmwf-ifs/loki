@@ -1,27 +1,69 @@
-from enum import Enum
+from enum import IntEnum
 
-__all__ = ['DataType', 'BaseType', 'DerivedType']
+__all__ = ['BaseType', 'DerivedType']
 
 
-class DataType(Enum):
+class DataType(IntEnum):
+    """
+    Raw data type with conversion and detection mechanisms.
+    """
 
-    LOGICAL = ('LOGICAL', None)  # bool
-    JPRM = ('REAL', 'JPRM')  # float32
-    JPRB = ('REAL', 'JPRB')  # float64
-    JPIM = ('INTEGER', 'JPIM')  # int32
+    BOOL = 1
+    INT32 = 2
+    FLOAT32 = 3
+    FLOAT64 = 4
 
-    def __init__(self, type, kind):
-        self.type = type
-        self.kind = kind
+    @classmethod
+    def from_type_kind(cls, type, kind):
+        """
+        Detect raw data type from OMNI XcodeML node.
+        """
+        type_kind_map = {
+            ('integer', None): cls.INT32,
+            ('real', 'real64'): cls.FLOAT64,
+            ('real', 'jprb'): cls.FLOAT64,
+            ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,
+        }
+        type = type if type is None else str(type).lower()
+        kind = kind if kind is None else str(kind).lower()
+        return type_kind_map.get((type, kind), None)
+
+    @classmethod
+    def from_omni(cls, node):
+        """
+        Detect raw data type from OMNI XcodeML node.
+        """
+        raise NotImplementedError()
+
+    @property
+    def ctype(self):
+        """
+        String representing the C equivalent of this data type.
+        """
+        map = {
+            self.BOOL: 'int', self.INT32: 'int',
+            self.FLOAT64: 'float', self.FLOAT64: 'double',
+        }
+        return map.get(self, None)
+
+    @property
+    def ftype(self):
+        """
+        String representing the C equivalent of this data type.
+        """
+        raise NotImplementedError()
 
 
 class BaseType(object):
     """
-    Basic Fortran variable type with data type, kind, intent, allocatable, etc.
+    Basic variable type with raw data type and Fortran attributes like
+    ``intent``, ``allocatable``, ``pointer``, etc.
     """
 
+    # TODO: Funnel this through the raw data type above
     _base_types = ['REAL', 'INTEGER', 'LOGICAL', 'COMPLEX', 'CHARACTER']
 
+    # TODO: Funnel this through the raw data type above
     _omni_types = {
         'Fint': 'INTEGER',
         'Freal': 'REAL',
@@ -76,7 +118,7 @@ class BaseType(object):
 
     @property
     def dtype(self):
-        return DataType((self.name, self.kind))
+        return DataType.from_type_kind(self.name, self.kind)
 
 
 class DerivedType(BaseType):
