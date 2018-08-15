@@ -55,7 +55,6 @@ def test_build_lib(builder):
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
     """
-    from loki import logger, DEBUG; logger.setLevel(DEBUG)
     builder.clean()
 
     # Create library with explicit dependencies
@@ -67,6 +66,23 @@ def test_build_lib(builder):
 
     test = lib.wrap(modname='test', sources=['extension.f90'])
     assert test.extended_fma(2., 3., 1.) == 7.
+
+
+def test_build_lib_with_c(builder):
+    """
+    Test basic library compilation and wrapping via f90wrap
+    from a specific list of source objects.
+    """
+    builder.clean()
+
+    # Create library with explicit dependencies
+    objects = ['wrapper.f90', 'c_util.c']
+    lib = builder.Lib(name='library', objects=objects)
+    lib.build()
+    assert (builder.build_dir/'liblibrary.so').exists
+
+    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'])
+    assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
 
 def test_build_obj_dependencies(builder):

@@ -34,23 +34,23 @@ class Toolchain(object):
         self.ld = self.LD or 'gfortran'
         self.ldflags = self.LDFLAGS or []
 
-    def build_args(self, source, target=None, include_dirs=None):
+    def build_args(self, source, target=None, include_dirs=None, use_c=False):
         """
         Generate arguments for the build line.
         """
         include_dirs = include_dirs or []
-        args = [self.f90, '-c']
-        args += self.f90flags
+        args = [self.cc, '-c'] if use_c else [self.f90, '-c']
+        args += self.cflags if use_c else self.f90flags
         args += flatten([('-I', '%s' % incl) for incl in include_dirs])
         args += [] if target is None else ['-o', '%s' % target]
         args += [str(source)]
         return args
 
-    def build(self, source, target=None, include_dirs=None, cwd=None):
+    def build(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
         """
         Execute a build command for a given source.
         """
-        args = self.build_args(source, target=target, include_dirs=include_dirs)
+        args = self.build_args(source, target=target, include_dirs=include_dirs, use_c=use_c)
         execute(args, cwd=cwd)
 
     def linker_args(self, objs, target, shared=True):

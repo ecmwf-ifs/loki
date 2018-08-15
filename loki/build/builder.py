@@ -102,7 +102,8 @@ class Obj(BuildItem):
         toolchain = self.builder.toolchain or _default_toolchain
 
         debug('Building obj %s' % self)
-        toolchain.build(source=self.path.absolute(), cwd=build_dir)
+        use_c = self.path.suffix.lower() in ['.c', '.cc']
+        toolchain.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
 
     def wrap(self):
         """
@@ -132,7 +133,6 @@ class Lib(BuildItem):
 
     def __init__(self, name, objects=None, builder=None):
         self.name = name
-        print(name)
         self.path = Path('lib%s.so' % name)
         self.builder = builder
         self.objects = objects or []
@@ -236,10 +236,14 @@ class Builder(object):
     @lru_cache(maxsize=None)
     def Obj(self, filename):
         path = self.find_path(filename)
+        if path is None:
+            raise RuntimeError('Could not establish path for %s' % filename)
         return Obj(filename=path, builder=self)
 
     def Lib(self, name, objects=None):
-        return Lib(name, objects=objects, builder=self)
+        objs = [o if isinstance(o, Obj) else self.Obj(o)
+                for o in as_tuple(objects)]
+        return Lib(name, objects=objs, builder=self)
 
     def get_dependency_graph(self, builditem):
         """
