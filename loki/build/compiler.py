@@ -1,28 +1,17 @@
-from subprocess import run, PIPE, STDOUT, CalledProcessError
 from pathlib import Path
 from importlib import import_module
 import os
 import shutil
 
 from loki.logging import debug, info, error
-from loki.tools import as_tuple
+from loki.build.tools import as_tuple, execute
 from loki.build.toolchain import _default_toolchain
 
 
-__all__ = ['execute', 'clean', 'compile', 'compile_and_load']
+__all__ = ['clean', 'compile', 'compile_and_load']
 
 
 _test_base_dir = Path(__file__).parent.parent.parent/'tests'
-
-
-def execute(args, cwd=None):
-    debug('Executing: %s' % ' '.join(args))
-    try:
-        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
-    except CalledProcessError as e:
-        error('Execution failed with:')
-        error(e.output.decode("utf-8"))
-        raise e
 
 
 def delete(filename, force=False):

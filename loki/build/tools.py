@@ -1,7 +1,19 @@
+from subprocess import run, PIPE, STDOUT, CalledProcessError
 from collections import Iterable
 
+from loki.logging import debug, error
 
-__all__ = ['as_tuple', 'filter_ordered', 'flatten']
+__all__ = ['execute', 'as_tuple', 'filter_ordered', 'flatten']
+
+
+def execute(args, cwd=None):
+    debug('Executing: %s' % ' '.join(args))
+    try:
+        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
+    except CalledProcessError as e:
+        error('Execution failed with:')
+        error(e.output.decode("utf-8"))
+        raise e
 
 
 def as_tuple(item, type=None, length=None):
