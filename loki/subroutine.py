@@ -38,6 +38,7 @@ class Subroutine(object):
                  body=None, members=None, ast=None):
         self.name = name
         self._ast = ast
+        self._dummies = as_tuple(a.lower() for a in args)  # Order of dummy arguments
 
         self.arguments = None
         self.variables = None
@@ -145,7 +146,7 @@ class Subroutine(object):
         """
         Internalize argument and variable declarations.
         """
-        self.arguments = []
+        self.arguments = [None] * len(self._dummies)
         self.variables = []
         self._decl_map = OrderedDict()
         dmap = {}
@@ -157,10 +158,14 @@ class Subroutine(object):
                 for v in dvars:
                     v.dimensions = decl.dimensions
 
-            # Record arguments and variables independently
+            # Record all variables independently
             self.variables += list(dvars)
-            if decl.type.intent is not None:
-                self.arguments += list(dvars)
+
+            # Insert argument variable at the position of the dummy
+            for v in dvars:
+                if v.name.lower() in self._dummies:
+                    idx = self._dummies.index(v.name.lower())
+                    self.arguments[idx] = v
 
             # Stash declaration and mark for removal
             for v in dvars:
