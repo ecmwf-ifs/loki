@@ -130,38 +130,33 @@ class DerivedArgsTransformation(AbstractTransformation):
         The convention used is: ``derived%var => derived_var``
         """
         candidates = self._derived_type_arguments(routine)
-        declarations = FindNodes(Declaration).visit(routine.spec)
 
         # Callee: Establish replacements for declarations and dummy arguments
-        decl_mapper = defaultdict(list)
         for arg, type_vars in candidates.items():
-            old_decl = [d for d in declarations if arg in d.variables][0]
-            new_names = []
-
+            new_vars = []
             for type_var in type_vars:
-                # Create new name and add to variable mapper
-                new_name = '%s_%s' % (arg.name, type_var.name)
-                new_names += [new_name]
-
-                # Create new declaration and add to declaration mapper
+                # Create a new variable with a new type mimicking the old one
                 new_type = BaseType(name=type_var.type.name,
                                     kind=type_var.type.kind,
                                     intent=arg.type.intent)
+                new_name = '%s_%s' % (arg.name, type_var.name)
                 new_var = Variable(name=new_name, type=new_type,
                                    dimensions=as_tuple(type_var.dimensions),
                                    shape=as_tuple(type_var.dimensions))
-                decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
+                new_vars += [new_var]
 
-            # Replace variable in dummy signature
-            i = routine.argnames.index(arg)
-            routine._argnames[i:i+1] = new_names
+            # Replace variable in subroutine argument list
+            i = routine.arguments.index(arg)
+            routine.arguments[i:i+1] = new_vars
+
+            # Also replace the variable in the variable list to
+            # trigger the re-generation of the according declaration.
+            i = routine.variables.index(arg)
+            routine.variables[i:i+1] = new_vars
 
         # Replace variable occurences in-place (derived%v => derived_v)
         argnames = [arg.name for arg in candidates.keys()]
         VariableTransformer(argnames=argnames).visit(routine.ir)
-
-        # Replace `Declaration` nodes (re-generates the IR tree)
-        routine.spec = Transformer(decl_mapper).visit(routine.spec)
 
 
 class Dimension(object):

@@ -180,13 +180,18 @@ class Subroutine(object):
         Re-insert argument declarations...
         """
         # A hacky way to ensure we don;t do this twice
+        # TODO; Need better way to determine this; THIS IS NOT SAFE!
         if self._decl_map is None:
             return
 
         decls = []
         for v in self.variables:
-            d = self._decl_map[v].clone()
-            d.variables = as_tuple(v)
+            if v in self._decl_map:
+                d = self._decl_map[v].clone()
+                d.variables = as_tuple(v)
+            else:
+                d = Declaration(variables=[v], type=v.type)
+
             # Dimension declarations are done on variables
             d.dimensions = None
 
