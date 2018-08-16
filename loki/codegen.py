@@ -58,6 +58,9 @@ class FortranCodegen(Visitor):
         return header + spec + contains + body + footer
 
     def visit_Subroutine(self, o):
+        # Make sure declarations are re-inserted
+        o._externalize()
+
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
         header = 'SUBROUTINE %s%s\n' % (o.name, argument)

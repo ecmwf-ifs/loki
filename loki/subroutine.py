@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
@@ -35,9 +37,10 @@ class Subroutine(object):
     def __init__(self, name, args=None, docstring=None, spec=None,
                  body=None, members=None, ast=None):
         self.name = name
-
-        self._argnames = list(args)
         self._ast = ast
+
+        self.arguments = None
+        self.variables = None
 
         self.docstring = docstring
         self.spec = spec
@@ -74,6 +77,9 @@ class Subroutine(object):
 
         obj = cls(name=name, args=args, docstring=docstring,
                   spec=spec, body=body, members=members, ast=ast)
+
+        # Internalize argument declarations
+        obj._internalize()
 
         # Enrich internal representation with meta-data
         obj._attach_derived_types(typedefs=typedefs)
@@ -126,11 +132,63 @@ class Subroutine(object):
         obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
                   members=members, ast=ast)
 
+        # Internalize argument declarations
+        obj._internalize()
+
         # Enrich internal representation with meta-data
         obj._attach_derived_types(typedefs=typedefs)
         obj._derive_variable_shape(typedefs=typedefs)
 
         return obj
+
+    def _internalize(self):
+        """
+        Internalize argument and variable declarations.
+        """
+        self.arguments = []
+        self.variables = []
+        self._decl_map = OrderedDict()
+        dmap = {}
+
+        for decl in FindNodes(Declaration).visit(self.ir):
+            # Propagate dimensions to variables
+            dvars = as_tuple(decl.variables)
+            if decl.dimensions is not None:
+                for v in dvars:
+                    v.dimensions = decl.dimensions
+
+            # Record arguments and variables independently
+            self.variables += list(dvars)
+            if decl.type.intent is not None:
+                self.arguments += list(dvars)
+
+            # Stash declaration and mark for removal
+            for v in dvars:
+                self._decl_map[v] = decl
+            dmap[decl] = None
+
+        # Remove declarations from the IR
+        self.spec = Transformer(dmap).visit(self.spec)
+
+    def _externalize(self):
+        """
+        Re-insert argument declarations...
+        """
+        # A hacky way to ensure we don;t do this twice
+        if self._decl_map is None:
+            return
+
+        decls = []
+        for v in self.variables:
+            d = self._decl_map[v].clone()
+            d.variables = as_tuple(v)
+            # Dimension declarations are done on variables
+            d.dimensions = None
+
+            decls += [d]
+        self.spec.append(decls)
+
+        self._decl_map = None
 
     def enrich_calls(self, routines):
         """
@@ -253,30 +311,14 @@ class Subroutine(object):
 
     @property
     def argnames(self):
-        return self._argnames
-
-    @property
-    def arguments(self):
-        """
-        List of argument names as defined in the subroutine signature.
-        """
-        vmap = self.variable_map
-        return [vmap[name.upper()] for name in self.argnames]
-
-    @property
-    def variables(self):
-        """
-        List of all declared variables
-        """
-        decls = FindNodes(Declaration).visit(self.spec)
-        return flatten([d.variables for d in decls])
+        return [a.name for a in self.arguments]
 
     @property
     def variable_map(self):
         """
         Map of variable names to `Variable` objects
         """
-        return {v.name.upper(): v for v in self.variables}
+        return {v.name.lower(): v for v in self.variables}
 
     @property
     def interface(self):
