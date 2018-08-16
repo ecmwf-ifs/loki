@@ -70,9 +70,9 @@ def test_routine_local_variables(refpath, reference, frontend):
     Test local variables and types
     """
     # Test the internals of the :class:`Subroutine`
-    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[0]
-    assert routine.variables == ['jprb', 'x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)', 'i']
-    assert routine.variables == ['JPRB', 'X', 'Y', 'SCALAR', 'VECTOR(X)', 'MATRIX(X,Y)', 'I']
+    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[2]
+    assert routine.variables == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)']
+    assert routine.variables == ['JPRB', 'X', 'Y', 'MAXIMUM', 'I', 'J', 'VECTOR(X)', 'MATRIX(X,Y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_local_variables', frontend=frontend)
@@ -82,13 +82,36 @@ def test_routine_local_variables(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_arguments(refpath, reference, frontend):
+    """
+    A set of test to test internalisation and handling of arguments.
+    """
+
+    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[3]
+    assert routine.variables == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
+                                 'i', 'j', 'local_vector(x)', 'local_matrix(x,y)']
+    assert routine.arguments == ['x', 'y', 'vector(x)', 'matrix(x,y)']
+
+    # Test the generated identity results
+    test = generate_identity(refpath, 'routine_arguments', frontend=frontend)
+    function = getattr(test, 'routine_arguments_%s' % frontend)
+    x, y = 2, 3
+    vector = np.zeros(x, order='F')
+    matrix = np.zeros((x, y), order='F')
+    function(x=x, y=y, vector=vector, matrix=matrix)
+    assert np.all(vector == [10., 20.])
+    assert np.all(matrix == [[12., 14., 16.],
+                             [22., 24., 26.]])
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_routine_dim_shapes(refpath, reference, frontend):
     """
     A set of test to ensure matching different dimension and shape
     expressions against strings and other expressions works as expected.
     """
     # TODO: Need a named subroutine lookup
-    routine = SourceFile.from_file(refpath, frontend=frontend).routines[3]
+    routine = SourceFile.from_file(refpath, frontend=frontend).routines[4]
     assert routine.arguments == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(v1,v2-1)']
 
     # Make sure variable/argument shapes work
