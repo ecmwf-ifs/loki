@@ -4,10 +4,10 @@ from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, ExpressionVisitor
+from loki.expression import Variable, FindVariables
 from loki.types import BaseType, DerivedType
-from loki.visitors import FindNodes, Visitor, Transformer
-from loki.tools import flatten, as_tuple
+from loki.visitors import FindNodes, Transformer
+from loki.tools import as_tuple
 
 
 __all__ = ['Subroutine']
@@ -230,7 +230,7 @@ class Subroutine(object):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-    def _derive_variable_shape(self, declarations=None, typedefs=None):
+    def _derive_variable_shape(self, typedefs=None):
         """
         Propgates the allocated dimensions (shape) from variable
         declarations to :class:`Variables` instances in the code body.
@@ -244,63 +244,36 @@ class Subroutine(object):
         Note, the shape derivation from derived types is currently
         limited to first-level nesting only.
         """
-        declarations = declarations or FindNodes(Declaration).visit(self.spec)
         typedefs = typedefs or {}
 
         # Create map of variable names to allocated shape (dimensions)
         # Make sure you capture sub-variables.
         shapes = {}
         derived = {}
-        for decl in declarations:
-            if decl.type.name.upper() in typedefs:
-                derived.update({v.name: typedefs[decl.type.name.upper()]
-                                for v in decl.variables})
+        for v in self.variables:
+            if v.type.name.upper() in typedefs:
+                derived[v.name] = typedefs[v.type.name.upper()]
 
-            if decl.dimensions is not None:
-                shapes.update({v.name: decl.dimensions for v in decl.variables})
-            else:
-                shapes.update({v.name: v.dimensions for v in decl.variables
-                               if v.dimensions is not None and len(v.dimensions) > 0})
+            if v.dimensions is not None:
+                shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
 
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):
             shapes[alloc.variable.name] = alloc.variable.dimensions
 
-        class VariableShapeInjector(ExpressionVisitor, Visitor):
-            """
-            Attach shape information to :class:`Variable` via the
-            ``.shape`` attribute.
-            """
-            def __init__(self, shapes, derived):
-                super(VariableShapeInjector, self).__init__()
-                self.shapes = shapes
-                self.derived = derived
+        # Apply shapes to meta-data variables
+        for v in self.variables:
+            v._shape = shapes[v.name]
 
-            def visit_Variable(self, o):
-                if o.name in self.shapes:
-                    o._shape = self.shapes[o.name]
+        # Apply shapes to all variables in the IR (in-place)
+        for v in FindVariables(unique=False).visit(self.ir):
+                if v.name in shapes:
+                    v._shape = shapes[v.name]
 
-                if o.ref is not None and o.ref.name in self.derived:
+                if v.ref is not None and v.ref.name in derived:
                     # We currently only follow a single level of nesting
-                    typevars = {v.name.upper(): v for v in self.derived[o.ref.name].variables}
-                    o._shape = typevars[o.name.upper()].dimensions
-
-                # Recurse over children
-                for c in o.children:
-                    self.visit(c)
-
-            def visit_Declaration(self, o):
-                # Attach shape info to declaration dummy variables
-                if o.type.allocatable:
-                    for v in o.variables:
-                        v._shape = self.shapes[v.name]
-
-                # Recurse over children
-                for c in o.children:
-                    self.visit(c)
-
-        # Apply dimensions via expression visitor (in-place)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
+                    typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
+                    v._shape = typevars[v.name.upper()].dimensions
 
     @property
     def ir(self):

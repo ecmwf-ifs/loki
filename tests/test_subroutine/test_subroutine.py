@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
+from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI, FindVariables
 from conftest import generate_identity
 
 
@@ -114,8 +114,10 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     routine = SourceFile.from_file(refpath, frontend=frontend).routines[4]
     assert routine.arguments == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(v1,v2-1)']
 
-    # Make sure variable/argument shapes work
+    # Make sure variable/argument shapes on the routine work
     shapes = [v.shape for v in routine.arguments]
     assert shapes == [None, None, ('v1',), ('v1','v2'), ('v1','v2-1')]
 
-    # TODO: More in-depth (compoenent-wise) equivalence against strings
+    # Ensure shapes of body variables are ok
+    b_shapes = [v.shape for v in FindVariables(unique=False).visit(routine.ir)]
+    assert b_shapes == [None, ('v1',), None, None, ('v1',), None, None, ('v1', 'v2')]
