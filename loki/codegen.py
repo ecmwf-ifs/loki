@@ -202,7 +202,10 @@ class FortranCodegen(Visitor):
             args = o.arguments
         if len(args) > self.chunking:
             self._depth += 2
-            signature = self.segment(str(a) for a in args)
+            # TODO: Temporary hack to force cloudsc_driver into the Fortran
+            # line limit. The linewidth chaeck should be made smarter to
+            # adjust the chunking to the linewidth, like expressions do.
+            signature = self.segment([str(a) for a in args], chunking=3)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in args)

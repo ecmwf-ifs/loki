@@ -6,10 +6,10 @@ from pathlib import Path
 
 from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
-                  as_tuple, Loop, Variable, Declaration, Call, Pragma,
+                  as_tuple, Loop, Variable, Call, Pragma,
                   BaseType, DerivedType, Import, Index, RangeIndex,
                   AbstractTransformation, BasicTransformation,
-                  Frontend, OMNI, OFP)
+                  Frontend, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -226,7 +226,6 @@ class SCATransformation(AbstractTransformation):
         Remove all loops and variable indices of a given target dimension
         from the given routine.
         """
-        replacements = {}
         size_expressions = target.size_expressions
         index_expressions = target.index_expressions
 
@@ -239,28 +238,16 @@ class SCATransformation(AbstractTransformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        for decl in FindNodes(Declaration).visit(routine.spec):
-            new_vars = tuple(v for v in decl.variables if v not in target.variables)
+        routine.variables = [v for v in routine.variables if v not in target.variables]
+        routine.arguments = [a for a in routine.arguments if a not in target.variables]
 
-            # Strip target dimension from declaration-level dimensions
-            if decl.dimensions is not None and len(decl.dimensions) > 0:
-                # TODO: This is quite hacky, as we rely on the first
-                # variable in the declaration to provide the correct shape.
-                assert len(decl.dimensions) == len(decl.variables[0].shape)
-                new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
-                                 if s not in size_expressions)
-                if len(new_dims) == 0:
-                    new_dims = None
-            else:
-                new_dims = decl.dimensions
+        # Remove dimension sizes from declarations
+        for v in routine.variables:
+            if v.shape is not None and len(v.shape) == len(v.dimensions):
+                v.dimensions = as_tuple(d for d, s in zip(v.dimensions, v.shape)
+                                        if s not in size_expressions)
 
-            if len(new_vars) == 0:
-                # Drop the declaration if it becomes empty
-                replacements[decl] = None
-            else:
-                replacements[decl] = decl.clone(variables=new_vars, dimensions=new_dims)
-
-        # Remove all variable indices representing the target dimension (in-place)
+        # Remove all target dimension indices in subroutine body expressions (in-place)
         for v in FindVariables(unique=False).visit(routine.ir):
             if v.dimensions is not None and v.shape is not None:
                 # Filter index variables against index expressions
@@ -273,21 +260,6 @@ class SCATransformation(AbstractTransformation):
                     v.dimensions, v._shape = zip(*(filtered))
                 else:
                     v.dimensions, v._shape = (), None
-
-        # Remove dimension size expressions from variable declarations (in-place)
-        # Note: We do this last, because changing the declaration affects
-        # the variable_map used above.
-        for decl in FindNodes(Declaration).visit(routine.spec):
-            for v in decl.variables:
-                if v.dimensions is not None:
-                    v.dimensions = as_tuple(d for d in v.dimensions
-                                            if d not in size_expressions)
-
-        # Remove dummy variables from subroutine signature (in-place)
-        routine._argnames = tuple(arg for arg in routine.argnames
-                                  if arg.upper() not in target.variables)
-
-        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -350,8 +322,9 @@ class SCATransformation(AbstractTransformation):
 
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in caller.variables:
-            caller.spec.append(Declaration(variables=Variable(name=target.variable),
-                                           type=BaseType(name='INTEGER', kind='JPIM')))
+            # TODO: Find a better way to define raw data type
+            dtype = BaseType(name='INTEGER', kind='JPIM')
+            caller.variables += [Variable(name=target.variable, type=dtype)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
