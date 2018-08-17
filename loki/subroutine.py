@@ -167,7 +167,7 @@ class Subroutine(object):
         # Remove declarations from the IR
         self.spec = Transformer(dmap).visit(self.spec)
 
-    def _externalize(self):
+    def _externalize(self, c_backend=False):
         """
         Re-insert argument declarations...
         """
@@ -178,6 +178,9 @@ class Subroutine(object):
 
         decls = []
         for v in self.variables:
+            if c_backend and v in self.arguments:
+                continue
+
             if v in self._decl_map:
                 d = self._decl_map[v].clone()
                 d.variables = as_tuple(v)

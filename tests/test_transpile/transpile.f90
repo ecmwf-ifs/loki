@@ -15,7 +15,7 @@ subroutine transpile_simple_loops(n, m, scalar, vector, tensor)
 
   do j=1, m
      do i=1, n
-        tensor(i, j) = 10.*real(j) + real(i)
+        tensor(i, j) = 10.* j + i
      end do
   end do
 

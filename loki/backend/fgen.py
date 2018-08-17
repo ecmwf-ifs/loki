@@ -322,7 +322,6 @@ class FExprCodegen(Visitor):
         return self.append(line, str(o))
 
     visit_Expression = visit_str
-    visit_Variable = visit_str
 
     def visit_tuple(self, o, line):
         for i, e in enumerate(o):
