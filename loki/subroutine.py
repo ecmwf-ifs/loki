@@ -331,8 +331,13 @@ class Subroutine(object):
 
         # Generate the ISO-C subroutine interface
         intf_name = '%s_fc' % self.name
-        intf_spec = [Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))]
-        intf_spec += [Intrinsic(text='implicit none')]
+        isoc_import = Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))
+        intf_spec = Section(body=as_tuple(isoc_import))
+        intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
+        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
+                                  body=None, bind='%s_c' % self.name)
+
+        # Generate variables and types for argument declarations
         for arg in self.arguments:
             tname = arg.type.name.lower()
             kind = kind_c_map.get(tname, arg.type.kind)
@@ -340,16 +345,17 @@ class Subroutine(object):
             ctype = BaseType(name=arg.type.name, kind=kind, value=value)
             var = Variable(name=arg.name, dimensions=arg.dimensions,
                            shape=arg.shape, type=ctype)
-            intf_spec += [Declaration(variables=(var, ), type=ctype)]
-
-        c_name = '%s_c' % self.name
-        intf_routine = Subroutine(name=intf_name, args=self.argnames,
-                                  spec=intf_spec, body=None, bind=c_name)
+            intf_routine.variables += [var]
+            intf_routine.arguments += [var]
         interface = Interface(body=(intf_routine, ))
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(self.spec)
         wrapper_spec.append(interface)
         wrapper_body = [Call(name=intf_name, arguments=self.argnames)]
-        return Subroutine(name='%s%s' % (self.name, suffix), args=self.argnames,
-                          spec=wrapper_spec, body=wrapper_body)
+        wrapper =  Subroutine(name='%s%s' % (self.name, suffix),
+                              spec=wrapper_spec, body=wrapper_body)
+        # Copy internal argument and declaration definitions
+        wrapper.variables = self.variables
+        wrapper.arguments = self.arguments
+        return wrapper
