@@ -2,8 +2,8 @@ from collections import OrderedDict
 
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
-from loki.ir import (Declaration, Allocation, Import, Section,
-                     Call, CallContext, CommentBlock, Intrinsic, Interface)
+from loki.ir import (Declaration, Allocation, Import, Section, Call,
+                     CallContext, CommentBlock, Intrinsic)
 from loki.expression import Variable, FindVariables
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Transformer
@@ -328,37 +328,3 @@ class Subroutine(object):
 
         return InterfaceBlock(name=self.name, imports=imports,
                               arguments=arguments, declarations=declarations)
-
-    def generate_iso_c_wrapper(self, suffix='_iso_c'):
-        kind_c_map = {'real': 'c_double', 'integer': 'c_int', 'logical': 'c_int'}
-
-        # Generate the ISO-C subroutine interface
-        intf_name = '%s_fc' % self.name
-        isoc_import = Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))
-        intf_spec = Section(body=as_tuple(isoc_import))
-        intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
-        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
-                                  body=None, bind='%s_c' % self.name)
-
-        # Generate variables and types for argument declarations
-        for arg in self.arguments:
-            tname = arg.type.name.lower()
-            kind = kind_c_map.get(tname, arg.type.kind)
-            value = arg.dimensions is None or len(arg.dimensions) == 0
-            ctype = BaseType(name=arg.type.name, kind=kind, value=value)
-            var = Variable(name=arg.name, dimensions=arg.dimensions,
-                           shape=arg.shape, type=ctype)
-            intf_routine.variables += [var]
-            intf_routine.arguments += [var]
-        interface = Interface(body=(intf_routine, ))
-
-        # Generate the wrapper function
-        wrapper_spec = Transformer().visit(self.spec)
-        wrapper_spec.append(interface)
-        wrapper_body = [Call(name=intf_name, arguments=self.argnames)]
-        wrapper =  Subroutine(name='%s%s' % (self.name, suffix),
-                              spec=wrapper_spec, body=wrapper_body)
-        # Copy internal argument and declaration definitions
-        wrapper.variables = self.variables
-        wrapper.arguments = self.arguments
-        return wrapper
