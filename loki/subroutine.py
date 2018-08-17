@@ -34,19 +34,27 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None,
-                 body=None, members=None, ast=None):
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None,
+                 members=None, ast=None, typedefs=None):
         self.name = name
         self._ast = ast
-        self._dummies = as_tuple(a.lower() for a in args)  # Order of dummy arguments
+        self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
 
         self.arguments = None
         self.variables = None
+        self._decl_map = None
 
         self.docstring = docstring
         self.spec = spec
         self.body = body
         self.members = members
+
+        # Internalize argument declarations
+        self._internalize()
+
+        # Enrich internal representation with meta-data
+        self._attach_derived_types(typedefs=typedefs)
+        self._derive_variable_shape(typedefs=typedefs)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
@@ -76,17 +84,8 @@ class Subroutine(object):
         spec = FindNodes(Section).visit(body)[0]
         body = Transformer({docstring: None, spec: None}).visit(body)
 
-        obj = cls(name=name, args=args, docstring=docstring,
-                  spec=spec, body=body, members=members, ast=ast)
-
-        # Internalize argument declarations
-        obj._internalize()
-
-        # Enrich internal representation with meta-data
-        obj._attach_derived_types(typedefs=typedefs)
-        obj._derive_variable_shape(typedefs=typedefs)
-
-        return obj
+        return cls(name=name, args=args, docstring=docstring, spec=spec,
+                   body=body, members=members, ast=ast, typedefs=typedefs)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, typedefs=None):
@@ -130,17 +129,8 @@ class Subroutine(object):
         body = parse(ast.find('body'), type_map=type_map, symbol_map=symbol_map,
                      raw_source=raw_source, frontend=OMNI)
 
-        obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                  members=members, ast=ast)
-
-        # Internalize argument declarations
-        obj._internalize()
-
-        # Enrich internal representation with meta-data
-        obj._attach_derived_types(typedefs=typedefs)
-        obj._derive_variable_shape(typedefs=typedefs)
-
-        return obj
+        return cls(name=name, args=args, docstring=None, spec=spec, body=body,
+                  members=members, ast=ast, typedefs=typedefs)
 
     def _internalize(self):
         """
