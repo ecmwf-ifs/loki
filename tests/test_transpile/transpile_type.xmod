@@ -1,0 +1,58 @@
+<OmniFortranModule version="1.0">
+  <name>transpile_type</name>
+  <depends>
+    <name>iso_fortran_env</name>
+  </depends>
+  <typeTable>
+    <FbasicType type="I24b2e80" is_parameter="true" ref="Fint"/>
+    <FbasicType type="I24b30a0" is_parameter="true" ref="Fint"/>
+    <FstructType type="S24b36d0">
+      <symbols>
+        <id type="Fint">
+          <name>a</name>
+        </id>
+        <id type="R24b4950">
+          <name>b</name>
+        </id>
+        <id type="R24aadc0">
+          <name>c</name>
+        </id>
+      </symbols>
+    </FstructType>
+    <FbasicType type="R24b4730" ref="Freal">
+      <kind>
+        <Var type="I24b2e80" scope="local">real32</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="R24b4950" ref="R24b4730"/>
+    <FbasicType type="R24aaba0" ref="Freal">
+      <kind>
+        <Var type="I24b30a0" scope="local">real64</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="R24aadc0" ref="R24aaba0"/>
+  </typeTable>
+  <identifiers>
+    <id type="I24b2e80" sclass="flocal" original_name="real32" declared_in="iso_fortran_env">
+      <name>real32</name>
+    </id>
+    <id type="I24b30a0" sclass="flocal" original_name="real64" declared_in="iso_fortran_env">
+      <name>real64</name>
+    </id>
+    <id type="S24b36d0" sclass="ftype_name" original_name="my_struct" declared_in="transpile_type">
+      <name>my_struct</name>
+    </id>
+  </identifiers>
+  <declarations>
+    <varDecl>
+      <name type="I24b2e80">real32</name>
+    </varDecl>
+    <varDecl>
+      <name type="I24b30a0">real64</name>
+    </varDecl>
+  </declarations>
+  <interfaceDecls>
+  </interfaceDecls>
+  <aux_info>
+  </aux_info>
+</OmniFortranModule>

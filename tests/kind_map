@@ -1,6 +1,8 @@
 {
  'real':     {'': 'float',
               '4': 'float',
+              'real32': 'float',
+              'REAL32': 'float',
               '8': 'double',
               'jprb': 'double',
               'JPRB': 'double',
