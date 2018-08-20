@@ -4,7 +4,7 @@ from loki.backend import fgen, cgen
 from loki.ir import Section, Import, Intrinsic, Interface, Call
 from loki.subroutine import Subroutine
 from loki.types import BaseType
-from loki.expression import Variable
+from loki.expression import Variable, FindVariables
 from loki.visitors import Transformer
 from loki.tools import as_tuple
 
@@ -27,6 +27,7 @@ class FortranCTransformation(AbstractTransformation):
         SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
         # TODO: Invert data/loop accesses from column to row-major
+        self.convert_expressions(routine, **kwargs)
 
         # Generate C source file from Loki IR
         routine.name = '%s_c' % routine.name
@@ -66,3 +67,20 @@ class FortranCTransformation(AbstractTransformation):
         wrapper.variables = routine.variables
         wrapper.arguments = routine.arguments
         return wrapper
+
+    def convert_expressions(self, routine, **kwargs):
+        """
+        Converts all expressions to C's 0-index, row major format.
+
+        Note: We do not yet apply any index shifting inexpressions,
+        meaning we have to rely on the code-generator to insert shifted
+        iteration ranges when defining loops.
+        """
+
+        # TODO: Take care of the indexing shift between C and Fortran.
+        # Basically, we are relying on the CGen to shuft the iteration
+        # indices and dearly hope that nobody uses the index's value.
+        for v in FindVariables(unique=False).visit(routine.body):
+            # Swap index order to row-major
+            if v.dimensions is not None and len(v.dimensions) > 0 :
+                v.dimensions = as_tuple(reversed(v.dimensions))
