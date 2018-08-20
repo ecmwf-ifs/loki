@@ -1,18 +1,18 @@
-from loki.transform.transformation import AbstractTransformation
+from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
 from loki.backend import fgen, cgen
 from loki.ir import Section, Import, Intrinsic, Interface, Call
 from loki.subroutine import Subroutine
 from loki.types import BaseType
 from loki.expression import Variable, FindVariables
-from loki.visitors import Transformer
+from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 
 
 __all__ = ['FortranCTransformation']
 
 
-class FortranCTransformation(AbstractTransformation):
+class FortranCTransformation(BasicTransformation):
     """
     Fortran-to-C transformation that translates the given routine
     into C and generates the corresponding ISO-C wrappers.
@@ -22,9 +22,9 @@ class FortranCTransformation(AbstractTransformation):
         path = kwargs.get('path')
 
         # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper(routine, suffix='_iso_c')
-        self.wrapperpath = (path/wrapper.name).with_suffix('.f90')
-        SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+        wrapper = self.generate_iso_c_wrapper(routine)
+        self.wrapperpath = (path/routine.name).with_suffix('.c.F90')
+        self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
         # TODO: Invert data/loop accesses from column to row-major
         self.convert_expressions(routine, **kwargs)
@@ -34,12 +34,14 @@ class FortranCTransformation(AbstractTransformation):
         self.c_path = (path/routine.name).with_suffix('.c')
         SourceFile.to_file(source=cgen(routine), path=self.c_path)
 
-    def generate_iso_c_wrapper(self, routine, suffix='_iso_c'):
+    def generate_iso_c_wrapper(self, routine):
         kind_c_map = {'real': 'c_double', 'integer': 'c_int', 'logical': 'c_int'}
 
         # Generate the ISO-C subroutine interface
         intf_name = '%s_fc' % routine.name
-        isoc_import = Import(module='iso_c_binding', symbols=('c_int', 'c_double', 'c_ptr'))
+        isoc_import = []  #FindNodes(Import).visit(routine.spec)
+        isoc_import += [Import(module='iso_c_binding', symbols=('c_int', 'c_double',
+                                                                'c_bool', 'c_ptr'))]
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
@@ -61,7 +63,7 @@ class FortranCTransformation(AbstractTransformation):
         wrapper_spec = Transformer().visit(routine.spec)
         wrapper_spec.append(interface)
         wrapper_body = [Call(name=intf_name, arguments=routine.argnames)]
-        wrapper = Subroutine(name='%s%s' % (routine.name, suffix),
+        wrapper = Subroutine(name='%s_C' % routine.name,
                              spec=wrapper_spec, body=wrapper_body)
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.variables

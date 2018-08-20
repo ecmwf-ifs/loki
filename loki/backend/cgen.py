@@ -54,7 +54,8 @@ class CCodegen(Visitor):
         for a in o.arguments:
             if a.dimensions is not None and len(a.dimensions) > 0:
                 dtype = self.visit(a.type)
-                outer_dims = ''.join('[%s]' % d for d in a.dimensions[:-1])
+                # str(d).lower() is a bad hack to ensure caps-alignment
+                outer_dims = ''.join('[%s]' % str(d).lower() for d in a.dimensions[:-1])
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name, outer_dims, dtype, outer_dims, a.name)
 

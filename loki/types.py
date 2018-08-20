@@ -19,7 +19,9 @@ class DataType(IntEnum):
         Detect raw data type from OMNI XcodeML node.
         """
         type_kind_map = {
+            ('logical', None): cls.BOOL,
             ('integer', None): cls.INT32,
+            ('integer', '4'): cls.INT32,
             ('real', 'real64'): cls.FLOAT64,
             ('real', 'jprb'): cls.FLOAT64,
             ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,

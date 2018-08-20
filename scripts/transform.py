@@ -9,6 +9,7 @@ from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
                   Variable, Call, Pragma, BaseType,
                   DerivedType, Import, Index, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
+                  FortranCTransformation,
                   Frontend, OMNI, OFP, cgen)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
@@ -525,28 +526,6 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
-class ISOCTransformation(BasicTransformation):
-    """
-    Conversion to C kernels with ISO_C bindings interfaces
-    """
-
-    def _pipeline(self, routine, **kwargs):
-        self.generate_kernel(routine, **kwargs)
-        # self.generate_wrapper(routine, **kwargs)
-
-        # Perform necessary housekeeking tasks
-        self.rename_routine(routine, suffix='C')
-        self.write_to_file(routine, **kwargs)
-
-    def generate_kernel(self, routine, **kwargs):
-        """
-        Extract and strip the Fortran IR and re-generate in C.
-        """
-        c_path = kwargs.get('c_path')
-        c_kernel = Subroutine(name='%s_c' % routine.name, args=routine.argnames,
-                              spec=routine.spec, body=routine.body)
-        SourceFile.to_file(source=cgen(c_kernel), path=c_path)
-
 
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
@@ -586,8 +565,8 @@ def transpile(out_path, header, source, driver, xmod, include):
     DerivedArgsTransformation().apply(routine)
 
     # Now we instantiate our pipeline and apply the changes
-    transformation = ISOCTransformation()
-    transformation.apply(routine, filename=source_out, c_path=c_path)
+    transformation = FortranCTransformation()
+    transformation.apply(routine, filename=source_out, path=out_path)
 
     # Insert new module import into the driver and re-generate
     # TODO: Needs internalising into `BasicTransformation.module_wrap()`
