@@ -73,7 +73,7 @@ class FortranCTransformation(BasicTransformation):
         wrapper = Subroutine(name='%s_C' % routine.name, spec=wrapper_spec, body=wrapper_body)
 
         # Copy internal argument and declaration definitions
-        wrapper.variables = routine.variables + [v for _, v in local_arg_map.items()]
+        wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]
         wrapper.arguments = routine.arguments
         return wrapper
 

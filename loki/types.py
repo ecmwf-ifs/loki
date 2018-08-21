@@ -23,6 +23,7 @@ class DataType(IntEnum):
             ('logical', None): cls.BOOL,
             ('integer', None): cls.INT32,
             ('integer', '4'): cls.INT32,
+            ('integer', 'jpim'): cls.FLOAT64,
             ('real', 'real32'): cls.FLOAT32,
             ('real', 'real64'): cls.FLOAT64,
             ('real', 'jprb'): cls.FLOAT64,
