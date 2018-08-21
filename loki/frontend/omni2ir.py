@@ -8,7 +8,7 @@ from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
-from loki.types import BaseType, DerivedType
+from loki.types import BaseType, DerivedType, DataType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
 
@@ -252,7 +252,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=o.text, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
-        return Literal(value=o.text)
+        return Literal(value=o.text, type=DataType.BOOL)
 
     def visit_FcharacterConstant(self, o, source=None):
         return Literal(value='"%s"' % o.text)

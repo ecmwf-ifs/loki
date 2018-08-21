@@ -1,10 +1,13 @@
+from collections import OrderedDict
+
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
 from loki.backend import fgen, cgen
-from loki.ir import Section, Import, Intrinsic, Interface, Call
+from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
+                     TypeDef, Statement)
 from loki.subroutine import Subroutine
-from loki.types import BaseType
-from loki.expression import Variable, FindVariables
+from loki.types import BaseType, DerivedType
+from loki.expression import Variable, FindVariables, InlineCall
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
 
@@ -35,40 +38,87 @@ class FortranCTransformation(BasicTransformation):
         SourceFile.to_file(source=cgen(routine), path=self.c_path)
 
     def generate_iso_c_wrapper(self, routine):
-        kind_c_map = {'real': 'c_double', 'integer': 'c_int', 'logical': 'c_int'}
+        c_structs = self.generate_iso_c_structs_f(routine)
+        interface = self.generate_iso_c_interface(routine, c_structs)
 
-        # Generate the ISO-C subroutine interface
+        # Generate the wrapper function
+        wrapper_spec = Transformer().visit(routine.spec)
+        wrapper_spec.prepend(Import(module='iso_c_binding',
+                                    symbols=('c_int', 'c_double', 'c_float')))
+        for _, td in c_structs.items():
+            wrapper_spec.append(td)
+        wrapper_spec.append(interface)
+
+        # Create the wrapper function with casts and interface invocation
+        local_arg_map = OrderedDict()
+        casts_in = []
+        casts_out = []
+        for arg in routine.arguments:
+            if isinstance(arg.type, DerivedType):
+                ctype = DerivedType(name=c_structs[arg.name].name, variables=None)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype)
+                cast_in = InlineCall(name='transfer', arguments=as_tuple(arg),
+                                     kwarguments=as_tuple([('mold', cvar)]))
+                casts_in += [Statement(target=cvar, expr=cast_in)]
+
+                cast_out = InlineCall(name='transfer', arguments=as_tuple(cvar),
+                                      kwarguments=as_tuple([('mold', arg)]))
+                casts_out += [Statement(target=arg, expr=cast_out)]
+                local_arg_map[arg.name] = cvar
+
+        arguments = [local_arg_map[a] if a in local_arg_map else a for a in routine.argnames]
+        wrapper_body = casts_in
+        wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
+        wrapper_body += casts_out
+        wrapper = Subroutine(name='%s_C' % routine.name, spec=wrapper_spec, body=wrapper_body)
+
+        # Copy internal argument and declaration definitions
+        wrapper.variables = routine.variables + [v for _, v in local_arg_map.items()]
+        wrapper.arguments = routine.arguments
+        return wrapper
+
+    def generate_iso_c_structs_f(self, routine):
+        """
+        Generate the interoperable struct definitions in Fortran.
+        """
+        structs = OrderedDict()
+        for a in routine.arguments:
+            if isinstance(a.type, DerivedType):
+                decls = []
+                for _, v in a.type.variables.items():
+                    ctype = v.type.dtype.isoctype
+                    decls += [Declaration(variables=(v, ), type=ctype)]
+                structs[a.name] = TypeDef(name='%s_c' % a.type.name,
+                                          bind_c=True, declarations=decls)
+
+        return structs
+
+    def generate_iso_c_interface(self, routine, c_structs):
+        """
+        Generate the ISO-C subroutine interface
+        """
         intf_name = '%s_fc' % routine.name
-        isoc_import = []  #FindNodes(Import).visit(routine.spec)
-        isoc_import += [Import(module='iso_c_binding', symbols=('c_int', 'c_double',
-                                                                'c_bool', 'c_ptr'))]
+        isoc_import = Import(module='iso_c_binding',
+                             symbols=('c_int', 'c_double', 'c_float'))
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
+        intf_spec.body += as_tuple(td for _, td in c_structs.items())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
                                   body=None, bind='%s_c' % routine.name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
-            tname = arg.type.name.lower()
-            kind = kind_c_map.get(tname, arg.type.kind)
-            value = arg.dimensions is None or len(arg.dimensions) == 0
-            ctype = BaseType(name=arg.type.name, kind=kind, value=value)
+            if isinstance(arg.type, DerivedType):
+                ctype = DerivedType(name=c_structs[arg.name].name, variables=None)
+            else:
+                ctype = arg.type.dtype.isoctype
+                ctype.value = arg.dimensions is None or len(arg.dimensions) == 0
             var = Variable(name=arg.name, dimensions=arg.dimensions,
                            shape=arg.shape, type=ctype)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
-        interface = Interface(body=(intf_routine, ))
 
-        # Generate the wrapper function
-        wrapper_spec = Transformer().visit(routine.spec)
-        wrapper_spec.append(interface)
-        wrapper_body = [Call(name=intf_name, arguments=routine.argnames)]
-        wrapper = Subroutine(name='%s_C' % routine.name,
-                             spec=wrapper_spec, body=wrapper_body)
-        # Copy internal argument and declaration definitions
-        wrapper.variables = routine.variables
-        wrapper.arguments = routine.arguments
-        return wrapper
+        return Interface(body=(intf_routine, ))
 
     def convert_expressions(self, routine, **kwargs):
         """

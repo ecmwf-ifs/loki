@@ -408,13 +408,14 @@ class TypeDef(Node):
     Internal representation of derived type definition
     """
 
-    def __init__(self, name, declarations, comments=None, pragmas=None, source=None):
+    def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None):
         super(TypeDef, self).__init__(source=source)
 
         self.name = name
         self.declarations = declarations
         self.comments = comments
         self.pragmas = pragmas
+        self.bind_c = bind_c
 
     @property
     def variables(self):

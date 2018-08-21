@@ -1,4 +1,5 @@
 from enum import IntEnum
+from collections import OrderedDict
 
 __all__ = ['BaseType', 'DerivedType']
 
@@ -22,6 +23,7 @@ class DataType(IntEnum):
             ('logical', None): cls.BOOL,
             ('integer', None): cls.INT32,
             ('integer', '4'): cls.INT32,
+            ('real', 'real32'): cls.FLOAT32,
             ('real', 'real64'): cls.FLOAT64,
             ('real', 'jprb'): cls.FLOAT64,
             ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,
@@ -44,7 +46,20 @@ class DataType(IntEnum):
         """
         map = {
             self.BOOL: 'int', self.INT32: 'int',
-            self.FLOAT64: 'float', self.FLOAT64: 'double',
+            self.FLOAT32: 'float', self.FLOAT64: 'double',
+        }
+        return map.get(self, None)
+
+    @property
+    def isoctype(self):
+        """
+        String representing the C equivalent of this data type.
+        """
+        map = {
+            self.BOOL: BaseType('integer', kind='c_int'),
+            self.INT32: BaseType('integer', kind='c_int'),
+            self.FLOAT32: BaseType('real', kind='c_float'),
+            self.FLOAT64: BaseType('real', kind='c_double'),
         }
         return map.get(self, None)
 
@@ -150,4 +165,4 @@ class DerivedType(BaseType):
         """
         Map of variable names to variable objects.
         """
-        return {v.name: v for v in self._variables}
+        return OrderedDict((v.name, v) for v in self._variables)

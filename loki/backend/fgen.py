@@ -262,10 +262,13 @@ class FortranCodegen(Visitor):
         )
 
     def visit_TypeDef(self, o):
+        bind_c = ', bind(c) ::' if o.bind_c else ''
         self._depth += 2
         declarations = self.visit(o.declarations)
         self._depth -= 2
-        return 'TYPE %s\n' % o.name + declarations + '\nEND TYPE %s' % o.name
+        header = self.indent + 'TYPE%s %s\n' % (bind_c, o.name)
+        footer = '\n%sEND TYPE %s' % (self.indent, o.name)
+        return header + declarations + footer
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):
@@ -386,12 +389,12 @@ class FExprCodegen(Visitor):
         if len(o.arguments) > 0:
             line = self.visit(o.arguments[0], line=line)
             for arg in o.arguments[1:]:
-                line = self.append(line, ',')
-                if isinstance(arg, tuple):
-                    line = self.append(line, '%s=' % arg[0])
-                    line = self.visit(arg[1], line=line)
-                else:
-                    line = self.visit(arg, line=line)
+                line = self.append(line, ', ')
+                line = self.visit(arg, line=line)
+            for kw, arg in as_tuple(o.kwarguments):
+                line = self.append(line, ', ')
+                line = self.append(line, '%s=' % kw)
+                line = self.visit(arg, line=line)
         return self.append(line, ')')
 
 

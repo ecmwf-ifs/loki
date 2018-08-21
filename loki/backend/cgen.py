@@ -1,5 +1,7 @@
-from loki.tools import chunks
+from loki.tools import chunks, as_tuple
 from loki.visitors import Visitor
+from loki.types import DataType, DerivedType
+from loki.ir import TypeDef, Declaration
 
 __all__ = ['cgen', 'CCodegen', 'cexprgen', 'CExprCodegen']
 
@@ -38,10 +40,29 @@ class CCodegen(Visitor):
     visit_list = visit_tuple
 
     def visit_Subroutine(self, o):
+        # Re-generate variable declarations
         o._externalize(c_backend=True)
 
-        aptr = [('*v_' if a.dimensions is not None and len(a.dimensions) > 0 else '')
-                for a in o.arguments]
+        # Generate and dump C struct definitions for derived types
+        typedefs = []
+        for a in o.arguments:
+            if isinstance(a.type, DerivedType):
+                decls = as_tuple(Declaration(variables=(v, ), type=v.type)
+                                     for _, v in a.type.variables.items())
+                typedefs += [TypeDef(name=a.type.name, declarations=decls)]
+        c_structs = self.visit(typedefs)
+        c_structs += '\n\n'
+
+        # Generate header with argument signature
+        aptr = []
+        for a in o.arguments:
+            # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
+            if a.dimensions is not None and len(a.dimensions) > 0:
+                aptr += ['*v_']
+            elif isinstance(a.type, DerivedType):
+                aptr += ['*']
+            else:
+                aptr += ['']
         arguments = ['%s %s%s' % (self.visit(a.type), p, a.name)
                      for a, p in zip(o.arguments, aptr)]
         arguments = self.segment(arguments)
@@ -63,7 +84,12 @@ class CCodegen(Visitor):
         footer = '\n%sreturn 0;\n}' % self.indent
         self._depth -= 1
 
-        return header + casts + body + footer
+        # And finally some boilerplate imports...
+        imports = '#include <stdio.h>\n'  # For manual debugging
+        imports += '#include <stdbool.h>\n'
+        imports += '\n\n'
+
+        return imports + c_structs + header + casts + body + footer
 
     def visit_Section(self, o):
         return self.visit(o.body) + '\n'
@@ -81,7 +107,13 @@ class CCodegen(Visitor):
         return o.dtype.ctype
 
     def visit_DerivedType(self, o):
-        raise NotImplementedError()
+        return 'struct %s' % o.name
+
+    def visit_TypeDef(self, o):
+        self._depth += 1
+        decls = self.visit(o.declarations)
+        self._depth += 1
+        return 'struct %s {\n%s\n} ;' % (o.name, decls)
 
     def visit_Comment(self, o):
         text = o._source.string if o.text is None else o.text
@@ -168,6 +200,10 @@ class CExprCodegen(Visitor):
         return line
 
     def visit_Variable(self, o, line):
+        if o.ref is not None:
+            # TODO: Super-hacky; we always assume pointer-to-struct arguments
+            line = self.visit(o.ref, line=line)
+            line = self.append(line, '->')
         line = self.append(line, o.name)
         if o.dimensions is not None and len(o.dimensions) > 0:
             for d in o.dimensions:
@@ -197,6 +233,14 @@ class CExprCodegen(Visitor):
         if o.parenthesis or self.parenthesise:
             line = self.append(line, ')')
         return line
+
+    def visit_Literal(self, o, line):
+        if o.type is not None and o.type is DataType.BOOL:
+            bmap = {'.true.': 'true', '.false.': 'false'}
+            value = bmap[o.value.lower()]
+        else:
+            value = o.value
+        return self.append(line, value)
 
 
 def cexprgen(expr, linewidth=90, indent='', op_spaces=False):

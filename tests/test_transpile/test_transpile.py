@@ -45,7 +45,7 @@ def c_transpile(routine, refpath, builder):
     lib = builder.Lib(name='fclib', objects=objects)
     lib.build()
 
-    return lib.wrap(modname='fcmod', sources=[f2c.wrapperpath.name])
+    return lib.wrap(modname='fcmod', sources=['transpile_type.f90', f2c.wrapperpath.name])
 
 
 def test_transpile_simple_loops(refpath, reference, builder):
@@ -111,15 +111,19 @@ def test_transpile_derived_type(refpath, reference, builder):
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
                                   typedefs=typedefs)
     routine = source.routines[1]
-    # routine._attach_derived_types(typedefs=source.typedefs)
     c_kernel = c_transpile(routine, refpath, builder)
 
-    a_struct = reference.transpile.my_struct()
+    a_struct = reference.transpile_type.my_struct()
     a_struct.a = 4
     a_struct.b = 5.
     a_struct.c = 6.
     function = c_kernel.transpile_derived_type_c_mod.transpile_derived_type_c
-    function(n, m, scalar, vector, tensor)
+    function(a_struct)
     assert a_struct.a == 8
     assert a_struct.b == 10.
     assert a_struct.c == 12.
+
+
+# def test_transpile_expressions(refpath, reference):
+#     # TODO: Logicals, builtins (eg. epsilon), derived type accesses, constant-types
+#     pass
