@@ -57,7 +57,7 @@ class DataType(IntEnum):
         String representing the C equivalent of this data type.
         """
         map = {
-            self.BOOL: BaseType('integer', kind='c_int'),
+            self.BOOL: BaseType('logical', kind='4'),
             self.INT32: BaseType('integer', kind='c_int'),
             self.FLOAT32: BaseType('real', kind='c_float'),
             self.FLOAT64: BaseType('real', kind='c_double'),

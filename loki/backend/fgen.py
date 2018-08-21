@@ -64,7 +64,7 @@ class FortranCodegen(Visitor):
         o._externalize()
 
         arguments = self.segment([a.name for a in o.arguments])
-        argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '\n'
+        argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '()'
         bind_c = ' &\n%s & bind(c, name=\'%s\')\n' % (self.indent, o.bind) if o.bind else ''
         header = 'SUBROUTINE %s%s%s\n\n' % (o.name, argument, bind_c)
         self._depth += 1
