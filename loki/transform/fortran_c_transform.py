@@ -85,7 +85,7 @@ class FortranCTransformation(BasicTransformation):
         for a in routine.arguments:
             if isinstance(a.type, DerivedType):
                 decls = []
-                for _, v in a.type.variables.items():
+                for v in a.type.variables:
                     ctype = v.type.dtype.isoctype
                     decls += [Declaration(variables=(v, ), type=ctype)]
                 structs[a.name] = TypeDef(name='%s_c' % a.type.name,

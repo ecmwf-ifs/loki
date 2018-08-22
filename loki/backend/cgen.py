@@ -48,7 +48,7 @@ class CCodegen(Visitor):
         for a in o.arguments:
             if isinstance(a.type, DerivedType):
                 decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                                     for _, v in a.type.variables.items())
+                                 for v in a.type.variables)
                 typedefs += [TypeDef(name=a.type.name, declarations=decls)]
         c_structs = self.visit(typedefs)
         c_structs += '\n\n'

@@ -148,7 +148,7 @@ class DerivedType(BaseType):
     def __init__(self, name, variables, **kwargs):
         super(DerivedType, self).__init__(name=name, **kwargs)
         self.name = name
-        self._variables = variables
+        self.variables = variables
 
     def __key(self):
         return (self.name, (v.__key for v in self.variables), self.intent,
@@ -160,10 +160,3 @@ class DerivedType(BaseType):
                                              ', all' if self.allocatable else '',
                                              ', ptr' if self.pointer else '',
                                              ', opt' if self.optional else '')
-
-    @property
-    def variables(self):
-        """
-        Map of variable names to variable objects.
-        """
-        return OrderedDict((v.name, v) for v in self._variables)

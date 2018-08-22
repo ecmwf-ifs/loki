@@ -135,7 +135,7 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
         decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                         for v in derived._variables)
+                         for v in derived.variables)
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):

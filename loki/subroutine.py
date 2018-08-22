@@ -273,13 +273,13 @@ class Subroutine(object):
 
         # Apply shapes to all variables in the IR (in-place)
         for v in FindVariables(unique=False).visit(self.ir):
-                if v.name in shapes:
-                    v._shape = shapes[v.name]
+            if v.name in shapes:
+                v._shape = shapes[v.name]
 
-                if v.ref is not None and v.ref.name in derived:
-                    # We currently only follow a single level of nesting
-                    typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
-                    v._shape = typevars[v.name.upper()].dimensions
+            if v.ref is not None and v.ref.name in derived:
+                # We currently only follow a single level of nesting
+                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
+                v._shape = typevars[v.name.upper()].dimensions
 
     @property
     def ir(self):
