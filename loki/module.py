@@ -104,3 +104,10 @@ class Module(object):
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
         """
         return self.routines
+
+    def __getitem__(self, name):
+        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        if name.lower() in subroutine_map:
+            return subroutine_map[name.lower()]
+
+        return None

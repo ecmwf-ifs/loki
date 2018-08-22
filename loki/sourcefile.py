@@ -155,6 +155,17 @@ class SourceFile(object):
     def subroutines(self):
         return as_tuple(self.routines + flatten(m.subroutines for m in self.modules))
 
+    def __getitem__(self, name):
+        module_map = {m.name.lower(): m for m in self.modules}
+        if name.lower() in module_map:
+            return module_map[name.lower()]
+
+        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        if name.lower() in subroutine_map:
+            return subroutine_map[name.lower()]
+
+        return None
+
     def write(self, source=None, filename=None):
         """
         Write content to file

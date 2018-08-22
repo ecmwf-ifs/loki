@@ -26,7 +26,7 @@ def test_routine_simple(refpath, reference, frontend):
     A simple standard looking routine to test argument declarations.
     """
     # Test the internals of the :class:`Subroutine`
-    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[0]
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple']
     assert routine.arguments == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)']
     assert routine.arguments == ['X', 'Y', 'SCALAR', 'VECTOR(X)', 'MATRIX(X,Y)']
 
@@ -48,7 +48,7 @@ def test_routine_multiline_args(refpath, reference, frontend):
     A simple standard looking routine to test argument declarations.
     """
     # Test the internals of the :class:`Subroutine`
-    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[0]
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_multiline_args']
     assert routine.arguments == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)']
     assert routine.arguments == ['X', 'Y', 'SCALAR', 'VECTOR(X)', 'MATRIX(X,Y)']
 
@@ -70,7 +70,7 @@ def test_routine_local_variables(refpath, reference, frontend):
     Test local variables and types
     """
     # Test the internals of the :class:`Subroutine`
-    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[2]
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_local_variables']
     assert routine.variables == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)']
     assert routine.variables == ['JPRB', 'X', 'Y', 'MAXIMUM', 'I', 'J', 'VECTOR(X)', 'MATRIX(X,Y)']
 
@@ -87,7 +87,7 @@ def test_routine_arguments(refpath, reference, frontend):
     A set of test to test internalisation and handling of arguments.
     """
 
-    routine = SourceFile.from_file(refpath, frontend=frontend).subroutines[3]
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_arguments']
     assert routine.variables == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
                                  'i', 'j', 'local_vector(x)', 'local_matrix(x,y)']
     assert routine.arguments == ['x', 'y', 'vector(x)', 'matrix(x,y)']
@@ -111,7 +111,7 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     expressions against strings and other expressions works as expected.
     """
     # TODO: Need a named subroutine lookup
-    routine = SourceFile.from_file(refpath, frontend=frontend).routines[4]
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_dim_shapes']
     assert routine.arguments == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(v1,v2-1)']
 
     # Make sure variable/argument shapes on the routine work
