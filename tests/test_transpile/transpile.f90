@@ -41,3 +41,18 @@ subroutine transpile_derived_type(a_struct)
   a_struct%c = a_struct%c + 6.
 
 end subroutine transpile_derived_type
+
+
+subroutine transpile_module_parameters(a, b, c)
+  use iso_fortran_env, only: real32, real64
+  use transpile_type, only: param1, param2, param3
+
+  integer, intent(out) :: a
+  real(kind=real32), intent(out) :: b
+  real(kind=real64), intent(out) :: c
+
+  a = 1 + param1
+  b = 1. + param2
+  c = 1. + param3
+
+end subroutine transpile_module_parameters

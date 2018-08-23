@@ -30,22 +30,22 @@ def reference(refpath, builder):
     return lib.wrap(modname='ref', sources=sources)
 
 
-def c_transpile(routine, refpath, builder):
+def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wrap=None):
     """
     Generate the ISO-C bindings wrapper and C-transpiled source code
     """
     builder.clean()
 
     # Create transformation object and apply
-    f2c = FortranCTransformation()
+    f2c = FortranCTransformation(header_modules=header_modules)
     f2c.apply(routine=routine, path=refpath.parent)
 
     # Build and wrap the cross-compiled library
-    objects = ['transpile_type.f90', f2c.wrapperpath.name, f2c.c_path.name]
+    objects = (objects or []) + [f2c.wrapperpath.name, f2c.c_path.name]
     lib = builder.Lib(name='fclib', objects=objects)
     lib.build()
 
-    return lib.wrap(modname='fcmod', sources=['transpile_type.f90', f2c.wrapperpath.name])
+    return lib.wrap(modname='fcmod', sources=(wrap or []) + [f2c.wrapperpath.name])
 
 
 def test_transpile_simple_loops(refpath, reference, builder):
@@ -66,8 +66,7 @@ def test_transpile_simple_loops(refpath, reference, builder):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    routine = source.routines[0]
-    c_kernel = c_transpile(routine, refpath, builder)
+    c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder)
 
     # Test the trnapiled C kernel
     n, m = 3, 4
@@ -107,11 +106,11 @@ def test_transpile_derived_type(refpath, reference, builder):
 
     # Generate the C kernel
     typepath = refpath.parent/'transpile_type.f90'
-    typedefs = SourceFile.from_file(typepath).modules[0].typedefs
+    typemod = SourceFile.from_file(typepath)['transpile_type']
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
-                                  typedefs=typedefs)
-    routine = source.routines[1]
-    c_kernel = c_transpile(routine, refpath, builder)
+                                  typedefs=typemod.typedefs)
+    c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder,
+                           objects=['transpile_type.f90'], wrap=['transpile_type.f90'])
 
     a_struct = reference.transpile_type.my_struct()
     a_struct.a = 4
@@ -124,6 +123,32 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.c == 12.
 
 
-# def test_transpile_expressions(refpath, reference):
-#     # TODO: Logicals, builtins (eg. epsilon), derived type accesses, constant-types
-#     pass
+def test_transpile_module_parameters(refpath, reference, builder):
+    """
+    Tests ...
+    """
+    from loki import logger, DEBUG; logger.setLevel(DEBUG)
+
+    reference.transpile_type.param1 = 2
+    reference.transpile_type.param2 = 4.
+    reference.transpile_type.param3 = 3.
+    a, b, c = reference.transpile_module_parameters()
+    assert a == 3 and b == 5. and c == 4.
+
+    # Translate the header module to expose parameters
+    typepath = refpath.parent/'transpile_type.f90'
+    typemod = SourceFile.from_file(typepath)['transpile_type']
+    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+
+    # c_types = c_transpile(typemod, refpath, builder)
+
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_module_parameters'], refpath, builder,
+                           objects=['transpile_type.f90', 'transpile_type.c.f90'],
+                           wrap=['transpile_type.f90'], header_modules=['transpile_type'])
+
+    c_kernel.transpile_type.param1 = 2
+    c_kernel.transpile_type.param2 = 4.
+    c_kernel.transpile_type.param3 = 3.
+    a, b, c = c_kernel.transpile_module_parameters_c_mod.transpile_module_parameters_c()
+    assert a == 3 and b == 5. and c == 4.

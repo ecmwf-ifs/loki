@@ -4,51 +4,73 @@
     <name>iso_fortran_env</name>
   </depends>
   <typeTable>
-    <FbasicType type="I24b2e80" is_parameter="true" ref="Fint"/>
-    <FbasicType type="I24b30a0" is_parameter="true" ref="Fint"/>
-    <FstructType type="S24b36d0">
+    <FbasicType type="Iaace80" is_parameter="true" ref="Fint"/>
+    <FbasicType type="Iaad0a0" is_parameter="true" ref="Fint"/>
+    <FbasicType type="Iaade50" is_save="true" ref="Fint"/>
+    <FbasicType type="Raae600" ref="Freal">
+      <kind>
+        <Var type="Iaace80" scope="local">real32</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="Raae820" is_save="true" ref="Raae600"/>
+    <FbasicType type="Raa4a40" ref="Freal">
+      <kind>
+        <Var type="Iaad0a0" scope="local">real64</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="Raa4c60" is_save="true" ref="Raa4a40"/>
+    <FstructType type="Saa5050">
       <symbols>
         <id type="Fint">
           <name>a</name>
         </id>
-        <id type="R24b4950">
+        <id type="Raa62b0">
           <name>b</name>
         </id>
-        <id type="R24aadc0">
+        <id type="Raa7330">
           <name>c</name>
         </id>
       </symbols>
     </FstructType>
-    <FbasicType type="R24b4730" ref="Freal">
+    <FbasicType type="Raa6090" ref="Freal">
       <kind>
-        <Var type="I24b2e80" scope="local">real32</Var>
+        <Var type="Iaace80" scope="local">real32</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="R24b4950" ref="R24b4730"/>
-    <FbasicType type="R24aaba0" ref="Freal">
+    <FbasicType type="Raa62b0" ref="Raa6090"/>
+    <FbasicType type="Raa7110" ref="Freal">
       <kind>
-        <Var type="I24b30a0" scope="local">real64</Var>
+        <Var type="Iaad0a0" scope="local">real64</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="R24aadc0" ref="R24aaba0"/>
+    <FbasicType type="Raa7330" ref="Raa7110"/>
   </typeTable>
   <identifiers>
-    <id type="I24b2e80" sclass="flocal" original_name="real32" declared_in="iso_fortran_env">
+    <id type="Iaace80" sclass="flocal" original_name="real32" declared_in="iso_fortran_env">
       <name>real32</name>
     </id>
-    <id type="I24b30a0" sclass="flocal" original_name="real64" declared_in="iso_fortran_env">
+    <id type="Iaad0a0" sclass="flocal" original_name="real64" declared_in="iso_fortran_env">
       <name>real64</name>
     </id>
-    <id type="S24b36d0" sclass="ftype_name" original_name="my_struct" declared_in="transpile_type">
+    <id type="Iaade50" sclass="fsave" original_name="param1" declared_in="transpile_type">
+      <name>param1</name>
+    </id>
+    <id type="Raae820" sclass="fsave" original_name="param2" declared_in="transpile_type">
+      <name>param2</name>
+    </id>
+    <id type="Raa4c60" sclass="fsave" original_name="param3" declared_in="transpile_type">
+      <name>param3</name>
+    </id>
+    <id type="Saa5050" sclass="ftype_name" original_name="my_struct" declared_in="transpile_type">
       <name>my_struct</name>
     </id>
   </identifiers>
   <declarations>
     <varDecl>
-      <name type="I24b2e80">real32</name>
+      <name type="Iaace80">real32</name>
     </varDecl>
     <varDecl>
-      <name type="I24b30a0">real64</name>
+      <name type="Iaad0a0">real64</name>
     </varDecl>
   </declarations>
   <interfaceDecls>
