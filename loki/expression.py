@@ -144,6 +144,7 @@ class Operation(Expression):
         else:
             return super(Operation, self).__eq__(other)
 
+
 class Literal(Expression):
 
     def __init__(self, value, kind=None, type=None, source=None):

@@ -57,6 +57,32 @@ subroutine routine_local_variables (x, y, maximum)
 end subroutine routine_local_variables
 
 
+subroutine routine_arguments (x, y, vector, matrix)
+  ! Test internal argument handling
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), dimension(x), intent(inout) :: vector
+  real(kind=jprb), intent(inout) :: matrix(x, y)
+
+  integer :: i, j
+  real(kind=jprb), dimension(x) :: local_vector
+  real(kind=jprb) :: local_matrix(x, y)
+
+  do i=1, x
+     local_vector(i) = i * 10.
+  end do
+  do i=1, x
+     do j=1, y
+        local_matrix(i, j) = local_vector(i) + j * 2.
+     end do
+  end do
+
+  vector(:) = local_vector(:)
+  matrix(:, :) = local_matrix(:, :)
+
+end subroutine routine_arguments
+
+
 subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
   ! Simple varaible assignments with non-trivial sizes and indices
   integer, parameter :: jprb = selected_real_kind(13,300)

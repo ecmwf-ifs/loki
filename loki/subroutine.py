@@ -1,15 +1,16 @@
+from collections import OrderedDict
+
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
-from loki.frontend.omni2ir import convert_omni2ir
-from loki.ir import (Declaration, Allocation, Import, TypeDef, Section,
-                     Call, CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, ExpressionVisitor
+from loki.ir import (Declaration, Allocation, Import, Section, Call,
+                     CallContext, CommentBlock, Intrinsic)
+from loki.expression import Variable, FindVariables
 from loki.types import BaseType, DerivedType
-from loki.visitors import FindNodes, Visitor, Transformer
-from loki.tools import flatten, as_tuple
+from loki.visitors import FindNodes, Transformer
+from loki.tools import as_tuple
 
 
-__all__ = ['Subroutine', 'Module']
+__all__ = ['Subroutine']
 
 
 class InterfaceBlock(object):
@@ -19,104 +20,6 @@ class InterfaceBlock(object):
         self.arguments = arguments
         self.imports = imports
         self.declarations = declarations
-
-
-class Module(object):
-    """
-    Class to handle and manipulate source modules.
-
-    :param name: Name of the module
-    :param ast: OFP parser node for this module
-    :param raw_source: Raw source string, broken into lines(!), as it
-                       appeared in the parsed source file.
-    """
-
-    def __init__(self, name=None, spec=None, routines=None,
-                 ast=None, raw_source=None):
-        self.name = name or ast.attrib['name']
-        self.spec = spec
-        self.routines = routines
-
-        self._ast = ast
-        self._raw_source = raw_source
-
-    @classmethod
-    def from_ofp(cls, ast, raw_source, name=None):
-        # Process module-level type specifications
-        name = name or ast.attrib['name']
-
-        # Parse type definitions into IR and store
-        spec_ast = ast.find('body/specification')
-        spec = parse(spec_ast, raw_source=raw_source)
-
-        # TODO: Add routine parsing
-        routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine.from_ofp(ast, raw_source)
-                         for ast in routine_asts)
-
-        # Process pragmas to override deferred dimensions
-        cls._process_pragmas(spec)
-
-        return cls(name=name, spec=spec, routines=routines,
-                   ast=ast, raw_source=raw_source)
-
-    @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
-        name = name or ast.attrib['name']
-
-        type_map = {t.attrib['type']: t for t in typetable}
-        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
-
-        # Generate spec, filter out external declarations and insert `implicit none`
-        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
-                               symbol_map=symbol_map, raw_source=raw_source)
-        spec = Section(body=spec)
-
-        # TODO: Parse member functions properly
-        contains = ast.find('FcontainsStatement')
-        routines = None
-        if contains is not None:
-            routines = [Subroutine.from_omni(ast=s, typetable=typetable,
-                                             symbol_map=symbol_map,
-                                             raw_source=raw_source)
-                        for s in contains]
-
-        return cls(name=name, spec=spec, routines=routines, ast=ast)
-
-    @classmethod
-    def _process_pragmas(self, spec):
-        """
-        Process any '!$loki dimension' pragmas to override deferred dimensions
-        """
-        for typedef in FindNodes(TypeDef).visit(spec):
-            pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
-            for decl in typedef.declarations:
-                # Map pragmas by declaration line, not var line
-                if decl._source.lines[0]-1 in pragmas:
-                    pragma = pragmas[decl._source.lines[0]-1]
-                    for v in decl.variables:
-                        if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
-                            # Found dimension override for variable
-                            dims = pragma._source.string.split('dimension(')[-1]
-                            dims = dims.split(')')[0].split(',')
-                            dims = [d.strip() for d in dims]
-                            # Override dimensions (hacky: not transformer-safe!)
-                            v.dimensions = dims
-
-    @property
-    def typedefs(self):
-        """
-        Map of names and :class:`DerivedType`s defined in this module.
-        """
-        types = FindNodes(TypeDef).visit(self.spec)
-        return {td.name.upper(): td for td in types}
-
-    @property
-    def subroutines(self):
-        """
-        List of :class:`Subroutine` objects that are members of this :class:`Module`.
-        """
-        return self.routines
 
 
 class Subroutine(object):
@@ -131,17 +34,27 @@ class Subroutine(object):
                      types that allows more detaild type information.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None,
-                 body=None, members=None, ast=None):
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None,
+                 members=None, ast=None, typedefs=None):
         self.name = name
-
-        self._argnames = list(args)
         self._ast = ast
+        self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
+
+        self.arguments = None
+        self.variables = None
+        self._decl_map = None
 
         self.docstring = docstring
         self.spec = spec
         self.body = body
         self.members = members
+
+        # Internalize argument declarations
+        self._internalize()
+
+        # Enrich internal representation with meta-data
+        self._attach_derived_types(typedefs=typedefs)
+        self._derive_variable_shape(typedefs=typedefs)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
@@ -171,14 +84,8 @@ class Subroutine(object):
         spec = FindNodes(Section).visit(body)[0]
         body = Transformer({docstring: None, spec: None}).visit(body)
 
-        obj = cls(name=name, args=args, docstring=docstring,
-                  spec=spec, body=body, members=members, ast=ast)
-
-        # Enrich internal representation with meta-data
-        obj._attach_derived_types(typedefs=typedefs)
-        obj._derive_variable_shape(typedefs=typedefs)
-
-        return obj
+        return cls(name=name, args=args, docstring=docstring, spec=spec,
+                   body=body, members=members, ast=ast, typedefs=typedefs)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, typedefs=None):
@@ -222,14 +129,66 @@ class Subroutine(object):
         body = parse(ast.find('body'), type_map=type_map, symbol_map=symbol_map,
                      raw_source=raw_source, frontend=OMNI)
 
-        obj = cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                  members=members, ast=ast)
+        return cls(name=name, args=args, docstring=None, spec=spec, body=body,
+                   members=members, ast=ast, typedefs=typedefs)
 
-        # Enrich internal representation with meta-data
-        obj._attach_derived_types(typedefs=typedefs)
-        obj._derive_variable_shape(typedefs=typedefs)
+    def _internalize(self):
+        """
+        Internalize argument and variable declarations.
+        """
+        self.arguments = [None] * len(self._dummies)
+        self.variables = []
+        self._decl_map = OrderedDict()
+        dmap = {}
 
-        return obj
+        for decl in FindNodes(Declaration).visit(self.ir):
+            # Propagate dimensions to variables
+            dvars = as_tuple(decl.variables)
+            if decl.dimensions is not None:
+                for v in dvars:
+                    v.dimensions = decl.dimensions
+
+            # Record all variables independently
+            self.variables += list(dvars)
+
+            # Insert argument variable at the position of the dummy
+            for v in dvars:
+                if v.name.lower() in self._dummies:
+                    idx = self._dummies.index(v.name.lower())
+                    self.arguments[idx] = v
+
+            # Stash declaration and mark for removal
+            for v in dvars:
+                self._decl_map[v] = decl
+            dmap[decl] = None
+
+        # Remove declarations from the IR
+        self.spec = Transformer(dmap).visit(self.spec)
+
+    def _externalize(self):
+        """
+        Re-insert argument declarations...
+        """
+        # A hacky way to ensure we don;t do this twice
+        # TODO; Need better way to determine this; THIS IS NOT SAFE!
+        if self._decl_map is None:
+            return
+
+        decls = []
+        for v in self.variables:
+            if v in self._decl_map:
+                d = self._decl_map[v].clone()
+                d.variables = as_tuple(v)
+            else:
+                d = Declaration(variables=[v], type=v.type)
+
+            # Dimension declarations are done on variables
+            d.dimensions = None
+
+            decls += [d]
+        self.spec.append(decls)
+
+        self._decl_map = None
 
     def enrich_calls(self, routines):
         """
@@ -271,7 +230,7 @@ class Subroutine(object):
                                            pointer=v.type.pointer, optional=v.type.optional)
                 v._type = derived_type
 
-    def _derive_variable_shape(self, declarations=None, typedefs=None):
+    def _derive_variable_shape(self, typedefs=None):
         """
         Propgates the allocated dimensions (shape) from variable
         declarations to :class:`Variables` instances in the code body.
@@ -285,63 +244,36 @@ class Subroutine(object):
         Note, the shape derivation from derived types is currently
         limited to first-level nesting only.
         """
-        declarations = declarations or FindNodes(Declaration).visit(self.spec)
         typedefs = typedefs or {}
 
         # Create map of variable names to allocated shape (dimensions)
         # Make sure you capture sub-variables.
         shapes = {}
         derived = {}
-        for decl in declarations:
-            if decl.type.name.upper() in typedefs:
-                derived.update({v.name: typedefs[decl.type.name.upper()]
-                                for v in decl.variables})
+        for v in self.variables:
+            if v.type.name.upper() in typedefs:
+                derived[v.name] = typedefs[v.type.name.upper()]
 
-            if decl.dimensions is not None:
-                shapes.update({v.name: decl.dimensions for v in decl.variables})
-            else:
-                shapes.update({v.name: v.dimensions for v in decl.variables
-                               if v.dimensions is not None and len(v.dimensions) > 0})
+            if v.dimensions is not None:
+                shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
 
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):
             shapes[alloc.variable.name] = alloc.variable.dimensions
 
-        class VariableShapeInjector(ExpressionVisitor, Visitor):
-            """
-            Attach shape information to :class:`Variable` via the
-            ``.shape`` attribute.
-            """
-            def __init__(self, shapes, derived):
-                super(VariableShapeInjector, self).__init__()
-                self.shapes = shapes
-                self.derived = derived
+        # Apply shapes to meta-data variables
+        for v in self.variables:
+            v._shape = shapes[v.name]
 
-            def visit_Variable(self, o):
-                if o.name in self.shapes:
-                    o._shape = self.shapes[o.name]
+        # Apply shapes to all variables in the IR (in-place)
+        for v in FindVariables(unique=False).visit(self.ir):
+                if v.name in shapes:
+                    v._shape = shapes[v.name]
 
-                if o.ref is not None and o.ref.name in self.derived:
+                if v.ref is not None and v.ref.name in derived:
                     # We currently only follow a single level of nesting
-                    typevars = {v.name.upper(): v for v in self.derived[o.ref.name].variables}
-                    o._shape = typevars[o.name.upper()].dimensions
-
-                # Recurse over children
-                for c in o.children:
-                    self.visit(c)
-
-            def visit_Declaration(self, o):
-                # Attach shape info to declaration dummy variables
-                if o.type.allocatable:
-                    for v in o.variables:
-                        v._shape = self.shapes[v.name]
-
-                # Recurse over children
-                for c in o.children:
-                    self.visit(c)
-
-        # Apply dimensions via expression visitor (in-place)
-        VariableShapeInjector(shapes=shapes, derived=derived).visit(self.ir)
+                    typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
+                    v._shape = typevars[v.name.upper()].dimensions
 
     @property
     def ir(self):
@@ -352,30 +284,14 @@ class Subroutine(object):
 
     @property
     def argnames(self):
-        return self._argnames
-
-    @property
-    def arguments(self):
-        """
-        List of argument names as defined in the subroutine signature.
-        """
-        vmap = self.variable_map
-        return [vmap[name.upper()] for name in self.argnames]
-
-    @property
-    def variables(self):
-        """
-        List of all declared variables
-        """
-        decls = FindNodes(Declaration).visit(self.spec)
-        return flatten([d.variables for d in decls])
+        return [a.name for a in self.arguments]
 
     @property
     def variable_map(self):
         """
         Map of variable names to `Variable` objects
         """
-        return {v.name.upper(): v for v in self.variables}
+        return {v.name.lower(): v for v in self.variables}
 
     @property
     def interface(self):

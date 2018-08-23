@@ -6,7 +6,8 @@ import pickle
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.subroutine import Subroutine, Module
+from loki.subroutine import Subroutine
+from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
 from loki.frontend import OMNI, OFP, blacklist, parse_ofp
@@ -153,6 +154,17 @@ class SourceFile(object):
     @property
     def subroutines(self):
         return as_tuple(self.routines + flatten(m.subroutines for m in self.modules))
+
+    def __getitem__(self, name):
+        module_map = {m.name.lower(): m for m in self.modules}
+        if name.lower() in module_map:
+            return module_map[name.lower()]
+
+        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        if name.lower() in subroutine_map:
+            return subroutine_map[name.lower()]
+
+        return None
 
     def write(self, source=None, filename=None):
         """

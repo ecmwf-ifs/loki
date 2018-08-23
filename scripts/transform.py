@@ -6,10 +6,10 @@ from pathlib import Path
 
 from loki import (SourceFile, Visitor, ExpressionVisitor,
                   Transformer, FindNodes, FindVariables, info,
-                  as_tuple, Loop, Variable, Declaration, Call, Pragma,
+                  as_tuple, Loop, Variable, Call, Pragma,
                   BaseType, DerivedType, Import, Index, RangeIndex,
                   AbstractTransformation, BasicTransformation,
-                  Frontend, OMNI, OFP)
+                  Frontend, OFP)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -130,38 +130,33 @@ class DerivedArgsTransformation(AbstractTransformation):
         The convention used is: ``derived%var => derived_var``
         """
         candidates = self._derived_type_arguments(routine)
-        declarations = FindNodes(Declaration).visit(routine.spec)
 
         # Callee: Establish replacements for declarations and dummy arguments
-        decl_mapper = defaultdict(list)
         for arg, type_vars in candidates.items():
-            old_decl = [d for d in declarations if arg in d.variables][0]
-            new_names = []
-
+            new_vars = []
             for type_var in type_vars:
-                # Create new name and add to variable mapper
-                new_name = '%s_%s' % (arg.name, type_var.name)
-                new_names += [new_name]
-
-                # Create new declaration and add to declaration mapper
+                # Create a new variable with a new type mimicking the old one
                 new_type = BaseType(name=type_var.type.name,
                                     kind=type_var.type.kind,
                                     intent=arg.type.intent)
+                new_name = '%s_%s' % (arg.name, type_var.name)
                 new_var = Variable(name=new_name, type=new_type,
                                    dimensions=as_tuple(type_var.dimensions),
                                    shape=as_tuple(type_var.dimensions))
-                decl_mapper[old_decl] += [Declaration(variables=[new_var], type=new_type)]
+                new_vars += [new_var]
 
-            # Replace variable in dummy signature
-            i = routine.argnames.index(arg)
-            routine._argnames[i:i+1] = new_names
+            # Replace variable in subroutine argument list
+            i = routine.arguments.index(arg)
+            routine.arguments[i:i+1] = new_vars
+
+            # Also replace the variable in the variable list to
+            # trigger the re-generation of the according declaration.
+            i = routine.variables.index(arg)
+            routine.variables[i:i+1] = new_vars
 
         # Replace variable occurences in-place (derived%v => derived_v)
         argnames = [arg.name for arg in candidates.keys()]
         VariableTransformer(argnames=argnames).visit(routine.ir)
-
-        # Replace `Declaration` nodes (re-generates the IR tree)
-        routine.spec = Transformer(decl_mapper).visit(routine.spec)
 
 
 class Dimension(object):
@@ -231,7 +226,6 @@ class SCATransformation(AbstractTransformation):
         Remove all loops and variable indices of a given target dimension
         from the given routine.
         """
-        replacements = {}
         size_expressions = target.size_expressions
         index_expressions = target.index_expressions
 
@@ -244,28 +238,16 @@ class SCATransformation(AbstractTransformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        for decl in FindNodes(Declaration).visit(routine.spec):
-            new_vars = tuple(v for v in decl.variables if v not in target.variables)
+        routine.variables = [v for v in routine.variables if v not in target.variables]
+        routine.arguments = [a for a in routine.arguments if a not in target.variables]
 
-            # Strip target dimension from declaration-level dimensions
-            if decl.dimensions is not None and len(decl.dimensions) > 0:
-                # TODO: This is quite hacky, as we rely on the first
-                # variable in the declaration to provide the correct shape.
-                assert len(decl.dimensions) == len(decl.variables[0].shape)
-                new_dims = tuple(d for d, s in zip(decl.dimensions, decl.variables[0].shape)
-                                 if s not in size_expressions)
-                if len(new_dims) == 0:
-                    new_dims = None
-            else:
-                new_dims = decl.dimensions
+        # Remove dimension sizes from declarations
+        for v in routine.variables:
+            if v.shape is not None and len(v.shape) == len(v.dimensions):
+                v.dimensions = as_tuple(d for d, s in zip(v.dimensions, v.shape)
+                                        if s not in size_expressions)
 
-            if len(new_vars) == 0:
-                # Drop the declaration if it becomes empty
-                replacements[decl] = None
-            else:
-                replacements[decl] = decl.clone(variables=new_vars, dimensions=new_dims)
-
-        # Remove all variable indices representing the target dimension (in-place)
+        # Remove all target dimension indices in subroutine body expressions (in-place)
         for v in FindVariables(unique=False).visit(routine.ir):
             if v.dimensions is not None and v.shape is not None:
                 # Filter index variables against index expressions
@@ -278,21 +260,6 @@ class SCATransformation(AbstractTransformation):
                     v.dimensions, v._shape = zip(*(filtered))
                 else:
                     v.dimensions, v._shape = (), None
-
-        # Remove dimension size expressions from variable declarations (in-place)
-        # Note: We do this last, because changing the declaration affects
-        # the variable_map used above.
-        for decl in FindNodes(Declaration).visit(routine.spec):
-            for v in decl.variables:
-                if v.dimensions is not None:
-                    v.dimensions = as_tuple(d for d in v.dimensions
-                                            if d not in size_expressions)
-
-        # Remove dummy variables from subroutine signature (in-place)
-        routine._argnames = tuple(arg for arg in routine.argnames
-                                  if arg.upper() not in target.variables)
-
-        routine.spec = Transformer(replacements).visit(routine.spec)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -355,8 +322,9 @@ class SCATransformation(AbstractTransformation):
 
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in caller.variables:
-            caller.spec.append(Declaration(variables=Variable(name=target.variable),
-                                           type=BaseType(name='INTEGER', kind='JPIM')))
+            # TODO: Find a better way to define raw data type
+            dtype = BaseType(name='INTEGER', kind='JPIM')
+            caller.variables += [Variable(name=target.variable, type=dtype)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
@@ -422,20 +390,12 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
     frontend = Frontend[frontend.upper()]
-    if frontend == OFP:
-        # Parse original driver and kernel routine, and enrich the driver
-        typedefs = get_typedefs(header, xmods=xmod)
-        routine = SourceFile.from_file(source, typedefs=typedefs,
-                                       frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
-    else:
-        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                       frontend=frontend, typedefs=typedefs).subroutines[0]
-        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                      frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend)['cloudsc_driver']
+    driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)
@@ -515,20 +475,12 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     for further downstream transformations.
     """
     frontend = Frontend[frontend.upper()]
-    if frontend == OFP:
-        # Parse original driver and kernel routine, and enrich the driver
-        typedefs = get_typedefs(header, xmods=xmod)
-        routine = SourceFile.from_file(source, typedefs=typedefs,
-                                       frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
-    else:
-        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-        routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
-                                       includes=include, frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                      frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend)['cloudsc_driver']
+    driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)
@@ -725,20 +677,27 @@ class RapsTransformation(BasicTransformation):
               help='Basepath of the IFS/RAPS installation directory.')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
 @click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
-def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
+def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
+            frontend, callgraph):
     """
     Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
     source-to-source transformations, such as the Single Column Abstraction (SCA),
     to large sets of interdependent subroutines.
     """
-    # Get external derived-type definitions
-    typedefs = get_typedefs(typedef)
+    frontend = Frontend[frontend.upper()]
+    typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
 
     # Load configuration file and process options
     with Path(config).open('r') as f:
@@ -748,7 +707,9 @@ def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
     # Create and setup the scheduler for bulk-processing
-    scheduler = TaskScheduler(paths=source, config=config, typedefs=typedefs)
+    scheduler = TaskScheduler(paths=source, config=config, xmods=xmod,
+                              includes=include, typedefs=typedefs,
+                              frontend=frontend)
     scheduler.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes

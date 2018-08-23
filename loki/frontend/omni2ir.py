@@ -5,12 +5,12 @@ from collections import OrderedDict
 
 from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, Index, Operation, InlineCall, RangeIndex
+from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType
 from loki.logging import info, error, DEBUG
-from loki.tools import as_tuple, timeit, disk_cached
+from loki.tools import as_tuple, timeit
 
 
 __all__ = ['preprocess_omni', 'parse_omni', 'convert_omni2ir']
@@ -365,10 +365,6 @@ class OMNI2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/'], operands=exprs)
 
-    def visit_divExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return Operation(ops=['/'], operands=exprs)
-
     def visit_FpowerExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['**'], operands=exprs)
@@ -412,6 +408,7 @@ class OMNI2IR(GenericVisitor):
     def visit_logNEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         return Operation(ops=['/='], operands=exprs)
+
 
 def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None):
     """

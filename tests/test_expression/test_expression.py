@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI
+from loki import clean, compile_and_load, OFP, OMNI
 from conftest import generate_identity
 
 
