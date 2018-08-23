@@ -316,15 +316,15 @@ class Allocation(Node):
     Internal representation of a variable allocation
     """
 
-    def __init__(self, variable, data_source=None, source=None):
+    def __init__(self, variables, data_source=None, source=None):
         super(Allocation, self).__init__(source=source)
 
-        self.variable = variable
+        self.variables = as_tuple(variables)
         self.data_source = data_source  # Argh, Fortran...!
 
     @property
     def children(self):
-        return tuple([self.variable])
+        return tuple([self.variables])
 
 
 class Deallocation(Node):

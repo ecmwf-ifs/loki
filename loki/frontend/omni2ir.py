@@ -290,15 +290,15 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
-        allocations = []
+        variables = []
         data_source = None
         if o.find('allocOpt') is not None:
             data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
             v = self.visit(a[0])
             v.dimensions = as_tuple(self.visit(i) for i in a[1:])
-            allocations += [Allocation(variable=v, data_source=data_source)]
-        return allocations[0] if len(allocations) == 1 else as_tuple(allocations)
+            variables += [v]
+        return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
