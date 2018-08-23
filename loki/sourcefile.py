@@ -6,7 +6,8 @@ import pickle
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.subroutine import Subroutine, Module
+from loki.subroutine import Subroutine
+from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
 from loki.frontend import OMNI, OFP, blacklist, parse_ofp
