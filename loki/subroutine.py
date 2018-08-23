@@ -259,7 +259,8 @@ class Subroutine(object):
 
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):
-            shapes[alloc.variable.name] = alloc.variable.dimensions
+            for v in alloc.variables:
+                shapes[v.name] = v.dimensions
 
         # Apply shapes to meta-data variables
         for v in self.variables:

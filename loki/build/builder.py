@@ -1,5 +1,6 @@
 import sys
 import re
+from abc import ABCMeta, abstractproperty
 from pathlib import Path
 from functools import lru_cache
 import networkx as nx
@@ -9,7 +10,7 @@ from importlib import import_module
 from loki.logging import info, debug  # The only upwards dependency!
 
 from loki.build.tools import as_tuple
-from loki.build.compiler import execute
+from loki.build.compiler import delete
 from loki.build.toolchain import _default_toolchain
 
 
@@ -25,12 +26,37 @@ _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE 
 
 class BuildItem(object):
     """
-    A simple representation of a compilable item (source file) that
-    provides quick access to dependencies and provided definitions.
+    Abstract representation of a compilable item (source file or library)
+    that provides quick access to dependencies and provided definitions.
+
+    A :class:`BuildItem` is used to automtically establish dependency trees.
     """
 
-    def __init__(self, filename):
+    __metaclass__ = ABCMeta
+
+    @abstractproperty
+    def dependencies(self):
+        """
+        List of tuple of :class:`BuildItem`s that are required to build this item.
+        """
+        pass
+
+    @abstractproperty
+    def definitions(self):
+        """
+        List of tuple of symbols defined by this build item.
+        """
+        pass
+
+
+class Obj(BuildItem):
+    """
+    A single source object representing a single C or Fortran source file.
+    """
+
+    def __init__(self, filename, builder=None):
         self.path = Path(filename)
+        self.builder = builder
 
         with self.path.open() as f:
             source = f.read()
@@ -42,32 +68,121 @@ class BuildItem(object):
         self.includes = [m.lower() for m in _re_include.findall(source)]
 
     def __repr__(self):
-        return '<%s>' % self.path.name
+        return 'Obj<%s>' % self.path.name
 
     @property
     def dependencies(self):
         """
         Names of build items that this item depends on.
         """
-        modules = ['%s.F90' % u for u in self.uses]
+        uses = ['%s.F90' % u for u in self.uses]
         includes = [Path(incl).stem for incl in self.includes]
         includes = [Path(incl).stem if '.intfb' in incl else incl
                     for incl in includes]
         includes = ['%s.F90' % incl for incl in includes]
-        return as_tuple(modules + includes)
+        return as_tuple(uses + includes)
 
-    def build(self, toolchain, include_dirs=None, build_dir=None):
+    @property
+    def definitions(self):
+        """
+        Names of provided subroutine and modules.
+        """
+        return as_tuple(self.modules + self.subroutines)
+
+    def build(self):
         """
         Execute the respective build command according to the given
         :param toochain:.
 
-        Please note that this does not build any dependencies. For this
-        a :class:`Builder` is requried.
+        Please note that this does not build any dependencies.
         """
-        debug('Building item %s' % self)
-        args = toolchain.build_args(source=self.path.absolute(),
-                                    include_dirs=include_dirs)
-        execute(args, cwd=build_dir)
+        build_dir = str(self.builder.build_dir)
+        toolchain = self.builder.toolchain or _default_toolchain
+
+        debug('Building obj %s' % self)
+        use_c = self.path.suffix.lower() in ['.c', '.cc']
+        toolchain.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
+
+    def wrap(self):
+        """
+        Wrap the compiled object using ``f90wrap`` and return the loaded module.
+        """
+        build_dir = str(self.builder.build_dir)
+        toolchain = self.builder.toolchain or _default_toolchain
+
+        module = self.path.stem
+        source = [str(self.path)]
+        toolchain.f90wrap(modname=module, source=source, cwd=build_dir)
+
+        # Execute the second-level wrapper (f2py-f90wrap)
+        wrapper = 'f90wrap_%s.f90' % self.path.stem
+        if self.modules is None or len(self.modules) == 0:
+            wrapper = 'f90wrap_toplevel.f90'
+        toolchain.f2py(modname=module, source=[wrapper, '%s.o' % self.path.stem],
+                       cwd=build_dir)
+
+        return self.builder.load_module(module)
+
+
+class Lib(BuildItem):
+    """
+    A library linked from multiple objects.
+    """
+
+    def __init__(self, name, objects=None, builder=None):
+        self.name = name
+        self.path = Path('lib%s.so' % name)
+        self.builder = builder
+        self.objects = objects or []
+
+    def __repr__(self):
+        return 'Lib<%s>' % self.path.name
+
+    def build(self):
+        """
+        Build the source objects and create target library.
+
+        TODO: This does not yet(!) auto-build dependencies.
+        """
+        build_dir = str(self.builder.build_dir)
+        # TODO: Support static libs
+        target = '%s.a' % self.path.stem
+        toolchain = self.builder.toolchain or _default_toolchain
+
+        debug('Building lib %s' % self)
+        for obj in self.objects:
+            obj.build()
+
+        # Important: Since we cannot set LD_LIBRARY_PATH from within the
+        # Python interpreter (not easily anyway), we ned to compile the
+        # library statically, so that it can be baked into the wrapper.
+        objs = ['%s.o' % o.path.stem for o in self.objects]
+        toolchain.link(target=target, objs=objs, shared=False, cwd=build_dir)
+
+    def wrap(self, modname, sources=None):
+        """
+        Wrap the compiled library using ``f90wrap`` and return the loaded module.
+
+        :param sources: List of source files to wrap for Python access.
+        """
+        items = as_tuple(self.builder.Obj(s) for s in as_tuple(sources))
+        build_dir = self.builder.build_dir
+        toolchain = self.builder.toolchain or _default_toolchain
+
+        sourcepaths = [str(i.path) for i in items]
+        toolchain.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir))
+
+        # Execute the second-level wrapper (f2py-f90wrap)
+        wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
+        wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
+        wrappers = [w for w in wrappers if (build_dir/w).exists()]
+
+        libs = [self.name]
+        lib_dirs = [str(build_dir.absolute())]
+        toolchain.f2py(modname=modname, source=wrappers,
+                       libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
+
+        return self.builder.load_module(modname)
 
 
 class Builder(object):
@@ -97,15 +212,14 @@ class Builder(object):
         self.dependency_graph = nx.DiGraph()
         self._cache = OrderedDict()
 
-    @lru_cache(maxsize=None)
-    def get_item(self, filename):
+    def find_path(self, filename):
         """
         Scan all source paths for source files and create a :class:`BuildItem`.
 
         :param filename: Name of the source file we are looking for.
         """
         for s in self.source_dirs:
-            filepaths = [BuildItem(fp) for fp in s.glob('**/%s' % filename)]
+            filepaths = list(s.glob('**/%s' % filename))
             if len(filepaths) == 0:
                 return None
             elif len(filepaths) == 1:
@@ -114,7 +228,19 @@ class Builder(object):
                 return filepaths
 
     def __getitem__(self, *args, **kwargs):
-        return self.get_item(*args, **kwargs)
+        return self.Obj(*args, **kwargs)
+
+    @lru_cache(maxsize=None)
+    def Obj(self, filename):
+        path = self.find_path(filename)
+        if path is None:
+            raise RuntimeError('Could not establish path for %s' % filename)
+        return Obj(filename=path, builder=self)
+
+    def Lib(self, name, objects=None):
+        objs = [o if isinstance(o, Obj) else self.Obj(o)
+                for o in as_tuple(objects)]
+        return Lib(name, objects=objs, builder=self)
 
     def get_dependency_graph(self, builditem):
         """
@@ -143,6 +269,29 @@ class Builder(object):
 
         return g
 
+    def clean(self, rules=None, path=None):
+        """
+        Clean up a build directory according, either according to
+        globbing rules or via explicit file paths.
+
+        :param rules: String or list of strings with either explicit
+                      filepaths or globbing rules; default is
+                      ``'*.o *.mod *.so f90wrap*.f90'``.
+        :param path: Optional directory path to clean; defaults
+                     first to ``self.build_dir``, then simply ``./``.
+        """
+        # Derive defaults, split string rules and ensure iterability
+        rules = rules or '*.o *.mod *.so f90wrap*.f90'
+        if isinstance(rules, str):
+            rules = rules.split(' ')
+        rules = as_tuple(rules)
+
+        path = path or self.build_dir or Path('.')
+
+        for r in rules:
+            for f in path.glob(r):
+                delete(f)
+
     def build(self, filename, target=None, shared=True):
         item = self.get_item(filename)
         info("Building %s" % item)
@@ -159,8 +308,15 @@ class Builder(object):
 
         if target is not None:
             debug('Linking target: %s' % target)
-            args = self.toolchain.linker_args(objs=objs, target=target)
-            execute(args, cwd=build_dir)
+            self.toolchain.link(objs=objs, target=target, cwd=build_dir)
+
+    def load_module(self, module):
+        """
+        Handle import paths and load the compiled module
+        """
+        if str(self.build_dir.absolute()) not in sys.path:
+            sys.path.insert(0, str(self.build_dir.absolute()))
+        return import_module(module)
 
     def wrap_and_load(self, sources, modname=None, build=True,
                       libs=None, lib_dirs=None, incl_dirs=None):
@@ -191,9 +347,7 @@ class Builder(object):
         # Execute the first-level wrapper (f90wrap)
         info('Python-wrapping %s' % items[0])
         sourcepaths = [str(i.path) for i in items]
-        f90wrap_args = self.toolchain.f90wrap_args(modname=modname,
-                                                   source=sourcepaths)
-        execute(f90wrap_args, cwd=build_dir)
+        self.toolchain.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
@@ -205,12 +359,8 @@ class Builder(object):
         lib_dirs = lib_dirs or ['%s' % self.build_dir.absolute()]
         incl_dirs = incl_dirs or []
 
-        f2py_args = self.toolchain.f2py_args(modname=modname, source=wrappers,
-                                             libs=libs, lib_dirs=lib_dirs,
-                                             incl_dirs=incl_dirs)
-        execute(f2py_args, cwd=build_dir)
+        self.toolchain.f2py(modname=modname, source=wrappers,
+                            libs=libs, lib_dirs=lib_dirs,
+                            incl_dirs=incl_dirs, cwd=build_dir)
 
-        # Handle import paths and load the compiled module
-        if str(self.build_dir.absolute()) not in sys.path:
-            sys.path.insert(0, str(self.build_dir.absolute()))
-        return import_module(modname)
+        self.load_module(module=modname)

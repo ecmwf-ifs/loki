@@ -306,8 +306,8 @@ class OFP2IR(GenericVisitor):
         return Scope(body=as_tuple(body), associations=associations)
 
     def visit_allocate(self, o, source=None):
-        variable = self.visit(o.find('expressions/expression/name'))
-        return Allocation(variable=variable, source=source)
+        variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
+        return Allocation(variables=variables, source=source)
 
     def visit_deallocate(self, o, source=None):
         variable = self.visit(o.find('expressions/expression/name'))

@@ -213,7 +213,8 @@ class FortranCodegen(Visitor):
 
     def visit_Allocation(self, o):
         source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
-        return self.indent + 'ALLOCATE(%s%s)' % (o.variable, source)
+        variables = ','.join(str(v) for v in o.variables)
+        return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
         return self.indent + 'DEALLOCATE(%s)' % o.variable
