@@ -130,7 +130,7 @@ class Subroutine(object):
                      raw_source=raw_source, frontend=OMNI)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                  members=members, ast=ast, typedefs=typedefs)
+                   members=members, ast=ast, typedefs=typedefs)
 
     def _internalize(self):
         """

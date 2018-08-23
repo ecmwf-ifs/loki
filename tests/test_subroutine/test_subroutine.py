@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, fgen, OFP, OMNI, FindVariables
+from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables
 from conftest import generate_identity
 
 
@@ -38,8 +38,8 @@ def test_routine_simple(refpath, reference, frontend):
     matrix = np.zeros((x, y), order='F')
     function(x=x, y=y, scalar=5., vector=vector, matrix=matrix)
     assert np.all(vector == 5.)
-    assert np.all(matrix[0,:] == 5.)
-    assert np.all(matrix[1,:] == 10.)
+    assert np.all(matrix[0, :] == 5.)
+    assert np.all(matrix[1, :] == 10.)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
@@ -60,8 +60,8 @@ def test_routine_multiline_args(refpath, reference, frontend):
     matrix = np.zeros((x, y), order='F')
     function(x=x, y=y, scalar=5., vector=vector, matrix=matrix)
     assert np.all(vector == 5.)
-    assert np.all(matrix[0,:] == 5.)
-    assert np.all(matrix[1,:] == 10.)
+    assert np.all(matrix[0, :] == 5.)
+    assert np.all(matrix[1, :] == 10.)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
@@ -116,7 +116,7 @@ def test_routine_dim_shapes(refpath, reference, frontend):
 
     # Make sure variable/argument shapes on the routine work
     shapes = [v.shape for v in routine.arguments]
-    assert shapes == [None, None, ('v1',), ('v1','v2'), ('v1','v2-1')]
+    assert shapes == [None, None, ('v1',), ('v1', 'v2'), ('v1', 'v2-1')]
 
     # Ensure shapes of body variables are ok
     b_shapes = [v.shape for v in FindVariables(unique=False).visit(routine.ir)]
