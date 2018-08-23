@@ -390,20 +390,12 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
     frontend = Frontend[frontend.upper()]
-    if frontend == OFP:
-        # Parse original driver and kernel routine, and enrich the driver
-        typedefs = get_typedefs(header, xmods=xmod)
-        routine = SourceFile.from_file(source, typedefs=typedefs,
-                                       frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
-    else:
-        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-        routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                       frontend=frontend, typedefs=typedefs).subroutines[0]
-        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                      frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend)['cloudsc_driver']
+    driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)
@@ -483,20 +475,12 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     for further downstream transformations.
     """
     frontend = Frontend[frontend.upper()]
-    if frontend == OFP:
-        # Parse original driver and kernel routine, and enrich the driver
-        typedefs = get_typedefs(header, xmods=xmod)
-        routine = SourceFile.from_file(source, typedefs=typedefs,
-                                       frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
-    else:
-        typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-        routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
-                                       includes=include, frontend=frontend).subroutines[0]
-        driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                      frontend=frontend).subroutines[0]
-        driver.enrich_calls(routines=routine)
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend)['cloudsc_driver']
+    driver.enrich_calls(routines=routine)
 
     # Prepare output paths
     out_path = Path(out_path)
@@ -693,20 +677,27 @@ class RapsTransformation(BasicTransformation):
               help='Basepath of the IFS/RAPS installation directory.')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Path to source files to transform.')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--typedef', '-t', type=click.Path(), multiple=True,
               help='Path for additional source file(s) containing type definitions')
 @click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
               help='Path to RAPS-generated dependency file')
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
+              help='Frontend parser to use (default OFP)')
 @click.option('--callgraph', '-cg', is_flag=True, default=False,
               help='Generate and display the subroutine callgraph.')
-def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
+def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
+            frontend, callgraph):
     """
     Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
     source-to-source transformations, such as the Single Column Abstraction (SCA),
     to large sets of interdependent subroutines.
     """
-    # Get external derived-type definitions
-    typedefs = get_typedefs(typedef)
+    frontend = Frontend[frontend.upper()]
+    typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
 
     # Load configuration file and process options
     with Path(config).open('r') as f:
@@ -716,7 +707,9 @@ def physics(config, basepath, source, typedef, raps_dependencies, callgraph):
     config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
 
     # Create and setup the scheduler for bulk-processing
-    scheduler = TaskScheduler(paths=source, config=config, typedefs=typedefs)
+    scheduler = TaskScheduler(paths=source, config=config, xmods=xmod,
+                              includes=include, typedefs=typedefs,
+                              frontend=frontend)
     scheduler.append(config['routines'].keys())
 
     # Add explicitly blacklisted subnodes

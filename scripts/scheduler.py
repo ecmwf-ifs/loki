@@ -8,7 +8,7 @@ except ImportError:
     gviz = None
 
 from loki import (as_tuple, info, warning, error, SourceFile,
-                  FindNodes, Call)
+                  FindNodes, Call, OFP)
 
 
 __all__ = ['Task', 'TaskScheduler']
@@ -25,7 +25,8 @@ class Task(object):
     specialised explicitly in the config file.
     """
 
-    def __init__(self, name, config, path, graph=None, typedefs=None):
+    def __init__(self, name, config, path, graph=None, xmods=None,
+                 includes=None, typedefs=None, frontend=OFP):
         self.name = name
         self.path = path
         self.file = None
@@ -41,7 +42,8 @@ class Task(object):
             try:
                 # Read and parse source file and extract subroutine
                 self.file = SourceFile.from_file(path, preprocess=True,
-                                                 typedefs=typedefs)
+                                                 xmods=xmods, includes=includes,
+                                                 typedefs=typedefs, frontend=frontend)
                 # TODO: Modules should be first-class items too
                 self.routine = self.file.subroutines[0]
 
@@ -87,10 +89,14 @@ class TaskScheduler(object):
 
     _deadlist = ['dr_hook', 'abor1', 'abort_surf']
 
-    def __init__(self, paths, config=None, typedefs=None):
+    def __init__(self, paths, config=None, xmods=None, includes=None,
+                 typedefs=None, frontend=OFP):
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
+        self.xmods = xmods
+        self.includes = includes
         self.typedefs = typedefs
+        self.frontend = frontend
         # TODO: Remove; should be done per item
         self.blacklist = []
 
@@ -136,7 +142,9 @@ class TaskScheduler(object):
                 continue
             item = Task(name=source, config=self.config,
                         path=self.find_path(source),
-                        graph=self.graph, typedefs=self.typedefs)
+                        graph=self.graph, xmods=self.xmods,
+                        includes=self.includes, typedefs=self.typedefs,
+                        frontend=self.frontend)
             self.queue.append(item)
             self.item_map[source] = item
 
