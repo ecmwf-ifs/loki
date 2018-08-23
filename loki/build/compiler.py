@@ -3,7 +3,7 @@ from importlib import import_module
 import os
 import shutil
 
-from loki.logging import debug, info, error
+from loki.logging import debug, info
 from loki.build.tools import as_tuple, execute
 from loki.build.toolchain import _default_toolchain
 

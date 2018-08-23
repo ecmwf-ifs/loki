@@ -9,7 +9,7 @@ from importlib import import_module
 
 from loki.logging import info, debug  # The only upwards dependency!
 
-from loki.build.tools import as_tuple, execute
+from loki.build.tools import as_tuple
 from loki.build.compiler import delete
 from loki.build.toolchain import _default_toolchain
 
@@ -97,8 +97,6 @@ class Obj(BuildItem):
         Please note that this does not build any dependencies.
         """
         build_dir = str(self.builder.build_dir)
-        include_dirs = self.builder.include_dirs
-        target = '%s.o' % self.path.stem
         toolchain = self.builder.toolchain or _default_toolchain
 
         debug('Building obj %s' % self)
@@ -147,7 +145,6 @@ class Lib(BuildItem):
         TODO: This does not yet(!) auto-build dependencies.
         """
         build_dir = str(self.builder.build_dir)
-        include_dirs = self.builder.include_dirs
         # TODO: Support static libs
         target = '%s.a' % self.path.stem
         toolchain = self.builder.toolchain or _default_toolchain
