@@ -42,10 +42,10 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [f2c.wrapperpath.name, f2c.c_path.name]
-    lib = builder.Lib(name='fclib', objects=objects)
+    lib = builder.Lib(name='fc_%s' % routine.name, objects=objects)
     lib.build()
 
-    return lib.wrap(modname='fcmod', sources=(wrap or []) + [f2c.wrapperpath.name])
+    return lib.wrap(modname='mod_%s' % routine.name, sources=(wrap or []) + [f2c.wrapperpath.name])
 
 
 def test_transpile_simple_loops(refpath, reference, builder):
