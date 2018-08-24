@@ -21,11 +21,17 @@ class DataType(IntEnum):
         """
         type_kind_map = {
             ('logical', None): cls.BOOL,
+
             ('integer', None): cls.INT32,
             ('integer', '4'): cls.INT32,
-            ('integer', 'jpim'): cls.FLOAT64,
+            ('integer', 'jpim'): cls.INT32,
+            ('integer', 'c_int'): cls.INT32,
+
             ('real', 'real32'): cls.FLOAT32,
+            ('real', 'c_float'): cls.FLOAT32,
+
             ('real', 'real64'): cls.FLOAT64,
+            ('real', 'c_double'): cls.FLOAT64,
             ('real', 'jprb'): cls.FLOAT64,
             ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,
         }

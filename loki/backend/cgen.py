@@ -39,19 +39,15 @@ class CCodegen(Visitor):
 
     visit_list = visit_tuple
 
+    def visit_Module(self, o):
+        # Assuming this will be put in header files...
+        spec = self.visit(o.spec)
+        routines = self.visit(o.routines)
+        return spec + '\n\n' + routines
+
     def visit_Subroutine(self, o):
         # Re-generate variable declarations
         o._externalize(c_backend=True)
-
-        # Generate and dump C struct definitions for derived types
-        typedefs = []
-        for a in o.arguments:
-            if isinstance(a.type, DerivedType):
-                decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                                 for v in a.type.variables)
-                typedefs += [TypeDef(name=a.type.name, declarations=decls)]
-        c_structs = self.visit(typedefs)
-        c_structs += '\n\n'
 
         # Generate header with argument signature
         aptr = []
@@ -66,12 +62,12 @@ class CCodegen(Visitor):
         arguments = ['%s %s%s' % (self.visit(a.type), p, a.name)
                      for a, p in zip(o.arguments, aptr)]
         arguments = self.segment(arguments)
-        header = 'int %s(%s)\n{' % (o.name, arguments)
+        header = 'int %s(%s)\n{\n' % (o.name, arguments)
 
         self._depth += 1
 
         # Generate the array casts for pointer arguments
-        casts = '\n%s/* Array casts for pointer arguments */\n' % self.indent
+        casts = '%s/* Array casts for pointer arguments */\n' % self.indent
         for a in o.arguments:
             if a.dimensions is not None and len(a.dimensions) > 0:
                 dtype = self.visit(a.type)
@@ -80,19 +76,22 @@ class CCodegen(Visitor):
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name, outer_dims, dtype, outer_dims, a.name)
 
-        body = self.visit(o.ir)
+        spec = self.visit(o.spec)
+        body = self.visit(o.body)
         footer = '\n%sreturn 0;\n}' % self.indent
         self._depth -= 1
 
         # And finally some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
-        imports += '\n\n'
 
-        return imports + c_structs + header + casts + body + footer
+        return imports + '\n\n' + header + casts + spec + '\n' +  body + footer
 
     def visit_Section(self, o):
         return self.visit(o.body) + '\n'
+
+    def visit_Import(self, o):
+        return ('#include "%s"' % o.module) if o.c_import else ''
 
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
@@ -138,6 +137,8 @@ class CCodegen(Visitor):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
+    def visit_Intrinsic(self, o):
+        return o.text
 
 def cgen(ir):
     """

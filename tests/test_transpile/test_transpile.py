@@ -104,13 +104,16 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.b == 10.
     assert a_struct.c == 12.
 
-    # Generate the C kernel
+    # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
+    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
     c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder,
-                           objects=['transpile_type.f90'], wrap=['transpile_type.f90'])
+                           objects=['transpile_type.f90'], wrap=['transpile_type.f90'],
+                           header_modules=[typemod])
 
     a_struct = reference.transpile_type.my_struct()
     a_struct.a = 4
@@ -140,12 +143,10 @@ def test_transpile_module_parameters(refpath, reference, builder):
     typemod = SourceFile.from_file(typepath)['transpile_type']
     FortranCTransformation().apply(routine=typemod, path=refpath.parent)
 
-    # c_types = c_transpile(typemod, refpath, builder)
-
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_parameters'], refpath, builder,
                            objects=['transpile_type.f90', 'transpile_type.c.f90'],
-                           wrap=['transpile_type.f90'], header_modules=['transpile_type'])
+                           wrap=['transpile_type.f90'], header_modules=[typemod])
 
     c_kernel.transpile_type.param1 = 2
     c_kernel.transpile_type.param2 = 4.

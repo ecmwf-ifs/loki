@@ -4,12 +4,13 @@ from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
 from loki.backend import fgen, cgen
 from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
-                     TypeDef, Statement)
+                     TypeDef, Statement, Scope)
 from loki.subroutine import Subroutine
+from loki.module import Module
 from loki.types import BaseType, DerivedType
 from loki.expression import Variable, FindVariables, InlineCall
 from loki.visitors import Transformer, FindNodes
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 
 
 __all__ = ['FortranCTransformation']
@@ -21,32 +22,67 @@ class FortranCTransformation(BasicTransformation):
     into C and generates the corresponding ISO-C wrappers.
     """
 
-    def _pipeline(self, routine, **kwargs):
+    def __init__(self, header_modules=None):
+        # Fortran modules that can be imported as C headers
+        self.header_modules = header_modules or None
+
+    def _pipeline(self, source, **kwargs):
         path = kwargs.get('path')
 
-        # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper(routine)
-        self.wrapperpath = (path/routine.name).with_suffix('.c.F90')
-        self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+        # Maps from original type name to ISO-C and C-struct types
+        c_structs = OrderedDict()
 
-        # TODO: Invert data/loop accesses from column to row-major
-        self.convert_expressions(routine, **kwargs)
+        if isinstance(source, Module):
+            for name, td in source.typedefs.items():
+                c_structs[name.lower()] = self.c_struct_typedef(td)
 
-        # Generate C source file from Loki IR
-        routine.name = '%s_c' % routine.name
-        self.c_path = (path/routine.name).with_suffix('.c')
-        SourceFile.to_file(source=cgen(routine), path=self.c_path)
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_module(source, c_structs)
+            self.wrapperpath = (path/source.name).with_suffix('.c.f90')
+            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=False)
 
-    def generate_iso_c_wrapper(self, routine):
-        c_structs = self.generate_iso_c_structs_f(routine)
+            # Generate C header file from module
+            c_header = self.generate_c_header(source)
+            self.c_path = (path/c_header.name).with_suffix('.h')
+            SourceFile.to_file(source=cgen(c_header), path=self.c_path)
+
+        elif isinstance(source, Subroutine):
+            for arg in source.arguments:
+                if isinstance(arg.type, DerivedType):
+                    c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
+
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
+            self.wrapperpath = (path/source.name).with_suffix('.c.F90')
+            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+
+            # Generate C source file from Loki IR
+            c_kernel = self.generate_c_kernel(source)
+            self.c_path = (path/c_kernel.name).with_suffix('.c')
+            SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
+
+        else:
+            raise RuntimeError('Can only translate Module or Subroutine nodes')
+
+    def c_struct_typedef(self, derived):
+        """
+        Create the :class:`TypeDef` for the C-wrapped struct definition.
+        """
+        decls = []
+        for v in derived.variables:
+            ctype = v.type.dtype.isoctype
+            decls += [Declaration(variables=(v, ), type=ctype)]
+            typename = '%s_c' % derived.name
+        return TypeDef(name=typename, bind_c=True, declarations=decls)
+
+    def generate_iso_c_wrapper_routine(self, routine, c_structs):
         interface = self.generate_iso_c_interface(routine, c_structs)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
         wrapper_spec.prepend(Import(module='iso_c_binding',
                                     symbols=('c_int', 'c_double', 'c_float')))
-        for _, td in c_structs.items():
-            wrapper_spec.append(td)
+        wrapper_spec.append(c_structs.values())
         wrapper_spec.append(interface)
 
         # Create the wrapper function with casts and interface invocation
@@ -55,7 +91,7 @@ class FortranCTransformation(BasicTransformation):
         casts_out = []
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.name].name, variables=None)
+                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
                 cvar = Variable(name='%s_c' % arg.name, type=ctype)
                 cast_in = InlineCall(name='transfer', arguments=as_tuple(arg),
                                      kwarguments=as_tuple([('mold', cvar)]))
@@ -77,21 +113,35 @@ class FortranCTransformation(BasicTransformation):
         wrapper.arguments = routine.arguments
         return wrapper
 
-    def generate_iso_c_structs_f(self, routine):
+    def generate_iso_c_wrapper_module(self, module, c_structs):
         """
-        Generate the interoperable struct definitions in Fortran.
+        Generate the ISO-C wrapper module for a raw Fortran module.
         """
-        structs = OrderedDict()
-        for a in routine.arguments:
-            if isinstance(a.type, DerivedType):
-                decls = []
-                for v in a.type.variables:
-                    ctype = v.type.dtype.isoctype
-                    decls += [Declaration(variables=(v, ), type=ctype)]
-                structs[a.name] = TypeDef(name='%s_c' % a.type.name,
-                                          bind_c=True, declarations=decls)
+        # Generate bind(c) intrinsics for module variables
+        original_import = Import(module=module.name)
+        isoc_import = Import(module='iso_c_binding',
+                             symbols=('c_int', 'c_double', 'c_float'))
+        implicit_none = Intrinsic(text='implicit none')
+        spec = [original_import, isoc_import, implicit_none]
 
-        return structs
+        # Add module-based derived type/struct definitions
+        spec += list(c_structs.values())
+
+        # Create getter methods for module-level variables (I know... :( )
+        wrappers = []
+        for decl in FindNodes(Declaration).visit(module.spec):
+            for v in decl.variables:
+                isoctype = v.type.dtype.isoctype
+                gettername = '%s__get__%s' % (module.name, v.name)
+                getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
+                getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
+                getterbody = [Statement(target=Variable(name=gettername), expr=v)]
+                getter = Subroutine(name=gettername, bind=gettername, spec=getterspec,
+                                    body=getterbody, is_function=True)
+                getter.variables = as_tuple(Variable(name=gettername, type=isoctype))
+                wrappers += [getter]
+
+        return Module(name='%s_c' % module.name, spec=spec, routines=wrappers)
 
     def generate_iso_c_interface(self, routine, c_structs):
         """
@@ -102,14 +152,14 @@ class FortranCTransformation(BasicTransformation):
                              symbols=('c_int', 'c_double', 'c_float'))
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
-        intf_spec.body += as_tuple(td for _, td in c_structs.items())
+        intf_spec.body += as_tuple(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
                                   body=None, bind='%s_c' % routine.name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.name].name, variables=None)
+                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
             else:
                 ctype = arg.type.dtype.isoctype
                 ctype.value = arg.dimensions is None or len(arg.dimensions) == 0
@@ -120,19 +170,78 @@ class FortranCTransformation(BasicTransformation):
 
         return Interface(body=(intf_routine, ))
 
-    def convert_expressions(self, routine, **kwargs):
+    def generate_c_header(self, module, **kwargs):
         """
-        Converts all expressions to C's 0-index, row major format.
+        Re-generate the C header as a module with all pertinent nodes,
+        but not Fortran-specific intrinsics (eg. implicit none or save).
+        """
+        # Generate stubs for getter functions
+        spec = []
+        for decl in FindNodes(Declaration).visit(module.spec):
+            assert len(decl.variables) == 1;
+            v = decl.variables[0]
+            tmpl_function = '%s %s__get__%s();' % (
+                v.type.dtype.ctype, module.name, v.name)
+            spec += [Intrinsic(text=tmpl_function)]
 
-        Note: We do not yet apply any index shifting inexpressions,
-        meaning we have to rely on the code-generator to insert shifted
-        iteration ranges when defining loops.
+        # Re-create spec with getters and typedefs to wipe Fortran-specifics
+        spec += FindNodes(TypeDef).visit(module.spec)
+
+        # Re-generate header module without subroutines
+        return Module(name='%s_c' % module.name, spec=spec)
+
+    def generate_c_kernel(self, routine, **kwargs):
+        """
+        Re-generate the C kernel and insert wrapper-specific peculiarities,
+        such as the explicit getter calls for imported module-level variables.
         """
 
+        # Change imports to C header includes
+        imports = []
+        getter_calls = []
+        header_map = {m.name.lower(): m for m in as_tuple(self.header_modules)}
+        for imp in FindNodes(Import).visit(routine.spec):
+            if imp.module.lower() in header_map:
+                # Create a C-header import
+                imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
+
+                # For imported modulevariables, create a declaration and call the getter
+                module = header_map[imp.module]
+                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
+                mod_vars = {v.name: v for v in mod_vars}
+                for s in imp.symbols:
+                    if s in mod_vars:
+                        var = mod_vars[s]
+
+                        decl = Declaration(variables=[var], type=var.type)
+                        getter = '%s__get__%s' % (module.name, var.name)
+                        vget = Statement(target=var, expr=InlineCall(name=getter, arguments=()))
+                        getter_calls += [decl, vget]
+
+        # Replicate the kernel to strip the Fortran-specific boilerplate
+        spec = Section(body=imports)
+        body = Transformer({}).visit(routine.body)
+        body = as_tuple(getter_calls) + as_tuple(body)
+
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
+        kernel.arguments = routine.arguments
+        kernel.variables = routine.variables
+
+        # Resolve implicit struct mappings through "associates"
+        for assoc in FindNodes(Scope).visit(kernel.body):
+            invert_assoc = {v: k for k, v in assoc.associations.items()}
+            for v in FindVariables(unique=False).visit(kernel.body):
+                if v in invert_assoc:
+                    v.ref = invert_assoc[v].ref
+
+
+        # Invert data/loop accesses from column to row-major
         # TODO: Take care of the indexing shift between C and Fortran.
         # Basically, we are relying on the CGen to shuft the iteration
         # indices and dearly hope that nobody uses the index's value.
-        for v in FindVariables(unique=False).visit(routine.body):
+        for v in FindVariables(unique=False).visit(kernel.body):
             # Swap index order to row-major
             if v.dimensions is not None and len(v.dimensions) > 0 :
                 v.dimensions = as_tuple(reversed(v.dimensions))
+
+        return kernel

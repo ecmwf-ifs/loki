@@ -35,7 +35,7 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None, bind=None):
+                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -57,6 +57,7 @@ class Subroutine(object):
         self._derive_variable_shape(typedefs=typedefs)
 
         self.bind = bind
+        self.is_function = is_function
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):

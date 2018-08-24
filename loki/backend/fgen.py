@@ -63,16 +63,17 @@ class FortranCodegen(Visitor):
         # Make sure declarations are re-inserted
         o._externalize()
 
+        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '()'
-        bind_c = ' &\n%s & bind(c, name=\'%s\')\n' % (self.indent, o.bind) if o.bind else ''
-        header = 'SUBROUTINE %s%s%s\n\n' % (o.name, argument, bind_c)
+        bind_c = ' &\n%s & bind(c, name=\'%s\')' % (self.indent, o.bind) if o.bind else ''
+        header = '%s %s%s%s\n' % (ftype, o.name, argument, bind_c)
         self._depth += 1
         docstring = '%s\n\n' % self.visit(o.docstring) if o.docstring else ''
         spec = '%s\n\n' % self.visit(o.spec) if o.spec else ''
         body = self.visit(o.body) if o.body else ''
         self._depth -= 1
-        footer = '\n%sEND SUBROUTINE %s\n' % (self.indent, o.name)
+        footer = '\n%sEND %s %s\n' % (self.indent, ftype, o.name)
         if o.members is not None:
             members = '\n\n'.join(self.visit(s) for s in o.members)
             contains = '\nCONTAINS\n\n'
