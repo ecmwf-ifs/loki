@@ -57,6 +57,8 @@ class CCodegen(Visitor):
                 aptr += ['*v_']
             elif isinstance(a.type, DerivedType):
                 aptr += ['*']
+            elif a.type.pointer:
+                aptr += ['*']
             else:
                 aptr += ['']
         arguments = ['%s %s%s' % (self.visit(a.type), p, a.name)
@@ -195,12 +197,15 @@ class CExprCodegen(Visitor):
 
     def visit_Statement(self, o, line):
         line = self.visit(o.target, line=line)
-        line = self.append(line, ' => ' if o.ptr else ' = ')
+        line = self.append(line, ' = ')
         line = self.visit(o.expr, line=line)
         line = self.append(line, ';')
         return line
 
     def visit_Variable(self, o, line):
+        # Prepend '*' for scalar pointer variables
+        if o.type and o.type.pointer and (o.dimensions is None or len(o.dimensions) == 0):
+            line = self.append(line, '*')
         if o.ref is not None:
             # TODO: Super-hacky; we always assume pointer-to-struct arguments
             line = self.visit(o.ref, line=line)

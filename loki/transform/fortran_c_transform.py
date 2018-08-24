@@ -162,7 +162,10 @@ class FortranCTransformation(BasicTransformation):
                 ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
             else:
                 ctype = arg.type.dtype.isoctype
-                ctype.value = arg.dimensions is None or len(arg.dimensions) == 0
+                # Only scalar, intent(in) arguments are pass by value
+                ctype.value = (arg.dimensions is None or len(arg.dimensions) == 0) \
+                              and arg.type.intent.lower() == 'in'
+                # Pass by reference for array types
             var = Variable(name=arg.name, dimensions=arg.dimensions,
                            shape=arg.shape, type=ctype)
             intf_routine.variables += [var]
@@ -227,13 +230,26 @@ class FortranCTransformation(BasicTransformation):
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
 
+        # Force pointer on reference-passed arguments
+        for arg in kernel.arguments:
+            if not (arg.type.intent.lower() == 'in' and \
+                    (arg.dimensions is None or len(arg.dimensions) == 0)):
+                arg.type.pointer = True
+        # Propagate that reference pointer to all variables
+        arg_map = {a.name: a for a in kernel.arguments}
+        for v in FindVariables(unique=False).visit(kernel.body):
+            if v.name in arg_map:
+                if v.type:
+                    v.type.pointer = arg_map[v.name].type.pointer
+                else:
+                    v._type = arg_map[v.name].type
+
         # Resolve implicit struct mappings through "associates"
         for assoc in FindNodes(Scope).visit(kernel.body):
             invert_assoc = {v: k for k, v in assoc.associations.items()}
             for v in FindVariables(unique=False).visit(kernel.body):
                 if v in invert_assoc:
                     v.ref = invert_assoc[v].ref
-
 
         # Invert data/loop accesses from column to row-major
         # TODO: Take care of the indexing shift between C and Fortran.
