@@ -38,7 +38,7 @@ class FortranCTransformation(BasicTransformation):
 
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_module(source, c_structs)
-            self.wrapperpath = (path/source.name).with_suffix('.c.f90')
+            self.wrapperpath = (path/wrapper.name).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=False)
 
             # Generate C header file from module
@@ -53,7 +53,7 @@ class FortranCTransformation(BasicTransformation):
 
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (path/source.name).with_suffix('.c.F90')
+            self.wrapperpath = (path/wrapper.name).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
             # Generate C source file from Loki IR
@@ -106,7 +106,7 @@ class FortranCTransformation(BasicTransformation):
         wrapper_body = casts_in
         wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
-        wrapper = Subroutine(name='%s_C' % routine.name, spec=wrapper_spec, body=wrapper_body)
+        wrapper = Subroutine(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body)
 
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]
@@ -141,13 +141,13 @@ class FortranCTransformation(BasicTransformation):
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype))
                 wrappers += [getter]
 
-        return Module(name='%s_c' % module.name, spec=spec, routines=wrappers)
+        return Module(name='%s_fc' % module.name, spec=spec, routines=wrappers)
 
     def generate_iso_c_interface(self, routine, c_structs):
         """
         Generate the ISO-C subroutine interface
         """
-        intf_name = '%s_fc' % routine.name
+        intf_name = '%s_iso_c' % routine.name
         isoc_import = Import(module='iso_c_binding',
                              symbols=('c_int', 'c_double', 'c_float'))
         intf_spec = Section(body=as_tuple(isoc_import))

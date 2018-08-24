@@ -21,6 +21,40 @@ subroutine transpile_simple_loops(n, m, scalar, vector, tensor)
 
 end subroutine transpile_simple_loops
 
+
+subroutine transpile_arguments(n, array, array_io, a, b, c, a_io, b_io, c_io)
+  use iso_fortran_env, only: real32, real64
+  implicit none
+
+  integer, intent(in) :: n
+  real(kind=real64), intent(inout) :: array(n)
+  real(kind=real64), intent(out) :: array_io(n)
+
+  integer, intent(out) :: a
+  real(kind=real32), intent(out) :: b
+  real(kind=real64), intent(out) :: c
+  integer, intent(inout) :: a_io
+  real(kind=real32), intent(inout) :: b_io
+  real(kind=real64), intent(inout) :: c_io
+
+  integer :: i
+
+  do i=1, n
+     array(i) = 3.
+     array_io(i) = array_io(i) + 3.
+  end do
+
+  a = 2
+  b = 3.2
+  c = 4.1
+
+  a_io = a_io + 2
+  b_io = b_io + 3.2
+  c_io = c_io + 4.1
+
+end subroutine transpile_arguments
+
+
 subroutine transpile_derived_type(a_struct)
   use transpile_type, only: my_struct
   implicit none
@@ -43,7 +77,7 @@ subroutine transpile_derived_type(a_struct)
 end subroutine transpile_derived_type
 
 
-subroutine transpile_module_parameters(a, b, c)
+subroutine transpile_module_variables(a, b, c)
   use iso_fortran_env, only: real32, real64
   use transpile_type, only: param1, param2, param3
 
@@ -55,4 +89,4 @@ subroutine transpile_module_parameters(a, b, c)
   b = 1. + param2
   c = 1. + param3
 
-end subroutine transpile_module_parameters
+end subroutine transpile_module_variables
