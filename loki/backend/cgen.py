@@ -86,6 +86,7 @@ class CCodegen(Visitor):
         # And finally some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
+        imports += '#include <math.h>\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
 
         return imports + '\n\n' + header + casts + spec + '\n' +  body + footer
@@ -129,9 +130,10 @@ class CCodegen(Visitor):
         body = self.visit(o.body)
         self._depth -= 1
         increment = ('++' if o.bounds.step is None else '+=%s' % o.bounds.step)
-        header = 'for (%s=%s-1; %s<%s; %s%s)' % (o.variable, o.bounds.lower,
-                                            o.variable, o.bounds.upper,
-                                            o.variable, increment)
+        lvar = cexprgen(o.variable)
+        lower = cexprgen(o.bounds.lower)
+        upper = cexprgen(o.bounds.upper)
+        header = 'for (%s=%s-1; %s<%s; %s%s)' % (lvar, lower, lvar, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
@@ -172,7 +174,7 @@ class CExprCodegen(Visitor):
         """Insert linebreaks when requested width is hit."""
         if self._width + len(txt) > self.linewidth:
             self._width = len(txt)
-            line += '&\n%s& ' % self.indent + txt
+            line += '\n%s ' % self.indent + txt
         else:
             self._width += len(txt)
             line += txt
@@ -229,6 +231,18 @@ class CExprCodegen(Visitor):
                 line = self.append(line, ')')
             return line
 
+        if len(o.ops) == 1 and o.ops[0] == '**':
+            # Hacky way of dealing with power operator
+            if len(o.operands) == 2:
+                line = self.append(line, 'pow(')
+                line = self.visit(o.operands[0], line=line)
+                line = self.append(line, ',')
+                line = self.visit(o.operands[0], line=line)
+                line = self.append(line, ')')
+                return line
+            else:
+                raise NotImplementedError('CGen: Power operator with > 2 operands')
+
         if o.parenthesis or self.parenthesise:
             line = self.append(line, '(')
         line = self.visit(o.operands[0], line=line)
@@ -247,6 +261,19 @@ class CExprCodegen(Visitor):
         else:
             value = o.value
         return self.append(line, value)
+
+    def visit_InlineCall(self, o, line):
+        line = self.append(line, '%s(' % o.name)
+        if len(o.arguments) > 0:
+            line = self.visit(o.arguments[0], line=line)
+            for arg in o.arguments[1:]:
+                line = self.append(line, ', ')
+                line = self.visit(arg, line=line)
+            for kw, arg in as_tuple(o.kwarguments):
+                line = self.append(line, ', ')
+                line = self.append(line, '%s=' % kw)
+                line = self.visit(arg, line=line)
+        return self.append(line, ')')
 
 
 def cexprgen(expr, linewidth=90, indent='', op_spaces=False):

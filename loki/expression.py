@@ -58,6 +58,14 @@ class FindVariables(ExpressionVisitor, Visitor):
         vars += as_tuple(self.visit(o.target))
         return set(vars) if self.unique else as_tuple(vars)
 
+    def visit_Loop(self, o, **kwargs):
+        vars = flatten(self.visit(o.variable) for c in o.children)
+        vars += flatten(self.visit(o.bounds.lower) for c in o.children)
+        vars += flatten(self.visit(o.bounds.upper) for c in o.children)
+        vars += flatten(self.visit(o.bounds.step) for c in o.children)
+        vars += flatten(self.visit(o.body) for c in o.children)
+        return set(vars) if self.unique else as_tuple(vars)
+
 
 class Expression(object):
     """

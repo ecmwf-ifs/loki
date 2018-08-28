@@ -251,11 +251,14 @@ class FortranCTransformation(BasicTransformation):
                     v._type = arg_map[v.name].type
 
         # Resolve implicit struct mappings through "associates"
+        assoc_map = {}
         for assoc in FindNodes(Scope).visit(kernel.body):
             invert_assoc = {v: k for k, v in assoc.associations.items()}
             for v in FindVariables(unique=False).visit(kernel.body):
                 if v in invert_assoc:
                     v.ref = invert_assoc[v].ref
+            assoc_map[assoc] = assoc.body
+        kernel.body = Transformer(assoc_map).visit(kernel.body)
 
         # Adjust explicit (literal) array indices
         for v in FindVariables(unique=False).visit(kernel.body):
