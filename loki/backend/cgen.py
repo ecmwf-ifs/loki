@@ -1,7 +1,7 @@
 from loki.tools import chunks, as_tuple
-from loki.visitors import Visitor
+from loki.visitors import Visitor, FindNodes
 from loki.types import DataType, DerivedType
-from loki.ir import TypeDef, Declaration
+from loki.ir import TypeDef, Declaration, Import
 
 __all__ = ['cgen', 'CCodegen', 'cexprgen', 'CExprCodegen']
 
@@ -61,7 +61,7 @@ class CCodegen(Visitor):
                 aptr += ['*']
             else:
                 aptr += ['']
-        arguments = ['%s %s%s' % (self.visit(a.type), p, a.name)
+        arguments = ['%s %s%s' % (self.visit(a.type), p, a.name.lower())
                      for a, p in zip(o.arguments, aptr)]
         arguments = self.segment(arguments)
         header = 'int %s(%s)\n{\n' % (o.name, arguments)
@@ -76,7 +76,7 @@ class CCodegen(Visitor):
                 # str(d).lower() is a bad hack to ensure caps-alignment
                 outer_dims = ''.join('[%s]' % str(d).lower() for d in a.dimensions[:-1])
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
-                    dtype, a.name, outer_dims, dtype, outer_dims, a.name)
+                    dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 
         spec = self.visit(o.spec)
         body = self.visit(o.body)
@@ -86,6 +86,7 @@ class CCodegen(Visitor):
         # And finally some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
+        imports += self.visit(FindNodes(Import).visit(o.spec))
 
         return imports + '\n\n' + header + casts + spec + '\n' +  body + footer
 
@@ -210,7 +211,7 @@ class CExprCodegen(Visitor):
             # TODO: Super-hacky; we always assume pointer-to-struct arguments
             line = self.visit(o.ref, line=line)
             line = self.append(line, '->')
-        line = self.append(line, o.name)
+        line = self.append(line, o.name.lower())
         if o.dimensions is not None and len(o.dimensions) > 0:
             for d in o.dimensions:
                 line = self.append(line, '[')

@@ -569,15 +569,20 @@ def transpile(out_path, header, source, driver, xmod, include):
     DerivedArgsTransformation().apply(driver)
     DerivedArgsTransformation().apply(routine)
 
+    typepaths = [Path(h) for h in header]
+    typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
+    for typemod in typemods:
+        FortranCTransformation().apply(routine=typemod, path=out_path)
+
     # Now we instantiate our pipeline and apply the changes
-    transformation = FortranCTransformation()
+    transformation = FortranCTransformation(header_modules=typemods)
     transformation.apply(routine, filename=source_out, path=out_path)
 
     # Insert new module import into the driver and re-generate
     # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
+    driver.spec.prepend(Import(module='%s_fc_MOD' % routine.name.upper(),
                                symbols=[routine.name.upper()]))
-    transformation.rename_calls(driver, suffix='C')
+    transformation.rename_calls(driver, suffix='_fc')
     transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 

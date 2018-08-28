@@ -38,12 +38,12 @@ class FortranCTransformation(BasicTransformation):
 
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_module(source, c_structs)
-            self.wrapperpath = (path/wrapper.name).with_suffix('.f90')
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=False)
 
             # Generate C header file from module
             c_header = self.generate_c_header(source)
-            self.c_path = (path/c_header.name).with_suffix('.h')
+            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
             SourceFile.to_file(source=cgen(c_header), path=self.c_path)
 
         elif isinstance(source, Subroutine):
@@ -53,12 +53,12 @@ class FortranCTransformation(BasicTransformation):
 
             # Generate Fortran wrapper module
             wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (path/wrapper.name).with_suffix('.f90')
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(source)
-            self.c_path = (path/c_kernel.name).with_suffix('.c')
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
             SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
 
         else:
@@ -131,6 +131,8 @@ class FortranCTransformation(BasicTransformation):
         wrappers = []
         for decl in FindNodes(Declaration).visit(module.spec):
             for v in decl.variables:
+                if v.type.dtype is None:
+                    continue
                 isoctype = v.type.dtype.isoctype
                 gettername = '%s__get__%s' % (module.name, v.name)
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
@@ -183,8 +185,11 @@ class FortranCTransformation(BasicTransformation):
         for decl in FindNodes(Declaration).visit(module.spec):
             assert len(decl.variables) == 1;
             v = decl.variables[0]
+            # Bail if not a basic type
+            if v.type.dtype is None:
+                continue
             tmpl_function = '%s %s__get__%s();' % (
-                v.type.dtype.ctype, module.name, v.name)
+                v.type.dtype.ctype, module.name.lower(), v.name.lower())
             spec += [Intrinsic(text=tmpl_function)]
 
         # Re-create spec with getters and typedefs to wipe Fortran-specifics
@@ -211,13 +216,14 @@ class FortranCTransformation(BasicTransformation):
                 # For imported modulevariables, create a declaration and call the getter
                 module = header_map[imp.module]
                 mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
-                mod_vars = {v.name: v for v in mod_vars}
+                mod_vars = {v.name.lower(): v for v in mod_vars}
+
                 for s in imp.symbols:
-                    if s in mod_vars:
-                        var = mod_vars[s]
+                    if s.lower() in mod_vars:
+                        var = mod_vars[s.lower()]
 
                         decl = Declaration(variables=[var], type=var.type)
-                        getter = '%s__get__%s' % (module.name, var.name)
+                        getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
                         vget = Statement(target=var, expr=InlineCall(name=getter, arguments=()))
                         getter_calls += [decl, vget]
 
