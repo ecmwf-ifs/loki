@@ -90,7 +90,7 @@ class Module(object):
                             dims = dims.split(')')[0].split(',')
                             dims = [d.strip() for d in dims]
                             # Override dimensions (hacky: not transformer-safe!)
-                            v.dimensions = as_tuple(Literal(value=d) if d.isnumeric() else Variable(name=d)
+                            v._shape = as_tuple(Literal(value=d) if d.isnumeric() else Variable(name=d)
                                                     for d in dims)
 
     @property

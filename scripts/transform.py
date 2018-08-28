@@ -115,7 +115,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex(None, None) for _ in type_var.dimensions)
                             new_arg = Variable(name=type_var.name, dimensions=new_dims,
-                                               shape=type_var.dimensions, ref=deepcopy(d_arg))
+                                               shape=type_var.shape, ref=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -147,8 +147,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                                     intent=arg.type.intent)
                 new_name = '%s_%s' % (arg.name, type_var.name)
                 new_var = Variable(name=new_name, type=new_type,
-                                   dimensions=as_tuple(type_var.dimensions),
-                                   shape=as_tuple(type_var.dimensions))
+                                   dimensions=as_tuple(type_var.shape),
+                                   shape=as_tuple(type_var.shape))
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
