@@ -4,11 +4,11 @@ from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
 from loki.backend import fgen, cgen
 from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
-                     TypeDef, Statement, Scope)
+                     TypeDef, Statement, Scope, Loop)
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.types import BaseType, DerivedType
-from loki.expression import Variable, FindVariables, InlineCall
+from loki.types import BaseType, DerivedType, DataType
+from loki.expression import Variable, FindVariables, InlineCall, RangeIndex, Literal
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -256,6 +256,47 @@ class FortranCTransformation(BasicTransformation):
             for v in FindVariables(unique=False).visit(kernel.body):
                 if v in invert_assoc:
                     v.ref = invert_assoc[v].ref
+
+        # Adjust explicit (literal) array indices
+        for v in FindVariables(unique=False).visit(kernel.body):
+            for d in v.dimensions:
+                if isinstance(d, Literal):
+                    # TODO: Make literals behave like numbers!
+                    d.value += '-1'
+
+        # TODO: Resolve reductions (eg. SUM(myvar(:)))
+
+        # Resolve implicit vector notation by inserting explicit loops
+        loop_map = {}
+        index_vars = set()
+        for stmt in FindNodes(Statement).visit(kernel.body):
+            # Loop over all variables and replace them with loop indices
+            vdims = set()
+            for v in FindVariables(unique=False).visit(stmt):
+                for dim, shape in zip(v.dimensions, as_tuple(v.shape)):
+                    if isinstance(dim, RangeIndex):
+                        vtype = BaseType(name='integer', kind='4')
+                        ivar = Variable(name='i_%s' % shape, type=vtype)
+                        vdims.add(ivar)
+                        v.dimensions = as_tuple(d if d is not dim else ivar
+                                                for d in v.dimensions)
+            index_vars.update(list(vdims))
+
+            # Recursively build new loop nest over all implicit dims
+            if len(vdims) > 0:
+                loop = None
+                body = stmt
+                for ivar in vdims:
+                    # TODO: Handle more complex ranges
+                    bounds = RangeIndex(lower=Literal(value='1'), upper=shape)
+                    loop = Loop(variable=ivar, body=body, bounds=bounds)
+                    body = loop
+
+                loop_map[stmt] = loop
+
+        if len(loop_map) > 0:
+            kernel.body = Transformer(loop_map).visit(kernel.body)
+        kernel.variables += list(index_vars)
 
         # Invert data/loop accesses from column to row-major
         # TODO: Take care of the indexing shift between C and Fortran.

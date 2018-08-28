@@ -90,3 +90,22 @@ subroutine transpile_module_variables(a, b, c)
   c = 1. + param3
 
 end subroutine transpile_module_variables
+
+
+subroutine transpile_vectorization(n, m, scalar, v1, v2)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: n, m
+  real(kind=real64), intent(inout) :: scalar
+  real(kind=real64), intent(inout) :: v1(n), v2(n)
+
+  real(kind=real64) :: matrix(n, m)
+
+  integer :: i
+
+  v1(:) = scalar + 1.0
+  matrix(:, :) = scalar + 2.
+  v2(:) = matrix(:, 2)
+  v2(1) = 1.
+
+end subroutine transpile_vectorization

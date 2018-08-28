@@ -188,3 +188,33 @@ def test_transpile_module_variables(refpath, reference, builder):
     c_kernel.transpile_type.param3 = 3.
     a, b, c = c_kernel.transpile_module_variables_fc_mod.transpile_module_variables_fc()
     assert a == 3 and b == 5. and c == 4.
+
+
+def test_transpile_vectorization(refpath, reference, builder):
+    """
+    Tests vector-notation conversion and local multi-dimensional arrays.
+    """
+
+    # Test the reference solution
+    n, m = 3, 4
+    scalar = 2.0
+    v1 = np.zeros(shape=(n,), order='F')
+    v2 = np.zeros(shape=(n,), order='F')
+
+    reference.transpile_vectorization(n, m, scalar, v1, v2)
+    assert np.all(v1 == 3.)
+    assert v2[0] == 1. and np.all(v2[1:] == 4.)
+
+    # Generate the C kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_vectorization'], refpath, builder)
+
+    # Test the trnapiled C kernel
+    n, m = 3, 4
+    scalar = 2.0
+    v1 = np.zeros(shape=(n,), order='F')
+    v2 = np.zeros(shape=(n,), order='F')
+    function = c_kernel.transpile_vectorization_fc_mod.transpile_vectorization_fc
+    function(n, m, scalar, v1, v2)
+    assert np.all(v1 == 3.)
+    assert v2[0] == 1. and np.all(v2[1:] == 4.)

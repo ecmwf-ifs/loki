@@ -100,8 +100,7 @@ class CCodegen(Visitor):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
         vstr = [cexprgen(v) for v in o.variables]
-        vptr = [('*' if v.dimensions is not None and len(v.dimensions) > 0 else '')
-                for v in o.variables]
+        vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
         variables = self.segment('%s%s' % (p, v) for v, p in zip(vstr, vptr))
         return self.indent + '%s %s;' % (type, variables) + comment
 
