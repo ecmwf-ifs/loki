@@ -134,7 +134,7 @@ class FortranCTransformation(BasicTransformation):
                 if v.type.dtype is None:
                     continue
                 isoctype = v.type.dtype.isoctype
-                gettername = '%s__get__%s' % (module.name, v.name)
+                gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
                 getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = [Statement(target=Variable(name=gettername), expr=v)]
@@ -306,8 +306,9 @@ class FortranCTransformation(BasicTransformation):
         # Basically, we are relying on the CGen to shuft the iteration
         # indices and dearly hope that nobody uses the index's value.
         for v in FindVariables(unique=False).visit(kernel.body):
-            # Swap index order to row-major
-            if v.dimensions is not None and len(v.dimensions) > 0 :
-                v.dimensions = as_tuple(reversed(v.dimensions))
+            v.dimensions = as_tuple(reversed(v.dimensions))
+
+        for v in kernel.variables + kernel.arguments:
+            v.dimensions = as_tuple(reversed(v.dimensions))
 
         return kernel

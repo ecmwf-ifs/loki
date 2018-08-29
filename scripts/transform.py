@@ -580,9 +580,9 @@ def transpile(out_path, header, source, driver, xmod, include):
 
     # Insert new module import into the driver and re-generate
     # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_fc_MOD' % routine.name.upper(),
-                               symbols=[routine.name.upper()]))
-    transformation.rename_calls(driver, suffix='_fc')
+    driver.spec.prepend(Import(module='%s_fc_mod' % routine.name,
+                               symbols=['%s_fc' % routine.name]))
+    transformation.rename_calls(driver, suffix='fc')
     transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
