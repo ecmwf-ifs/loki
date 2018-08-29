@@ -1,8 +1,10 @@
 from loki.frontend.parse import parse
 from loki.frontend.omni2ir import convert_omni2ir
 from loki.ir import TypeDef, Section
+from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
+from loki.tools import as_tuple
 
 
 __all__ = ['Module']
@@ -88,7 +90,8 @@ class Module(object):
                             dims = dims.split(')')[0].split(',')
                             dims = [d.strip() for d in dims]
                             # Override dimensions (hacky: not transformer-safe!)
-                            v.dimensions = dims
+                            v.dimensions = as_tuple(Literal(value=d) if d.isnumeric() else Variable(name=d)
+                                                    for d in dims)
 
     @property
     def typedefs(self):
