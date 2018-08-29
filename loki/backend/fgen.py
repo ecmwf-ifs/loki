@@ -398,6 +398,13 @@ class FExprCodegen(Visitor):
                 line = self.visit(arg, line=line)
         return self.append(line, ')')
 
+    def visit_Cast(self, o, line):
+        line = self.append(line, '%s(' % o.type.name)
+        line = self.visit(o._expr, line=line)
+        line = self.append(line, ', kind=')
+        line = self.visit(o.type.kind, line=line)
+        return self.append(line, ')')
+
 
 def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=True):
     """

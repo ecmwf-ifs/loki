@@ -275,6 +275,12 @@ class CExprCodegen(Visitor):
                 line = self.visit(arg, line=line)
         return self.append(line, ')')
 
+    def visit_Cast(self, o, line):
+        line = self.append(line, '(')
+        line = self.visit(o.type.dtype.ctype, line=line)
+        line = self.append(line, ') ')
+        return self.visit(o._expr, line=line)
+
 
 def cexprgen(expr, linewidth=90, indent='', op_spaces=False):
     """

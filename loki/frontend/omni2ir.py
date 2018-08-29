@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex
+from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType
@@ -283,7 +283,16 @@ class OMNI2IR(GenericVisitor):
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            return InlineCall(name=name, arguments=args, kwarguments=kwargs)
+            if o.find('name') is not None and o.find('name').text in ['real']:
+                args = o.find('arguments')
+                expr = self.visit(args[0])
+                kind = self.visit(args[1])
+                if isinstance(kind, tuple):
+                    kind = kind[1]  # Yuckk!
+                btype = BaseType(name=o.find('name').text, kind=kind)
+                return Cast(expr=expr, type=btype)
+            else:
+                return InlineCall(name=name, arguments=args, kwarguments=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text

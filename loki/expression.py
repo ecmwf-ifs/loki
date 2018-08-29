@@ -3,7 +3,7 @@ from abc import ABCMeta, abstractproperty
 from loki.visitors import GenericVisitor, Visitor
 from loki.tools import flatten, as_tuple
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
+__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Cast', 'Index',
            'RangeIndex', 'ExpressionVisitor', 'LiteralList', 'FindVariables']
 
 
@@ -267,12 +267,26 @@ class InlineCall(Expression):
         return '%s(%s)' % (self.name, ','.join(str(a) for a in args))
 
     @property
-    def type(self):
-        return self._type
-
-    @property
     def children(self):
         return self.arguments
+
+
+class Cast(Expression):
+    """
+    Internal representation of a data cast to a psecific type.
+    """
+
+    def __init__(self, expr, type):
+        self._expr = expr
+        self._type = type
+
+    @property
+    def expr(self):
+        return '%s' % self._expr
+
+    @property
+    def type(self):
+        return self._type
 
 
 class Index(Expression):
