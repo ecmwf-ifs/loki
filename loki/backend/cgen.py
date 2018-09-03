@@ -2,6 +2,7 @@ from loki.tools import chunks, as_tuple
 from loki.visitors import Visitor, FindNodes
 from loki.types import DataType, DerivedType
 from loki.ir import TypeDef, Declaration, Import
+from loki.expression import Operation, Literal
 
 __all__ = ['cgen', 'CCodegen', 'cexprgen', 'CExprCodegen']
 
@@ -134,7 +135,7 @@ class CCodegen(Visitor):
         lvar = cexprgen(o.variable)
         lower = cexprgen(o.bounds.lower)
         upper = cexprgen(o.bounds.upper)
-        header = 'for (%s=%s-1; %s<%s; %s%s)' % (lvar, lower, lvar, upper, lvar, increment)
+        header = 'for (%s=%s; %s<=%s; %s%s)' % (lvar, lower, lvar, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
@@ -149,6 +150,7 @@ class CCodegen(Visitor):
         self._depth -= 1
         if len(bodies) > 1:
             raise NotImplementedError('Multi-body cnoditionals not yet supported')
+
         cond = cexprgen(o.conditions[0], op_spaces=True)
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''

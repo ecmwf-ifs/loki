@@ -8,7 +8,8 @@ from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
-from loki.expression import Variable, FindVariables, InlineCall, RangeIndex, Literal, ExpressionVisitor
+from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
+                             Literal, ExpressionVisitor, Operation)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -260,13 +261,6 @@ class FortranCTransformation(BasicTransformation):
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
 
-        # Adjust explicit (literal) array indices
-        for v in FindVariables(unique=False).visit(kernel.body):
-            for d in v.dimensions:
-                if isinstance(d, Literal):
-                    # TODO: Make literals behave like numbers!
-                    d.value += '-1'
-
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
 
         # Resolve implicit vector notation by inserting explicit loops
@@ -310,6 +304,14 @@ class FortranCTransformation(BasicTransformation):
 
         for v in kernel.variables + kernel.arguments:
             v.dimensions = as_tuple(reversed(v.dimensions))
+
+        # Shift each array indices to adjust to C indexing conventions
+        def minus_one(dim):
+            # TODO: Symbolics should make this neater
+            return Operation(ops=('-',), operands=(dim, Literal(value='1')))
+
+        for v in FindVariables(unique=False).visit(kernel.body):
+            v.dimensions = as_tuple(minus_one(d) for d in v.dimensions)
 
         # Replace known numerical intrinsic functions
         class IntrinsicVisitor(ExpressionVisitor):

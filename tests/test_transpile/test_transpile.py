@@ -68,7 +68,7 @@ def test_transpile_simple_loops(refpath, reference, builder):
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder)
 
-    # Test the trnapiled C kernel
+    # Test the transpiled C kernel
     n, m = 3, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
@@ -76,13 +76,9 @@ def test_transpile_simple_loops(refpath, reference, builder):
     function = c_kernel.transpile_simple_loops_fc_mod.transpile_simple_loops_fc
     function(n, m, scalar, vector, tensor)
     assert np.all(vector == 8.)
-    # TODO: The test uses the iteration indices to compute the results,
-    # which has not yet been adapted in the conversion engine.
-    # As a result, we get the correct iteration order, but need to
-    # count from 0 instead of one when writing out indices.
-    assert np.all(tensor == [[0., 10., 20., 30.],
-                             [1., 11., 21., 31.],
-                             [2., 12., 22., 32.]])
+    assert np.all(tensor == [[11., 21., 31., 41.],
+                             [12., 22., 32., 42.],
+                             [13., 23., 33., 43.]])
 
 
 def test_transpile_arguments(refpath, reference, builder):
@@ -239,3 +235,40 @@ def test_transpile_intrinsics(refpath, reference, builder):
     vmin, vmax, vabs, vmin_nested, vmax_nested = results
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
+
+
+def test_transpile_loop_indices(refpath, reference, builder):
+    """
+    Test to ensure loop indexing translates correctly
+    """
+
+    # Test the reference solution
+    n = 6
+    cidx, fidx = 3, 4
+    mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
+
+    reference.transpile_loop_indices(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
+    assert np.all(mask1[:cidx-1] == 1)
+    assert mask1[cidx] == 2
+    assert np.all(mask1[cidx+1:] == 0)
+    assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
+    assert np.all(mask3[:-1] == 0.)
+    assert mask3[-1] == 3.
+
+    # Generate the C kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_loop_indices'], refpath, builder)
+
+    mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
+    function = c_kernel.transpile_loop_indices_fc_mod.transpile_loop_indices_fc
+    function(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
+    assert np.all(mask1[:cidx-1] == 1)
+    assert mask1[cidx] == 2
+    assert np.all(mask1[cidx+1:] == 0)
+    assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
+    assert np.all(mask3[:-1] == 0.)
+    assert mask3[-1] == 3.

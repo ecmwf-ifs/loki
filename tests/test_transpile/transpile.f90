@@ -124,3 +124,29 @@ subroutine transpile_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, v
   vmax_nested = max(max(v1, v2), max(v3, v4))
 
 end subroutine transpile_intrinsics
+
+
+subroutine transpile_loop_indices(n, idx, mask1, mask2, mask3)
+  ! Test to ensure loop indexing translates correctly
+  use iso_fortran_env, only: real64
+  integer, intent(in) :: n, idx
+  integer, intent(inout) :: mask1(n), mask2(n)
+  real(kind=real64), intent(inout) :: mask3(n)
+
+  integer :: i
+
+  do i=1, n
+     if (i < idx) then
+        mask1(i) = 1
+     end if
+
+     if (i == idx) then
+        mask1(i) = 2
+     end if
+
+     mask2(i) = i
+  end do
+
+  mask3(n) = 3.0
+
+end subroutine transpile_loop_indices
