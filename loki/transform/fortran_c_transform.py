@@ -313,13 +313,18 @@ class FortranCTransformation(BasicTransformation):
 
         # Replace known numerical intrinsic functions
         class IntrinsicVisitor(ExpressionVisitor):
-            intrinsic_map = {
+            _intrinsic_map = {
                 'epsilon': 'DBL_EPSILON',
+                'min': 'fmin', 'max': 'fmax',
+                'abs': 'fabs', 'sign': 'copysign',
             }
 
             def visit_InlineCall(self, o):
-                if o.name.lower() == 'epsilon':
-                    o.name = 'DBL_EPSILON'
+                if o.name.lower() in self._intrinsic_map:
+                    o.name = self._intrinsic_map[o.name.lower()]
+
+                for c in o.children:
+                    self.visit(c)
 
         intrinsic = IntrinsicVisitor()
         for stmt in FindNodes(Statement).visit(kernel.body):

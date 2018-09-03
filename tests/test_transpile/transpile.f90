@@ -109,3 +109,18 @@ subroutine transpile_vectorization(n, m, scalar, v1, v2)
   v2(1) = 1.
 
 end subroutine transpile_vectorization
+
+
+subroutine transpile_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, vmax_nested)
+  ! Test supported intrinsic functions
+  use iso_fortran_env, only: real64
+  real(kind=real64), intent(in) :: v1, v2, v3, v4
+  real(kind=real64), intent(out) :: vmin, vmax, vabs, vmin_nested, vmax_nested
+
+  vmin = min(v1, v2)
+  vmax = max(v1, v2)
+  vabs = abs(v1 - v2)
+  vmin_nested = min(min(v1, v2), min(v3, v4))
+  vmax_nested = max(max(v1, v2), max(v3, v4))
+
+end subroutine transpile_intrinsics

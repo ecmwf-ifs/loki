@@ -222,11 +222,19 @@ class CExprCodegen(Visitor):
         return line
 
     def visit_Operation(self, o, line):
+        ops_map = {
+            '.or.': '||',
+            '.and.': '&&',
+            '.not.': '!'
+        }
+
         if len(o.ops) == 1 and len(o.operands) == 1:
             # Special case: a unary operator
             if o.parenthesis or self.parenthesise:
                 line = self.append(line, '(')
-            line = self.append(line, o.ops[0])
+            op = o.ops[0].lower()
+            op = ops_map[op] if op in ops_map else op
+            line = self.append(line, op)
             line = self.visit(o.operands[0], line=line)
             if o.parenthesis or self.parenthesise:
                 line = self.append(line, ')')
@@ -249,6 +257,8 @@ class CExprCodegen(Visitor):
         line = self.visit(o.operands[0], line=line)
         for op, operand in zip(o.ops, o.operands[1:]):
             s_op = (' %s ' % op) if self.op_spaces else str(op)
+            s_op = s_op.strip().lower()
+            s_op = ops_map[s_op.lower()] if s_op.lower() in ops_map else s_op
             line = self.append(line, s_op)
             line = self.visit(operand, line=line)
         if o.parenthesis or self.parenthesise:

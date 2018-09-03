@@ -218,3 +218,24 @@ def test_transpile_vectorization(refpath, reference, builder):
     function(n, m, scalar, v1, v2)
     assert np.all(v1 == 3.)
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
+
+
+def test_transpile_intrinsics(refpath, reference, builder):
+    """
+    A simple test routine to test supported intrinsic functions
+    """
+
+    # Test the reference solution
+    v1, v2, v3, v4 = 2., 4., 1., 5.
+    vmin, vmax, vabs, vmin_nested, vmax_nested = reference.transpile_intrinsics(v1, v2, v3, v4)
+    assert vmin == 2. and vmax == 4. and vabs == 2.
+    assert vmin_nested == 1. and vmax_nested == 5.
+
+    # Generate the C kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_intrinsics'], refpath, builder)
+
+    results = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc(v1, v2, v3, v4)
+    vmin, vmax, vabs, vmin_nested, vmax_nested = results
+    assert vmin == 2. and vmax == 4. and vabs == 2.
+    assert vmin_nested == 1. and vmax_nested == 5.

@@ -288,6 +288,10 @@ class Cast(Expression):
     def type(self):
         return self._type
 
+    @property
+    def children(self):
+        return as_tuple(self._expr)
+
 
 class Index(Expression):
 
