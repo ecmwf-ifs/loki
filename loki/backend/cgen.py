@@ -142,6 +142,18 @@ class CCodegen(Visitor):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
+    def visit_Conditional(self, o):
+        self._depth += 1
+        bodies = [self.visit(b) for b in o.bodies]
+        else_body = self.visit(o.else_body)
+        self._depth -= 1
+        if len(bodies) > 1:
+            raise NotImplementedError('Multi-body cnoditionals not yet supported')
+        cond = cexprgen(o.conditions[0], op_spaces=True)
+        main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
+        else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
+        return self.indent + main_branch + else_branch + '%s}\n' % self.indent
+
     def visit_Intrinsic(self, o):
         return o.text
 
