@@ -86,6 +86,7 @@ class CCodegen(Visitor):
         # And finally some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
+        imports += '#include <float.h>\n'
         imports += '#include <math.h>\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
 
@@ -263,6 +264,10 @@ class CExprCodegen(Visitor):
         return self.append(line, value)
 
     def visit_InlineCall(self, o, line):
+        # MASSIVE HACK!
+        if o.name.upper() == 'DBL_EPSILON':
+            return self.append(line, o.name)
+
         line = self.append(line, '%s(' % o.name)
         if len(o.arguments) > 0:
             line = self.visit(o.arguments[0], line=line)

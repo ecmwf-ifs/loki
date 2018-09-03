@@ -8,7 +8,7 @@ from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
-from loki.expression import Variable, FindVariables, InlineCall, RangeIndex, Literal
+from loki.expression import Variable, FindVariables, InlineCall, RangeIndex, Literal, ExpressionVisitor
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -310,5 +310,19 @@ class FortranCTransformation(BasicTransformation):
 
         for v in kernel.variables + kernel.arguments:
             v.dimensions = as_tuple(reversed(v.dimensions))
+
+        # Replace known numerical intrinsic functions
+        class IntrinsicVisitor(ExpressionVisitor):
+            intrinsic_map = {
+                'epsilon': 'DBL_EPSILON',
+            }
+
+            def visit_InlineCall(self, o):
+                if o.name.lower() == 'epsilon':
+                    o.name = 'DBL_EPSILON'
+
+        intrinsic = IntrinsicVisitor()
+        for stmt in FindNodes(Statement).visit(kernel.body):
+            intrinsic.visit(stmt.expr)
 
         return kernel
