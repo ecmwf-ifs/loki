@@ -258,7 +258,7 @@ class CExprCodegen(Visitor):
                 line = self.append(line, 'pow(')
                 line = self.visit(o.operands[0], line=line)
                 line = self.append(line, ',')
-                line = self.visit(o.operands[0], line=line)
+                line = self.visit(o.operands[1], line=line)
                 line = self.append(line, ')')
                 return line
             else:
