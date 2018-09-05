@@ -654,7 +654,7 @@ class RapsTransformation(BasicTransformation):
             if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
-                    d.replace(intfb[0], str(o_mode_path))
+                    d.replace(intfb, str(o_mode_path))
             if isinstance(d, Dependency) and str(o_path) in d.deps:
                 d.replace(str(o_path), str(o_mode_path))
 
