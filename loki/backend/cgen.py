@@ -55,7 +55,7 @@ class CCodegen(Visitor):
         for a in o.arguments:
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if a.dimensions is not None and len(a.dimensions) > 0:
-                aptr += ['*v_']
+                aptr += ['* restrict v_']
             elif isinstance(a.type, DerivedType):
                 aptr += ['*']
             elif a.type.pointer:
