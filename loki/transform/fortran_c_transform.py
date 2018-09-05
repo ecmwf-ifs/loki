@@ -132,12 +132,13 @@ class FortranCTransformation(BasicTransformation):
         wrappers = []
         for decl in FindNodes(Declaration).visit(module.spec):
             for v in decl.variables:
-                if v.type.dtype is None:
+                if v.type.dtype is None or v.type.pointer or v.type.allocatable:
                     continue
                 isoctype = v.type.dtype.isoctype
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
-                getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
+                if isoctype.kind in ['c_int', 'c_float', 'c_double']:
+                    getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = [Statement(target=Variable(name=gettername), expr=v)]
                 getter = Subroutine(name=gettername, bind=gettername, spec=getterspec,
                                     body=getterbody, is_function=True)
