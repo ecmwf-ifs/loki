@@ -135,7 +135,8 @@ class CCodegen(Visitor):
         lvar = cexprgen(o.variable)
         lower = cexprgen(o.bounds.lower)
         upper = cexprgen(o.bounds.upper)
-        header = 'for (%s=%s; %s<=%s; %s%s)' % (lvar, lower, lvar, upper, lvar, increment)
+        criteria = '<=' if o.bounds.step is None or eval(str(o.bounds.step)) > 0 else '>='
+        header = 'for (%s=%s; %s%s%s; %s%s)' % (lvar, lower, lvar, criteria, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
