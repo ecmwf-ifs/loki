@@ -302,7 +302,7 @@ class FortranCTransformation(BasicTransformation):
         for v in FindVariables(unique=False).visit(kernel.body):
             v.dimensions = as_tuple(reversed(v.dimensions))
 
-        for v in kernel.variables + kernel.arguments:
+        for v in kernel.variables:
             v.dimensions = as_tuple(reversed(v.dimensions))
 
         # Shift each array indices to adjust to C indexing conventions
