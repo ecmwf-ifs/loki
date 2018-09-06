@@ -4,12 +4,13 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (SourceFile, Visitor, ExpressionVisitor,
-                  Transformer, FindNodes, FindVariables, info,
-                  as_tuple, Loop, Variable, Call, Pragma,
-                  BaseType, DerivedType, Import, Index, RangeIndex,
+from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
+                  FindNodes, FindVariables, info, as_tuple, Loop,
+                  Variable, Call, Pragma, BaseType,
+                  DerivedType, Import, Index, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
-                  Frontend, OFP)
+                  FortranCTransformation,
+                  Frontend, OMNI, OFP, cgen)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -77,10 +78,15 @@ class DerivedArgsTransformation(AbstractTransformation):
         candidates = defaultdict(list)
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
+                # Skip derived types with no array members
+                if all(not v.type.pointer and not v.type.allocatable
+                       for v in arg.type.variables):
+                    continue
+
                 # Add candidate type variables, preserving order from the typedef
                 arg_member_vars = set(v.name.lower() for v in variables
                                       if v.ref is not None and v.ref.name.lower() == arg.name.lower())
-                candidates[arg] += [v for v in arg.type.variables.values()
+                candidates[arg] += [v for v in arg.type.variables
                                     if v.name.lower() in arg_member_vars]
 
         return candidates
@@ -109,7 +115,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex(None, None) for _ in type_var.dimensions)
                             new_arg = Variable(name=type_var.name, dimensions=new_dims,
-                                               shape=type_var.dimensions, ref=deepcopy(d_arg))
+                                               shape=type_var.shape, ref=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -141,8 +147,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                                     intent=arg.type.intent)
                 new_name = '%s_%s' % (arg.name, type_var.name)
                 new_var = Variable(name=new_name, type=new_type,
-                                   dimensions=as_tuple(type_var.dimensions),
-                                   shape=as_tuple(type_var.dimensions))
+                                   dimensions=as_tuple(type_var.shape),
+                                   shape=as_tuple(type_var.shape))
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
@@ -523,6 +529,61 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                                symbols=[routine.name.upper()]))
     BasicTransformation().rename_calls(driver, suffix=mode.upper())
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
+
+
+
+@cli.command()
+@click.option('--out-path', '-out', type=click.Path(),
+              help='Path for generated souce files.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--source', '-s', type=click.Path(),
+              help='Source file to convert.')
+@click.option('--driver', '-d', type=click.Path(),
+              help='Driver file to convert.')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
+def transpile(out_path, header, source, driver, xmod, include):
+    """
+    Convert kernels to C and generate ISO-C bindings and interfaces.
+    """
+
+    # Parse original driver and kernel routine, and enrich the driver
+    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
+                                   includes=include, frontend=OMNI).subroutines[0]
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=OMNI).subroutines[0]
+    driver.enrich_calls(routines=routine)
+
+    # Prepare output paths
+    out_path = Path(out_path)
+    source_out = (out_path / routine.name.lower()).with_suffix('.c.F90')
+    driver_out = (out_path / driver.name.lower()).with_suffix('.c.F90')
+    c_path = (out_path / ('%s_c' % routine.name.lower())).with_suffix('.c')
+
+    # Unroll derived-type arguments into multiple arguments
+    # Caller must go first, as it needs info from routine
+    DerivedArgsTransformation().apply(driver)
+    DerivedArgsTransformation().apply(routine)
+
+    typepaths = [Path(h) for h in header]
+    typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
+    for typemod in typemods:
+        FortranCTransformation().apply(routine=typemod, path=out_path)
+
+    # Now we instantiate our pipeline and apply the changes
+    transformation = FortranCTransformation(header_modules=typemods)
+    transformation.apply(routine, filename=source_out, path=out_path)
+
+    # Insert new module import into the driver and re-generate
+    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
+    driver.spec.prepend(Import(module='%s_fc_mod' % routine.name,
+                               symbols=['%s_fc' % routine.name]))
+    transformation.rename_calls(driver, suffix='fc')
+    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
 class InferArgShapeTransformation(AbstractTransformation):

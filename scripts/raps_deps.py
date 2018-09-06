@@ -76,7 +76,7 @@ class Dependency(object):
         return '%s: %s' % (self.target, deps)
 
     def find(self, name):
-        hits = [d for d in self.deps if name in d]
+        hits = [d for d in self.deps if name == Path(d).name]
         if len(hits) == 0:
             return None
         return hits if len(hits) > 1 else hits[0]

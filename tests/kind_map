@@ -1,10 +1,16 @@
 {
  'real':     {'': 'float',
               '4': 'float',
+              'real32': 'float',
+              'REAL32': 'float',
+              'c_float': 'float',
               '8': 'double',
               'jprb': 'double',
               'JPRB': 'double',
               'selected_real_kind(13,300)': 'double',
               'selected_real_kind13,300': 'double',
+              'real64': 'double',
+              'REAL64': 'double',
+              'c_double': 'double',
 	      },
 }

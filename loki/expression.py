@@ -3,7 +3,7 @@ from abc import ABCMeta, abstractproperty
 from loki.visitors import GenericVisitor, Visitor
 from loki.tools import flatten, as_tuple
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Index',
+__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Cast', 'Index',
            'RangeIndex', 'ExpressionVisitor', 'LiteralList', 'FindVariables']
 
 
@@ -56,6 +56,14 @@ class FindVariables(ExpressionVisitor, Visitor):
     def visit_Statement(self, o, **kwargs):
         vars = as_tuple(self.visit(o.expr, **kwargs))
         vars += as_tuple(self.visit(o.target))
+        return set(vars) if self.unique else as_tuple(vars)
+
+    def visit_Loop(self, o, **kwargs):
+        vars = flatten(self.visit(o.variable) for c in o.children)
+        vars += flatten(self.visit(o.bounds.lower) for c in o.children)
+        vars += flatten(self.visit(o.bounds.upper) for c in o.children)
+        vars += flatten(self.visit(o.bounds.step) for c in o.children)
+        vars += flatten(self.visit(o.body) for c in o.children)
         return set(vars) if self.unique else as_tuple(vars)
 
 
@@ -259,12 +267,30 @@ class InlineCall(Expression):
         return '%s(%s)' % (self.name, ','.join(str(a) for a in args))
 
     @property
+    def children(self):
+        return self.arguments
+
+
+class Cast(Expression):
+    """
+    Internal representation of a data cast to a psecific type.
+    """
+
+    def __init__(self, expr, type):
+        self._expr = expr
+        self._type = type
+
+    @property
+    def expr(self):
+        return '%s' % self._expr
+
+    @property
     def type(self):
         return self._type
 
     @property
     def children(self):
-        return self.arguments
+        return as_tuple(self._expr)
 
 
 class Index(Expression):

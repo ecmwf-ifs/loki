@@ -5,10 +5,10 @@ from collections import OrderedDict
 
 from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex
+from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
-from loki.types import BaseType, DerivedType
+from loki.types import BaseType, DerivedType, DataType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
 
@@ -135,7 +135,7 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
         decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                         for v in derived._variables)
+                         for v in derived.variables)
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
@@ -252,7 +252,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=o.text, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
-        return Literal(value=o.text)
+        return Literal(value=o.text, type=DataType.BOOL)
 
     def visit_FcharacterConstant(self, o, source=None):
         return Literal(value='"%s"' % o.text)
@@ -283,7 +283,16 @@ class OMNI2IR(GenericVisitor):
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            return InlineCall(name=name, arguments=args, kwarguments=kwargs)
+            if o.find('name') is not None and o.find('name').text in ['real']:
+                args = o.find('arguments')
+                expr = self.visit(args[0])
+                kind = self.visit(args[1])
+                if isinstance(kind, tuple):
+                    kind = kind[1]  # Yuckk!
+                btype = BaseType(name=o.find('name').text, kind=kind)
+                return Cast(expr=expr, type=btype)
+            else:
+                return InlineCall(name=name, arguments=args, kwarguments=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text

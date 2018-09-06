@@ -8,7 +8,7 @@ from loki.tools import flatten, as_tuple
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional']
+           'MultiConditional', 'Interface', 'Intrinsic']
 
 
 class Node(object):
@@ -311,6 +311,16 @@ class Import(Node):
         self.c_import = c_import
 
 
+class Interface(Node):
+    """
+    Internal representation of a Fortran interace block.
+    """
+    def __init__(self, body=None, source=None):
+        super(Interface, self).__init__(source=source)
+
+        self.body = as_tuple(body)
+
+
 class Allocation(Node):
     """
     Internal representation of a variable allocation
@@ -398,13 +408,14 @@ class TypeDef(Node):
     Internal representation of derived type definition
     """
 
-    def __init__(self, name, declarations, comments=None, pragmas=None, source=None):
+    def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None):
         super(TypeDef, self).__init__(source=source)
 
         self.name = name
         self.declarations = declarations
         self.comments = comments
         self.pragmas = pragmas
+        self.bind_c = bind_c
 
     @property
     def variables(self):

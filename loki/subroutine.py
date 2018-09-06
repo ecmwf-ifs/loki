@@ -35,7 +35,7 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None):
+                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -55,6 +55,9 @@ class Subroutine(object):
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
         self._derive_variable_shape(typedefs=typedefs)
+
+        self.bind = bind
+        self.is_function = is_function
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
@@ -109,10 +112,10 @@ class Subroutine(object):
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         implicit_none = Intrinsic(text='IMPLICIT NONE')
-        first_decl = FindNodes(Declaration).visit(spec)[0]
+        decls = FindNodes(Declaration).visit(spec)
         spec_body = list(spec.body)
-        i = spec_body.index(first_decl)
-        spec_body.insert(i, implicit_none)
+        idx = spec_body.index(decls[0]) if len(decls) > 0 else len(spec_body)
+        spec_body.insert(idx, implicit_none)
         spec._update(body=as_tuple(spec_body))
 
         # TODO: Parse member functions properly
@@ -165,7 +168,7 @@ class Subroutine(object):
         # Remove declarations from the IR
         self.spec = Transformer(dmap).visit(self.spec)
 
-    def _externalize(self):
+    def _externalize(self, c_backend=False):
         """
         Re-insert argument declarations...
         """
@@ -176,6 +179,9 @@ class Subroutine(object):
 
         decls = []
         for v in self.variables:
+            if c_backend and v in self.arguments:
+                continue
+
             if v in self._decl_map:
                 d = self._decl_map[v].clone()
                 d.variables = as_tuple(v)
@@ -268,13 +274,13 @@ class Subroutine(object):
 
         # Apply shapes to all variables in the IR (in-place)
         for v in FindVariables(unique=False).visit(self.ir):
-                if v.name in shapes:
-                    v._shape = shapes[v.name]
+            if v.name in shapes:
+                v._shape = shapes[v.name]
 
-                if v.ref is not None and v.ref.name in derived:
-                    # We currently only follow a single level of nesting
-                    typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
-                    v._shape = typevars[v.name.upper()].dimensions
+            if v.ref is not None and v.ref.name in derived:
+                # We currently only follow a single level of nesting
+                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
+                v._shape = typevars[v.name.upper()].shape
 
     @property
     def ir(self):
