@@ -111,11 +111,9 @@ class Subroutine(object):
         spec = Section(body=Transformer(mapper).visit(spec))
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
-        implicit_none = Intrinsic(text='IMPLICIT NONE')
-        decls = FindNodes(Declaration).visit(spec)
+        f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
         spec_body = list(spec.body)
-        idx = spec_body.index(decls[0]) if len(decls) > 0 else len(spec_body)
-        spec_body.insert(idx, implicit_none)
+        spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
         spec._update(body=as_tuple(spec_body))
 
         # TODO: Parse member functions properly
