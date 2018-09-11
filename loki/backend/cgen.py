@@ -104,7 +104,8 @@ class CCodegen(Visitor):
         type = self.visit(o.type)
         vstr = [cexprgen(v) for v in o.variables]
         vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
-        variables = self.segment('%s%s' % (p, v) for v, p in zip(vstr, vptr))
+        vinit = ['' if v.initial is None else (' = %s' % cexprgen(v.initial)) for v in o.variables]
+        variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
         return self.indent + '%s %s;' % (type, variables) + comment
 
     def visit_BaseType(self, o):
