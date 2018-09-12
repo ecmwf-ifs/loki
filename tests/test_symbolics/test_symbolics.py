@@ -1,14 +1,20 @@
 from sympy import symbols
 
-from loki import Variable, Subroutine
+from loki import Variable, Scalar, Subroutine
 
 
 def test_symbolic_equivalence():
     """
     Test symbolic equivalence for internal expressions.
     """
-    x, y = symbols('x y')
+    x = Variable(name='x')
+    y = Variable(name='y')
     f = Variable(name='f', dimensions=(x, y))
+
+    # Sanity check the SymPy-style class markers
+    assert x.is_Symbol and x.is_Scalar
+    assert y.is_Symbol and y.is_Scalar
+    assert f.is_Function and f.is_Array
 
     f_plus_1 = f + 1
     assert f + 1 == 1 + f
@@ -19,7 +25,13 @@ def test_symbol_caching_global():
     """
     Test symbol caching via the global symbol cache.
     """
-    x, y, a = symbols('x y a')
+    x = Scalar(name='x')
+    y = Scalar(name='y')
+    a = Variable(name='a')
+    assert x.is_Symbol and x.is_Scalar
+    assert y.is_Symbol and y.is_Scalar
+    assert a.is_Symbol and a.is_Scalar
+
     f0 = Variable(name='f', dimensions=(x, y))
     f1 = Variable(name='f', dimensions=(x, y))
     # Symbol with different parents are not equivalent
@@ -40,7 +52,9 @@ def test_symbol_caching_kernel():
     """
     kernel1 = Subroutine(name='test_kernel1')
     kernel2 = Subroutine(name='test_kernel2')
-    x, y, a = symbols('x y a')
+
+    x = Variable(name='x')
+    y = Variable(name='y')
 
     f0 = kernel1.Variable(name='f', dimensions=(x, y))
     f1 = kernel1.Variable(name='f', dimensions=(x, y))
