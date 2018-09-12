@@ -1,10 +1,12 @@
 from collections import OrderedDict
+from fastcache import clru_cache
+from sympy.core.cache import SYMPY_CACHE_SIZE
 
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, FindVariables
+from loki.expression import Variable, FindVariables, Array, Scalar
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -58,6 +60,13 @@ class Subroutine(object):
 
         self.bind = bind
         self.is_function = is_function
+
+        # Instantiate local symbol caches
+        self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                       unhashable='ignore')(Array.__new_stage2__)
+        self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                        unhashable='ignore')(Scalar.__new_stage2__)
+
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
@@ -132,6 +141,26 @@ class Subroutine(object):
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, typedefs=typedefs)
+
+    def Variable(self, *args, **kwargs):
+        # Here, we emulate Var.__new__, but we call the 2nd stage through
+        # the locally cached decorator. This means we need
+        name = kwargs.pop('name')
+        dimensions = kwargs.pop('dimensions', None)
+        parent = kwargs.pop('parent', None)
+
+        # Create a new object from the static constructor with local
+        # caching on `Kernel` instance!
+
+        if dimensions is None:
+            newobj = self._scalar_cache(Scalar, name, parent=parent)
+        else:
+            newobj = self._array_cache(Array, name, dimensions, parent=parent)
+
+        # Since we are not actually using the object instation
+        # mechanism, we need to call __init__ ourselves.
+        newobj.__init__(*args, **kwargs)
+        return newobj
 
     def _internalize(self):
         """

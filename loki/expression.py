@@ -1,10 +1,24 @@
 from abc import ABCMeta, abstractproperty
+from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
+import sympy
+from collections import Iterable
 
 from loki.visitors import GenericVisitor, Visitor
 from loki.tools import flatten, as_tuple
+from loki.logging import warning
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Variable', 'Cast', 'Index',
+__all__ = ['Expression', 'Operation', 'Literal', 'Scalar', 'Array', 'Variable', 'Cast', 'Index',
            'RangeIndex', 'ExpressionVisitor', 'LiteralList', 'FindVariables']
+
+
+def _symbol_type(cls, name, parent=None):
+    """
+    Create new type instance from cls and inject symbol name
+    """
+    # Add the parent-object if it exists (`parent`)
+    parent = ('%s.' % parent) if parent is not None else ''
+    name = '%s%s' % (parent, name)
+    return type(name, (cls, ), dict(cls.__dict__))
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -109,6 +123,171 @@ class Expression(object):
         return ()
 
 
+class Scalar(sympy.Symbol):
+
+    is_Scalar = True
+    is_Array = False
+
+    def __new__(cls, *args, **kwargs):
+        """
+        1st-level variable creation with name injection via the object class
+        """
+        name = kwargs.pop('name')
+        parent = kwargs.pop('parent', None)
+
+        # Create a new object from the static constructor with global caching!
+        return Scalar.__xnew_cached_(cls, name, parent=parent)
+
+    def __new_stage2__(cls, name, parent=None):
+        """
+        2nd-level constructor: arguments to this constructor are used
+        for symbolic caching
+        """
+        # Create a new class object to inject custom variable naming
+        # newcls = _symbol_type(cls, name, parent)
+
+        # Setting things here before __init__ forces them
+        # to be used for symbolic caching. Thus, `parent` is
+        # always used for caching, even if it's not in the name
+        newobj = sympy.Symbol.__new__(cls, name)
+        newobj.name = name
+        newobj.parent = parent
+
+        return newobj
+
+    # Create a globally cached symbol constructor.
+    __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
+
+
+class Array(sympy.Function):
+
+    is_Scalar = False
+    is_Array = True
+
+    def __new__(cls, *args, **kwargs):
+        """
+        1st-level variable creation with name injection via the object class
+        """
+        name = kwargs.pop('name')
+        dimensions = kwargs.pop('dimensions', None)
+        parent = kwargs.pop('parent', None)
+
+        # Create a new object from the static constructor with global caching!
+        return Array.__xnew_cached_(cls, name, dimensions, parent=parent)
+
+    def __new_stage2__(cls, name, dimensions, parent=None):
+        """
+        2nd-level constructor: arguments to this constructor are used
+        for symbolic caching
+        """
+        # Create a new class object to inject custom variable naming
+        newcls = _symbol_type(cls, name, parent)
+
+        # Setting things here before __init__ forces them
+        # to be used for symbolic caching. Thus, `parent` is
+        # always used for caching, even if it's not in the name
+        newobj = sympy.Function.__new__(newcls, *dimensions)
+        newobj.name = name
+        newobj.dimensions = dimensions
+        newobj.parent = parent
+
+        return newobj
+
+    # Use the sympy.core.cache.cacheit decorator to a kernel to create
+    # a static globally cached symbol constructor.
+    __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
+
+
+class Variable(sympy.Function):
+    """
+    A symbolic object representing either a :class:`Scalar` or a :class:`Array`
+    variable in arithmetic expressions.
+    """
+
+    def __new__(cls, *args, **kwargs):
+        """
+        1st-level variables creation with name injection via the object class
+        """
+        name = kwargs.pop('name')
+        dimensions = kwargs.pop('dimensions', None)
+        parent = kwargs.pop('parent', None)
+
+        # Create a new object from the static constructor with global caching!
+        if dimensions is None:
+            return Scalar.__new__(Scalar, name=name, parent=parent)
+        else:
+            return Array.__new__(Array, name=name, dimensions=dimensions, parent=parent)
+
+    # def __init__(self, *args, **kwargs):
+    #     """
+    #     Initialisation of non-cached objects attributes
+
+    #     Important: Despite the caching in __new__, __init__ will
+    #     always be executed when creating a new :class:`Variable` via the
+    #     global constructor, due to the direct inheritance from
+    #     sympy.Function.__new__. This means providing a value can
+    #     overwrite previous values on a previous instance due to caching.
+    #     """
+    #     self.meta = kwargs.pop('meta', None)
+    #     self._type = kwargs.pop('type', None)
+    #     self._shape = kwargs.pop('shape', None)
+    #     self.initial = kwargs.pop('initial', None)
+
+
+    # def __init__(self, name, type=None, shape=None, dimensions=None,
+    #              ref=None, initial=None, source=None):
+    #     super(Variable, self).__init__(source=source)
+    #     self._source = source
+
+    #     self.name = name
+    #     self._type = type
+    #     self._shape = shape
+    #     self.ref = ref  # Derived-type parent object
+    #     self.dimensions = dimensions or ()
+    #     self.initial = initial
+
+    # @property
+    # def expr(self):
+    #     idx = ''
+    #     if self.dimensions is not None and len(self.dimensions) > 0:
+    #         idx = '(%s)' % ','.join([str(i) for i in self.dimensions])
+    #     parent = '' if self.parent is None else '%s%%' % str(self.parent)
+    #     return '%s%s%s' % (parent, self.name, idx)
+
+    @property
+    def type(self):
+        return self._type
+
+    @property
+    def shape(self):
+        """
+        Original allocated shape of the variable as a tuple of dimensions.
+        """
+        return self._shape
+
+    # def __key(self):
+    #     return (self.name, self.type, self.dimensions, self.parent)
+
+    # def __hash__(self):
+    #     return hash(self.__key())
+
+    # def __eq__(self, other):
+    #     # Allow direct comparison to string and other Variable objects
+    #     if isinstance(other, str):
+    #         return str(self).upper() == other.upper()
+    #     elif isinstance(other, Variable):
+    #         return self.__key() == other.__key()
+    #     else:
+    #         return super(Variable, self).__eq__(other)
+
+    @property
+    def children(self):
+        c = self.dimensions
+        if self.parent is not None:
+            c += (self.parent, )
+        return c
+
+
 class Operation(Expression):
 
     def __init__(self, ops, operands, parenthesis=False, source=None):
@@ -193,62 +372,6 @@ class LiteralList(Expression):
     @property
     def expr(self):
         return '(/%s/)' % ', '.join(str(v) for v in self.values)
-
-
-class Variable(Expression):
-
-    def __init__(self, name, type=None, shape=None, dimensions=None,
-                 ref=None, initial=None, source=None):
-        super(Variable, self).__init__(source=source)
-        self._source = source
-
-        self.name = name
-        self._type = type
-        self._shape = shape
-        self.ref = ref  # Derived-type parent object
-        self.dimensions = dimensions or ()
-        self.initial = initial
-
-    @property
-    def expr(self):
-        idx = ''
-        if self.dimensions is not None and len(self.dimensions) > 0:
-            idx = '(%s)' % ','.join([str(i) for i in self.dimensions])
-        ref = '' if self.ref is None else '%s%%' % str(self.ref)
-        return '%s%s%s' % (ref, self.name, idx)
-
-    @property
-    def type(self):
-        return self._type
-
-    @property
-    def shape(self):
-        """
-        Original allocated shape of the variable as a tuple of dimensions.
-        """
-        return self._shape
-
-    def __key(self):
-        return (self.name, self.type, self.dimensions, self.ref)
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other):
-        # Allow direct comparison to string and other Variable objects
-        if isinstance(other, str):
-            return str(self).upper() == other.upper()
-        elif isinstance(other, Variable):
-            return self.__key() == other.__key()
-        else:
-            return super(Variable, self).__eq__(other)
-
-    @property
-    def children(self):
-        c = self.dimensions
-        if self.ref is not None:
-            c += (self.ref, )
-        return c
 
 
 class InlineCall(Expression):
