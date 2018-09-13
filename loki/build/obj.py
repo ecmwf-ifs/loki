@@ -1,10 +1,9 @@
 from pathlib import Path
 import re
 
-from loki.tools import as_tuple
+from loki.build.tools import as_tuple
+from loki.build.logging import _default_logger
 from loki.build.toolchain import _default_toolchain
-
-from loki.logging import debug  # The only upwards dependency!
 
 
 __all__ = ['Obj']
@@ -22,9 +21,10 @@ class Obj(object):
     A single source object representing a single C or Fortran source file.
     """
 
-    def __init__(self, filename, builder=None):
+    def __init__(self, filename, builder=None, logger=None):
         self.path = Path(filename)
         self.builder = builder
+        self.logger = logger or _default_logger
 
         with self.path.open() as f:
             source = f.read()
@@ -67,7 +67,7 @@ class Obj(object):
         build_dir = str(self.builder.build_dir)
         toolchain = self.builder.toolchain or _default_toolchain
 
-        debug('Building obj %s' % self)
+        self.logger.debug('Building obj %s' % self)
         use_c = self.path.suffix.lower() in ['.c', '.cc']
         toolchain.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
 

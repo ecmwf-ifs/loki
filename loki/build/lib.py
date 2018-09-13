@@ -1,9 +1,8 @@
 from pathlib import Path
 
 from loki.build.tools import as_tuple
+from loki.build.logging import _default_logger
 from loki.build.toolchain import _default_toolchain
-
-from loki.logging import debug  # The only upwards dependency!
 
 
 __all__ = ['Lib']
@@ -14,11 +13,12 @@ class Lib(object):
     A library linked from multiple objects.
     """
 
-    def __init__(self, name, objects=None, builder=None):
+    def __init__(self, name, objects=None, builder=None, logger=None):
         self.name = name
         self.path = Path('lib%s.so' % name)
         self.builder = builder
         self.objects = objects or []
+        self.logger = logger or _default_logger
 
     def __repr__(self):
         return 'Lib<%s>' % self.path.name
@@ -34,7 +34,7 @@ class Lib(object):
         target = '%s.a' % self.path.stem
         toolchain = self.builder.toolchain or _default_toolchain
 
-        debug('Building lib %s' % self)
+        self.logger.info('Building lib %s' % self)
         for obj in self.objects:
             obj.build()
 
