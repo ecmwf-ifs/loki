@@ -2,7 +2,7 @@ from pathlib import Path
 
 from loki.build.tools import as_tuple
 from loki.build.logging import _default_logger
-from loki.build.toolchain import _default_toolchain
+from loki.build.compiler import _default_compiler
 
 
 __all__ = ['Lib']
@@ -23,18 +23,21 @@ class Lib(object):
     def __repr__(self):
         return 'Lib<%s>' % self.path.name
 
-    def build(self):
+    def build(self, builder=None, compiler=None, logger=None, build_dir=None):
         """
         Build the source objects and create target library.
 
         TODO: This does not yet(!) auto-build dependencies.
         """
-        build_dir = str(self.builder.build_dir)
+        builder = builder or self.builder  # TODO: Default builder?
+        compiler = compiler or builder.compiler or _default_compiler
+        logger = logger or builder.logger or _default_logger
+
+        build_dir = builder.build_dir or build_dir
         # TODO: Support static libs
         target = '%s.a' % self.path.stem
-        toolchain = self.builder.toolchain or _default_toolchain
 
-        self.logger.info('Building lib %s' % self)
+        self.logger.info('Building %s' % self)
         for obj in self.objects:
             obj.build()
 
@@ -42,7 +45,7 @@ class Lib(object):
         # Python interpreter (not easily anyway), we ned to compile the
         # library statically, so that it can be baked into the wrapper.
         objs = ['%s.o' % o.path.stem for o in self.objects]
-        toolchain.link(target=target, objs=objs, shared=False, cwd=build_dir)
+        compiler.link(target=target, objs=objs, shared=False, cwd=build_dir)
 
     def wrap(self, modname, sources=None):
         """
@@ -52,10 +55,10 @@ class Lib(object):
         """
         items = as_tuple(self.builder.Obj(s) for s in as_tuple(sources))
         build_dir = self.builder.build_dir
-        toolchain = self.builder.toolchain or _default_toolchain
+        compiler = self.builder.compiler or _default_compiler
 
         sourcepaths = [str(i.path) for i in items]
-        toolchain.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir))
+        compiler.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir))
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
@@ -64,7 +67,7 @@ class Lib(object):
 
         libs = [self.name]
         lib_dirs = [str(build_dir.absolute())]
-        toolchain.f2py(modname=modname, source=wrappers,
-                       libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
+        compiler.f2py(modname=modname, source=wrappers,
+                      libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
 
         return self.builder.load_module(modname)

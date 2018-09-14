@@ -3,7 +3,7 @@ import re
 
 from loki.build.tools import as_tuple
 from loki.build.logging import _default_logger
-from loki.build.toolchain import _default_toolchain
+from loki.build.compiler import _default_compiler
 
 
 __all__ = ['Obj']
@@ -65,28 +65,28 @@ class Obj(object):
         Please note that this does not build any dependencies.
         """
         build_dir = str(self.builder.build_dir)
-        toolchain = self.builder.toolchain or _default_toolchain
+        compiler = self.builder.compiler or _default_compiler
 
         self.logger.debug('Building obj %s' % self)
         use_c = self.path.suffix.lower() in ['.c', '.cc']
-        toolchain.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
+        compiler.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
 
     def wrap(self):
         """
         Wrap the compiled object using ``f90wrap`` and return the loaded module.
         """
         build_dir = str(self.builder.build_dir)
-        toolchain = self.builder.toolchain or _default_toolchain
+        compiler = self.builder.compiler or _default_compiler
 
         module = self.path.stem
         source = [str(self.path)]
-        toolchain.f90wrap(modname=module, source=source, cwd=build_dir)
+        compiler.f90wrap(modname=module, source=source, cwd=build_dir)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrapper = 'f90wrap_%s.f90' % self.path.stem
         if self.modules is None or len(self.modules) == 0:
             wrapper = 'f90wrap_toplevel.f90'
-        toolchain.f2py(modname=module, source=[wrapper, '%s.o' % self.path.stem],
+        compiler.f2py(modname=module, source=[wrapper, '%s.o' % self.path.stem],
                        cwd=build_dir)
 
         return self.builder.load_module(module)

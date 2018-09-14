@@ -9,9 +9,8 @@ from loki.logging import info, debug  # The only upwards dependency!
 
 from loki.build.obj import Obj
 from loki.build.lib import Lib
-from loki.build.tools import as_tuple
-from loki.build.compiler import delete
-from loki.build.toolchain import _default_toolchain
+from loki.build.tools import as_tuple, delete
+from loki.build.compiler import _default_compiler
 
 
 __all__ = ['Builder']
@@ -27,9 +26,9 @@ class Builder(object):
     """
 
     def __init__(self, source_dirs, include_dirs=None, root_dir=None,
-                 build_dir=None, toolchain=None):
+                 build_dir=None, compiler=None):
         # TODO: Make configurable and supply more presets
-        self.toolchain = toolchain or _default_toolchain
+        self.compiler = compiler or _default_compiler
 
         # Source dirs for auto-detection and include dis for preprocessing
         self.source_dirs = [Path(p).resolve() for p in as_tuple(source_dirs)]
@@ -134,13 +133,13 @@ class Builder(object):
         objs = []
         dependencies = self.get_dependency_graph(item)
         for dep in reversed(list(nx.topological_sort(dependencies))):
-            dep.build(toolchain=self.toolchain, build_dir=build_dir,
+            dep.build(compiler=self.compiler, build_dir=build_dir,
                       include_dirs=self.include_dirs)
             objs += ['%s.o' % dep.path.stem]
 
         if target is not None:
             debug('Linking target: %s' % target)
-            self.toolchain.link(objs=objs, target=target, cwd=build_dir)
+            self.compiler.link(objs=objs, target=target, cwd=build_dir)
 
     def load_module(self, module):
         """
@@ -179,7 +178,7 @@ class Builder(object):
         # Execute the first-level wrapper (f90wrap)
         info('Python-wrapping %s' % items[0])
         sourcepaths = [str(i.path) for i in items]
-        self.toolchain.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
+        self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
 
         # Execute the second-level wrapper (f2py-f90wrap)
         wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
@@ -191,8 +190,8 @@ class Builder(object):
         lib_dirs = lib_dirs or ['%s' % self.build_dir.absolute()]
         incl_dirs = incl_dirs or []
 
-        self.toolchain.f2py(modname=modname, source=wrappers,
-                            libs=libs, lib_dirs=lib_dirs,
-                            incl_dirs=incl_dirs, cwd=build_dir)
+        self.compiler.f2py(modname=modname, source=wrappers,
+                           libs=libs, lib_dirs=lib_dirs,
+                           incl_dirs=incl_dirs, cwd=build_dir)
 
         self.load_module(module=modname)

@@ -3,7 +3,8 @@ from collections import Iterable
 
 from loki.logging import debug, error
 
-__all__ = ['execute', 'as_tuple', 'filter_ordered', 'flatten']
+
+__all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
 
 
 def execute(args, cwd=None):
@@ -14,6 +15,16 @@ def execute(args, cwd=None):
         error('Execution failed with:')
         error(e.output.decode("utf-8"))
         raise e
+
+
+def delete(filename, force=False):
+    filepath = Path(filename)
+    debug('Deleting %s' % filepath)
+    if force:
+        shutil.rmtree('%s' % filepath, ignore_errors=True)
+    else:
+        if filepath.exists():
+            os.remove('%s' % filepath)
 
 
 def as_tuple(item, type=None, length=None):
