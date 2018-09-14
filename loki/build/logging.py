@@ -7,11 +7,11 @@ __all__ = ['logger', 'FileLogger', '_default_logger',
            'debug', 'info', 'warning', 'error', 'log',
            'DEBUG', 'INFO', 'WARNING', 'ERROR']
 
-def FileLogger(name, filename, level=None, fmt=None, mode='w'):
+def FileLogger(name, filename, logger=None, level=None, fmt=None, mode='w'):
     level = level or INFO
     fmt = fmt or '%(asctime)s %(name)s[%(process)d] %(levelname)s %(message)s'
 
-    logger = logging.getLogger(name)
+    logger = logger or logging.getLogger(name)
     logger.setLevel(level)
 
     fh = logging.FileHandler(str(filename), mode=mode)
@@ -27,7 +27,7 @@ WARNING = logging.WARNING
 ERROR = logging.ERROR
 
 # TODO: Make configurable from options dict
-default_level = INFO
+default_level = DEBUG
 
 # Create the deault logger with color and timings
 logger = logging.getLogger('Loki')

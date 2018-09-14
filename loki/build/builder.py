@@ -7,10 +7,9 @@ from importlib import import_module
 
 from loki.logging import info, debug  # The only upwards dependency!
 
-from loki.build.obj import Obj
-from loki.build.lib import Lib
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
+from loki.build.logging import _default_logger
 
 
 __all__ = ['Builder']
@@ -25,10 +24,10 @@ class Builder(object):
     :param includes: One or more paths to that include header files
     """
 
-    def __init__(self, source_dirs, include_dirs=None, root_dir=None,
-                 build_dir=None, compiler=None):
-        # TODO: Make configurable and supply more presets
+    def __init__(self, source_dirs=None, include_dirs=None, root_dir=None,
+                 build_dir=None, compiler=None, logger=None):
         self.compiler = compiler or _default_compiler
+        self.logger = logger or _default_logger
 
         # Source dirs for auto-detection and include dis for preprocessing
         self.source_dirs = [Path(p).resolve() for p in as_tuple(source_dirs)]
@@ -36,7 +35,7 @@ class Builder(object):
 
         # Root and source directories for out-of source builds
         self.root_dir = None if root_dir is None else Path(root_dir)
-        self.build_dir = None if build_dir is None else Path(build_dir)
+        self.build_dir = Path.cwd() if build_dir is None else Path(build_dir)
         self.build_dir.mkdir(exist_ok=True)
 
         # Create the dependency graph and it's utilities
@@ -60,18 +59,6 @@ class Builder(object):
 
     def __getitem__(self, *args, **kwargs):
         return self.Obj(*args, **kwargs)
-
-    @lru_cache(maxsize=None)
-    def Obj(self, filename):
-        path = self.find_path(filename)
-        if path is None:
-            raise RuntimeError('Could not establish path for %s' % filename)
-        return Obj(filename=path, builder=self)
-
-    def Lib(self, name, objects=None):
-        objs = [o if isinstance(o, Obj) else self.Obj(o)
-                for o in as_tuple(objects)]
-        return Lib(name, objects=objs, builder=self)
 
     def get_dependency_graph(self, builditem):
         """
@@ -125,7 +112,7 @@ class Builder(object):
 
     def build(self, filename, target=None, shared=True):
         item = self.get_item(filename)
-        info("Building %s" % item)
+        self.logger.info("Building %s" % item)
 
         build_dir = str(self.build_dir) if self.build_dir else None
 
@@ -138,7 +125,7 @@ class Builder(object):
             objs += ['%s.o' % dep.path.stem]
 
         if target is not None:
-            debug('Linking target: %s' % target)
+            self.logger.info('Linking target: %s' % target)
             self.compiler.link(objs=objs, target=target, cwd=build_dir)
 
     def load_module(self, module):
@@ -176,7 +163,7 @@ class Builder(object):
                 self.build(item.path.name, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
-        info('Python-wrapping %s' % items[0])
+        self.logger.info('Python-wrapping %s' % items[0])
         sourcepaths = [str(i.path) for i in items]
         self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
 

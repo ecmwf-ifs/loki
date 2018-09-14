@@ -10,7 +10,7 @@ __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
 def execute(args, cwd=None):
     debug('Executing: %s' % ' '.join(args))
     try:
-        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
+        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=str(cwd))
     except CalledProcessError as e:
         error('Execution failed with:')
         error(e.output.decode("utf-8"))

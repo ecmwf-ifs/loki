@@ -1,5 +1,6 @@
-from pathlib import Path
 import re
+from pathlib import Path
+from cached_property import cached_property
 
 from loki.build.tools import as_tuple
 from loki.build.logging import _default_logger
@@ -26,17 +27,30 @@ class Obj(object):
         self.builder = builder
         self.logger = logger or _default_logger
 
-        with self.path.open() as f:
-            source = f.read()
-
-        self.modules = [m.lower() for m in _re_module.findall(source)]
-        self.subroutines = [m.lower() for m in _re_subroutine.findall(source)]
-
-        self.uses = [m.lower() for m in _re_use.findall(source)]
-        self.includes = [m.lower() for m in _re_include.findall(source)]
-
     def __repr__(self):
         return 'Obj<%s>' % self.path.name
+
+    @cached_property
+    def source(self):
+        with self.path.open() as f:
+            source = f.read()
+        return source
+
+    @cached_property
+    def modules(self):
+        return [m.lower() for m in _re_module.findall(self.source)]
+
+    @cached_property
+    def subroutines(self):
+        return [m.lower() for m in _re_subroutine.findall(self.source)]
+
+    @cached_property
+    def uses(self):
+        return [m.lower() for m in _re_use.findall(self.source)]
+
+    @cached_property
+    def includes(self):
+        return [m.lower() for m in _re_include.findall(self.source)]
 
     @property
     def dependencies(self):
@@ -57,19 +71,20 @@ class Obj(object):
         """
         return as_tuple(self.modules + self.subroutines)
 
-    def build(self):
+    def build(self, builder=None, logger=None, compiler=None):
         """
         Execute the respective build command according to the given
         :param toochain:.
 
         Please note that this does not build any dependencies.
         """
-        build_dir = str(self.builder.build_dir)
-        compiler = self.builder.compiler or _default_compiler
+        logger = logger or builder.logger
+        compiler = compiler or builder.compiler
+        buildpath = builder.build_dir if builder else Path.cwd()
+        build_dir = builder.build_dir
 
-        self.logger.debug('Building obj %s' % self)
         use_c = self.path.suffix.lower() in ['.c', '.cc']
-        compiler.build(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
+        compiler.compile(source=self.path.absolute(), use_c=use_c, cwd=build_dir)
 
     def wrap(self):
         """

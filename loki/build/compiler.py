@@ -4,8 +4,7 @@ import os
 import shutil
 
 from loki.logging import debug, info
-from loki.build.tools import as_tuple, execute
-from loki.build.toolchain import _default_toolchain
+from loki.build.tools import as_tuple, execute, flatten
 
 
 __all__ = ['clean', 'compile', 'compile_and_load',
@@ -15,10 +14,10 @@ __all__ = ['clean', 'compile', 'compile_and_load',
 _test_base_dir = Path(__file__).parent.parent.parent/'tests'
 
 
-def compile(filename, include_dirs=None, toolchain=None, cwd=None):
+def compile(filename, include_dirs=None, compiler=None, cwd=None):
     filepath = Path(filename)
-    toolchain = toolchain or _default_toolchain
-    args = toolchain.build_args(source=filepath.absolute(),
+    compiler = compiler or _default_compiler
+    args = compiler.build_args(source=filepath.absolute(),
                                 include_dirs=include_dirs)
     execute(args, cwd=cwd)
 
@@ -44,7 +43,7 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):
     module-based are support ed via the ``f2py`` and ``f90wrap`` packages.
 
     :param filename: The source file to be compiled.
-    :param use_f90wrap: Flag to trigger the ``f90wrap`` toolchain required
+    :param use_f90wrap: Flag to trigger the ``f90wrap`` compiler required
                         if the source code includes module or derived types.
     """
     info('Compiling: %s' % filename)
@@ -99,7 +98,7 @@ class Compiler(object):
         self.ldflags = self.LDFLAGS or []
 
 
-    def build_args(self, source, target=None, include_dirs=None, use_c=False):
+    def compile_args(self, source, target=None, include_dirs=None, use_c=False):
         """
         Generate arguments for the build line.
         """
@@ -111,11 +110,11 @@ class Compiler(object):
         args += [str(source)]
         return args
 
-    def build(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
+    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
         """
         Execute a build command for a given source.
         """
-        args = self.build_args(source, target=target, include_dirs=include_dirs, use_c=use_c)
+        args = self.compile_args(source, target=target, include_dirs=include_dirs, use_c=use_c)
         execute(args, cwd=cwd)
 
     def linker_args(self, objs, target, shared=True):

@@ -1,8 +1,9 @@
 from pathlib import Path
 
 from loki.build.tools import as_tuple
-from loki.build.logging import _default_logger
+from loki.build.logging import _default_logger, warning
 from loki.build.compiler import _default_compiler
+from loki.build.obj import Obj
 
 
 __all__ = ['Lib']
@@ -10,42 +11,55 @@ __all__ = ['Lib']
 
 class Lib(object):
     """
-    A library linked from multiple objects.
+    A library object linked from multiple compiled objects.
+
+    :param name: Name of the resulting library (without leading ``lib``).
+    :param shared: Flag indicating a shared library build.
+    :param objs: Either a :class:`Obj` or a string to be used as a
+                 glob pattern to search for in :param:`source_dir`.
+    :param source_dir: A file path to generate dependency objects from
+                       if :param obj: is given as a glob pattern.
     """
 
-    def __init__(self, name, objects=None, builder=None, logger=None):
+    def __init__(self, name, objs=None, shared=True, source_dir=None):
         self.name = name
-        self.path = Path('lib%s.so' % name)
-        self.builder = builder
-        self.objects = objects or []
-        self.logger = logger or _default_logger
+        self.shared = shared
+
+        self.path = Path('lib%s' % name)
+        self.path = self.path.with_suffix('.so' if shared else '.a')
+
+        if isinstance(objs, str):
+            # Generate object list by globbing the source_dir
+            assert source_dir is not None
+            source_dir = Path(source_dir)
+            self.objs = [Obj(filename=f) for f in source_dir.glob(objs)]
+        else:
+            self.objs = objs
+
+        if len(objs) == 0:
+            warning('%s:: Empty dependency list: %s' % (self, self.objs))
 
     def __repr__(self):
-        return 'Lib<%s>' % self.path.name
+        return 'Lib<%s>' % self.name
 
-    def build(self, builder=None, compiler=None, logger=None, build_dir=None):
+    def build(self, builder=None, logger=None, compiler=None, shared=None):
         """
         Build the source objects and create target library.
 
         TODO: This does not yet(!) auto-build dependencies.
         """
-        builder = builder or self.builder  # TODO: Default builder?
-        compiler = compiler or builder.compiler or _default_compiler
-        logger = logger or builder.logger or _default_logger
+        compiler = compiler or builder.compiler
+        logger = logger or builder.logger
+        shared = shared or self.shared
+        build_dir = builder.build_dir
 
-        build_dir = builder.build_dir or build_dir
-        # TODO: Support static libs
-        target = '%s.a' % self.path.stem
+        logger.info('Building %s' % self)
+        for obj in self.objs:
+            obj.build(builder=builder, logger=logger)
 
-        self.logger.info('Building %s' % self)
-        for obj in self.objects:
-            obj.build()
-
-        # Important: Since we cannot set LD_LIBRARY_PATH from within the
-        # Python interpreter (not easily anyway), we ned to compile the
-        # library statically, so that it can be baked into the wrapper.
-        objs = ['%s.o' % o.path.stem for o in self.objects]
-        compiler.link(target=target, objs=objs, shared=False, cwd=build_dir)
+        objs = [obj.path.with_suffix('.o') for obj in self.objs]
+        target = self.path if shared else self.path.with_suffix('.a')
+        compiler.link(target=target, objs=objs, shared=shared, cwd=build_dir)
 
     def wrap(self, modname, sources=None):
         """
