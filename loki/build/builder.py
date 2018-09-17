@@ -1,15 +1,13 @@
 import sys
 from pathlib import Path
-from functools import lru_cache
 import networkx as nx
 from collections import deque, OrderedDict
 from importlib import import_module
 
-from loki.logging import info, debug  # The only upwards dependency!
-
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
 from loki.build.logging import _default_logger
+from loki.build.obj import Obj
 
 
 __all__ = ['Builder']
@@ -42,44 +40,28 @@ class Builder(object):
         self.dependency_graph = nx.DiGraph()
         self._cache = OrderedDict()
 
-    def find_path(self, filename):
-        """
-        Scan all source paths for source files and create build item.
-
-        :param filename: Name of the source file we are looking for.
-        """
-        for s in self.source_dirs:
-            filepaths = list(s.glob('**/%s' % filename))
-            if len(filepaths) == 0:
-                return None
-            elif len(filepaths) == 1:
-                return filepaths[0]
-            else:
-                return filepaths
-
     def __getitem__(self, *args, **kwargs):
-        return self.Obj(*args, **kwargs)
+        return Obj(*args, **kwargs)
 
-    def get_dependency_graph(self, builditem):
+    def get_dependency_graph(self, objs, source_dirs=None):
         """
         Construct a :class:`networkxDiGraph` that represents the dependency graph.
         """
-        q = deque([builditem])
+        source_dirs = as_tuple(source_dirs) or as_tuple(self.source_dirs)
+
+        q = deque(as_tuple(objs))
         g = nx.DiGraph()
-        seen = []
 
         while len(q) > 0:
             item = q.popleft()
-            seen.append(item)
+            g.add_node(item)
 
             for dep in item.dependencies:
-                node = self.get_item(dep)
+                # Note, we always create an `Obj` node, even
+                # if it has no source attached.
+                node = Obj(dep, source_dirs=source_dirs)
 
-                if node is None:
-                    # TODO: Warn for missing dependency
-                    continue
-
-                if node not in seen:
+                if node not in g:
                     g.add_node(node)
                     q.append(node)
 
