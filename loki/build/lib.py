@@ -44,10 +44,10 @@ class Lib(object):
 
             # By default, attempt to find all Fortran source files in a directory
             source_dir = Path(source_dir)
-            self.objs = [Obj(name=f) for f in source_dir.glob('**/*.F90')]
-            self.objs += [Obj(name=f) for f in source_dir.glob('**/*.F')]
-            self.objs += [Obj(name=f) for f in source_dir.glob('**/*.f90')]
-            self.objs += [Obj(name=f) for f in source_dir.glob('**/*.f')]
+            self.objs = []
+            for ext in Obj._src_ext:
+                self.objs += [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+
         else:
             self.objs = objs
 
