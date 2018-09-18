@@ -19,7 +19,10 @@ _re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
 _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
-@clru_cache(maxsize=1024, typed=False)
+def cached_func(func):
+    return clru_cache(1024, typed=False, unhashable='ignore')(func)
+
+
 class Obj(object):
     """
     A single source object representing a single C or Fortran source file.
@@ -30,25 +33,37 @@ class Obj(object):
     _src_ext = ['.F90', '.F']
     _h_ext = ['.h']
 
-    def __init__(self, name, builder=None, source_dirs=None):
-        self.name = name
+    def __new__(cls, *args, name=None, source_dir=None, **kwargs):
+        # Name is either provided or inferred from source_path
+        name = name or Path(kwargs.get('source_path')).stem
+
+        # Return an instance cached on the derived or provided name
+        # TODO: We could make the path relative to a "cache path" here...
+        return Obj.__xnew_cached_(cls, name)
+
+    def __new_stage2_(cls, name):
+        obj = super(Obj, cls).__new__(cls)
+        obj.name = name
+        return obj
+
+    __xnew_cached_ = staticmethod(cached_func(__new_stage2_))
+
+    def __init__(self, name=None, source_path=None, builder=None, source_dirs=None):
         self.builder = builder
 
-        self.source_path = Path(name)
+        if not hasattr(self, 'source_path'):
+            # If this is the first time, establish the source path
+            self.source_path = Path(source_path or self.name)
 
-        if not self.source_path.exists():
-            # Given name is not a full source path
-            if source_dirs is None:
-                raise RuntimeError('Could not create object: %s' % name)
+            if not self.source_path.exists():
+                src_pattern = ['**/%s%s' % (name, ext) for ext in self._src_ext]
+                src_path = self.find_path(pattern=src_pattern, source_dirs=source_dirs)
 
-            src_pattern = ['**/%s%s' % (name, ext) for ext in self._src_ext]
-            src_path = self.find_path(pattern=src_pattern, source_dirs=source_dirs)
-
-            if src_path is None or isinstance(src_path, Iterable):
-                debug('Could not find source file for %s' % self)
-                self.source_path = None
-            else:
-                self.source_path = Path(src_path)
+                if src_path is None or isinstance(src_path, Iterable):
+                    debug('Could not find source file for %s' % self)
+                    self.source_path = None
+                else:
+                    self.source_path = Path(src_path)
 
     @staticmethod
     def find_path(pattern, source_dirs=None):

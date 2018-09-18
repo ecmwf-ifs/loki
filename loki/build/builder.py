@@ -40,6 +40,11 @@ class Builder(object):
         self.dependency_graph = nx.DiGraph()
         self._cache = OrderedDict()
 
+        # Populate _object_cache for everythin in source_dirs
+        for source_dir in self.source_dirs:
+            for ext in Obj._src_ext:
+                _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
 
