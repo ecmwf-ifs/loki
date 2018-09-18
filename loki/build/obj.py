@@ -12,9 +12,7 @@ from loki.build.compiler import _default_compiler
 __all__ = ['Obj']
 
 
-_str_no_comment = '^\s*[^C!][^!]'
-
-_re_use = re.compile(_str_no_comment+'use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
+_re_use = re.compile('^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
 _re_include = re.compile('\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
 # Please note that the below regexes are fairly expensive due to .* with re.DOTALL
 _re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
