@@ -110,7 +110,7 @@ class Compiler(object):
         args += [str(source)]
         return args
 
-    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
+    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None, logger=None):
         """
         Execute a build command for a given source.
         """

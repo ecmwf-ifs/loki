@@ -1,7 +1,9 @@
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from collections import Iterable
+from pathlib import Path
+import os
 
-from loki.logging import debug, error
+from loki.build.logging import debug, error
 
 
 __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
