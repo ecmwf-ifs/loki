@@ -70,7 +70,8 @@ class Obj(object):
     @cached_property
     def source(self):
         if self.source_path is not None:
-            with self.source_path.open() as f:
+            # TODO: Make encoding a global config item.
+            with self.source_path.open(encoding='latin1') as f:
                 source = f.read()
             return source
         else:
