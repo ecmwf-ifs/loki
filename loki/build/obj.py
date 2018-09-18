@@ -96,6 +96,8 @@ class Obj(object):
 
     @cached_property
     def uses(self):
+        if self.source is None:
+            return []
         return [m.lower() for m in _re_use.findall(self.source)]
 
     @cached_property

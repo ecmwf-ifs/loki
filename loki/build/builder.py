@@ -3,6 +3,7 @@ from pathlib import Path
 import networkx as nx
 from collections import deque, OrderedDict
 from importlib import import_module
+from operator import attrgetter
 
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
@@ -48,11 +49,15 @@ class Builder(object):
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
 
-    def get_dependency_graph(self, objs, source_dirs=None):
+    def get_dependency_graph(self, objs, depgen=None):
         """
-        Construct a :class:`networkxDiGraph` that represents the dependency graph.
+        Construct a :class:`networkx.DiGraph` that represents the dependency graph.
+
+        :param objs: List of :class:`Obj` to use as the root of the graph.
+        :param depgen: Generator object to generate the next level of dependencies
+                       from an item. Defaults to ``operator.attrgetter('dependencies')``.
         """
-        source_dirs = as_tuple(source_dirs) or as_tuple(self.source_dirs)
+        depgen = depgen or attrgetter('dependencies')
 
         q = deque(as_tuple(objs))
         nodes = []
@@ -62,10 +67,10 @@ class Builder(object):
             item = q.popleft()
             nodes.append(item)
 
-            for dep in item.dependencies:
+            for dep in depgen(item):
                 # Note, we always create an `Obj` node, even
                 # if it has no source attached.
-                node = Obj(name=dep, source_dirs=source_dirs)
+                node = Obj(name=dep)
 
                 if node not in nodes:
                     nodes.append(node)

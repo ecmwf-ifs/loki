@@ -1,5 +1,6 @@
 from pathlib import Path
 import networkx as nx
+from operator import attrgetter
 
 from loki.build.tools import as_tuple
 from loki.build.logging import _default_logger, warning
@@ -69,9 +70,11 @@ class Lib(object):
         logger.info('Building %s' % self)
 
         source_dirs = builder.source_dirs + [self.source_dir]
-        dgraph = builder.get_dependency_graph(self.objs, source_dirs=source_dirs)
 
-        for obj in reversed(list(nx.topological_sort(dgraph))):
+        dgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
+        mgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
+
+        for obj in reversed(list(nx.topological_sort(mgraph))):
             obj.build(builder=builder, logger=logger)
 
         objs = [obj.path.with_suffix('.o') for obj in self.objs]
