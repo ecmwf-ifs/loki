@@ -56,14 +56,8 @@ class Obj(object):
             self.source_path = Path(source_path or self.name)
 
             if not self.source_path.exists():
-                src_pattern = ['**/%s%s' % (name, ext) for ext in self._src_ext]
-                src_path = self.find_path(pattern=src_pattern, source_dirs=source_dirs)
-
-                if src_path is None or isinstance(src_path, Iterable):
-                    debug('Could not find source file for %s' % self)
-                    self.source_path = None
-                else:
-                    self.source_path = Path(src_path)
+                debug('Could not find source file for %s' % self)
+                self.source_path = None
 
     @staticmethod
     def find_path(pattern, source_dirs=None):
