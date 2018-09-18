@@ -55,22 +55,28 @@ class Builder(object):
         source_dirs = as_tuple(source_dirs) or as_tuple(self.source_dirs)
 
         q = deque(as_tuple(objs))
-        g = nx.DiGraph()
+        nodes = []
+        edges = []
 
         while len(q) > 0:
             item = q.popleft()
-            g.add_node(item)
+            nodes.append(item)
 
             for dep in item.dependencies:
                 # Note, we always create an `Obj` node, even
                 # if it has no source attached.
-                node = Obj(dep, source_dirs=source_dirs)
+                node = Obj(name=dep, source_dirs=source_dirs)
 
-                if node not in g:
-                    g.add_node(node)
+                if node not in nodes:
+                    nodes.append(node)
                     q.append(node)
 
-                g.add_edge(item, node)
+                edges.append((item, node))
+
+        # Create a nw.DiGraph from nodes/edges
+        g = nx.DiGraph()
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
 
         return g
 
