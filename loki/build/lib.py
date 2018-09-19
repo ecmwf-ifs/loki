@@ -2,7 +2,7 @@ from pathlib import Path
 import networkx as nx
 from operator import attrgetter
 
-from loki.build.tools import as_tuple
+from loki.build.tools import as_tuple, find_paths
 from loki.build.logging import _default_logger, warning
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
@@ -13,44 +13,37 @@ __all__ = ['Lib']
 
 class Lib(object):
     """
-    A library object linked from multiple compiled objects.
+    A library object linked from multiple compiled objects (:class:`Obj`).
+
+    Note, eitehr :param objs: or the arguments :param pattern: and
+    :param source_dir: are required to generated the necessary dependencies.
 
     :param name: Name of the resulting library (without leading ``lib``).
     :param shared: Flag indicating a shared library build.
-    :param objs: Either a :class:`Obj` or a string to be used as a
-                 glob pattern to search for in :param:`source_dir`.
-    :param source_dir: A file path to find object dependencies on.
-                       This will be used for dependency resolution
-                       and resolving globbing patterns.
+    :param objs: List of :class:`Obj` objects that define the objects to link.
+    :param pattern: A glob pattern that determines the objects to link.
+    :param source_dir: A file path to find objects on when resolving glob patterns.
+    :param ignore: A (list of) glob patterns definig file to ignore when
+                   generating dependencies from a glob pattern.
     """
 
-    def __init__(self, name, objs=None, shared=True, source_dir=None):
+    def __init__(self, name, shared=True, objs=None, pattern=None, source_dir=None, ignore=None):
         self.name = name
         self.shared = shared
 
         self.path = Path('lib%s' % name)
         self.path = self.path.with_suffix('.so' if shared else '.a')
-        self.source_dir = source_dir
 
-        if isinstance(objs, str):
-            # Generate object list by globbing the source_dir
+        if objs is not None:
+            self.objs = objs
+
+        else:
+            # Generate object list by globbing the source_dir according to pattern
             if source_dir is None:
                 raise RuntimeError('No source directory found for pattern expansion in %s' % self)
 
-            source_dir = Path(source_dir)
-            self.objs = [Obj(name=f) for f in source_dir.glob(objs)]
-        elif objs is None:
-            if source_dir is None:
-                raise RuntimeError('No objects or source directory found for %s' % self)
-
-            # By default, attempt to find all Fortran source files in a directory
-            source_dir = Path(source_dir)
-            self.objs = []
-            for ext in Obj._src_ext:
-                self.objs += [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
-
-        else:
-            self.objs = objs
+            obj_paths = find_paths(directory=source_dir, pattern=pattern, ignore=ignore)
+            self.objs = [Obj(source_path=p) for p in obj_paths]
 
         if len(self.objs) == 0:
             warning('%s:: Empty dependency list: %s' % (self, self.objs))
@@ -69,13 +62,12 @@ class Lib(object):
 
         logger.info('Building %s' % self)
 
-        source_dirs = builder.source_dirs + [self.source_dir]
-
         dgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
         mgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
 
         for obj in reversed(list(nx.topological_sort(mgraph))):
-            obj.build(builder=builder, logger=logger)
+            if obj.source_path:
+                obj.build(builder=builder, logger=logger)
 
         objs = [obj.path.with_suffix('.o') for obj in self.objs]
         target = self.path if shared else self.path.with_suffix('.a')

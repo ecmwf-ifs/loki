@@ -59,20 +59,6 @@ class Obj(object):
                 debug('Could not find source file for %s' % self)
                 self.source_path = None
 
-    @staticmethod
-    def find_path(pattern, source_dirs=None):
-        """
-        Scan all source paths for source files according to glob pattern.
-        """
-        filepaths = flatten(list(list(s.glob(pattern)) for s in as_tuple(source_dirs))
-                            for pattern in as_tuple(pattern))
-        if len(filepaths) == 0:
-            return None
-        elif len(filepaths) == 1:
-            return filepaths[0]
-        else:
-            return filepaths
-
     def __repr__(self):
         return 'Obj<%s>' % self.name
 
@@ -137,9 +123,15 @@ class Obj(object):
         compiler = compiler or builder.compiler
         buildpath = builder.build_dir if builder else Path.cwd()
         build_dir = builder.build_dir
+        include_dirs = builder.include_dirs if builder else None
+
+        if self.source_path is None:
+            raise RuntimeError('No source file found for %s' % self)
 
         use_c = self.source_path.suffix.lower() in ['.c', '.cc']
-        compiler.compile(source=self.source_path.absolute(), use_c=use_c, cwd=build_dir)
+        source = self.source_path.absolute()
+        compiler.compile(source=source, include_dirs=include_dirs,
+                         use_c=use_c, cwd=build_dir)
 
     def wrap(self):
         """

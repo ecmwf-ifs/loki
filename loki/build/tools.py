@@ -82,3 +82,22 @@ def flatten(l):
         else:
             newlist.append(el)
     return newlist
+
+
+def find_paths(directory, pattern, ignore=None, sort=True):
+    """
+    Utility function to generate a list of file paths based on include
+    and exclude patterns applied to a root directory.
+
+    :param root: Root director from which to glob files.
+    :param includes: A glob pattern generating files to include in the list.
+    :param excludes: A glob pattern generating files to exclude from the list.
+    """
+    directory = Path(directory)
+    excludes = flatten(directory.rglob(e) for e in as_tuple(ignore))
+
+    files = []
+    for incl in as_tuple(pattern):
+        files += [f for f in directory.rglob(incl) if f not in excludes]
+
+    return sorted(files) if sort else files
