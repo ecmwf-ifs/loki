@@ -20,7 +20,7 @@ _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE 
 
 
 def cached_func(func):
-    return clru_cache(1024, typed=False, unhashable='ignore')(func)
+    return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
 
 
 class Obj(object):
