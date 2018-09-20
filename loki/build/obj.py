@@ -28,6 +28,8 @@ class Obj(object):
     A single source object representing a single C or Fortran source file.
     """
 
+    MODEMAP = {'.f90': 'f90', '.f': 'f', '.c': 'c', '.cc': 'c'}
+
     # Default source and header extension recognized
     # TODO: Make configurable!
     _src_ext = ['.F90', '.F']
@@ -128,11 +130,11 @@ class Obj(object):
         if self.source_path is None:
             raise RuntimeError('No source file found for %s' % self)
 
-        use_c = self.source_path.suffix.lower() in ['.c', '.cc']
+        mode = self.MODEMAP[self.source_path.suffix.lower()]
         source = self.source_path.absolute()
         target = (build_dir/self.name).with_suffix('.o')
         args = compiler.compile_args(source=source, include_dirs=include_dirs,
-                                     use_c=use_c, target=target, mod_dir=build_dir)
+                                     target=target, mode=mode, mod_dir=build_dir)
         if workqueue is not None:
             self.q_task = workqueue.execute(args)
         else:

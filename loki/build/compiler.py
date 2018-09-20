@@ -86,6 +86,8 @@ class Compiler(object):
     CFLAGS = None
     F90 = None
     F90FLAGS = None
+    FC = None
+    FCFLAGS = None
     LD = None
     LDFLAGS = None
 
@@ -94,17 +96,23 @@ class Compiler(object):
         self.cflags = self.CFLAGS or ['-g', '-fPIC']
         self.f90 = self.F90 or 'gfortran'
         self.f90flags = self.F90FLAGS or ['-g', '-fPIC']
+        self.fc = self.FC or 'gfortran'
+        self.fcflags = self.FCFLAGS or ['-g', '-fPIC']
         self.ld = self.LD or 'gfortran'
         self.ldflags = self.LDFLAGS or []
 
 
-    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, use_c=False):
+    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='F90'):
         """
         Generate arguments for the build line.
+
+        :param mode: One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``.
         """
+        assert mode in ['f90', 'f', 'c']
         include_dirs = include_dirs or []
-        args = [self.cc, '-c'] if use_c else [self.f90, '-c']
-        args += self.cflags if use_c else self.f90flags
+        cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc}[mode]
+        args = [cc, '-c']
+        args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags}[mode]
         args += flatten([('-I', '%s' % incl) for incl in include_dirs])
         args += [] if mod_dir is None else ['-J', '%s' % mod_dir]
         args += [] if target is None else ['-o', '%s' % target]
