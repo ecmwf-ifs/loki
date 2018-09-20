@@ -4,7 +4,7 @@ from cached_property import cached_property
 from fastcache import clru_cache
 from collections import Iterable
 
-from loki.build.tools import as_tuple, flatten
+from loki.build.tools import as_tuple, flatten, execute
 from loki.build.logging import _default_logger, debug
 from loki.build.compiler import _default_compiler
 
@@ -50,6 +50,7 @@ class Obj(object):
 
     def __init__(self, name=None, source_path=None, builder=None, source_dirs=None):
         self.builder = builder
+        self.q_task = None
 
         if not hasattr(self, 'source_path'):
             # If this is the first time, establish the source path
@@ -112,7 +113,7 @@ class Obj(object):
         """
         return as_tuple(self.modules + self.subroutines)
 
-    def build(self, builder=None, logger=None, compiler=None):
+    def build(self, builder=None, logger=None, compiler=None, workqueue=None):
         """
         Execute the respective build command according to the given
         :param toochain:.
@@ -130,8 +131,13 @@ class Obj(object):
 
         use_c = self.source_path.suffix.lower() in ['.c', '.cc']
         source = self.source_path.absolute()
-        compiler.compile(source=source, include_dirs=include_dirs,
-                         use_c=use_c, cwd=build_dir)
+        target = str(Path(build_dir/self.name).with_suffix('.o'))
+        args = compiler.compile_args(source=source, include_dirs=include_dirs,
+                                     use_c=use_c, target=target, mod_dir=build_dir)
+        if workqueue is not None:
+            self.q_task = workqueue.execute(args)
+        else:
+            execute(args)
 
     def wrap(self):
         """

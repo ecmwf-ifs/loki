@@ -5,3 +5,4 @@ from loki.build.compiler import * # noqa
 from loki.build.builder import * # noqa
 from loki.build.tools import * # noqa
 from loki.build.logging import * # noqa
+from loki.build.workqueue import * # noqa

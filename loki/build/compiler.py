@@ -4,7 +4,7 @@ import os
 import shutil
 
 from loki.logging import debug, info
-from loki.build.tools import as_tuple, execute, flatten
+from loki.build.tools import as_tuple, execute, flatten, delete
 
 
 __all__ = ['clean', 'compile', 'compile_and_load',
@@ -98,7 +98,7 @@ class Compiler(object):
         self.ldflags = self.LDFLAGS or []
 
 
-    def compile_args(self, source, target=None, include_dirs=None, use_c=False):
+    def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, use_c=False):
         """
         Generate arguments for the build line.
         """
@@ -106,6 +106,7 @@ class Compiler(object):
         args = [self.cc, '-c'] if use_c else [self.f90, '-c']
         args += self.cflags if use_c else self.f90flags
         args += flatten([('-I', '%s' % incl) for incl in include_dirs])
+        args += [] if mod_dir is None else ['-J', '%s' % mod_dir]
         args += [] if target is None else ['-o', '%s' % target]
         args += [str(source)]
         return args

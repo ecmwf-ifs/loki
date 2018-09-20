@@ -24,9 +24,10 @@ class Builder(object):
     """
 
     def __init__(self, source_dirs=None, include_dirs=None, root_dir=None,
-                 build_dir=None, compiler=None, logger=None):
+                 build_dir=None, compiler=None, logger=None, workers=3):
         self.compiler = compiler or _default_compiler
         self.logger = logger or _default_logger
+        self.workers = workers
 
         # Source dirs for auto-detection and include dis for preprocessing
         self.source_dirs = [Path(p).resolve() for p in as_tuple(source_dirs)]
@@ -67,10 +68,15 @@ class Builder(object):
             item = q.popleft()
             nodes.append(item)
 
+            # Record the actual :class:`Obj` dependency objects
+            item.obj_dependencies = []
+
             for dep in depgen(item):
                 # Note, we always create an `Obj` node, even
                 # if it has no source attached.
                 node = Obj(name=dep)
+
+                item.obj_dependencies.append(node)
 
                 if node not in nodes:
                     nodes.append(node)

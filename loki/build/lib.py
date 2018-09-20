@@ -6,6 +6,7 @@ from loki.build.tools import as_tuple, find_paths
 from loki.build.logging import _default_logger, warning
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
+from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT
 
 
 __all__ = ['Lib']
@@ -59,16 +60,32 @@ class Lib(object):
         logger = logger or builder.logger
         shared = shared or self.shared
         build_dir = builder.build_dir
+        workers = builder.workers
 
-        logger.info('Building %s' % self)
+        logger.info('Building %s (workers=%s)' % (self, workers))
 
-        dgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
-        mgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
+        # Generate the dependncy graph implied by .mod files
+        modgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
 
-        for obj in reversed(list(nx.topological_sort(mgraph))):
-            if obj.source_path:
-                obj.build(builder=builder, logger=logger)
+        with workqueue(workers=workers) as q:
+            for obj in reversed(list(nx.topological_sort(modgraph))):
+                if obj.source_path and obj.q_task is None:
 
+                    # Wait dependencies to complete before scheduling item
+                    for dep in obj.obj_dependencies:
+                        if dep.q_task is not None:
+                            dep.q_task.wait(DEFAULT_TIMEOUT)
+                            dep.q_task = None  # Reset task attribute
+
+                    # Schedule object compilation on the workqueue
+                    obj.build(builder=builder, logger=logger, workqueue=q)
+
+            # Ensure all build tasks have finished
+            for obj in modgraph.nodes:
+                if dep.q_task is not None:
+                    obj.q_task.wait(DEFAULT_TIMEOUT)
+
+        # Link the final library
         objs = [obj.path.with_suffix('.o') for obj in self.objs]
         target = self.path if shared else self.path.with_suffix('.a')
         compiler.link(target=target, objs=objs, shared=shared, cwd=build_dir)
