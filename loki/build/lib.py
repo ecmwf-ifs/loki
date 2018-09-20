@@ -2,7 +2,7 @@ from pathlib import Path
 import networkx as nx
 from operator import attrgetter
 
-from loki.build.tools import as_tuple, find_paths
+from loki.build.tools import as_tuple, find_paths, execute
 from loki.build.logging import _default_logger, warning
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
@@ -31,9 +31,6 @@ class Lib(object):
     def __init__(self, name, shared=True, objs=None, pattern=None, source_dir=None, ignore=None):
         self.name = name
         self.shared = shared
-
-        self.path = Path('lib%s' % name)
-        self.path = self.path.with_suffix('.so' if shared else '.a')
 
         if objs is not None:
             self.objs = objs
@@ -75,20 +72,20 @@ class Lib(object):
                     for dep in obj.obj_dependencies:
                         if dep.q_task is not None:
                             dep.q_task.wait(DEFAULT_TIMEOUT)
-                            dep.q_task = None  # Reset task attribute
 
                     # Schedule object compilation on the workqueue
                     obj.build(builder=builder, logger=logger, workqueue=q)
 
             # Ensure all build tasks have finished
             for obj in modgraph.nodes:
-                if dep.q_task is not None:
+                if obj.q_task is not None:
                     obj.q_task.wait(DEFAULT_TIMEOUT)
 
         # Link the final library
-        objs = [obj.path.with_suffix('.o') for obj in self.objs]
-        target = self.path if shared else self.path.with_suffix('.a')
-        compiler.link(target=target, objs=objs, shared=shared, cwd=build_dir)
+        objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
+        target = (build_dir/('lib%s' % self.name)).with_suffix('.so' if shared else '.a')
+        args = compiler.linker_args(target=target, objs=objs, shared=shared)
+        execute(args)
 
     def wrap(self, modname, sources=None):
         """

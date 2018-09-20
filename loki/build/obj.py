@@ -122,7 +122,6 @@ class Obj(object):
         """
         logger = logger or builder.logger
         compiler = compiler or builder.compiler
-        buildpath = builder.build_dir if builder else Path.cwd()
         build_dir = builder.build_dir
         include_dirs = builder.include_dirs if builder else None
 
@@ -131,7 +130,7 @@ class Obj(object):
 
         use_c = self.source_path.suffix.lower() in ['.c', '.cc']
         source = self.source_path.absolute()
-        target = str(Path(build_dir/self.name).with_suffix('.o'))
+        target = (build_dir/self.name).with_suffix('.o')
         args = compiler.compile_args(source=source, include_dirs=include_dirs,
                                      use_c=use_c, target=target, mod_dir=build_dir)
         if workqueue is not None:

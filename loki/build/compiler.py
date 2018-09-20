@@ -125,8 +125,8 @@ class Compiler(object):
         args = [self.ld] if shared else ['ar', 'src']
         args += self.ldflags
         args += ['-shared'] if shared else []
-        args += ['-o', '%s' % target] if shared else [target]
-        args += objs
+        args += ['-o', '%s' % target]
+        args += [str(o) for o in objs]
         return args
 
     def link(self, objs, target, shared=True, cwd=None):
