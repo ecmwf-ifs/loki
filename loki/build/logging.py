@@ -27,7 +27,7 @@ WARNING = logging.WARNING
 ERROR = logging.ERROR
 
 # TODO: Make configurable from options dict
-default_level = DEBUG
+default_level = INFO
 
 # Create the deault logger with color and timings
 logger = logging.getLogger('Loki')

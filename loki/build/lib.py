@@ -1,9 +1,10 @@
 from pathlib import Path
 import networkx as nx
 from operator import attrgetter
+from tqdm import tqdm
 
 from loki.build.tools import as_tuple, find_paths, execute
-from loki.build.logging import _default_logger, warning
+from loki.build.logging import _default_logger, warning, error
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT
@@ -61,17 +62,25 @@ class Lib(object):
 
         logger.info('Building %s (workers=%s)' % (self, workers))
 
+        def wait_and_check(obj):
+            if obj.q_task is not None:
+                obj.q_task.wait(DEFAULT_TIMEOUT)
+
+                if obj.q_task.status =='failed':
+                    error('Failed task: %s' % obj.q_task)
+                    raise RuntimeError('Error compiling object: %s' % obj)
+
         # Generate the dependncy graph implied by .mod files
         modgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
 
         with workqueue(workers=workers) as q:
-            for obj in reversed(list(nx.topological_sort(modgraph))):
+            topo_nodes = list(reversed(list(nx.topological_sort(modgraph))))
+            for obj in tqdm(topo_nodes):
                 if obj.source_path and obj.q_task is None:
 
                     # Wait dependencies to complete before scheduling item
                     for dep in obj.obj_dependencies:
-                        if dep.q_task is not None:
-                            dep.q_task.wait(DEFAULT_TIMEOUT)
+                        wait_and_check(dep)
 
                     # Schedule object compilation on the workqueue
                     obj.build(builder=builder, logger=logger, workqueue=q)
@@ -79,7 +88,7 @@ class Lib(object):
             # Ensure all build tasks have finished
             for obj in modgraph.nodes:
                 if obj.q_task is not None:
-                    obj.q_task.wait(DEFAULT_TIMEOUT)
+                    wait_and_check(obj)
 
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
