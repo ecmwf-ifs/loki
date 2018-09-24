@@ -1,6 +1,7 @@
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from collections import Iterable
 from pathlib import Path
+from fastcache import clru_cache
 import os
 
 from loki.build.logging import debug, error
@@ -102,3 +103,7 @@ def find_paths(directory, pattern, ignore=None, sort=True):
         files += [f for f in directory.rglob(incl) if f not in excludes]
 
     return sorted(files) if sort else files
+
+
+def cached_func(func):
+    return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)

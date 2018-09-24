@@ -1,12 +1,12 @@
 import re
 from pathlib import Path
 from cached_property import cached_property
-from fastcache import clru_cache
 from collections import Iterable
 
-from loki.build.tools import as_tuple, flatten, execute
+from loki.build.tools import cached_func, as_tuple, flatten, execute
 from loki.build.logging import _default_logger, debug
 from loki.build.compiler import _default_compiler
+from loki.build.header import Header
 
 
 __all__ = ['Obj']
@@ -19,10 +19,6 @@ _re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
 _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
-def cached_func(func):
-    return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
-
-
 class Obj(object):
     """
     A single source object representing a single C or Fortran source file.
@@ -32,8 +28,7 @@ class Obj(object):
 
     # Default source and header extension recognized
     # TODO: Make configurable!
-    _src_ext = ['.F90', '.F']
-    _h_ext = ['.h']
+    _ext = ['.F90', '.F']
 
     def __new__(cls, *args, name=None, source_dir=None, **kwargs):
         # Name is either provided or inferred from source_path
@@ -51,8 +46,8 @@ class Obj(object):
     __xnew_cached_ = staticmethod(cached_func(__new_stage2_))
 
     def __init__(self, name=None, source_path=None, builder=None, source_dirs=None):
-        self.builder = builder
-        self.q_task = None
+        self.path = None  # The eventual .o path
+        self.q_task = None  # The parallel worker task
 
         if not hasattr(self, 'source_path'):
             # If this is the first time, establish the source path
@@ -101,12 +96,15 @@ class Obj(object):
         if self.source is None:
             return ()
 
-        # For C-style header includes, drop the `.h`
+        # Pick out the header object from imports
         includes = [Path(incl).stem for incl in self.includes]
-        # Hack: Also drop the `.intfb` part for interface blocks
         includes = [Path(incl).stem if '.intfb' in incl else incl
                     for incl in includes]
-        return as_tuple(set(self.uses + includes))
+        headers = [Header(name=i) for i in includes]
+
+        # Add transitive module dependencies through header imports
+        transitive = flatten(h.uses for h in headers if h.source_path is not None)
+        return as_tuple(set(self.uses + transitive))
 
     @property
     def definitions(self):

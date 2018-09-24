@@ -9,6 +9,7 @@ from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
 from loki.build.logging import _default_logger
 from loki.build.obj import Obj
+from loki.build.header import Header
 
 
 __all__ = ['Builder']
@@ -38,14 +39,14 @@ class Builder(object):
         self.build_dir = Path.cwd() if build_dir is None else Path(build_dir)
         self.build_dir.mkdir(exist_ok=True)
 
-        # Create the dependency graph and it's utilities
-        self.dependency_graph = nx.DiGraph()
-        self._cache = OrderedDict()
-
-        # Populate _object_cache for everythin in source_dirs
+        # Populate _object_cache for everything in source_dirs
         for source_dir in self.source_dirs:
-            for ext in Obj._src_ext:
+            for ext in Obj._ext:
                 _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+
+        for include_dir in self.include_dirs:
+            for ext in Header._ext:
+                _ = [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)

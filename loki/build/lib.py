@@ -71,10 +71,11 @@ class Lib(object):
                     raise RuntimeError('Error compiling object: %s' % obj)
 
         # Generate the dependncy graph implied by .mod files
-        modgraph = builder.get_dependency_graph(self.objs, depgen=attrgetter('uses'))
+        dep_graph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
 
         with workqueue(workers=workers) as q:
-            topo_nodes = list(reversed(list(nx.topological_sort(modgraph))))
+
+            topo_nodes = list(reversed(list(nx.topological_sort(dep_graph))))
             for obj in tqdm(topo_nodes):
                 if obj.source_path and obj.q_task is None:
 
@@ -86,7 +87,7 @@ class Lib(object):
                     obj.build(builder=builder, logger=logger, workqueue=q)
 
             # Ensure all build tasks have finished
-            for obj in modgraph.nodes:
+            for obj in dep_graph.nodes:
                 if obj.q_task is not None:
                     wait_and_check(obj)
 
