@@ -27,6 +27,7 @@ class Header(object):
         # Hack: Remove the .intfb from the name
         if 'intfb' in name:
             name = Path(name).stem
+        name = name.lower()
 
         # Return an instance cached on the derived or provided name
         # TODO: We could make the path relative to a "cache path" here...

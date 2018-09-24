@@ -33,6 +33,7 @@ class Obj(object):
     def __new__(cls, *args, name=None, source_dir=None, **kwargs):
         # Name is either provided or inferred from source_path
         name = name or Path(kwargs.get('source_path')).stem
+        name = name.lower()  # Ensure no-caps!
 
         # Return an instance cached on the derived or provided name
         # TODO: We could make the path relative to a "cache path" here...
