@@ -50,7 +50,8 @@ class Lib(object):
     def __repr__(self):
         return 'Lib<%s>' % self.name
 
-    def build(self, builder=None, logger=None, compiler=None, shared=None):
+    def build(self, builder=None, logger=None, compiler=None, shared=None,
+              force=False):
         """
         Build the source objects and create target library.
         """
@@ -59,6 +60,23 @@ class Lib(object):
         shared = shared or self.shared
         build_dir = builder.build_dir
         workers = builder.workers
+
+        suffix = '.so' if shared else '.a'
+        target = (build_dir/('lib%s' % self.name)).with_suffix(suffix)
+
+        # Establish file-modified times
+        t_time = target.stat().st_mtime if target.exists() else None
+        o_paths = [o.source_path for o in self.objs]
+        if any(p is None for p in o_paths):
+            o_time = None
+        else:
+            o_time = max(p.stat().st_mtime for p in o_paths)
+
+        # Skip the build if up-to-date...
+        if not force and t_time is not None and o_time is not None \
+           and t_time > o_time:
+            logger.info('%s up-to-date, skipping...' % self)
+            return
 
         logger.info('Building %s (workers=%s)' % (self, workers))
 
@@ -84,7 +102,7 @@ class Lib(object):
                         wait_and_check(dep)
 
                     # Schedule object compilation on the workqueue
-                    obj.build(builder=builder, logger=logger, workqueue=q)
+                    obj.build(builder=builder, logger=logger, workqueue=q, force=force)
 
             # Ensure all build tasks have finished
             for obj in dep_graph.nodes:
@@ -93,7 +111,7 @@ class Lib(object):
 
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
-        target = (build_dir/('lib%s' % self.name)).with_suffix('.so' if shared else '.a')
+        logger.debug('Linking %s (%s objects)' % (self, len(objs)))
         args = compiler.linker_args(target=target, objs=objs, shared=shared)
         execute(args)
 

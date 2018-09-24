@@ -32,7 +32,7 @@ def clean(filename, pattern=None):
     filepath = Path(filename)
     pattern = pattern or ['*.f90.cache', '*.o', '*.mod']
     for p in as_tuple(pattern):
-        for f in filepath.parent.glob(p):
+        for f in filepath.glob(p):
             delete(f)
 
 

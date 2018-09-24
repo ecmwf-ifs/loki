@@ -114,7 +114,8 @@ class Obj(object):
         """
         return as_tuple(self.modules + self.subroutines)
 
-    def build(self, builder=None, logger=None, compiler=None, workqueue=None):
+    def build(self, builder=None, logger=None, compiler=None,
+              workqueue=None, force=False):
         """
         Execute the respective build command according to the given
         :param toochain:.
@@ -132,8 +133,17 @@ class Obj(object):
         mode = self.MODEMAP[self.source_path.suffix.lower()]
         source = self.source_path.absolute()
         target = (build_dir/self.name).with_suffix('.o')
+        t_time = target.stat().st_mtime if target.exists() else None
+        s_time = source.stat().st_mtime if source.exists() else None
+
+        if not force and t_time is not None and s_time is not None \
+           and t_time > s_time:
+            logger.debug('%s up-to-date, skipping...' % self)
+            return
+
         args = compiler.compile_args(source=source, include_dirs=include_dirs,
                                      target=target, mode=mode, mod_dir=build_dir)
+
         if workqueue is not None:
             self.q_task = workqueue.execute(args)
         else:
