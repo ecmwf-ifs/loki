@@ -7,7 +7,7 @@ from operator import attrgetter
 
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
-from loki.build.logging import _default_logger
+from loki.build.logging import default_logger
 from loki.build.obj import Obj
 from loki.build.header import Header
 
@@ -27,7 +27,7 @@ class Builder(object):
     def __init__(self, source_dirs=None, include_dirs=None, root_dir=None,
                  build_dir=None, compiler=None, logger=None, workers=3):
         self.compiler = compiler or _default_compiler
-        self.logger = logger or _default_logger
+        self.logger = logger or default_logger
         self.workers = workers
 
         # Source dirs for auto-detection and include dis for preprocessing

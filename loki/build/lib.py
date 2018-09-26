@@ -4,7 +4,7 @@ from operator import attrgetter
 from tqdm import tqdm
 
 from loki.build.tools import as_tuple, find_paths, execute
-from loki.build.logging import _default_logger, warning, error
+from loki.build.logging import warning, error
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT

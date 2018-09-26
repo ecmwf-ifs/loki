@@ -4,7 +4,7 @@ from cached_property import cached_property
 from collections import Iterable
 
 from loki.build.tools import cached_func, as_tuple, flatten, execute
-from loki.build.logging import _default_logger, debug
+from loki.build.logging import debug
 from loki.build.compiler import _default_compiler
 from loki.build.header import Header
 
