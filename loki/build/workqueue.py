@@ -9,7 +9,9 @@ __all__ = ['workqueue', 'MEMORY_URL', 'DEFAULT_TIMEOUT']
 
 
 MEMORY_URL = 'memory://'
-DEFAULT_TIMEOUT = 3
+
+# TODO: REALLY NEED TO MAKE THIS USER CONFIGURABLE!
+DEFAULT_TIMEOUT = 60
 
 
 def worker_init(url=None):

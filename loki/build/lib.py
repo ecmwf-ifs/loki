@@ -4,7 +4,6 @@ from operator import attrgetter
 from tqdm import tqdm
 
 from loki.build.tools import as_tuple, find_paths, execute
-from loki.build.logging import warning, error
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT
@@ -82,10 +81,14 @@ class Lib(object):
 
         def wait_and_check(obj):
             if obj.q_task is not None:
-                obj.q_task.wait(DEFAULT_TIMEOUT)
+                res = obj.q_task.wait(DEFAULT_TIMEOUT)
+
+                if not res:
+                    logger.error('Object compilation timed out: %s' % obj.q_task)
+                    raise RuntimeError('Object compilation timed out: %s' % obj.q_task)
 
                 if obj.q_task.status =='failed':
-                    error('Failed task: %s' % obj.q_task)
+                    logger.error('Failed task: %s' % obj.q_task)
                     raise RuntimeError('Error compiling object: %s' % obj)
 
         # Generate the dependncy graph implied by .mod files
