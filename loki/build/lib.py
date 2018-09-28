@@ -3,7 +3,7 @@ import networkx as nx
 from operator import attrgetter
 from tqdm import tqdm
 
-from loki.build.tools import as_tuple, find_paths, execute
+from loki.build.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT
@@ -105,7 +105,8 @@ class Lib(object):
                         wait_and_check(dep)
 
                     # Schedule object compilation on the workqueue
-                    obj.build(builder=builder, logger=logger, workqueue=q, force=force)
+                    obj.build(builder=builder, compiler=compiler, logger=logger,
+                              workqueue=q, force=force)
 
             # Ensure all build tasks have finished
             for obj in dep_graph.nodes:
@@ -115,8 +116,7 @@ class Lib(object):
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
-        args = compiler.linker_args(target=target, objs=objs, shared=shared)
-        execute(args)
+        args = compiler.link(target=target, objs=objs, shared=shared, logger=logger)
 
     def wrap(self, modname, sources=None):
         """

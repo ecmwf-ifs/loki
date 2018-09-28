@@ -130,7 +130,7 @@ class Compiler(object):
         """
         Generate arguments for the linker line.
         """
-        args = [self.ld] if shared else ['ar', 'src']
+        args = [self.ld]
         args += self.ldflags
         args += ['-shared'] if shared else []
         args += ['-o', '%s' % target]
