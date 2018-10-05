@@ -7,8 +7,10 @@ from loki.visitors import GenericVisitor, Visitor
 from loki.tools import flatten, as_tuple
 from loki.logging import warning
 
-__all__ = ['Expression', 'Operation', 'Literal', 'Scalar', 'Array', 'Variable', 'Cast', 'Index',
-           'RangeIndex', 'ExpressionVisitor', 'LiteralList', 'FindVariables']
+__all__ = ['Expression', 'Operation', 'Literal', 'Scalar', 'Array',
+           'Variable', 'Cast', 'Index', 'RangeIndex',
+           'ExpressionVisitor', 'LiteralList', 'FindVariables',
+           '_symbol_type']
 
 
 def _symbol_type(cls, name, parent=None):
@@ -19,6 +21,11 @@ def _symbol_type(cls, name, parent=None):
     parent = ('%s.' % parent) if parent is not None else ''
     name = '%s%s' % (parent, name)
     return type(name, (cls, ), dict(cls.__dict__))
+
+"""
+A global cache of modified symbol class objects
+"""
+_global_symbol_type = cacheit(_symbol_type)
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -175,9 +182,22 @@ class Array(sympy.Function):
         """
         1st-level variable creation with name injection via the object class
         """
-        name = kwargs.pop('name', cls.__name__)
-        dimensions = kwargs.pop('dimensions', None)
-        parent = kwargs.pop('parent', None)
+        if cls == Array:
+            # An original constructor invocation
+            name = kwargs.pop('name')
+            dimensions = kwargs.pop('dimensions', None)
+            parent = kwargs.pop('parent', None)
+
+            # Inject the symbol name into the class object.
+            # Note, this is the SymPy way to inject custom
+            # function naming and ensure symbol caching.
+            cls = _global_symbol_type(cls, name, parent)
+        else:
+            # A reconstruction of an array(function) object,
+            # as triggered during symbolic manipulation.
+            name = cls.__name__
+            dimensions = args
+            parent = kwargs.pop('parent', None)
 
         # Create a new object from the static constructor with global caching!
         return Array.__xnew_cached_(cls, name, dimensions, parent=parent)
@@ -187,13 +207,10 @@ class Array(sympy.Function):
         2nd-level constructor: arguments to this constructor are used
         for symbolic caching
         """
-        # Create a new class object to inject custom variable naming
-        newcls = _symbol_type(cls, name, parent)
-
         # Setting things here before __init__ forces them
         # to be used for symbolic caching. Thus, `parent` is
         # always used for caching, even if it's not in the name
-        newobj = sympy.Function.__new__(newcls, *dimensions)
+        newobj = sympy.Function.__new__(cls, *dimensions)
         newobj.name = name
         newobj.dimensions = dimensions
         newobj.parent = parent

@@ -1,4 +1,4 @@
-from sympy import symbols
+from sympy import symbols, simplify
 
 from loki import Variable, Scalar, Subroutine
 
@@ -62,9 +62,31 @@ def test_symbol_caching_kernel():
     f2 = kernel2.Variable(name='f', dimensions=(x, y))
     f3 = kernel2.Variable(name='f', dimensions=(x, y))
 
+    # from IPython import embed; embed()
+
     f0_plus_1 = f0 + 1
     assert f0 + 1 == 1 + f1
     assert f0_plus_1 + 1 == 2 + f1
     assert f0 != f2 and f0 != f3
     assert f1 != f2 and f1 != f3
     assert f2 + 1 == 1 + f3
+
+
+def test_symbol_regeneration():
+    """
+    Test symbols can be re-created by SymPy for simplification.
+    """
+    x = Variable(name='x')
+    y = Variable(name='y')
+    f = Variable(name='f', dimensions=(x, y))
+    g = Variable(name='g')
+
+    # Sanity check the SymPy-style class markers
+    assert x.is_Symbol and x.is_Scalar
+    assert y.is_Symbol and y.is_Scalar
+    assert f.is_Function and f.is_Array
+    assert g.is_Symbol and g.is_Scalar
+
+    # Force simplification to trigger symbol re-generation
+    assert 3*f == simplify(f + 2*f)
+    assert 3*g == simplify(g + 2*g)

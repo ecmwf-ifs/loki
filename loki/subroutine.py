@@ -1,12 +1,12 @@
 from collections import OrderedDict
 from fastcache import clru_cache
-from sympy.core.cache import SYMPY_CACHE_SIZE
+from sympy.core.cache import SYMPY_CACHE_SIZE, cacheit
 
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, FindVariables, Array, Scalar
+from loki.expression import Variable, FindVariables, Array, Scalar, _symbol_type
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -62,6 +62,7 @@ class Subroutine(object):
         self.is_function = is_function
 
         # Instantiate local symbol caches
+        self._symbol_type_cache = cacheit(_symbol_type)
         self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
                                        unhashable='ignore')(Array.__new_stage2__)
         self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
@@ -153,9 +154,11 @@ class Subroutine(object):
         # caching on `Kernel` instance!
 
         if dimensions is None:
-            newobj = self._scalar_cache(Scalar, name, parent=parent)
+            cls = self._symbol_type_cache(Scalar, name, parent)
+            newobj = self._scalar_cache(cls, name, parent=parent)
         else:
-            newobj = self._array_cache(Array, name, dimensions, parent=parent)
+            cls = self._symbol_type_cache(Array, name, parent)
+            newobj = self._array_cache(cls, name, dimensions, parent=parent)
 
         # Since we are not actually using the object instation
         # mechanism, we need to call __init__ ourselves.
