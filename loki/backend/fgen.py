@@ -1,8 +1,16 @@
+from sympy.printing import fcode
+from functools import partial
+
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType
+from loki.ir import Statement
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
+
+
+# TODO: Make configurable
+fsymgen = partial(fcode, standard=95, source_format='free')
 
 
 class FortranCodegen(Visitor):
@@ -182,7 +190,7 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        stmt = fexprgen(o, linewidth=self.linewidth, indent=self.indent)
+        stmt = fsymgen(o.expr, assign_to=o.target)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -238,14 +246,15 @@ class FortranCodegen(Visitor):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
 
-    def visit_Variable(self, o):
-        if len(o.dimensions) > 0:
-            dims = [str(d) if d is not None else ':' for d in o.dimensions]
-            dims = '(%s)' % ','.join(dims)
+    def visit_Scalar(self, o):
+        if o.initial is not None:
+            # TODO: This can cause re-creation of "Array" symbols,
+            # which ultimately ends in disaster...
+            fsymgen(o.initial, assign_to=o)
         else:
-            dims = ''
-        initial = '' if o.initial is None else ' = %s' % fexprgen(o.initial)
-        return '%s%s%s' % (o.name, dims, initial)
+            return fsymgen(o)
+
+    visit_Array = visit_Scalar
 
     def visit_BaseType(self, o):
         tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name

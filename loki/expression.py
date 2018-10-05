@@ -158,6 +158,13 @@ class Scalar(sympy.Symbol):
     # Create a globally cached symbol constructor.
     __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
 
+    def __init__(self, *args, **kwargs):
+        """
+        Initialisation of non-cached objects attributes
+        """
+        self._source = kwargs.pop('source', None)
+        self.initial = kwargs.pop('initial', None)
+
 
 class Array(sympy.Function):
 
@@ -168,7 +175,7 @@ class Array(sympy.Function):
         """
         1st-level variable creation with name injection via the object class
         """
-        name = kwargs.pop('name')
+        name = kwargs.pop('name', cls.__name__)
         dimensions = kwargs.pop('dimensions', None)
         parent = kwargs.pop('parent', None)
 
@@ -197,6 +204,13 @@ class Array(sympy.Function):
     # a static globally cached symbol constructor.
     __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
 
+    def __init__(self, *args, **kwargs):
+        """
+        Initialisation of non-cached objects attributes
+        """
+        self._source = kwargs.pop('source', None)
+        self.initial = kwargs.pop('initial', None)
+
 
 class Variable(sympy.Function):
     """
@@ -214,9 +228,12 @@ class Variable(sympy.Function):
 
         # Create a new object from the static constructor with global caching!
         if dimensions is None:
-            return Scalar.__new__(Scalar, name=name, parent=parent)
+            v = Scalar.__new__(Scalar, name=name, parent=parent)
         else:
-            return Array.__new__(Array, name=name, dimensions=dimensions, parent=parent)
+            v = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent)
+
+        v.__init__(*args, **kwargs)
+        return v
 
     # def __init__(self, *args, **kwargs):
     #     """

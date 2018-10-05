@@ -56,7 +56,7 @@ class Subroutine(object):
 
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
-        self._derive_variable_shape(typedefs=typedefs)
+        # self._derive_variable_shape(typedefs=typedefs)
 
         self.bind = bind
         self.is_function = is_function

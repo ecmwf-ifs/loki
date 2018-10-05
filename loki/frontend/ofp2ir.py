@@ -10,7 +10,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, Operation, RangeIndex,
-                             InlineCall, LiteralList)
+                             InlineCall, LiteralList, Array)
 from loki.types import BaseType
 from loki.tools import as_tuple, timeit, disk_cached
 from loki.logging import info, DEBUG
@@ -265,7 +265,7 @@ class OFP2IR(GenericVisitor):
                 # Propagate type onto variables
                 for v in variables:
                     v._type = type
-                    if v.dimensions is not None:
+                    if isinstance(v, Array):
                         # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
                         v.dimensions = as_tuple(d.upper if isinstance(d, RangeIndex) and d == d.upper else d
                                                 for d in v.dimensions)
@@ -449,15 +449,25 @@ class OFP2IR(GenericVisitor):
         values = [v for v in values if v is not None]  # Filter empy values
         return LiteralList(values=values)
 
+    _op_map = {
+        '+': '+', '-': '-', '*': '*', '/': '/', '**': '**',
+        '.and.': '&', '.or.' : '|', '.not.': '~'
+        }
+
     def visit_operation(self, o, source=None):
         ops = [self.visit(op) for op in o.findall('operator')]
         ops = [op for op in ops if op is not None]  # Filter empty ops
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
-        parenthesis = o.find('parenthesized_expr') is not None
 
-        return Operation(ops=ops, operands=exprs, parenthesis=parenthesis,
-                         source=source)
+        # A small bit of inflection to get SynPy expressions from the AST
+        assert len(ops) == 1
+        if len(exprs) == 1:
+            return eval('%s exprs[0]' % self._op_map[ops[0].lower()])
+        elif len(exprs) == 2:
+            return eval('exprs[0] %s exprs[1]' % self._op_map[ops[0].lower()])
+        else:
+            raise NotImplementedError('[OFP] Cannot deal with multi-ary expressions')
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
