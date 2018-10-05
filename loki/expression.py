@@ -228,6 +228,12 @@ class Array(sympy.Function):
         self._source = kwargs.pop('source', None)
         self.initial = kwargs.pop('initial', None)
 
+    def _fcode(self, printer=None):
+        """
+        Define how we would like to be printed in Fortran code.
+        """
+        return str(self)
+
 
 class Variable(sympy.Function):
     """
