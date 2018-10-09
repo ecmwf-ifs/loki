@@ -27,7 +27,7 @@ class Obj(object):
 
     # Default source and header extension recognized
     # TODO: Make configurable!
-    _ext = ['.F90', '.F']
+    _ext = ['.f90', '.F90', '.f', '.F', '.c']
 
     def __new__(cls, *args, name=None, source_dir=None, **kwargs):
         # Name is either provided or inferred from source_path
@@ -148,12 +148,12 @@ class Obj(object):
         else:
             execute(args)
 
-    def wrap(self):
+    def wrap(self, builder=None):
         """
         Wrap the compiled object using ``f90wrap`` and return the loaded module.
         """
-        build_dir = str(self.builder.build_dir)
-        compiler = self.builder.compiler or _default_compiler
+        build_dir = str(builder.build_dir)
+        compiler = builder.compiler or _default_compiler
 
         module = self.source_path.stem
         source = [str(self.source_path)]
@@ -166,4 +166,4 @@ class Obj(object):
         compiler.f2py(modname=module, source=[wrapper, '%s.o' % self.source_path.stem],
                       cwd=build_dir)
 
-        return self.builder.load_module(module)
+        return builder.load_module(module)

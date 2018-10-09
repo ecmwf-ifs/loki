@@ -56,7 +56,7 @@ class Lib(object):
         """
         compiler = compiler or builder.compiler
         logger = logger or builder.logger
-        shared = shared or self.shared
+        shared = self.shared if shared is None else shared
         build_dir = builder.build_dir
         workers = builder.workers
 
@@ -106,23 +106,23 @@ class Lib(object):
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
-        compiler.link(target=target, objs=objs, shared=shared, logger=logger)
+        compiler.link(target=target, objs=objs, shared=shared)
 
-    def wrap(self, modname, sources=None):
+    def wrap(self, modname, builder, sources=None):
         """
         Wrap the compiled library using ``f90wrap`` and return the loaded module.
 
         :param sources: List of source files to wrap for Python access.
         """
-        items = as_tuple(self.builder.Obj(s) for s in as_tuple(sources))
-        build_dir = self.builder.build_dir
-        compiler = self.builder.compiler or _default_compiler
+        items = as_tuple(Obj(source_path=s) for s in as_tuple(sources))
+        build_dir = builder.build_dir
+        compiler = builder.compiler or _default_compiler
 
-        sourcepaths = [str(i.path) for i in items]
+        sourcepaths = [str(i.source_path) for i in items]
         compiler.f90wrap(modname=modname, source=sourcepaths, cwd=str(build_dir))
 
         # Execute the second-level wrapper (f2py-f90wrap)
-        wrappers = ['f90wrap_%s.f90' % item.path.stem for item in items]
+        wrappers = ['f90wrap_%s.f90' % item.source_path.stem for item in items]
         wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
         wrappers = [w for w in wrappers if (build_dir/w).exists()]
 
@@ -131,4 +131,4 @@ class Lib(object):
         compiler.f2py(modname=modname, source=wrappers,
                       libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
 
-        return self.builder.load_module(modname)
+        return builder.load_module(modname)

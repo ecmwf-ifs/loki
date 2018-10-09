@@ -104,7 +104,7 @@ class Builder(object):
                      first to ``self.build_dir``, then simply ``./``.
         """
         # Derive defaults, split string rules and ensure iterability
-        rules = rules or '*.o *.mod *.so f90wrap*.f90'
+        rules = rules or '*.o *.mod *.so *.a f90wrap*.f90'
         if isinstance(rules, str):
             rules = rules.split(' ')
         rules = as_tuple(rules)

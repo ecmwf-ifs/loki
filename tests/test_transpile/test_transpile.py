@@ -2,7 +2,8 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, Module, OMNI, Builder, FortranCTransformation
+from loki import SourceFile, Module, OMNI, FortranCTransformation
+from loki.build import Builder, Obj, Lib, clean, compile_and_load
 from conftest import generate_identity
 
 
@@ -25,9 +26,10 @@ def reference(refpath, builder):
     builder.clean()
 
     sources = ['transpile_type.f90', 'transpile.f90']
-    lib = builder.Lib(name='ref', objects=sources)
-    lib.build()
-    return lib.wrap(modname='ref', sources=sources)
+    objects = [Obj(source_path=s) for s in sources]
+    lib = Lib(name='ref', objs=objects, shared=False)
+    lib.build(builder=builder)
+    return lib.wrap(modname='ref', sources=sources, builder=builder)
 
 
 def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wrap=None):
@@ -41,11 +43,13 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
     f2c.apply(routine=routine, path=refpath.parent)
 
     # Build and wrap the cross-compiled library
-    objects = (objects or []) + [f2c.wrapperpath.name, f2c.c_path.name]
-    lib = builder.Lib(name='fc_%s' % routine.name, objects=objects)
-    lib.build()
+    objects = (objects or []) + [Obj(source_path=f2c.wrapperpath.name),
+                                 Obj(source_path=f2c.c_path.name)]
+    lib = Lib(name='fc_%s' % routine.name, objs=objects, shared=False)
+    lib.build(builder=builder)
 
-    return lib.wrap(modname='mod_%s' % routine.name, sources=(wrap or []) + [f2c.wrapperpath.name])
+    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
+                    sources=(wrap or []) + [f2c.wrapperpath.name])
 
 
 def test_transpile_simple_loops(refpath, reference, builder):
@@ -145,8 +149,8 @@ def test_transpile_derived_type(refpath, reference, builder):
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
     c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder,
-                           objects=['transpile_type.f90'], wrap=['transpile_type.f90'],
-                           header_modules=[typemod])
+                           objects=[Obj(source_path='transpile_type.f90')],
+                           wrap=['transpile_type.f90'], header_modules=[typemod])
 
     a_struct = reference.transpile_type.my_struct()
     a_struct.a = 4
@@ -176,7 +180,8 @@ def test_transpile_module_variables(refpath, reference, builder):
 
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,
-                           objects=['transpile_type.f90', 'transpile_type_fc.f90'],
+                           objects=[Obj(source_path='transpile_type.f90'),
+                                    Obj(source_path='transpile_type_fc.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
     c_kernel.transpile_type.param1 = 2
