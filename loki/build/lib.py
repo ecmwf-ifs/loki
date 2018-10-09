@@ -2,11 +2,12 @@ from pathlib import Path
 import networkx as nx
 from operator import attrgetter
 from tqdm import tqdm
+from concurrent.futures import wait
 
 from loki.build.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
-from loki.build.workqueue import workqueue, DEFAULT_TIMEOUT
+from loki.build.workqueue import workqueue, wait_and_check
 
 
 __all__ = ['Lib']
@@ -79,30 +80,20 @@ class Lib(object):
 
         logger.info('Building %s (workers=%s)' % (self, workers))
 
-        def wait_and_check(obj):
-            if obj.q_task is not None:
-                res = obj.q_task.wait(DEFAULT_TIMEOUT)
-
-                if not res:
-                    logger.error('Object compilation timed out: %s' % obj.q_task)
-                    raise RuntimeError('Object compilation timed out: %s' % obj.q_task)
-
-                if obj.q_task.status =='failed':
-                    logger.error('Failed task: %s' % obj.q_task)
-                    raise RuntimeError('Error compiling object: %s' % obj)
-
         # Generate the dependncy graph implied by .mod files
         dep_graph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
 
-        with workqueue(workers=workers) as q:
+        # Execute the object build in parallel via a queue of worker processes
+        with workqueue(workers=workers, logger=logger) as q:
 
+            # Traverse the dependency tree in reverse topological order
             topo_nodes = list(reversed(list(nx.topological_sort(dep_graph))))
             for obj in tqdm(topo_nodes):
                 if obj.source_path and obj.q_task is None:
 
-                    # Wait dependencies to complete before scheduling item
+                    # Wait for dependencies to complete before scheduling item
                     for dep in obj.obj_dependencies:
-                        wait_and_check(dep)
+                        wait_and_check(dep.q_task, logger=logger)
 
                     # Schedule object compilation on the workqueue
                     obj.build(builder=builder, compiler=compiler, logger=logger,
@@ -111,7 +102,7 @@ class Lib(object):
             # Ensure all build tasks have finished
             for obj in dep_graph.nodes:
                 if obj.q_task is not None:
-                    wait_and_check(obj)
+                    wait_and_check(obj.q_task, logger=logger)
 
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]

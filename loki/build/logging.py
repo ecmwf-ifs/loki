@@ -46,21 +46,10 @@ ERROR = logging.ERROR
 # TODO: Make configurable from options dict
 default_level = INFO
 
-# # Create the deault logger with color and timings
-# logger = logging.getLogger('Loki')
-# coloredlogs.install(level=default_level, logger=logger)
-
-# TODO: This is a hack to enable file-logging from parallel
-# workers. Since logger objects themselves are not pickled and
-# shared, we need to re-run the parallel file init on all procs,
-# ie. in this global __init__ space. Ideally we would initialize
-# a logging thread and a queue listener that the worker threads
-# log into, but I'm out of patience now...
-logger = FileLogger(name='Loki', level=INFO, file_level=DEBUG,
-                    filename='build/build.log', mode='a')
-
+# Create the deault logger with color and timings
+logger = logging.getLogger('Loki')
+coloredlogs.install(level=default_level, logger=logger)
 default_logger = logger
-
 
 # Wrap the common invocation methods
 debug = logger.debug

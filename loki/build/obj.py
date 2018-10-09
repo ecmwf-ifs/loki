@@ -145,7 +145,7 @@ class Obj(object):
                                      target=target, mode=mode, mod_dir=build_dir)
 
         if workqueue is not None:
-            self.q_task = workqueue.execute(args)
+            self.q_task = workqueue.execute(args, log_queue=workqueue.log_queue)
         else:
             execute(args)
 

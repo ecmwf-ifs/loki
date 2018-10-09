@@ -4,7 +4,7 @@ import click
 import shutil
 
 from loki.build import (Lib, Builder, clean, GNUCompiler, execute,
-                        delete, default_logger)
+                        delete, default_logger, FileLogger, DEBUG, INFO)
 
 # Pre-define static paths and filenames
 prec = 'dp'
@@ -268,12 +268,11 @@ def build_ifs(compiler, workers, force):
     include_dirs = [str(rootdir/i) for i in incdirs]
     include_dirs += [intfbroot, build_dir]
 
-    # TODO: Parallel file logging still requires global init in
-    # loki.build.logging, so we cannot build them here.
-    # logger = FileLogger(name='loki-build', level=INFO, file_level=DEBUG,
-    #                     filename=build_dir/'build.log', mode='a')
+    # Initialize a parallel file logger that catches debug messages
+    logger = FileLogger(name='loki-build', level=INFO, file_level=DEBUG,
+                        filename=build_dir/'build.log', mode='a')
     compiler = RapsGNUCompiler()
-    builder = Builder(compiler=compiler, workers=workers,
+    builder = Builder(compiler=compiler, workers=workers, logger=logger,
                       build_dir=build_dir, source_dirs=source_dirs,
                       include_dirs=include_dirs)
 
