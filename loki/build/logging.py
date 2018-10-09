@@ -1,8 +1,5 @@
 import logging
 import coloredlogs
-import sys
-
-from loki.build import multiprocessing_logging
 
 
 __all__ = ['logger', 'FileLogger', 'default_logger',
@@ -35,12 +32,12 @@ def FileLogger(name, filename, level=None, file_level=None, fmt=None,
 
     return logger
 
+
 # Wrap the usual log level flags
 DEBUG = logging.DEBUG
 INFO = logging.INFO
 WARNING = logging.WARNING
 ERROR = logging.ERROR
-
 
 
 # TODO: Make configurable from options dict

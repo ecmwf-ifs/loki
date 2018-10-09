@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 import networkx as nx
-from collections import deque, OrderedDict
+from collections import deque
 from importlib import import_module
 from operator import attrgetter
 
@@ -42,11 +42,11 @@ class Builder(object):
         # Populate _object_cache for everything in source_dirs
         for source_dir in self.source_dirs:
             for ext in Obj._ext:
-                _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+                [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
 
         for include_dir in self.include_dirs:
             for ext in Header._ext:
-                _ = [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
+                [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)

@@ -1,9 +1,7 @@
 from pathlib import Path
 from importlib import import_module
-import os
-import shutil
 
-from loki.logging import debug, info
+from loki.logging import info
 from loki.build.tools import as_tuple, execute, flatten, delete
 
 
@@ -18,7 +16,7 @@ def compile(filename, include_dirs=None, compiler=None, cwd=None):
     filepath = Path(filename)
     compiler = compiler or _default_compiler
     args = compiler.build_args(source=filepath.absolute(),
-                                include_dirs=include_dirs)
+                               include_dirs=include_dirs)
     execute(args, cwd=cwd)
 
 
@@ -100,7 +98,6 @@ class Compiler(object):
         self.fcflags = self.FCFLAGS or ['-g', '-fPIC']
         self.ld = self.LD or 'gfortran'
         self.ldflags = self.LDFLAGS or []
-
 
     def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='F90'):
         """

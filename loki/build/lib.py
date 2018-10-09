@@ -1,13 +1,12 @@
-from pathlib import Path
 import networkx as nx
 from operator import attrgetter
 from tqdm import tqdm
-from concurrent.futures import wait
 
 from loki.build.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, wait_and_check
+from loki.build.logging import warning
 
 
 __all__ = ['Lib']
@@ -107,7 +106,7 @@ class Lib(object):
         # Link the final library
         objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
-        args = compiler.link(target=target, objs=objs, shared=shared, logger=logger)
+        compiler.link(target=target, objs=objs, shared=shared, logger=logger)
 
     def wrap(self, modname, sources=None):
         """

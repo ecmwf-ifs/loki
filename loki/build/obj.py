@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 from cached_property import cached_property
-from collections import Iterable
 
 from loki.build.tools import cached_func, as_tuple, flatten, execute
 from loki.build.logging import debug
@@ -165,6 +164,6 @@ class Obj(object):
         if self.modules is None or len(self.modules) == 0:
             wrapper = 'f90wrap_toplevel.f90'
         compiler.f2py(modname=module, source=[wrapper, '%s.o' % self.source_path.stem],
-                       cwd=build_dir)
+                      cwd=build_dir)
 
         return self.builder.load_module(module)

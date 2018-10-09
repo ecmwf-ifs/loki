@@ -1,5 +1,3 @@
-from worq import get_broker, get_queue
-from worq.pool.process import WorkerPool
 from contextlib import contextmanager
 from multiprocessing import Manager
 from logging.handlers import QueueListener, QueueHandler
@@ -80,7 +78,7 @@ def wait_and_check(task, timeout=DEFAULT_TIMEOUT, logger=None):
     if task is not None:
         try:
             # Get result from the worker task and sanity check
-            res = task.result(timeout=timeout)
+            task.result(timeout=timeout)
             error = task.exception(timeout=timeout)
 
             if error is not None:
