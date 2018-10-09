@@ -88,6 +88,8 @@ class Compiler(object):
     FCFLAGS = None
     LD = None
     LDFLAGS = None
+    LD_STATIC = None
+    LDFLAGS_STATIC = None
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
@@ -97,7 +99,9 @@ class Compiler(object):
         self.fc = self.FC or 'gfortran'
         self.fcflags = self.FCFLAGS or ['-g', '-fPIC']
         self.ld = self.LD or 'gfortran'
-        self.ldflags = self.LDFLAGS or []
+        self.ldflags = self.LDFLAGS or ['-static']
+        self.ld_static = self.LD_STATIC or 'ar'
+        self.ldflags_static = self.LDFLAGS_STATIC or ['src']
 
     def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='F90'):
         """
@@ -127,9 +131,8 @@ class Compiler(object):
         """
         Generate arguments for the linker line.
         """
-        args = [self.ld]
-        args += self.ldflags
-        args += ['-shared'] if shared else []
+        args = [self.ld if shared else self.ld_static]
+        args += self.ldflags if shared else self.ldflags_static
         args += ['-o', '%s' % target]
         args += [str(o) for o in objs]
         return args
