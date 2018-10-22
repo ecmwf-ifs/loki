@@ -10,7 +10,7 @@ from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
                   DerivedType, Import, Index, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation,
-                  Frontend, OMNI, OFP, cgen)
+                  Frontend, OMNI, OFP, cgen, fgen)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -648,38 +648,41 @@ class RapsTransformation(BasicTransformation):
         if role == 'driver':
             self.write_to_file(routine, filename=filename, module_wrap=False)
         else:
-            self.write_to_file(routine, filename=filename, module_wrap=True)
+            self.write_to_file(routine, filename=filename, module_wrap=False)
 
         self.adjust_dependencies(original=original, task=task, processor=processor)
+
+        # Re-generate interfaces and interface blocks after adjusting call signature
+        for incl in processor.includes:
+            # TODO: This header-searching madness should be improved with loki.build!
+            for ending in ['.intfb.h', '.h']:
+                intfb_path = Path(incl)/task.path.with_suffix(ending).name
+                if (intfb_path).exists():
+                    new_intfb_path = Path(incl)/task.path.with_suffix('.%s%s' % (mode, ending)).name
+                    SourceFile.to_file(source=fgen(routine.interface), path=Path(new_intfb_path))
 
     def adjust_imports(self, routine, mode, processor):
         """
         Utility routine to rename all calls to relevant subroutines and
         adjust the relevant imports.
-
-        Note: This will always assume that any non-blacklisted routines
-        will be re-generated wrapped in a module with the naming
-        convention ``<KERNEL>_<MODE>_MOD``.
         """
         replacements = {}
 
         # Update all relevant interface abd module imports
         # Note: C-style header imports live in routine.body!
-        new_imports = []
         for im in FindNodes(Import).visit(routine.ir):
-            for r in processor.routines:
-                if im.c_import and r.name.lower() == im.module.split('.')[0]:
-                    replacements[im] = None  # Drop old C-style import
-                    new_imports += [Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
-                                           symbols=['%s_%s' % (r.name.upper(), mode.upper())])]
-                elif not im.c_import and r.name.lower() == im.module.lower():
-                    # Hacky-ish: The above use of 'in' assumes we always use _MOD in original
-                    replacements[im] = Import(module='%s_%s_MOD' % (r.name.upper(), mode.upper()),
-                                              symbols=['%s_%s' % (r.name.upper(), mode.upper())])
+            # Comparison against item_map is a bit hacky...
+            for r in processor.item_map.keys():
+                if im.c_import and r.lower() == im.module.split('.')[0]:
+                    new_mod_name = im.module.replace(r.lower(), '%s.%s' % (r.lower(), mode.lower()))
+                    replacements[im] = Import(module=new_mod_name, c_import=True)
+                elif not im.c_import and r.lower() == im.module.lower():
+                    replacements[im] = Import(module='%s_%s_MOD' % (r.upper(), mode.upper()),
+                                              symbols=['%s_%s' % (r.upper(), mode.upper())])
 
         # Insert new declarations and transform existing ones
-        routine.spec.prepend(new_imports)
         routine.spec = Transformer(replacements).visit(routine.spec)
+        routine.body = Transformer(replacements).visit(routine.body)
 
     def adjust_dependencies(self, original, task, processor):
         """
@@ -710,12 +713,14 @@ class RapsTransformation(BasicTransformation):
         # interface entries (.ok) or previous module entries ('.o')
         # for the current target with a dependency on the newly
         # created module.
-        # TODO: Inverse traversal might help here..?
+
+        # TODO: Don't slot out .ok for .o => inject .sca.ok
         for d in self.loki_deps.content:
             if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
-                    d.replace(intfb, str(o_mode_path))
+                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
+                    d.replace(intfb, intfb_new)
             if isinstance(d, Dependency) and str(o_path) in d.deps:
                 d.replace(str(o_path), str(o_mode_path))
 

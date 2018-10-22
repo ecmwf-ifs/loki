@@ -320,9 +320,9 @@ class Subroutine(object):
 
         # Create a sub-list of imports based on undefined symbols
         imports = []
-        for use in self.imports:
+        for use in FindNodes(Import).visit(self.spec):
             symbols = tuple(s for s in use.symbols if s in undefined)
-            if len(symbols) > 0:
+            if not use.c_import:
                 imports += [Import(module=use.module, symbols=symbols)]
 
         return InterfaceBlock(name=self.name, imports=imports,
