@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import Builder
+from loki.build import Obj, Lib, Builder
 
 
 @pytest.fixture(scope='module')
@@ -42,11 +42,11 @@ def test_build_object(builder):
     """
     builder.clean()
 
-    obj = builder.Obj('base.f90')
-    obj.build()
+    obj = Obj(source_path='base.f90')
+    obj.build(builder=builder)
     assert (builder.build_dir/'base.o').exists
 
-    base = obj.wrap()
+    base = obj.wrap(builder=builder)
     assert base.Base.a_times_b_plus_c(a=2, b=3, c=1) == 7
 
 
@@ -58,13 +58,14 @@ def test_build_lib(builder):
     builder.clean()
 
     # Create library with explicit dependencies
-    base = builder.Obj('base.f90')
-    extension = builder.Obj('extension.f90')
-    lib = builder.Lib(name='library', objects=[base, extension])
-    lib.build()
-    assert (builder.build_dir/'liblibrary.so').exists
+    base = Obj(source_path='base.f90')
+    extension = Obj(source_path='extension.f90')
+    # Note: Need to compile statically to avoid LD_LIBRARY_PATH lookup
+    lib = Lib(name='library', objs=[base, extension], shared=False)
+    lib.build(builder=builder)
+    assert (builder.build_dir/'liblibrary.a').exists
 
-    test = lib.wrap(modname='test', sources=['extension.f90'])
+    test = lib.wrap(modname='test', sources=['extension.f90'], builder=builder)
     assert test.extended_fma(2., 3., 1.) == 7.
 
 
@@ -77,11 +78,13 @@ def test_build_lib_with_c(builder):
 
     # Create library with explicit dependencies
     objects = ['wrapper.f90', 'c_util.c']
-    lib = builder.Lib(name='library', objects=objects)
-    lib.build()
+    wrapper = Obj(source_path='wrapper.f90')
+    c_util = Obj(source_path='c_util.c')
+    lib = Lib(name='library', objs=[wrapper, c_util], shared=False)
+    lib.build(builder=builder)
     assert (builder.build_dir/'liblibrary.so').exists
 
-    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'])
+    wrap = lib.wrap(modname='wrap', sources=['wrapper.f90'], builder=builder)
     assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
 
