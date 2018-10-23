@@ -259,7 +259,27 @@ class Subroutine(object):
                 derived[v.name] = typedefs[v.type.name.upper()]
 
             if v.dimensions is not None:
-                shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
+                if v.shape is None:
+                    # First derivation of shape goes from allcoated dimensions
+                    shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
+                else:
+                    # If shape is already set (by this routine or otherwise)
+                    # we do not override it but propagate to instances.
+                    shapes[v.name] = v.shape
+
+                # Note: The forward propagation of the shapes is a clear
+                # design flaw, as we end up calling this routine in two
+                # contexts:
+                # a) First, propagate the declared dimensions to all
+                #    variable instances in the routine.
+                # b) After IPA infers argument shapes from caller propagate
+                #    these to all variable instancesin the routine.
+                #
+                # TODO: This should be fixed with kernel-level caching
+                # of symbols; so that the variable from the argument
+                # declaration aliases with each symbolic instance of
+                # the variable within a kernel.
+
 
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):

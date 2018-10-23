@@ -599,16 +599,16 @@ class InferArgShapeTransformation(AbstractTransformation):
 
                 # Insert shapes of call values into routine arguments
                 for arg, val in call.context.arg_iter(call):
-                    if arg.dimensions is not None and len(arg.dimensions) > 0:
-                        if all(d == ':' for d in arg.dimensions):
-                            if len(val.shape) == len(arg.dimensions):
+                    if arg.shape is not None and len(arg.shape) > 0:
+                        if all(d == ':' for d in arg.shape):
+                            if len(val.shape) == len(arg.shape):
                                 # We're passing the full value array, copy shape
-                                arg.dimensions = val.shape
+                                arg._shape = val.shape
                             else:
                                 # Passing a sub-array of val, find the right index
                                 idx = [s for s, d in zip(val.shape, val.dimensions)
                                        if d == ':']
-                                arg.dimensions = as_tuple(idx)
+                                arg._shape = as_tuple(idx)
 
                 # TODO: The derived call-side dimensions can be undefined in the
                 # called routine, so we need to add them to the call signature.
