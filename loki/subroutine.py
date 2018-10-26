@@ -290,8 +290,11 @@ class Subroutine(object):
         for v in self.variables:
             v._shape = shapes[v.name]
 
-        # Apply shapes to all variables in the IR (in-place)
-        for v in FindVariables(unique=False).visit(self.ir):
+        # Apply shapes to all variables in the IR and all members (in-place)
+        variable_instances = FindVariables(unique=False).visit(self.ir)
+        for member in as_tuple(self.members):
+            variable_instances += FindVariables(unique=False).visit(member.ir)
+        for v in variable_instances:
             if v.name in shapes:
                 v._shape = shapes[v.name]
 

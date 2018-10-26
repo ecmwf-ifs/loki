@@ -227,6 +227,10 @@ class SCATransformation(AbstractTransformation):
             self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
             self.remove_dimension(routine, target=self.dimension)
 
+        if routine.members is not None:
+            for member in routine.members:
+                self.apply(member, **kwargs)
+
     def remove_dimension(self, routine, target):
         """
         Remove all loops and variable indices of a given target dimension
