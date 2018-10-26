@@ -645,8 +645,14 @@ class RapsTransformation(BasicTransformation):
         self.adjust_imports(routine, mode, processor)
 
         filename = task.path.with_suffix('.%s.F90' % mode)
-        if role == 'driver':
-            self.write_to_file(routine, filename=filename, module_wrap=False)
+        modules = as_tuple(task.file.modules)
+        if len(modules) > 0:
+            # If module imports are used, we inject the mode-specific name
+            assert len(modules) == 1
+            module = modules[0]
+            modname = ''.join(module.name.lower().split('_mod')[:-1]).upper()
+            module.name = ('%s_%s_MOD' % (modname, mode)).upper()
+            self.write_to_file(modules, filename=filename, module_wrap=False)
         else:
             self.write_to_file(routine, filename=filename, module_wrap=False)
 
@@ -670,15 +676,21 @@ class RapsTransformation(BasicTransformation):
 
         # Update all relevant interface abd module imports
         # Note: C-style header imports live in routine.body!
+        endings = ['.h', '.intfb', '_mod']
         for im in FindNodes(Import).visit(routine.ir):
-            # Comparison against item_map is a bit hacky...
-            for r in processor.item_map.keys():
-                if im.c_import and r.lower() == im.module.split('.')[0]:
-                    new_mod_name = im.module.replace(r.lower(), '%s.%s' % (r.lower(), mode.lower()))
-                    replacements[im] = Import(module=new_mod_name, c_import=True)
-                elif not im.c_import and r.lower() == im.module.lower():
-                    replacements[im] = Import(module='%s_%s_MOD' % (r.upper(), mode.upper()),
-                                              symbols=['%s_%s' % (r.upper(), mode.upper())])
+            modname = im.module.lower()
+            for ending in endings:
+                modname = modname.split(ending)[0]
+
+            if modname in processor.item_map:
+                if im.c_import:
+                    new_modname = im.module.replace(modname, '%s.%s' % (modname, mode))
+                    replacements[im] = im.clone(module=new_modname)
+                else:
+                    # THE DIFFERENCES ARE VERY SUBTLE!
+                    modname = modname.upper()  # Fortran
+                    new_modname = im.module.replace(modname, '%s_%s' % (modname, mode.upper()))
+                    replacements[im] = im.clone(module=new_modname)
 
         # Insert new declarations and transform existing ones
         routine.spec = Transformer(replacements).visit(routine.spec)
@@ -704,23 +716,43 @@ class RapsTransformation(BasicTransformation):
         o_path = f_path.with_suffix('.o')
         o_mode_path = o_path.with_suffix('.%s.o' % mode)
 
+        # Re-generate dependencies for objects
         r_deps = deepcopy(self.raps_deps.content_map[str(o_path)])
         r_deps.replace(str(o_path), str(o_mode_path))
         r_deps.replace(str(f_path), str(f_mode_path))
         self.loki_deps.content += [r_deps]
 
-        # Run through all previous dependencies and replace any
-        # interface entries (.ok) or previous module entries ('.o')
-        # for the current target with a dependency on the newly
-        # created module.
+        # Replicate the dependencies for header files
+        for incl in processor.includes:
+            for ending in ['.h', '.intfb.h']:
+                h_path = Path(incl)/('%s%s' % (original, ending))
+                if h_path.exists():
+                    h_path = h_path.relative_to(self.basepath)
+                    ok_path = h_path.with_suffix('.ok')
 
-        # TODO: Don't slot out .ok for .o => inject .sca.ok
+                    h_deps = deepcopy(self.raps_deps.content_map[str(ok_path)])
+                    h_deps.replace(str(h_path), str(h_path).replace(original, '%s.%s' % (original, mode)))
+                    h_deps.replace(str(ok_path), str(ok_path).replace(original, '%s.%s' % (original, mode)))
+                    self.loki_deps.content += [h_deps]
+
+
+        # Run through all previous dependencies and inject
+        # the transformed object/header names
         for d in self.loki_deps.content:
-            if isinstance(d, Dependency) and str(o_mode_path) not in d.target:
+            # We're depended on by an auto-generated header
+            if isinstance(d, Dependency) and '%s.intfb.ok'%original in str(d.deps):
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
                     intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
                     d.replace(intfb, intfb_new)
+
+            # We're depended on by an natural header
+            if isinstance(d, Dependency) and '%s.ok'%original in str(d.deps):
+                intfb = d.find('%s.ok' % original)
+                if intfb is not None:
+                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
+                    d.replace(intfb, intfb_new)
+
             if isinstance(d, Dependency) and str(o_path) in d.deps:
                 d.replace(str(o_path), str(o_mode_path))
 
