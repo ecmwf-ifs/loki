@@ -342,7 +342,9 @@ class Subroutine(object):
         imports = []
         for use in FindNodes(Import).visit(self.spec):
             symbols = tuple(s for s in use.symbols if s in undefined)
-            if not use.c_import:
+            if not use.c_import and len(as_tuple(use.symbols)) > 0:
+                # TODO: Check that only modules defining derived types
+                # are included here.
                 imports += [Import(module=use.module, symbols=symbols)]
 
         return InterfaceBlock(name=self.name, imports=imports,
