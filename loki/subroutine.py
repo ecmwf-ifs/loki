@@ -256,7 +256,7 @@ class Subroutine(object):
         derived = {}
         for v in self.variables:
             if v.type.name.upper() in typedefs:
-                derived[v.name] = typedefs[v.type.name.upper()]
+                derived[v.name.upper()] = typedefs[v.type.name.upper()]
 
             if v.dimensions is not None:
                 if v.shape is None:
@@ -298,9 +298,9 @@ class Subroutine(object):
             if v.name in shapes:
                 v._shape = shapes[v.name]
 
-            if v.ref is not None and v.ref.name in derived:
+            if v.ref is not None and v.ref.name.upper() in derived:
                 # We currently only follow a single level of nesting
-                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
+                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name.upper()].variables}
                 v._shape = typevars[v.name.upper()].shape
 
     @property
