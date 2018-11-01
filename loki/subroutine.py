@@ -256,10 +256,30 @@ class Subroutine(object):
         derived = {}
         for v in self.variables:
             if v.type.name.upper() in typedefs:
-                derived[v.name] = typedefs[v.type.name.upper()]
+                derived[v.name.upper()] = typedefs[v.type.name.upper()]
 
             if v.dimensions is not None:
-                shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
+                if v.shape is None:
+                    # First derivation of shape goes from allcoated dimensions
+                    shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
+                else:
+                    # If shape is already set (by this routine or otherwise)
+                    # we do not override it but propagate to instances.
+                    shapes[v.name] = v.shape
+
+                # Note: The forward propagation of the shapes is a clear
+                # design flaw, as we end up calling this routine in two
+                # contexts:
+                # a) First, propagate the declared dimensions to all
+                #    variable instances in the routine.
+                # b) After IPA infers argument shapes from caller propagate
+                #    these to all variable instancesin the routine.
+                #
+                # TODO: This should be fixed with kernel-level caching
+                # of symbols; so that the variable from the argument
+                # declaration aliases with each symbolic instance of
+                # the variable within a kernel.
+
 
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):
@@ -270,15 +290,19 @@ class Subroutine(object):
         for v in self.variables:
             v._shape = shapes[v.name]
 
-        # Apply shapes to all variables in the IR (in-place)
-        for v in FindVariables(unique=False).visit(self.ir):
+        # Apply shapes to all variables in the IR and all members (in-place)
+        variable_instances = FindVariables(unique=False).visit(self.ir)
+        for member in as_tuple(self.members):
+            variable_instances += FindVariables(unique=False).visit(member.ir)
+        for v in variable_instances:
             if v.name in shapes:
                 v._shape = shapes[v.name]
 
-            if v.ref is not None and v.ref.name in derived:
+            if v.ref is not None and v.ref.name.upper() in derived:
                 # We currently only follow a single level of nesting
-                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name].variables}
-                v._shape = typevars[v.name.upper()].shape
+                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name.upper()].variables}
+                if v.name.upper() in typevars:
+                    v._shape = typevars[v.name.upper()].shape
 
     @property
     def ir(self):
@@ -320,9 +344,11 @@ class Subroutine(object):
 
         # Create a sub-list of imports based on undefined symbols
         imports = []
-        for use in self.imports:
+        for use in FindNodes(Import).visit(self.spec):
             symbols = tuple(s for s in use.symbols if s in undefined)
-            if len(symbols) > 0:
+            if not use.c_import and len(as_tuple(use.symbols)) > 0:
+                # TODO: Check that only modules defining derived types
+                # are included here.
                 imports += [Import(module=use.module, symbols=symbols)]
 
         return InterfaceBlock(name=self.name, imports=imports,

@@ -428,6 +428,9 @@ class OFP2IR(GenericVisitor):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
             return RangeIndex(lower, upper)
+        elif 'type' in o.attrib and o.attrib['type'] == "upper-bound-assumed-shape":
+            lower = self.visit(o[0])
+            return RangeIndex(lower, None)
         elif o.find('name'):
             return self.visit(o.find('name'))
         elif o.find('literal'):
