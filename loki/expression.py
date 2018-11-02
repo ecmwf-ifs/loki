@@ -414,14 +414,29 @@ class LiteralList(Expression):
         return '(/%s/)' % ', '.join(str(v) for v in self.values)
 
 
-class InlineCall(Expression):
+class InlineCall(sympy.codegen.ast.FunctionCall):
     """
     Internal representation of an in-line function call
     """
+    __slots__ = ['name', 'arguments', 'kwarguments']
+
+    defaults = {'arguments': tuple(), 'kwarguments': dict()}
+
     def __init__(self, name, arguments=None, kwarguments=None):
         self.name = name
         self.arguments = arguments
         self.kwarguments = kwarguments
+
+    @property
+    def function_args(self):
+        """
+        Construct function arguments (required by sympy code printers)
+        """
+        kwargs = ()
+        if self.kwarguments:
+            kwargs = tuple(sympy.codegen.ast.Assignment(kw, arg)
+                           for kw,arg in self.kwarguments.items())
+        return as_tuple(self.arguments) + kwargs
 
     @property
     def expr(self):
