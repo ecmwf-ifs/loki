@@ -10,7 +10,7 @@ from loki.logging import warning
 __all__ = ['Expression', 'Operation', 'Literal', 'Scalar', 'Array',
            'Variable', 'Cast', 'Index', 'RangeIndex',
            'ExpressionVisitor', 'LiteralList', 'FindVariables',
-           '_symbol_type']
+           '_symbol_type', 'indexify']
 
 
 def _symbol_type(cls, name, parent=None):
@@ -21,6 +21,17 @@ def _symbol_type(cls, name, parent=None):
     parent = ('%s.' % parent) if parent is not None else ''
     name = '%s%s' % (parent, name)
     return type(name, (cls, ), dict(cls.__dict__))
+
+
+def indexify(expr):
+    mapper = {}
+    for e in sympy.postorder_traversal(expr):
+        try:
+            mapper[e] = e.indexify()
+        except:
+            pass
+    return expr.xreplace(mapper)
+
 
 """
 A global cache of modified symbol class objects
@@ -233,6 +244,13 @@ class Array(sympy.Function):
         Define how we would like to be printed in Fortran code.
         """
         return str(self)
+
+    @property
+    def indexed(self):
+        return sympy.IndexedBase(self.name, shape=self.args)
+
+    def indexify(self):
+        return self.indexed[self.args]
 
 
 class Variable(sympy.Function):

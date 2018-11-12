@@ -5,12 +5,13 @@ from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType
 from loki.ir import Statement
+from loki.expression import indexify
 
 __all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
 
 
 # TODO: Make configurable
-fsymgen = partial(fcode, standard=95, source_format='free')
+fsymgen = partial(fcode, standard=95, source_format='free', contract=False)
 
 
 class FortranCodegen(Visitor):
@@ -190,7 +191,8 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        stmt = fsymgen(o.expr, assign_to=o.target)
+        target = indexify(o.target)
+        stmt = fsymgen(o.expr, assign_to=target)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
