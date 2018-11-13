@@ -1,6 +1,7 @@
 from abc import ABCMeta, abstractproperty
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 import sympy
+from sympy.core.numbers import One as SympyOne
 from collections import Iterable
 
 from loki.visitors import GenericVisitor, Visitor
@@ -390,36 +391,40 @@ class Operation(Expression):
             return super(Operation, self).__eq__(other)
 
 
-class Literal(Expression):
+class FloatLiteral(sympy.Float):
+    __slots__ = ['_mpf_', '_prec','_type', '_kind']
 
-    def __init__(self, value, kind=None, type=None, source=None):
-        super(Literal, self).__init__(source=source)
-        self.value = value
-        self.kind = kind
-        self._type = type
 
-    @property
-    def expr(self):
-        return self.value if self.kind is None else '%s_%s' % (self.value, self.kind)
+class IntLiteral(sympy.Integer):
+    __slots__ = ['p', '_type', '_kind']
 
-    @property
-    def type(self):
-        return self._type
 
-    def __key(self):
-        return (self.value, self.kind, self._type)
+class Literal(sympy.Number):
 
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other):
-        # Allow direct comparisong to string and other Index objects
-        if isinstance(other, str):
-            return self.value.upper() == other.upper()
-        elif isinstance(other, Literal):
-            return self.__key() == other.__key()
+    def __new__(cls, value, **kwargs):
+        # We first create a dummy object to determine
+        # SymPy's internal literal type, so that we can
+        # the create the corrected slotted type for it.
+        dummy = sympy.Number.__new__(cls, value)
+        if dummy.is_Integer:
+            obj = sympy.Expr.__new__(IntLiteral)
+        elif dummy.is_Float:
+            obj = sympy.Expr.__new__(FloatLiteral)
         else:
-            return super(Literal, self).__eq__(other)
+            raise NotImplementedError('Unknow symbolic literal type')
+
+        # Then we copy over the defining slotted attributes
+        if isinstance(dummy, SympyOne):
+            # One is treated specially in SymPy (as a singletone)
+            obj.p = SympyOne.p
+        else:
+            for attr in dummy.__class__.__slots__:
+                setattr(obj, attr, getattr(dummy, attr))
+
+        # And attach out own meta-data
+        obj._type = kwargs.get('type', None)
+        obj._kind = kwargs.get('kind', None)
+        return obj
 
 
 class LiteralList(Expression):
