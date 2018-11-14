@@ -176,22 +176,25 @@ class Subroutine(object):
 
         for decl in FindNodes(Declaration).visit(self.ir):
             # Propagate dimensions to variables
-            dvars = as_tuple(decl.variables)
+            variables = as_tuple(decl.variables)
             if decl.dimensions is not None:
-                for v in dvars:
-                    v.dimensions = decl.dimensions
+                # Re-nitialize variables with declared dimensions
+                variables = [Variable(name=v.name, parent=v.parent,
+                                      dimensions=decl.dimensions)
+                             for v in variables]
+                decl.clone(variables=variables)
 
             # Record all variables independently
-            self.variables += list(dvars)
+            self.variables += list(variables)
 
             # Insert argument variable at the position of the dummy
-            for v in dvars:
+            for v in variables:
                 if v.name.lower() in self._dummies:
                     idx = self._dummies.index(v.name.lower())
                     self.arguments[idx] = v
 
             # Stash declaration and mark for removal
-            for v in dvars:
+            for v in variables:
                 self._decl_map[v] = decl
             dmap[decl] = None
 
