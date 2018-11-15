@@ -405,13 +405,14 @@ class Literal(sympy.Number):
         # We first create a dummy object to determine
         # SymPy's internal literal type, so that we can
         # the create the corrected slotted type for it.
-        dummy = sympy.Number.__new__(cls, value)
+        dummy = sympy.sympify(value)
         if dummy.is_Integer:
             obj = sympy.Expr.__new__(IntLiteral)
         elif dummy.is_Float:
             obj = sympy.Expr.__new__(FloatLiteral)
         else:
-            raise NotImplementedError('Unknow symbolic literal type')
+            # We only overload integer and floats
+            return dummy
 
         # Then we copy over the defining slotted attributes
         if isinstance(dummy, SympyOne):
