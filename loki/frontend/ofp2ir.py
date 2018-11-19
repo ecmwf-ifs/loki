@@ -86,7 +86,7 @@ class OFP2IR(GenericVisitor):
             step = None
             if o.find('header/index-variable/step') is not None:
                 step = self.visit(o.find('header/index-variable/step'))
-            bounds = RangeIndex(lower=lower, upper=upper, step=step)
+            bounds = lower, upper, step
 
             body = as_tuple(self.visit(o.find('body')))
             # Store full lines with loop body for easy replacement

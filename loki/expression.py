@@ -527,38 +527,8 @@ class Index(Expression):
 
 class RangeIndex(Expression):
 
-    def __init__(self, lower, upper, step=None):
-        self.lower = lower
-        self.upper = upper
-        self.step = step
-
-    @property
-    def expr(self):
-        step = '' if self.step is None else ':%s' % self.step
-        lower = '' if self.lower is None else self.lower
-        upper = '' if self.upper is None else self.upper
-        return '%s:%s%s' % (lower, upper, step)
-
-    @property
-    def children(self):
-        return self.lower, self.upper, self.step
-
-    def __key(self):
-        return (self.lower, self.upper, self.step)
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other):
-        # Short-cut for "trivial ranges", ie. `1:v:1` -> `v`
-        if (self.lower is None or self.lower == '1') and (self.step is None or self.step == '1'):
-            if self.upper is not None:
-                return self.upper == other
-
-        # Basic comparison agaisnt strings or other ranges
-        if isinstance(other, str):
-            return self.expr.upper() == other.upper()
-        elif isinstance(other, RangeIndex):
-            return self.__key() == other.__key()
+    def __new__(cls, lower=None, upper=None, step=None):
+        if lower is None and upper is None and step is None:
+            return sympy.Idx(':')
         else:
-            return super(RangeIndex, self).__eq__(other)
+            raise NotImplementedError('Currently no symbol for explicit ranges')
