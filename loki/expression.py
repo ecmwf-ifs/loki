@@ -430,12 +430,8 @@ class Literal(sympy.Number):
 
 class LiteralList(Expression):
 
-    def __init__(self, values, source=None):
-        self.values = values
-
-    @property
-    def expr(self):
-        return '(/%s/)' % ', '.join(str(v) for v in self.values)
+    def __new__(self, values):
+        return tuple(Literal(v) for v in values)
 
 
 class InlineCall(sympy.codegen.ast.FunctionCall):

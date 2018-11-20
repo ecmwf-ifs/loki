@@ -252,7 +252,7 @@ class FortranCodegen(Visitor):
         if o.initial is not None:
             # TODO: This can cause re-creation of "Array" symbols,
             # which ultimately ends in disaster...
-            return fsymgen(o.initial, assign_to=o)
+            return fsymgen(o.initial, assign_to=indexify(o))
         else:
             return fsymgen(o)
 
