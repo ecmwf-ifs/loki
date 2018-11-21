@@ -12,6 +12,11 @@ module derived_types
      real(kind=jprb), allocatable :: red_herring
   end type deferred
 
+  type nested
+     real(kind=jprb) :: a_scalar, a_vector(3)
+     type(explicit) :: another_item
+  end type nested
+
 contains
 
   subroutine alloc_deferred(item)
@@ -71,5 +76,21 @@ contains
     end do
 
   end subroutine array_indexing_deferred
+
+  subroutine array_indexing_nested(item)
+    ! simple vector/matrix arithmetic with a nested derived type
+    type(nested), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%a_vector(:) = 666.
+    item%another_item%vector(:) = 999.
+
+    do i=1, 3
+       item%another_item%matrix(:, i) = vals(i)
+    end do
+
+  end subroutine array_indexing_nested
+
 
 end module derived_types
