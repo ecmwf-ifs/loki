@@ -19,7 +19,7 @@ def _symbol_type(cls, name, parent=None):
     Create new type instance from cls and inject symbol name
     """
     # Add the parent-object if it exists (`parent`)
-    parent = ('%s.' % parent) if parent is not None else ''
+    parent = ('%s%%' % parent) if parent is not None else ''
     name = '%s%s' % (parent, name)
     return type(name, (cls, ), dict(cls.__dict__))
 
@@ -154,6 +154,10 @@ class Scalar(sympy.Symbol):
         name = kwargs.pop('name')
         parent = kwargs.pop('parent', None)
 
+        # Name injection for sympy.Symbol (so we can do `a%scalar`)
+        if parent is not None:
+            name = '%s%%%s' % (parent, name)
+
         # Create a new object from the static constructor with global caching!
         return Scalar.__xnew_cached_(cls, name, parent=parent)
 
@@ -248,7 +252,8 @@ class Array(sympy.Function):
 
     @property
     def indexed(self):
-        return sympy.IndexedBase(self.name, shape=self.args)
+        name = self.name if self.parent is None else '%s%%%s' % (self.parent, self.name)
+        return sympy.IndexedBase(name, shape=self.args)
 
     def indexify(self):
         return self.indexed[self.args]

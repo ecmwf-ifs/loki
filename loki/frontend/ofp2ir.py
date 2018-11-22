@@ -354,14 +354,15 @@ class OFP2IR(GenericVisitor):
 
     def visit_name(self, o, source=None):
 
-        def generate_variable(vname, indices, source):
+        def generate_variable(vname, indices, parent, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                return Variable(name=vname, dimensions=indices, source=source)
+                return Variable(name=vname, dimensions=indices,
+                                parent=parent, source=source)
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
@@ -369,26 +370,19 @@ class OFP2IR(GenericVisitor):
         _children = deque(c for c in _children if c is not None)
 
         # Now we nest variables, dimensions and sub-variables by
-        # popping them off the back of our deque...
-        indices = None
+        # walking through our queue of nested symbols
         variable = None
-        base = None
         while len(_children) > 0:
-            item = _children.pop()
-            if len(_children) > 0 and isinstance(_children[-1], tuple):
-                indices = _children.pop()
-
-            # The "append" base case
-            if variable is None:
-                base = generate_variable(vname=item, indices=indices,
-                                         source=source)
-                variable = base
+            # Indices sit on the left of their base symbol
+            if len(_children) > 0 and isinstance(_children[0], tuple):
+                indices = _children.popleft()
             else:
-                variable.ref = generate_variable(vname=item, indices=indices,
-                                                 source=source)
-                variable = variable.ref
-            indices = None
-        return base
+                indices = None
+
+            item = _children.popleft()
+            variable = generate_variable(vname=item, indices=indices,
+                                         parent=variable, source=source)
+        return variable
 
     def visit_variable(self, o, source=None):
         if 'id' not in o.attrib and 'name' not in o.attrib:
