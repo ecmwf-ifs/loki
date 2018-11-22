@@ -1,5 +1,7 @@
 from sympy.printing import fcode
+from sympy.codegen.fnodes import ArrayConstructor
 from functools import partial
+from collections import Iterable
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
@@ -252,7 +254,11 @@ class FortranCodegen(Visitor):
         if o.initial is not None:
             # TODO: This can cause re-creation of "Array" symbols,
             # which ultimately ends in disaster...
-            return fsymgen(o.initial, assign_to=indexify(o))
+            if isinstance(o.initial, Iterable):
+                value = ArrayConstructor(elements=o.initial)
+            else:
+                value = o.initial
+            return fsymgen(value, assign_to=indexify(o))
         else:
             return fsymgen(o)
 
