@@ -2,6 +2,7 @@ import open_fortran_parser
 from collections import OrderedDict, deque
 from pathlib import Path
 import re
+from itertools import zip_longest
 
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
@@ -12,7 +13,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
 from loki.expression import (Variable, Literal, Operation, RangeIndex,
                              InlineCall, LiteralList, Array)
 from loki.types import BaseType
-from loki.tools import as_tuple, timeit, disk_cached
+from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
 
 
@@ -449,14 +450,15 @@ class OFP2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
-        # A small bit of inflection to get SynPy expressions from the AST
-        assert len(ops) == 1
-        if len(exprs) == 1:
+        # A small bit of inflection to get Sympy expressions from the AST
+        if len(exprs) == 1 and len(ops) == 1:
             return eval('%s exprs[0]' % self._op_map[ops[0].lower()])
-        elif len(exprs) == 2:
-            return eval('exprs[0] %s exprs[1]' % self._op_map[ops[0].lower()])
         else:
-            raise NotImplementedError('[OFP] Cannot deal with multi-ary expressions')
+            operators = [self._op_map[op.lower()] for op in ops]
+            expr_refs = ['exprs[%s]' % i for i, _ in enumerate(exprs)]
+            expression = flatten(zip_longest(expr_refs, operators))
+            expression = ' '.join(e for e in expression if e is not None)
+            return eval(expression)
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
