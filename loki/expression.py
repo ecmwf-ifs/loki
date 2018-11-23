@@ -529,7 +529,6 @@ class Index(Expression):
 class RangeIndex(Expression):
 
     def __new__(cls, lower=None, upper=None, step=None):
-        if lower is None and upper is None and step is None:
-            return sympy.Idx(':')
-        else:
-            raise NotImplementedError('Currently no symbol for explicit ranges')
+        index = '%s:%s' % (lower or '', upper or '')
+        index = index if step is None else '%s:%s' (index, step)
+        return sympy.Idx(index)
