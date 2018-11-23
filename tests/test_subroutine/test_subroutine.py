@@ -27,8 +27,8 @@ def test_routine_simple(refpath, reference, frontend):
     """
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple']
-    assert routine.arguments == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)']
-    assert routine.arguments == ['X', 'Y', 'SCALAR', 'VECTOR(X)', 'MATRIX(X,Y)']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_simple', frontend=frontend)
@@ -49,8 +49,8 @@ def test_routine_multiline_args(refpath, reference, frontend):
     """
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_multiline_args']
-    assert routine.arguments == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)']
-    assert routine.arguments == ['X', 'Y', 'SCALAR', 'VECTOR(X)', 'MATRIX(X,Y)']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_multiline_args', frontend=frontend)
@@ -71,8 +71,8 @@ def test_routine_local_variables(refpath, reference, frontend):
     """
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_local_variables']
-    assert routine.variables == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)']
-    assert routine.variables == ['JPRB', 'X', 'Y', 'MAXIMUM', 'I', 'J', 'VECTOR(X)', 'MATRIX(X,Y)']
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_local_variables', frontend=frontend)
@@ -88,9 +88,11 @@ def test_routine_arguments(refpath, reference, frontend):
     """
 
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_arguments']
-    assert routine.variables == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
-                                 'i', 'j', 'local_vector(x)', 'local_matrix(x,y)']
-    assert routine.arguments == ['x', 'y', 'vector(x)', 'matrix(x,y)']
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
+                            'i', 'j', 'local_vector(x)', 'local_matrix(x, y)']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x, y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_arguments', frontend=frontend)
@@ -112,12 +114,14 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     """
     # TODO: Need a named subroutine lookup
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_dim_shapes']
-    assert routine.arguments == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(v1,v2-1)']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)']
 
     # Make sure variable/argument shapes on the routine work
-    shapes = [v.shape for v in routine.arguments]
-    assert shapes == [None, None, ('v1',), ('v1', 'v2'), ('v1', 'v2-1')]
+    shapes = [v.shape for v in routine.arguments if v.is_Array]
+    assert shapes == [('v1',), ('v1', 'v2'), ('v1', 'v2-1')]
 
     # Ensure shapes of body variables are ok
-    b_shapes = [v.shape for v in FindVariables(unique=False).visit(routine.ir)]
+    b_shapes = [v.shape for v in FindVariables(unique=False).visit(routine.ir)
+                if v.is_Array]
     assert b_shapes == [None, ('v1',), None, None, ('v1',), None, None, ('v1', 'v2')]
