@@ -51,8 +51,17 @@ class Var(sympy.Function):
         # always be executed for each "attempted instantiation",
         # due to the direct inheritance from sympy.Function.__new__. This
         # means repeated assignments here can overwrite previous values.
+        self._shape_cache = None
         self.meta = kwargs.get('meta', None)
         print("In __init__, meta %s" % self.meta)
+
+    @property
+    def shape(self):
+        return self._shape_cache[self.name]
+
+    @shape.setter
+    def shape(self, newshape):
+        self._shape_cache[self.name] = newshape
 
 
 ###  Now run stuff to demonstrate:
@@ -101,6 +110,7 @@ class Kernel(object):
     def __init__(self):
         # Instantiate our variable cache and wrap the Var constructor in a decorator
         self._varcache = fastcache.clru_cache(SYMPY_CACHE_SIZE, typed=True, unhashable='ignore')(Var.__new_stage2__)
+        self._shape_cache = {}
 
     def Var(self, *args, **kwargs):
         # Here, we emulate Var.__new__, but we call the 2nd stage through
@@ -114,6 +124,19 @@ class Kernel(object):
         # Since we are not actually using the object instation
         # mechanism, we need to call __init__ ourselves.
         newobj.__init__(*args, **kwargs)
+
+        # Now, for a final bit of magic, let's manually track shapes
+        #
+        # Note that we adopt shape from the first creation
+        # of the variable symbol in question. We could force
+        # this to happen based on context info, eg. set shape
+        # whenever we encounter a variable within a declaration
+        # context.
+        if not newobj.name in self._shape_cache:
+            self._shape_cache[newobj.name] = newobj.dims
+
+        newobj._shape_cache = self._shape_cache
+
         return newobj
 
 
@@ -127,5 +150,18 @@ print('k2::h:  %s' % kv2)
 kv1.meta = {'some': 'info'}
 
 print('k1::h %s  =>  k2::h %s' % (kv1.meta, kv2.meta))
+
+# Syncing variable shapes between declaration (first instance)
+# and all instances thereafter.
+k = Kernel()
+v1 = k.Var(name='h', dims=(x, y))
+v2 = k.Var(name='h', dims=(x, 1))
+print('v1:  %s => shape %s' % (v1, v1.shape))
+print('v2:  %s => shape %s' % (v2, v2.shape))
+
+# Now try to change the shape... ?
+v1.shape = (y, x)
+print('v1:  %s => shape %s' % (v1, v1.shape))
+print('v2:  %s => shape %s' % (v2, v2.shape))
 
 from IPython import embed; embed()
