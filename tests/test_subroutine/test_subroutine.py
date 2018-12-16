@@ -107,6 +107,35 @@ def test_routine_arguments(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_find_variables(refpath, reference, frontend):
+    """
+    Tests the `FindVariables` utility (not the best place to put this).
+    """
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_local_variables']
+
+    vars_all = FindVariables(unique=False).visit(routine.ir)
+    # Note, we are not counting declarations here
+    assert sum(1 for s in vars_all if str(s) == 'i') == 6
+    assert sum(1 for s in vars_all if str(s) == 'j') == 3
+    assert sum(1 for s in vars_all if str(s) == 'matrix(i, j)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'matrix(x, y)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'maximum') == 1
+    assert sum(1 for s in vars_all if str(s) == 'vector(i)') == 2
+    assert sum(1 for s in vars_all if str(s) == 'x') == 3
+    assert sum(1 for s in vars_all if str(s) == 'y') == 2
+
+    vars_unique = FindVariables(unique=True).visit(routine.ir)
+    assert sum(1 for s in vars_unique if str(s) == 'i') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'j') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(i, j)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(x, y)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'maximum') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'vector(i)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'x') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'y') == 1
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_routine_dim_shapes(refpath, reference, frontend):
     """
     A set of test to ensure matching different dimension and shape
