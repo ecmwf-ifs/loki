@@ -93,6 +93,7 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
   allocate(v3(v1))
   v3(v1-v2+1) = 1.
   v4(3:v1,1:v2-3) = 2.
+  v5(:,:) = 3.
 
 end subroutine routine_dim_shapes
 

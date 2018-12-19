@@ -147,10 +147,10 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)']
 
     # Make sure variable/argument shapes on the routine work
-    shapes = [v.shape for v in routine.arguments if v.is_Array]
-    assert shapes == [('v1',), ('v1', 'v2'), ('v1', 'v2-1')]
+    shapes = [str(v.shape) for v in routine.arguments if v.is_Array]
+    assert shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)']
 
     # Ensure shapes of body variables are ok
-    b_shapes = [v.shape for v in FindVariables(unique=False).visit(routine.ir)
-                if v.is_Array]
-    assert b_shapes == [None, ('v1',), None, None, ('v1',), None, None, ('v1', 'v2')]
+    b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
+                if v.is_Function]
+    assert b_shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)']

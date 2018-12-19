@@ -56,7 +56,7 @@ class Subroutine(object):
 
         # Enrich internal representation with meta-data
         self._attach_derived_types(typedefs=typedefs)
-        # self._derive_variable_shape(typedefs=typedefs)
+        self._derive_variable_shape(typedefs=typedefs)
 
         self.bind = bind
         self.is_function = is_function
@@ -180,7 +180,8 @@ class Subroutine(object):
             if decl.dimensions is not None:
                 # Re-nitialize variables with declared dimensions
                 variables = [Variable(name=v.name, parent=v.parent,
-                                      dimensions=decl.dimensions)
+                                      dimensions=decl.dimensions,
+                                      type=v.type or decl.type)
                              for v in variables]
                 decl.clone(variables=variables)
 
@@ -293,7 +294,7 @@ class Subroutine(object):
             if v.type.name.upper() in typedefs:
                 derived[v.name.upper()] = typedefs[v.type.name.upper()]
 
-            if v.dimensions is not None:
+            if v.is_Array and v.dimensions is not None:
                 if v.shape is None:
                     # First derivation of shape goes from allcoated dimensions
                     shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
@@ -315,7 +316,6 @@ class Subroutine(object):
                 # declaration aliases with each symbolic instance of
                 # the variable within a kernel.
 
-
         # Override shapes for deferred-shape allocations
         for alloc in FindNodes(Allocation).visit(self.body):
             for v in alloc.variables:
@@ -323,7 +323,8 @@ class Subroutine(object):
 
         # Apply shapes to meta-data variables
         for v in self.variables:
-            v._shape = shapes[v.name]
+            if v.name in shapes:
+                v._shape = shapes[v.name]
 
         # Apply shapes to all variables in the IR and all members (in-place)
         variable_instances = FindVariables(unique=False).visit(self.ir)
@@ -333,9 +334,10 @@ class Subroutine(object):
             if v.name in shapes:
                 v._shape = shapes[v.name]
 
-            if v.ref is not None and v.ref.name.upper() in derived:
+            # TODO: Yuck!
+            if hasattr(v, 'parent') and v.parent is not None and v.parent.name.upper() in derived:
                 # We currently only follow a single level of nesting
-                typevars = {tv.name.upper(): tv for tv in derived[v.ref.name.upper()].variables}
+                typevars = {tv.name.upper(): tv for tv in derived[v.parent.name.upper()].variables}
                 if v.name.upper() in typevars:
                     v._shape = typevars[v.name.upper()].shape
 

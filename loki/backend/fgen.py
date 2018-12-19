@@ -194,7 +194,8 @@ class FortranCodegen(Visitor):
 
     def visit_Statement(self, o):
         target = indexify(o.target)
-        stmt = fsymgen(o.expr, assign_to=target)
+        expr = indexify(o.expr)
+        stmt = fsymgen(expr, assign_to=target)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 

@@ -81,7 +81,8 @@ class OFP2IR(GenericVisitor):
             return WhileLoop(condition=condition, body=body, source=source)
         else:
             # We are processing a regular for/do loop with bounds
-            variable = o.find('header/index-variable').attrib['name']
+            vname = o.find('header/index-variable').attrib['name']
+            variable = Variable(name=vname)
             lower = self.visit(o.find('header/index-variable/lower-bound'))
             upper = self.visit(o.find('header/index-variable/upper-bound'))
             step = None
@@ -356,7 +357,8 @@ class OFP2IR(GenericVisitor):
     def visit_name(self, o, source=None):
 
         def generate_variable(vname, indices, parent, source):
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG']:
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
+                                 'SELECTED_REAL_KIND']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
