@@ -117,7 +117,7 @@ class Subroutine(object):
         spec = parse(ast.find('declarations'), type_map=type_map,
                      symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-                  if d._source.file != file or d.variables[0] == name}
+                  if d._source.file != file or d.variables[0].name == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)

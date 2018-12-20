@@ -144,13 +144,13 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     # TODO: Need a named subroutine lookup
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_dim_shapes']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)']
+    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(v1, v2 - 1)']
 
     # Make sure variable/argument shapes on the routine work
     shapes = [str(v.shape) for v in routine.arguments if v.is_Array]
-    assert shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)']
+    assert shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
 
     # Ensure shapes of body variables are ok
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if v.is_Function]
-    assert b_shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)']
+    assert b_shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']

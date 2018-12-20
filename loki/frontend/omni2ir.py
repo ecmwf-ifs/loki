@@ -2,6 +2,8 @@ from subprocess import check_call, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
+from functools import reduce
+import operator
 
 from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
@@ -83,20 +85,20 @@ class OMNI2IR(GenericVisitor):
         else:
             return super(OMNI2IR, self).lookup_method(instance)
 
-    def visit(self, o):
+    def visit(self, o, **kwargs):
         """
         Generic dispatch method that tries to generate meta-data from source.
         """
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
         source = Source(lines=(lineno, None), file=file)
-        return super(OMNI2IR, self).visit(o, source=source)
+        return super(OMNI2IR, self).visit(o, source=source, **kwargs)
 
-    def visit_Element(self, o, source=None):
+    def visit_Element(self, o, source=None, **kwargs):
         """
         Universal default for XML element types
         """
-        children = tuple(self.visit(c) for c in o)
+        children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -119,8 +121,6 @@ class OMNI2IR(GenericVisitor):
             tast = self.type_map[name.attrib['type']]
             type = self.visit(tast)
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
-            # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
-            dimensions = as_tuple(d.upper if d == d.upper else d for d in dimensions)
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = name.attrib['type']
@@ -166,12 +166,13 @@ class OMNI2IR(GenericVisitor):
         for s in o.find('symbols'):
             vname = s.find('name').text
             t = s.attrib['type']
+            dimensions = None
             if t in self.type_map:
                 vtype = self.visit(self.type_map[t])
-                dimensions = [self.visit(d) for d in self.type_map[t]]
+                if len(self.type_map[t]) > 0:
+                    dimensions = [self.visit(d) for d in self.type_map[t]]
             else:
                 vtype = BaseType(name=BaseType._omni_types.get(t, t))
-                dimensions = None
             variables += [Variable(name=vname, dimensions=dimensions, type=vtype)]
         return DerivedType(name=name, variables=as_tuple(variables))
 
@@ -206,7 +207,11 @@ class OMNI2IR(GenericVisitor):
         assert (o.find('body') is not None)
         variable = self.visit(o.find('Var'))
         body = self.visit(o.find('body'))
-        bounds = self.visit(o.find('indexRange'))
+        # TODO: What do we do with loop bounds? Tuple or Range?
+        lower = self.visit(o.find('indexRange/lowerBound'))
+        upper = self.visit(o.find('indexRange/upperBound'))
+        step = self.visit(o.find('indexRange/step'))
+        bounds = lower, upper, step
         return Loop(variable=variable, body=body, bounds=bounds)
 
     def visit_FifStatement(self, o, source=None):
@@ -215,23 +220,31 @@ class OMNI2IR(GenericVisitor):
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
         return Conditional(conditions=conditions, bodies=(bodies, ), else_body=else_body)
 
-    def visit_FmemberRef(self, o, source=None):
+    def visit_FmemberRef(self, o, lookahead=False, source=None):
         t = o.attrib['type']
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
         else:
             vtype = BaseType(name=BaseType._omni_types.get(t, t))
-        var = Variable(name=o.attrib['member'], type=vtype)
-        var.ref = self.visit(o.find('varRef'))
-        return var
+        parent = self.visit(o.find('varRef'))
 
-    def visit_Var(self, o, source=None):
+        if lookahead:
+            # Hack: Return components of Variable symbol to allow deferred creation
+            return o.attrib['member'], vtype, parent
+        return Variable(name=o.attrib['member'], type=vtype, parent=parent)
+
+    def visit_Var(self, o, lookahead=False, source=None):
+        if lookahead:
+            return o.text, None, None
         return Variable(name=o.text)
 
     def visit_FarrayRef(self, o, source=None):
-        v = self.visit(o[0])
-        v.dimensions = as_tuple(self.visit(i) for i in o[1:])
-        return v
+        # Hack: Get variable components here and derive the dimensions
+        # explicitly before constructing our symbolic variable.
+        vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
+        dimensions = as_tuple(self.visit(i) for i in o[1:])
+        return Variable(name=vname, dimensions=dimensions,
+                        type=vtype, parent=parent)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -304,9 +317,10 @@ class OMNI2IR(GenericVisitor):
         if o.find('allocOpt') is not None:
             data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
-            v = self.visit(a[0])
-            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
-            variables += [v]
+            vname, vtype, parent = self.visit(a[0], lookahead=True)
+            dimensions = as_tuple(self.visit(i) for i in a[1:])
+            variables += [Variable(name=vname, dimensions=dimensions,
+                                   type=vtype, parent=parent)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
@@ -360,63 +374,64 @@ class OMNI2IR(GenericVisitor):
 
     def visit_plusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['+'], operands=exprs)
+        return reduce(operator.add, exprs)
 
     def visit_minusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['-'], operands=exprs)
+        return reduce(operator.sub, exprs)
 
     def visit_mulExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['*'], operands=exprs)
+        return reduce(operator.mul, exprs)
 
     def visit_divExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['/'], operands=exprs)
+        return reduce(operator.truediv, exprs)
 
     def visit_FpowerExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['**'], operands=exprs)
+        return reduce(operator.pow, exprs)
 
     def visit_unaryMinusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['-'], operands=exprs)
+        return reduce(operator.neg, exprs)
 
     def visit_logOrExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.or.'], operands=exprs)
+        return reduce(operator.or_, exprs)
 
     def visit_logAndExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.and.'], operands=exprs)
+        return reduce(operator.and_, exprs)
 
     def visit_logNotExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.not.'], operands=exprs)
+        exprs = [self.visit(c) for c in o]#
+        assert len(exprs) == 1
+        return operator.invert(exprs[0])
 
     def visit_logLTExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['<'], operands=exprs)
+        return reduce(operator.lt, exprs)
 
     def visit_logLEExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['<='], operands=exprs)
+        return reduce(operator.le, exprs)
 
     def visit_logGTExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['>'], operands=exprs)
+        return reduce(operator.gt, exprs)
 
     def visit_logGEExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['>='], operands=exprs)
+        return reduce(operator.ge, exprs)
 
     def visit_logEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['=='], operands=exprs)
+        return reduce(operator.eq, exprs)
 
     def visit_logNEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['/='], operands=exprs)
+        return reduce(operator.ne, exprs)
 
 
 def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None):

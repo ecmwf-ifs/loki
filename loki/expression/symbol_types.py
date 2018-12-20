@@ -237,6 +237,12 @@ class Literal(sympy.Number):
         # We first create a dummy object to determine
         # SymPy's internal literal type, so that we can
         # the create the corrected slotted type for it.
+
+        # Ensure we capture booleans
+        if str(value).lower() in ['.true.', '.false.']:
+            value = str(value).strip('.').lower()
+
+        # Create a sympyfied dummy to determine type
         dummy = sympy.sympify(value)
         if dummy.is_Integer:
             obj = sympy.Expr.__new__(IntLiteral)
@@ -303,6 +309,9 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
         args = as_tuple(self.arguments) + kwargs
         return '%s(%s)' % (self.name, ','.join(str(a) for a in args))
 
+    def _sympystr(self, printer=None):
+        return self.expr
+
     @property
     def children(self):
         return self.arguments
@@ -311,6 +320,11 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
 class RangeIndex(sympy.Idx):
 
     def __new__(cls, lower=None, upper=None, step=None):
-        index = '%s:%s' % (lower or '', upper or '')
-        index = index if step is None else '%s:%s' (index, step)
+        # Drop trivial default bounds and step sizes
+        lower = None if lower == 1 else lower
+        step = None if step == 1 else step
+
+        index = ':' if upper is None else str(upper)
+        index = index if lower is None else '%s:%s' % (lower, index)
+        index = index if step is None else '%s:%s' % (index, step)
         return sympy.Idx(index)

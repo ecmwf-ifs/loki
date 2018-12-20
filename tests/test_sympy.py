@@ -164,4 +164,4 @@ v1.shape = (y, x)
 print('v1:  %s => shape %s' % (v1, v1.shape))
 print('v2:  %s => shape %s' % (v2, v2.shape))
 
-from IPython import embed; embed()
+# from IPython import embed; embed()
