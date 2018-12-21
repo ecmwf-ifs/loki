@@ -167,11 +167,12 @@ class FortranCTransformation(BasicTransformation):
             else:
                 ctype = arg.type.dtype.isoctype
                 # Only scalar, intent(in) arguments are pass by value
-                ctype.value = (arg.dimensions is None or len(arg.dimensions) == 0) \
-                              and arg.type.intent.lower() == 'in'
+                ctype.value = arg.is_Scalar and arg.type.intent.lower() == 'in'
                 # Pass by reference for array types
-            var = Variable(name=arg.name, dimensions=arg.dimensions,
-                           shape=arg.shape, type=ctype)
+            dimensions = arg.dimensions if arg.is_Array else None
+            shape = arg.shape if arg.is_Array else None
+            var = intf_routine.Variable(name=arg.name, dimensions=dimensions,
+                                        shape=shape, type=ctype)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
@@ -240,8 +241,7 @@ class FortranCTransformation(BasicTransformation):
 
         # Force pointer on reference-passed arguments
         for arg in kernel.arguments:
-            if not (arg.type.intent.lower() == 'in' and \
-                    (arg.dimensions is None or len(arg.dimensions) == 0)):
+            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
                 arg.type.pointer = True
         # Propagate that reference pointer to all variables
         arg_map = {a.name: a for a in kernel.arguments}
@@ -271,7 +271,9 @@ class FortranCTransformation(BasicTransformation):
             # Loop over all variables and replace them with loop indices
             vdims = set()
             for v in FindVariables(unique=False).visit(stmt):
-                for dim, shape in zip(v.dimensions, as_tuple(v.shape)):
+                dimensions = () if v.is_Scalar else v.dimensions
+                shape = () if v.is_Scalar else v.shape
+                for dim, shape in zip(dimensions, as_tuple(shape)):
                     if isinstance(dim, RangeIndex):
                         vtype = BaseType(name='integer', kind='4')
                         ivar = Variable(name='i_%s' % shape, type=vtype)
@@ -300,19 +302,25 @@ class FortranCTransformation(BasicTransformation):
         # TODO: Take care of the indexing shift between C and Fortran.
         # Basically, we are relying on the CGen to shuft the iteration
         # indices and dearly hope that nobody uses the index's value.
-        for v in FindVariables(unique=False).visit(kernel.body):
-            v.dimensions = as_tuple(reversed(v.dimensions))
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if v.is_Array:
+                v._args = as_tuple(reversed(v._args))
+                v.dimensions = v.args
 
+        # Invert the argument dimensions for the automatic cast generation
         for v in kernel.variables:
-            v.dimensions = as_tuple(reversed(v.dimensions))
+            if v.is_Array:
+                # TODO: This is super hacky! Argh...
+                v._args = as_tuple(reversed(v._args))
+                v.dimensions = v.args
 
         # Shift each array indices to adjust to C indexing conventions
-        def minus_one(dim):
-            # TODO: Symbolics should make this neater
-            return Operation(ops=('-',), operands=(dim, Literal(value='1')))
-
-        for v in FindVariables(unique=False).visit(kernel.body):
-            v.dimensions = as_tuple(minus_one(d) for d in v.dimensions)
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if v.is_Array:
+                # TODO: We really need a better way of doing this
+                # (re-generate symbols and substitute!)
+                v._args = as_tuple(d - 1 for d in v._args)
+                v.dimensions = v.args
 
         # Replace known numerical intrinsic functions
         class IntrinsicVisitor(ExpressionVisitor):

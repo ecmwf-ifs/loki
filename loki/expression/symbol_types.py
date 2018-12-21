@@ -226,7 +226,6 @@ class Variable(sympy.Function):
 class FloatLiteral(sympy.Float):
     __slots__ = ['_mpf_', '_prec','_type', '_kind']
 
-
 class IntLiteral(sympy.Integer):
     __slots__ = ['p', '_type', '_kind']
 
@@ -292,8 +291,7 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
         """
         kwargs = ()
         if self.kwarguments:
-            kwargs = tuple(sympy.codegen.ast.Assignment(kw, arg)
-                           for kw,arg in self.kwarguments.items())
+            kwargs = tuple(arg for _, arg in self.kwarguments)
         return as_tuple(self.arguments) + kwargs
 
     @property
