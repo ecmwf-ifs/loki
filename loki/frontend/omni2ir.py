@@ -236,8 +236,14 @@ class OMNI2IR(GenericVisitor):
         return Variable(name=o.attrib['member'], type=vtype, parent=parent)
 
     def visit_Var(self, o, lookahead=False, source=None):
+        t = o.attrib['type']
+        if t in self.type_map:
+            vtype = self.visit(self.type_map[t])
+        else:
+            vtype = BaseType(name=BaseType._omni_types.get(t, t))
+
         if lookahead:
-            return o.text, None, None
+            return o.text, vtype, None
         return Variable(name=o.text)
 
     def visit_FarrayRef(self, o, source=None):

@@ -47,8 +47,6 @@ class FindVariables(Visitor):
     visit_list = visit_tuple
 
     def visit_Statement(self, o, **kwargs):
-        # if not hasattr(o.expr, 'is_Symbol'):
-        # from IPython import embed; embed()
         variables = as_tuple(retrieve_variables(o.target))
         variables += as_tuple(retrieve_variables(o.expr))
         return set(variables) if self.unique else variables

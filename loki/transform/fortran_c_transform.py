@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from sympy import Idx
 
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
@@ -9,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, ExpressionVisitor, Operation)
+                             Literal, ExpressionVisitor, Operation, Array)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -270,16 +271,20 @@ class FortranCTransformation(BasicTransformation):
         for stmt in FindNodes(Statement).visit(kernel.body):
             # Loop over all variables and replace them with loop indices
             vdims = set()
+            index_map = {}
             for v in FindVariables(unique=False).visit(stmt):
-                dimensions = () if v.is_Scalar else v.dimensions
-                shape = () if v.is_Scalar else v.shape
-                for dim, shape in zip(dimensions, as_tuple(shape)):
+                # TODO: Really need to introduce SymbolBase
+                dimensions = v.dimensions if isinstance(v, Array) else ()
+                shape = v.shape if isinstance(v, Array) else ()
+                for dim, s in zip(dimensions, as_tuple(shape)):
                     if isinstance(dim, RangeIndex):
                         vtype = BaseType(name='integer', kind='4')
-                        ivar = Variable(name='i_%s' % shape, type=vtype)
+                        ivar = Variable(name='i_%s' % s, type=vtype)
                         vdims.add(ivar)
-                        v.dimensions = as_tuple(d if d is not dim else ivar
-                                                for d in v.dimensions)
+                        index_map[ivar] = s
+                        v._args = as_tuple(d if d is not dim else ivar
+                                           for d in v.dimensions)
+                        v.dimensions = v.args
             index_vars.update(list(vdims))
 
             # Recursively build new loop nest over all implicit dims
@@ -288,7 +293,7 @@ class FortranCTransformation(BasicTransformation):
                 body = stmt
                 for ivar in vdims:
                     # TODO: Handle more complex ranges
-                    bounds = RangeIndex(lower=Literal(value='1'), upper=shape)
+                    bounds = (Literal(1), index_map[ivar], None)
                     loop = Loop(variable=ivar, body=body, bounds=bounds)
                     body = loop
 
@@ -303,20 +308,20 @@ class FortranCTransformation(BasicTransformation):
         # Basically, we are relying on the CGen to shuft the iteration
         # indices and dearly hope that nobody uses the index's value.
         for v in FindVariables(unique=True).visit(kernel.body):
-            if v.is_Array:
+            if isinstance(v, Array):
                 v._args = as_tuple(reversed(v._args))
                 v.dimensions = v.args
 
         # Invert the argument dimensions for the automatic cast generation
         for v in kernel.variables:
-            if v.is_Array:
+            if isinstance(v, Array):
                 # TODO: This is super hacky! Argh...
                 v._args = as_tuple(reversed(v._args))
                 v.dimensions = v.args
 
         # Shift each array indices to adjust to C indexing conventions
         for v in FindVariables(unique=True).visit(kernel.body):
-            if v.is_Array:
+            if isinstance(v, Array):
                 # TODO: We really need a better way of doing this
                 # (re-generate symbols and substitute!)
                 v._args = as_tuple(d - 1 for d in v._args)

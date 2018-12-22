@@ -317,12 +317,40 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
 
 class RangeIndex(sympy.Idx):
 
+    is_Symbol = True
+    is_Function = False
+
     def __new__(cls, lower=None, upper=None, step=None):
         # Drop trivial default bounds and step sizes
         lower = None if lower == 1 else lower
         step = None if step == 1 else step
 
-        index = ':' if upper is None else str(upper)
-        index = index if lower is None else '%s:%s' % (lower, index)
-        index = index if step is None else '%s:%s' % (index, step)
-        return sympy.Idx(index)
+        label = ':' if upper is None else str(upper)
+        label = label if lower is None else '%s:%s' % (lower, label)
+        label = label if step is None else '%s:%s' % (label, step)
+        return sympy.Expr.__new__(cls, sympy.Symbol(label))
+
+    def __init__(self, lower=None, upper=None, step=None):
+        self._lower = lower
+        self._upper = upper
+        self._step = step
+
+    @property
+    def symbol(self):
+        return self.args[0]
+
+    @property
+    def name(self):
+        return self.symbol.name
+
+    @property
+    def lower(self):
+        return self._lower
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @property
+    def step(self):
+        return self._step
