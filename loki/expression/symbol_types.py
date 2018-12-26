@@ -1,6 +1,6 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
-from sympy.core.numbers import One as SympyOne
+from sympy.core.numbers import One as SympyOne, Zero
 
 from loki.tools import as_tuple
 
@@ -243,7 +243,9 @@ class Literal(sympy.Number):
 
         # Create a sympyfied dummy to determine type
         dummy = sympy.sympify(value)
-        if dummy.is_Integer:
+        if isinstance(dummy, str):
+            return dummy
+        elif dummy.is_Integer:
             obj = sympy.Expr.__new__(IntLiteral)
         elif dummy.is_Float:
             obj = sympy.Expr.__new__(FloatLiteral)
@@ -255,6 +257,9 @@ class Literal(sympy.Number):
         if isinstance(dummy, SympyOne):
             # One is treated specially in SymPy (as a singletone)
             obj.p = SympyOne.p
+        elif isinstance(dummy, Zero):
+            # Zero is also treated specially in SymPy
+            obj.p = Zero.p
         else:
             for attr in dummy.__class__.__slots__:
                 setattr(obj, attr, getattr(dummy, attr))
