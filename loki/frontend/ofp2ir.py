@@ -10,7 +10,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, Operation, RangeIndex,
+from loki.expression import (Variable, Literal, RangeIndex,
                              InlineCall, LiteralList, Array)
 from loki.types import BaseType
 from loki.tools import as_tuple, timeit, disk_cached, flatten

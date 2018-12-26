@@ -6,8 +6,7 @@ from loki.tools import flatten, as_tuple
 from loki.logging import warning
 from loki.expression.search import retrieve_variables
 
-__all__ = ['Expression', 'Operation', 'Index', 'Cast',
-           'ExpressionVisitor', 'FindVariables']
+__all__ = ['Expression', 'Cast', 'FindVariables', 'ExpressionVisitor']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -101,51 +100,6 @@ class Expression(object):
         return ()
 
 
-class Operation(Expression):
-
-    def __init__(self, ops, operands, parenthesis=False, source=None):
-        super(Operation, self).__init__(source=source)
-        self.ops = as_tuple(ops)
-        self.operands = as_tuple(operands)
-        self.parenthesis = parenthesis
-
-    @property
-    def expr(self):
-        if len(self.ops) == 1 and len(self.operands) == 1:
-            # Special case: a unary operator
-            return '%s%s' % (self.ops[0], self.operands[0])
-
-        s = str(self.operands[0])
-        s += ''.join(['%s%s' % (o, str(e)) for o, e in zip(self.ops, self.operands[1:])])
-        return ('(%s)' % s) if self.parenthesis else s
-
-    @property
-    def type(self):
-        types = [o.type for o in self.operands]
-        assert(all(types == types[0]))
-        return types[0]
-
-    @property
-    def children(self):
-        return self.operands
-
-    def __key(self):
-        return (self.ops, self.operands, self.parenthesis)
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other):
-        # Allow direct comparisong to string and other Index objects
-        if isinstance(other, str):
-            return self.expr.upper() == other.upper()
-        elif isinstance(other, Operation):
-            return self.__key() == other.__key()
-        else:
-            return super(Operation, self).__eq__(other)
-
-
-
 class Cast(Expression):
     """
     Internal representation of a data cast to a psecific type.
@@ -166,33 +120,3 @@ class Cast(Expression):
     @property
     def children(self):
         return as_tuple(self._expr)
-
-
-class Index(Expression):
-
-    def __init__(self, name):
-        self.name = name
-
-    @property
-    def expr(self):
-        return '%s' % self.name
-
-    def __key(self):
-        return (self.name)
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    @property
-    def type(self):
-        # TODO: Some common form of `INT`, maybe?
-        return None
-
-    def __eq__(self, other):
-        # Allow direct comparisong to string and other Index objects
-        if isinstance(other, str):
-            return self.name.upper() == other.upper()
-        elif isinstance(other, Index):
-            return self.name == other.name
-        else:
-            return super(Index, self).__eq__(other)

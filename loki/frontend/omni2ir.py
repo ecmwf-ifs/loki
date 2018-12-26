@@ -9,7 +9,7 @@ from sympy import Equality
 
 from loki.frontend.source import Source
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex, Cast
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType

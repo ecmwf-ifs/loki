@@ -6,7 +6,7 @@ from loki.tools import chunks, as_tuple
 from loki.visitors import Visitor, FindNodes
 from loki.types import DataType, DerivedType
 from loki.ir import TypeDef, Declaration, Import
-from loki.expression import Operation, Literal, indexify, FindVariables
+from loki.expression import Literal, indexify, FindVariables
 
 __all__ = ['cgen', 'CCodegen', 'csymgen']
 

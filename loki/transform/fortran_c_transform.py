@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, ExpressionVisitor, Operation, Array)
+                             Literal, ExpressionVisitor, Array)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
