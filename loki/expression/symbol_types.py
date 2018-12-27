@@ -6,7 +6,7 @@ from loki.tools import as_tuple
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'LiteralList',
-           'RangeIndex', 'InlineCall', 'indexify', '_symbol_type']
+           'RangeIndex', 'InlineCall', 'Cast', 'indexify', '_symbol_type']
 
 
 def _symbol_type(cls, name, parent=None):
@@ -318,6 +318,41 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
     @property
     def children(self):
         return self.arguments
+
+
+class Cast(sympy.codegen.ast.FunctionCall):
+    """
+    Internal representation of a data type cast.
+    """
+    __slots__ = ['name', 'expression', 'dtype']
+
+    defaults = {'expr': None, 'dtype': None}
+
+    def __init__(self, name, expression=None, dtype=None):
+        self.name = name
+        self.expression = expression
+        self.dtype = dtype
+
+    @property
+    def function_args(self):
+        """
+        Construct function arguments (required by sympy code printers)
+        """
+        return as_tuple(self.expression)
+
+    @property
+    def args(self):
+        """
+        Ensure we flatten argumentss and kwarguments for traversal
+        """
+        return self.function_args
+
+    @property
+    def expr(self):
+        return '%s(%s)' % (self.name, ','.join(str(a) for a in self.args))
+
+    def _sympystr(self, printer=None):
+        return self.expression
 
 
 class RangeIndex(sympy.Idx):

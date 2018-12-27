@@ -6,7 +6,7 @@ from loki.tools import flatten, as_tuple
 from loki.logging import warning
 from loki.expression.search import retrieve_variables
 
-__all__ = ['Expression', 'Cast', 'FindVariables', 'ExpressionVisitor']
+__all__ = ['Expression', 'FindVariables', 'ExpressionVisitor']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -98,25 +98,3 @@ class Expression(object):
     @property
     def children(self):
         return ()
-
-
-class Cast(Expression):
-    """
-    Internal representation of a data cast to a psecific type.
-    """
-
-    def __init__(self, expr, type):
-        self._expr = expr
-        self._type = type
-
-    @property
-    def expr(self):
-        return '%s' % self._expr
-
-    @property
-    def type(self):
-        return self._type
-
-    @property
-    def children(self):
-        return as_tuple(self._expr)

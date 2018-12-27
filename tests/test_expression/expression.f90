@@ -41,3 +41,14 @@ subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtru
   vfalse = .false.
 
 end subroutine logical_expr
+
+
+subroutine cast_expr(v1, v2, v3, v4, v5)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(in) :: v2, v3
+  real(kind=jprb), intent(out) :: v4, v5
+
+  v4 = real(v1, kind=jprb)  ! Test a plain cast
+  v5 = real(v1, kind=jprb) * max(v2, v3)  ! Cast as part of expression
+end subroutine cast_expr

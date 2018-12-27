@@ -81,3 +81,20 @@ def test_logical_expr(refpath, reference, frontend):
     vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse = function(True, False)
     assert vand_t and vor_t and vnot_t and vtrue
     assert not(vand_f and vor_f and vnot_f and vfalse)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_cast_expr(refpath, reference, frontend):
+    """
+    v4 = real(v1, kind=jprb)
+    v5 = real(v1, kind=jprb) * max(v2, c3)
+    """
+    # Test the reference solution
+    v4, v5 = reference.cast_expr(2, 1., 4.)
+    assert v4 == 2. and v5 == 8.
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'cast_expr', frontend=frontend)
+    function = getattr(test, 'cast_expr_%s' % frontend)
+    v4, v5 = function(2, 1., 4.)
+    assert v4 == 2. and v5 == 8.
