@@ -1,6 +1,5 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
-from sympy.core.numbers import One as SympyOne, Zero
 
 from loki.tools import as_tuple
 
@@ -233,40 +232,23 @@ class IntLiteral(sympy.Integer):
 class Literal(sympy.Number):
 
     def __new__(cls, value, **kwargs):
-        # We first create a dummy object to determine
-        # SymPy's internal literal type, so that we can
-        # the create the corrected slotted type for it.
-
-        # Ensure we capture booleans
-        if str(value).lower() in ['.true.', '.false.']:
-            value = str(value).strip('.').lower()
-
-        # Create a sympyfied dummy to determine type
-        dummy = sympy.sympify(value)
-        if isinstance(dummy, str):
-            return dummy
-        elif dummy.is_Integer:
-            obj = sympy.Expr.__new__(IntLiteral)
-        elif dummy.is_Float:
-            obj = sympy.Expr.__new__(FloatLiteral)
+        if isinstance(value, int):
+            obj = IntLiteral(value)
+        elif isinstance(value, float):
+            obj = FloatLiteral(value)
         else:
-            # We only overload integer and floats
-            return dummy
+            # Ensure we capture booleans
+            if str(value).lower() in ['.true.', '.false.']:
+                value = str(value).strip('.').lower()
 
-        # Then we copy over the defining slotted attributes
-        if isinstance(dummy, SympyOne):
-            # One is treated specially in SymPy (as a singletone)
-            obj.p = SympyOne.p
-        elif isinstance(dummy, Zero):
-            # Zero is also treated specially in SymPy
-            obj.p = Zero.p
-        else:
-            for attr in dummy.__class__.__slots__:
-                setattr(obj, attr, getattr(dummy, attr))
+            # Let sympy figure out what we're dealing with
+            obj = sympy.sympify(value)
 
         # And attach out own meta-data
-        obj._type = kwargs.get('type', None)
-        obj._kind = kwargs.get('kind', None)
+        if hasattr(obj, '_type'):
+            obj._type = kwargs.get('type', None)
+        if hasattr(obj, '_kind'):
+            obj._kind = kwargs.get('kind', None)
         return obj
 
 

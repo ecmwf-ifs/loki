@@ -1,7 +1,7 @@
 from enum import IntEnum
 from collections import OrderedDict
 
-__all__ = ['BaseType', 'DerivedType']
+__all__ = ['BaseType', 'DerivedType', 'DataType']
 
 
 class DataType(IntEnum):

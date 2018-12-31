@@ -270,7 +270,7 @@ class OMNI2IR(GenericVisitor):
             return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=o.text, kind=o.attrib.get('kind', None))
+        return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text, type=DataType.BOOL)
@@ -279,7 +279,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value='"%s"' % o.text)
 
     def visit_FintConstant(self, o, source=None):
-        return Literal(value=o.text)
+        return Literal(value=int(o.text))
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
