@@ -209,6 +209,9 @@ class Statement(Node):
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
+    def __repr__(self):
+        return 'Stmt:: %s = %s' % (self.target, self.expr)
+
 
 class MaskedStatement(Node):
     """

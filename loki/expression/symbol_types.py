@@ -68,7 +68,10 @@ class Scalar(sympy.Symbol):
         newobj = sympy.Symbol.__new__(cls, name)
         newobj.name = name
         newobj.parent = parent
+
         newobj._type = None
+        newobj.initial = None
+        newobj._source = None
 
         return newobj
 
@@ -79,8 +82,8 @@ class Scalar(sympy.Symbol):
         """
         Initialisation of non-cached objects attributes
         """
-        self._source = kwargs.pop('source', None)
-        self.initial = kwargs.pop('initial', None)
+        self._source = kwargs.pop('source', self._source)
+        self.initial = kwargs.pop('initial', self.initial)
         self._type = kwargs.pop('type', self._type)
 
     @property
@@ -135,6 +138,8 @@ class Array(sympy.Function, Boolean):
 
         newobj._type = None
         newobj._shape = None
+        newobj.initial = None
+        newobj._source = None
 
         return newobj
 
@@ -146,8 +151,8 @@ class Array(sympy.Function, Boolean):
         """
         Initialisation of non-cached objects attributes
         """
-        self._source = kwargs.pop('source', None)
-        self.initial = kwargs.pop('initial', None)
+        self._source = kwargs.pop('source', self._source)
+        self.initial = kwargs.pop('initial', self.initial)
         self._type = kwargs.pop('type', self._type)
 
     @property
@@ -248,6 +253,10 @@ class Literal(sympy.Number):
 
             # Let sympy figure out what we're dealing with
             obj = sympy.sympify(value)
+
+            # Re-insert string markers for raw strings
+            if isinstance(obj, str) and '"' in value:
+                obj = '"%s"' % obj
 
         # And attach out own meta-data
         if hasattr(obj, '_type'):

@@ -328,6 +328,7 @@ class OMNI2IR(GenericVisitor):
         for a in allocs:
             vname, vtype, parent = self.visit(a[0], lookahead=True)
             dimensions = as_tuple(self.visit(i) for i in a[1:])
+            dimensions = None if len(dimensions) == 0 else dimensions
             variables += [Variable(name=vname, dimensions=dimensions,
                                    type=vtype, parent=parent)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)

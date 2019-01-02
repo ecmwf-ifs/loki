@@ -196,6 +196,10 @@ class FortranCodegen(Visitor):
         target = indexify(o.target)
         expr = indexify(o.expr)
         stmt = fsymgen(expr, assign_to=target)
+        if o.ptr:
+            # Manually force pointer assignment notation
+            # ... Hack me baby, one more time ...
+            stmt = stmt.replace(' = ', ' => ')
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -238,7 +242,8 @@ class FortranCodegen(Visitor):
 
     def visit_Allocation(self, o):
         source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
-        variables = ','.join(str(v) for v in o.variables)
+        variables = ','.join(v.name if isinstance(v, str) else str(v)
+                             for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
