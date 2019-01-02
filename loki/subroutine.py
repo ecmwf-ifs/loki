@@ -339,7 +339,9 @@ class Subroutine(object):
                 # We currently only follow a single level of nesting
                 typevars = {tv.name.upper(): tv for tv in derived[v.parent.name.upper()].variables}
                 if v.name.upper() in typevars:
-                    v._shape = typevars[v.name.upper()].shape
+                    tvar = typevars[v.name.upper()]
+                    if tvar.is_Array:
+                        v._shape = tvar.shape
 
     @property
     def ir(self):

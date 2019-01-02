@@ -7,7 +7,7 @@ from pathlib import Path
 from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
                   FindNodes, FindVariables, info, as_tuple, Loop,
                   Variable, Call, Pragma, BaseType,
-                  DerivedType, Import, Index, RangeIndex, Subroutine,
+                  DerivedType, Import, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation,
                   Frontend, OMNI, OFP, cgen, fgen)
@@ -295,11 +295,11 @@ class SCATransformation(AbstractTransformation):
 
                     # Insert ':' for all missing dimensions in argument
                     if arg.shape is not None and len(val.dimensions) == 0:
-                        val.dimensions = tuple(Index(name=':') for _ in arg.shape)
+                        val.dimensions = tuple(RangeIndex(upper=None) for _ in arg.shape)
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        val.dimensions = tuple(Index(name=target.variable)
+                        val.dimensions = tuple(target.variable
                                                if tdim in size_expressions else ddim
                                                for ddim, tdim in zip(val.dimensions, val.shape))
 

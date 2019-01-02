@@ -9,7 +9,7 @@ from loki.types import BaseType
 from loki.ir import Statement
 from loki.expression import indexify
 
-__all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
+__all__ = ['fgen', 'FortranCodegen', 'fsymgen', 'fexprgen', 'FExprCodegen']
 
 
 # TODO: Make configurable
@@ -154,7 +154,7 @@ class FortranCodegen(Visitor):
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
-        condition = fexprgen(o.condition, op_spaces=True)
+        condition = fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
@@ -169,21 +169,21 @@ class FortranCodegen(Visitor):
             self._depth = 0  # Surpress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
-            cond = fexprgen(o.conditions[0], op_spaces=True)
+            cond = fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
         else:
             self._depth += 1
             bodies = [self.visit(b) for b in o.bodies]
             else_body = self.visit(o.else_body)
             self._depth -= 1
-            headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
+            headers = ['IF (%s) THEN' % fsymgen(c) for c in o.conditions]
             main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
             return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
-        expr = fexprgen(o.expr)
-        values = ['DEFAULT' if v is None else '(%s)' % fexprgen(v) for v in o.values]
+        expr = fsymgen(o.expr)
+        values = ['DEFAULT' if v is None else '(%s)' % fsymgen(v) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -200,7 +200,7 @@ class FortranCodegen(Visitor):
         return self.indent + stmt + comment
 
     def visit_MaskedStatement(self, o):
-        condition = fexprgen(o.condition)
+        condition = fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         default = self.visit(o.default)

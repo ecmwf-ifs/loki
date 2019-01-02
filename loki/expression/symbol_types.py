@@ -1,5 +1,6 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
+from sympy.logic.boolalg import Boolean
 
 from loki.tools import as_tuple
 
@@ -90,7 +91,7 @@ class Scalar(sympy.Symbol):
         return self._type
 
 
-class Array(sympy.Function):
+class Array(sympy.Function, Boolean):
 
     is_Scalar = False
     is_Array = True
@@ -177,6 +178,10 @@ class Array(sympy.Function):
     def indexify(self):
         return self.indexed[self.args]
 
+    @property
+    def binary_symbols(self):
+        return set()
+
 
 class Variable(sympy.Function):
     """
@@ -258,7 +263,7 @@ class LiteralList(object):
         return tuple(Literal(v) for v in values)
 
 
-class InlineCall(sympy.codegen.ast.FunctionCall):
+class InlineCall(sympy.codegen.ast.FunctionCall, Boolean):
     """
     Internal representation of an in-line function call
     """

@@ -217,10 +217,11 @@ class OMNI2IR(GenericVisitor):
         return Loop(variable=variable, body=body, bounds=bounds)
 
     def visit_FifStatement(self, o, source=None):
-        conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
+        conditions = [self.visit(c) for c in o.findall('condition')]
         bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return Conditional(conditions=conditions, bodies=(bodies, ), else_body=else_body)
+        return Conditional(conditions=as_tuple(conditions),
+                           bodies=(bodies, ), else_body=else_body)
 
     def visit_FmemberRef(self, o, lookahead=False, source=None):
         t = o.attrib['type']
@@ -413,7 +414,7 @@ class OMNI2IR(GenericVisitor):
         return reduce(operator.and_, exprs)
 
     def visit_logNotExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]#
+        exprs = [self.visit(c) for c in o]
         assert len(exprs) == 1
         return operator.invert(exprs[0])
 
