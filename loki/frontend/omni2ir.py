@@ -311,7 +311,7 @@ class OMNI2IR(GenericVisitor):
                 if isinstance(kind, tuple):
                     kind = kind[1]  # Yuckk!
                 dtype = BaseType(name=o.find('name').text, kind=kind)
-                return Cast(dtype.name, expr, dtype=dtype)
+                return Cast(dtype.name, expression=expr, kind=dtype.kind)
             else:
                 return InlineCall(name=name, arguments=args, kwarguments=kwargs)
         else:

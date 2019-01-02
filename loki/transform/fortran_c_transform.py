@@ -336,8 +336,8 @@ class FortranCTransformation(BasicTransformation):
             }
 
             def visit_InlineCall(self, o):
-                if o.name.lower() in self._intrinsic_map:
-                    o.name = self._intrinsic_map[o.name.lower()]
+                if o.name.text.lower() in self._intrinsic_map:
+                    o.name = self._intrinsic_map[o.name.text.lower()]
 
                 for c in o.children:
                     self.visit(c)

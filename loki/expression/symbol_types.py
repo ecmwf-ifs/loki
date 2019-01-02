@@ -264,38 +264,22 @@ class InlineCall(sympy.codegen.ast.FunctionCall):
     """
     __slots__ = ['name', 'arguments', 'kwarguments']
 
-    defaults = {'arguments': tuple(), 'kwarguments': dict()}
+    defaults = {'arguments': (), 'kwarguments': ()}
 
-    def __init__(self, name, arguments=None, kwarguments=None):
-        self.name = name
-        self.arguments = arguments
-        self.kwarguments = kwarguments
+    _construct_arguments = staticmethod(lambda args: sympy.Tuple(*args))
+    _construct_kwarguments = staticmethod(lambda args: sympy.Tuple(*args))
 
-    @property
-    def function_args(self):
+    def _sympyrepr(self, printer=None):
         """
-        Construct function arguments (required by sympy code printers)
+        Define how we would like to be pretty-printed.
         """
-        kwargs = ()
-        if self.kwarguments:
-            kwargs = tuple(arg for _, arg in self.kwarguments)
-        return as_tuple(self.arguments) + kwargs
+        args = [printer._print(a) for a in self.arguments]
+        args += ['%s=%s' % (k, printer._print(v)) for k, v in self.kwarguments]
+        return '%s(%s)' % (self.name, ', '.join(args))
 
-    @property
-    def args(self):
-        """
-        Ensure we flatten argumentss and kwarguments for traversal
-        """
-        return self.function_args
-
-    @property
-    def expr(self):
-        kwargs = tuple('%s=%s' % (k, v) for k, v in as_tuple(self.kwarguments))
-        args = as_tuple(self.arguments) + kwargs
-        return '%s(%s)' % (self.name, ','.join(str(a) for a in args))
-
-    def _sympystr(self, printer=None):
-        return self.expr
+    _sympystr = _sympyrepr
+    _fcode = _sympyrepr
+    _ccode = _sympyrepr
 
     @property
     def children(self):
@@ -306,35 +290,29 @@ class Cast(sympy.codegen.ast.FunctionCall):
     """
     Internal representation of a data type cast.
     """
-    __slots__ = ['name', 'expression', 'dtype']
+    __slots__ = ['name', 'expression', 'kind']
 
-    defaults = {'expr': None, 'dtype': None}
+    defaults = {'kind': sympy.codegen.ast.none}
 
-    def __init__(self, name, expression=None, dtype=None):
-        self.name = name
-        self.expression = expression
-        self.dtype = dtype
+    @classmethod
+    def _construct_kind(cls, argval):
+        if argval is None:
+            return sympy.codegen.ast.none
+        if isinstance(argval, str):
+            return sympy.codegen.ast.String(argval)
+        else:
+            return argval
 
-    @property
-    def function_args(self):
+    def _fcode(self, printer=None):
         """
-        Construct function arguments (required by sympy code printers)
+        Define how we would like to be printed in Fortran code.
         """
-        return as_tuple(self.expression)
+        expr = printer._print(self.expression)
+        kind = '' if self.kind == None else (', kind=%s' % printer._print(self.kind))
+        return '%s(%s%s)' % (self.name, expr, kind)
 
-    @property
-    def args(self):
-        """
-        Ensure we flatten argumentss and kwarguments for traversal
-        """
-        return self.function_args
-
-    @property
-    def expr(self):
-        return '%s(%s)' % (self.name, ','.join(str(a) for a in self.args))
-
-    def _sympystr(self, printer=None):
-        return self.expression
+    _sympyrepr = _fcode
+    _sympystr = _sympyrepr
 
 
 class RangeIndex(sympy.Idx):
