@@ -369,6 +369,12 @@ class OMNI2IR(GenericVisitor):
         args = ', '.join('%s' % v for v in values)
         return Intrinsic(text='write(%s) %s' % (nargs, args))
 
+    def visit_FprintStatement(self, o, source):
+        values = [self.visit(v) for v in o.find('valueList')]
+        args = ', '.join('%s' % v for v in values)
+        fmt = o.attrib['format']
+        return Intrinsic(text='print %s, %s' % (fmt, args))
+
     def visit_FformatDecl(self, o, source):
         # Hackery galore; this is wrong on soooo many levels! :(
         lineno = int(o.attrib['lineno'])
