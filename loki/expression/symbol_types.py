@@ -19,7 +19,7 @@ def _symbol_type(cls, name, parent=None):
     return type(name, (cls, ), dict(cls.__dict__))
 
 
-def indexify(expr):
+def indexify(expr, evaluate=True):
     mapper = {}
     for e in sympy.postorder_traversal(expr):
         try:

@@ -1,3 +1,4 @@
+from sympy import evaluate
 from sympy.printing import fcode
 from sympy.codegen.fnodes import ArrayConstructor
 from functools import partial
@@ -193,8 +194,11 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        target = indexify(o.target)
-        expr = indexify(o.expr)
+        # Surpress evaluation of expressions to avoid accuracy errors
+        # due to symbolic expression re-writing.
+        with evaluate(False):
+            target = indexify(o.target)
+            expr = indexify(o.expr)
         stmt = fsymgen(expr, assign_to=target)
         if o.ptr:
             # Manually force pointer assignment notation

@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from functools import reduce
 import operator
-from sympy import Equality
+from sympy import Equality, Add, Mul, Pow
 
 
 from loki.frontend.source import Source
@@ -384,27 +384,33 @@ class OMNI2IR(GenericVisitor):
 
     def visit_plusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.add, exprs)
+        assert len(exprs) == 2
+        return Add(exprs[0], exprs[1], evaluate=False)
 
     def visit_minusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.sub, exprs)
+        assert len(exprs) == 2
+        return Add(exprs[0], Mul(-1, exprs[1], evaluate=False), evaluate=False)
 
     def visit_mulExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.mul, exprs)
+        assert len(exprs) == 2
+        return Mul(exprs[0], exprs[1], evaluate=False)
 
     def visit_divExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.truediv, exprs)
+        assert len(exprs) == 2
+        return Mul(exprs[0], Pow(exprs[1], -1, evaluate=False), evaluate=False)
 
     def visit_FpowerExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.pow, exprs)
+        assert len(exprs) == 2
+        return Pow(exprs[0], exprs[1], evaluate=False)
 
     def visit_unaryMinusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.neg, exprs)
+        assert len(exprs) == 1
+        return Mul(-1, exprs[0], evaluate=False)
 
     def visit_logOrExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
@@ -438,7 +444,7 @@ class OMNI2IR(GenericVisitor):
     def visit_logEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
         assert len(exprs) == 2
-        return Equality(exprs[0], exprs[1])
+        return Equality(exprs[0], exprs[1], evaluate=False)
 
     def visit_logNEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
