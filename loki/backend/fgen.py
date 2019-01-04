@@ -14,7 +14,7 @@ __all__ = ['fgen', 'FortranCodegen', 'fsymgen', 'fexprgen', 'FExprCodegen']
 
 
 # TODO: Make configurable
-fsymgen = partial(fcode, standard=95, source_format='free', contract=False)
+fsymgen = partial(fcode, standard=95, source_format='free', order='none', contract=False)
 
 
 class FortranCodegen(Visitor):
