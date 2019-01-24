@@ -190,7 +190,7 @@ class CCodegen(Visitor):
         # Collect pointer variables for dereferencing
         # TODO: Cache sets of symbols on statements
         dereference = [v for v in FindVariables().visit(o)
-                       if hasattr(v, 'type') and v.type.pointer]
+                       if v.type is not None and v.type.pointer]
 
         stmt = csymgen(expr, assign_to=target,
                        type_aliases=type_aliases,
