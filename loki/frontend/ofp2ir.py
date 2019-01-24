@@ -235,7 +235,7 @@ class OFP2IR(GenericVisitor):
                         deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [RangeIndex(None, None) for _ in range(dim_count)]
+                            dimensions = [RangeIndex(lower=None, upper=None) for _ in range(dim_count)]
                         else:
                             dimensions = as_tuple(self.visit(c) for c in v)
                         dimensions = as_tuple(d for d in dimensions if d is not None)
@@ -419,10 +419,10 @@ class OFP2IR(GenericVisitor):
         if o.find('range'):
             lower = self.visit(o.find('range/lower-bound'))
             upper = self.visit(o.find('range/upper-bound'))
-            return RangeIndex(lower, upper)
+            return RangeIndex(lower=lower, upper=upper)
         elif 'type' in o.attrib and o.attrib['type'] == "upper-bound-assumed-shape":
             lower = self.visit(o[0])
-            return RangeIndex(lower, None)
+            return RangeIndex(lower=lower, upper=None)
         elif o.find('name'):
             return self.visit(o.find('name'))
         elif o.find('literal'):

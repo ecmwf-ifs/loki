@@ -44,7 +44,7 @@ class Scalar(sympy.Symbol):
         """
         1st-level variable creation with name injection via the object class
         """
-        name = kwargs.pop('name')
+        name = kwargs.pop('name', args[0] if len(args) > 0 else None)
         parent = kwargs.pop('parent', None)
 
         # Name injection for sympy.Symbol (so we can do `a%scalar`)
@@ -334,14 +334,28 @@ class RangeIndex(sympy.Idx):
     is_Symbol = True
     is_Function = False
 
-    def __new__(cls, lower=None, upper=None, step=None):
-        # Drop trivial default bounds and step sizes
-        lower = None if lower == 1 else lower
-        step = None if step == 1 else step
+    def __new__(cls, *args, **kwargs):
+        if len(args) > 0:
+            # Already know our symbol
+            label = args[0]
+            return sympy.Expr.__new__(cls, label)
+        else:
+            lower = kwargs.get('lower', None)
+            upper = kwargs.get('upper', None)
+            step = kwargs.get('step', None)
 
-        label = ':' if upper is None else str(upper)
-        label = label if lower is None else '%s:%s' % (lower, label)
-        label = label if step is None else '%s:%s' % (label, step)
+            # Drop trivial default bounds and step sizes
+            lower = None if lower == 1 else lower
+            step = None if step == 1 else step
+
+            # TODO: Careful, if lower is not None, we get garbage
+            # symbol strings (eg. (y, None, 2) => `y:::2`.
+            # This is due to a fudge, where we use RangeIndex objects
+            # with only upper value as dimension sizes, so they print
+            # (None, x, None) => `x`, not `:x` as would be correct.
+            label = ':' if upper is None else str(upper)
+            label = label if lower is None else '%s:%s' % (lower, label)
+            label = label if step is None else '%s:%s' % (label, step)
         return sympy.Expr.__new__(cls, sympy.Symbol(label))
 
     def __init__(self, lower=None, upper=None, step=None):
