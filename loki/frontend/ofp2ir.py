@@ -243,7 +243,12 @@ class OFP2IR(GenericVisitor):
                     for v in comps.findall('component'):
                         if len(v.attrib) == 0:
                             continue
-                        deferred_shape = v.find('deferred-shape-spec-list')
+                        if 'DIMENSION' in attrs:
+                            # Dimensions are provided via `dimension` keyword
+                            attrib = attr[0].findall('attribute')[attrs.index('DIMENSION')]
+                            deferred_shape = attrib.find('deferred-shape-spec-list')
+                        else:
+                            deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
                             dimensions = [RangeIndex(lower=None, upper=None) for _ in range(dim_count)]
@@ -252,9 +257,9 @@ class OFP2IR(GenericVisitor):
                         dimensions = as_tuple(d for d in dimensions if d is not None)
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
+
                         variables += [self.Variable(name=v.attrib['name'], type=type,
                                                     dimensions=dimensions, source=v_source)]
-
                     declarations += [Declaration(variables=variables, type=type, source=t_source)]
                 return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
