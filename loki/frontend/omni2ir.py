@@ -70,12 +70,24 @@ def parse_omni(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, type_map=None, symbol_map=None, raw_source=None):
+    def __init__(self, type_map=None, symbol_map=None, raw_source=None, cache=None):
         super(OMNI2IR, self).__init__()
 
         self.type_map = type_map
         self.symbol_map = symbol_map
         self.raw_source = raw_source
+
+        # Use provided symbol cache for variable generation
+        self._cache = cache
+
+    def Variable(self, *args, **kwargs):
+        """
+        Instantiate cached variable symbols from local symbol cache.
+        """
+        if self._cache is None:
+            return Variable(*args, **kwargs)
+        else:
+            return self._cache.Variable(*args, **kwargs)
 
     def lookup_method(self, instance):
         """
@@ -130,7 +142,7 @@ class OMNI2IR(GenericVisitor):
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
+        variable = self.Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
         return Declaration(variables=as_tuple(variable), type=type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -175,14 +187,14 @@ class OMNI2IR(GenericVisitor):
                     dimensions = [self.visit(d) for d in self.type_map[t]]
             else:
                 vtype = BaseType(name=BaseType._omni_types.get(t, t))
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype)]
+            variables += [self.Variable(name=vname, dimensions=dimensions, type=vtype)]
         return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text)
+            associations[var] = self.Variable(name=i.find('name').text)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -234,7 +246,7 @@ class OMNI2IR(GenericVisitor):
         if lookahead:
             # Hack: Return components of Variable symbol to allow deferred creation
             return o.attrib['member'], vtype, parent
-        return Variable(name=o.attrib['member'], type=vtype, parent=parent)
+        return self.Variable(name=o.attrib['member'], type=vtype, parent=parent)
 
     def visit_Var(self, o, lookahead=False, source=None):
         t = o.attrib['type']
@@ -245,15 +257,15 @@ class OMNI2IR(GenericVisitor):
 
         if lookahead:
             return o.text, vtype, None
-        return Variable(name=o.text)
+        return self.Variable(name=o.text)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
         # explicitly before constructing our symbolic variable.
         vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
         dimensions = as_tuple(self.visit(i) for i in o[1:])
-        return Variable(name=vname, dimensions=dimensions,
-                        type=vtype, parent=parent)
+        return self.Variable(name=vname, dimensions=dimensions,
+                             type=vtype, parent=parent)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -329,8 +341,8 @@ class OMNI2IR(GenericVisitor):
             vname, vtype, parent = self.visit(a[0], lookahead=True)
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
-            variables += [Variable(name=vname, dimensions=dimensions,
-                                   type=vtype, parent=parent)]
+            variables += [self.Variable(name=vname, dimensions=dimensions,
+                                        type=vtype, parent=parent)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
@@ -457,9 +469,9 @@ class OMNI2IR(GenericVisitor):
         return reduce(operator.ne, exprs)
 
 
-def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None):
+def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     return OMNI2IR(type_map=type_map, symbol_map=symbol_map,
-                   raw_source=raw_source).visit(omni_ast)
+                   raw_source=raw_source, cache=cache).visit(omni_ast)

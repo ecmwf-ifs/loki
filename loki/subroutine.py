@@ -1,12 +1,10 @@
 from collections import OrderedDict
-from fastcache import clru_cache
-from sympy.core.cache import SYMPY_CACHE_SIZE, cacheit
 
 from loki.frontend.parse import parse, OFP, OMNI
 from loki.frontend.preprocessing import blacklist
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, FindVariables, Array, Scalar, _symbol_type
+from loki.expression import Variable, FindVariables, Array, Scalar, SymbolCache
 from loki.types import BaseType, DerivedType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -37,10 +35,14 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
+                 members=None, ast=None, cache=None, typedefs=None, bind=None,
+                 is_function=False):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
+
+        # Symbol caching by default happens per subroutine
+        self._cache = cache or SymbolCache()
 
         self.arguments = None
         self.variables = None
@@ -61,14 +63,6 @@ class Subroutine(object):
         self.bind = bind
         self.is_function = is_function
 
-        # Instantiate local symbol caches
-        self._symbol_type_cache = cacheit(_symbol_type)
-        self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
-                                       unhashable='ignore')(Array.__new_stage2__)
-        self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
-                                        unhashable='ignore')(Scalar.__new_stage2__)
-
-
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
         name = name or ast.attrib['name']
@@ -77,8 +71,10 @@ class Subroutine(object):
         arg_ast = ast.findall('header/arguments/argument')
         args = [arg.attrib['name'].upper() for arg in arg_ast]
 
+        cache = SymbolCache()
+
         # Create a IRs for declarations section and the loop body
-        body = parse(ast.find('body'), raw_source=raw_source, frontend=OFP)
+        body = parse(ast.find('body'), cache=cache, raw_source=raw_source, frontend=OFP)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for r_name, rule in blacklist.items():
@@ -97,8 +93,8 @@ class Subroutine(object):
         spec = FindNodes(Section).visit(body)[0]
         body = Transformer({docstring: None, spec: None}).visit(body)
 
-        return cls(name=name, args=args, docstring=docstring, spec=spec,
-                   body=body, members=members, ast=ast, typedefs=typedefs)
+        return cls(name=name, args=args, docstring=docstring, spec=spec, body=body,
+                   members=members, ast=ast, typedefs=typedefs, cache=cache)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, typedefs=None):
@@ -113,8 +109,10 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
+        cache = SymbolCache()
+
         # Generate spec, filter out external declarations and docstring
-        spec = parse(ast.find('declarations'), type_map=type_map,
+        spec = parse(ast.find('declarations'), type_map=type_map, cache=cache,
                      symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or d.variables[0].name == name}
@@ -137,33 +135,17 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = parse(ast.find('body'), type_map=type_map, symbol_map=symbol_map,
-                     raw_source=raw_source, frontend=OMNI)
+        body = parse(ast.find('body'), cache=cache, type_map=type_map,
+                     symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                   members=members, ast=ast, typedefs=typedefs)
+                   members=members, ast=ast, typedefs=typedefs, cache=cache)
 
     def Variable(self, *args, **kwargs):
-        # Here, we emulate Var.__new__, but we call the 2nd stage through
-        # the locally cached decorator. This means we need
-        name = kwargs.pop('name')
-        dimensions = kwargs.pop('dimensions', None)
-        parent = kwargs.pop('parent', None)
-
-        # Create a new object from the static constructor with local
-        # caching on `Kernel` instance!
-
-        if dimensions is None:
-            cls = self._symbol_type_cache(Scalar, name, parent)
-            newobj = self._scalar_cache(cls, name, parent=parent)
-        else:
-            cls = self._symbol_type_cache(Array, name, parent)
-            newobj = self._array_cache(cls, name, dimensions, parent=parent)
-
-        # Since we are not actually using the object instation
-        # mechanism, we need to call __init__ ourselves.
-        newobj.__init__(*args, **kwargs)
-        return newobj
+        """
+        Instantiate cached variable symbols from local symbol cache.
+        """
+        return self._cache.Variable(*args, **kwargs)
 
     def _internalize(self):
         """
@@ -179,9 +161,9 @@ class Subroutine(object):
             variables = as_tuple(decl.variables)
             if decl.dimensions is not None:
                 # Re-nitialize variables with declared dimensions
-                variables = [Variable(name=v.name, parent=v.parent,
-                                      dimensions=decl.dimensions,
-                                      type=v.type or decl.type)
+                variables = [self.Variable(name=v.name, parent=v.parent,
+                                           dimensions=decl.dimensions,
+                                           type=v.type or decl.type)
                              for v in variables]
                 decl.clone(variables=variables)
 

@@ -43,6 +43,26 @@ def test_routine_simple(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_simple_caching(refpath, reference, frontend):
+    """
+    A simple standard looking routine to test variable caching.
+    """
+    # Test the internals of the :class:`Subroutine`
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
+    assert routine.arguments[2].type.name.lower() == 'real'
+    assert routine.arguments[3].type.name.lower() == 'real'
+
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple_caching']
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)']
+    # Ensure that the types in the second routine have been picked up
+    assert routine.arguments[2].type.name.lower() == 'integer'
+    assert routine.arguments[3].type.name.lower() == 'integer'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_routine_multiline_args(refpath, reference, frontend):
     """
     A simple standard looking routine to test argument declarations.

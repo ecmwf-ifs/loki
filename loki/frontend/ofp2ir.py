@@ -35,10 +35,21 @@ def parse_ofp(filename):
 
 class OFP2IR(GenericVisitor):
 
-    def __init__(self, raw_source):
+    def __init__(self, raw_source, cache=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
+        # Store provided symbol cache for variable generation
+        self._cache = cache
+
+    def Variable(self, *args, **kwargs):
+        """
+        Instantiate cached variable symbols from local symbol cache.
+        """
+        if self._cache is None:
+            return Variable(*args, **kwargs)
+        else:
+            return self._cache.Variable(*args, **kwargs)
 
     def lookup_method(self, instance):
         """
@@ -82,7 +93,7 @@ class OFP2IR(GenericVisitor):
         else:
             # We are processing a regular for/do loop with bounds
             vname = o.find('header/index-variable').attrib['name']
-            variable = Variable(name=vname)
+            variable = self.Variable(name=vname)
             lower = self.visit(o.find('header/index-variable/lower-bound'))
             upper = self.visit(o.find('header/index-variable/upper-bound'))
             step = None
@@ -241,8 +252,8 @@ class OFP2IR(GenericVisitor):
                         dimensions = as_tuple(d for d in dimensions if d is not None)
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
-                        variables += [Variable(name=v.attrib['name'], type=type,
-                                               dimensions=dimensions, source=v_source)]
+                        variables += [self.Variable(name=v.attrib['name'], type=type,
+                                                    dimensions=dimensions, source=v_source)]
 
                     declarations += [Declaration(variables=variables, type=type, source=t_source)]
                 return TypeDef(name=derived_name, declarations=declarations,
@@ -303,7 +314,7 @@ class OFP2IR(GenericVisitor):
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = Variable(name=assoc_name)
+            associations[var] = self.Variable(name=assoc_name)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -364,8 +375,8 @@ class OFP2IR(GenericVisitor):
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                return Variable(name=vname, dimensions=indices,
-                                parent=parent, source=source)
+                return self.Variable(name=vname, dimensions=indices,
+                                     parent=parent, source=source)
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
@@ -397,7 +408,7 @@ class OFP2IR(GenericVisitor):
         else:
             dimensions = None
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        return Variable(name=name, dimensions=dimensions, initial=initial, source=source)
+        return self.Variable(name=name, dimensions=dimensions, initial=initial, source=source)
 
     def visit_part_ref(self, o, source=None):
         # Return a pure string, as part of a variable name

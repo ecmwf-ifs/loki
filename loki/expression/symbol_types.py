@@ -1,12 +1,13 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean
+from fastcache import clru_cache
 
 from loki.tools import as_tuple
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'LiteralList',
-           'RangeIndex', 'InlineCall', 'Cast', 'indexify', '_symbol_type']
+           'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache']
 
 
 def _symbol_type(cls, name, parent=None):
@@ -35,6 +36,50 @@ A global cache of modified symbol class objects
 _global_symbol_type = cacheit(_symbol_type)
 
 
+
+class SymbolCache(object):
+    """
+    A specialised cache object for use by subroutine/kernel containers
+    that provides cached symbols (scalar and array variables), while
+    providing control over the scope of symbolc caching (eg. per
+    routine, rather than global). It basically wraps the low-level
+    caches for each symbol contructor.
+    """
+
+    def __init__(self):
+        # Instantiate local symbol caches
+        self._symbol_type_cache = cacheit(_symbol_type)
+        self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                       unhashable='ignore')(Array.__new_stage2__)
+        self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                        unhashable='ignore')(Scalar.__new_stage2__)
+
+    def Variable(self, *args, **kwargs):
+        """
+        Variable constructor (phase 1) that uses a specific set of local caches,
+        so that symbol caching is scoped to the :class:`SymbolCache` instance.
+
+        Note, that this is the equivalent to the phase 1 constructors `Scalar.__new__`
+        and `Array.__new__`, only in a locally caching context.
+        """
+        name = kwargs.pop('name')
+        dimensions = kwargs.pop('dimensions', None)
+        parent = kwargs.pop('parent', None)
+
+        # Create scalar or array symbol using local caches
+        if dimensions is None:
+            cls = self._symbol_type_cache(Scalar, name, parent)
+            newobj = self._scalar_cache(cls, name, parent=parent)
+        else:
+            cls = self._symbol_type_cache(Array, name, parent)
+            newobj = self._array_cache(cls, name, dimensions, parent=parent)
+
+        # Since we are not actually using the object instation
+        # mechanism, we need to call __init__ ourselves.
+        newobj.__init__(*args, **kwargs)
+        return newobj
+
+
 class Scalar(sympy.Symbol):
 
     is_Scalar = True
@@ -46,10 +91,8 @@ class Scalar(sympy.Symbol):
         """
         name = kwargs.pop('name', args[0] if len(args) > 0 else None)
         parent = kwargs.pop('parent', None)
-
-        # Name injection for sympy.Symbol (so we can do `a%scalar`)
-        if parent is not None:
-            name = '%s%%%s' % (parent, name)
+        # Name injection for symbols via cls (so we can do `a%scalar`)
+        cls = _global_symbol_type(Scalar, name, parent)
 
         # Create a new object from the static constructor with global caching!
         return Scalar.__xnew_cached_(cls, name, parent=parent)
@@ -66,7 +109,8 @@ class Scalar(sympy.Symbol):
         # to be used for symbolic caching. Thus, `parent` is
         # always used for caching, even if it's not in the name
         newobj = sympy.Symbol.__new__(cls, name)
-        newobj.name = name
+        # Use cls.__name__ to get the injected name modifcation
+        newobj.name = cls.__name__
         newobj.parent = parent
 
         newobj._type = None

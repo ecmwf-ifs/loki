@@ -15,6 +15,24 @@ subroutine routine_simple (x, y, scalar, vector, matrix)
 end subroutine routine_simple
 
 
+subroutine routine_simple_caching (x, y, scalar, vector, matrix)
+  ! A simple standard looking routine to test variable caching.
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, parameter :: jpim = selected_int_kind(9)
+  integer, intent(in) :: x, y
+  ! The next two share names with `routine_simple`, but have different
+  ! dimensions or types, so that we can test variable caching.
+  integer(kind=jpim), intent(in) :: scalar
+  integer(kind=jpim), intent(inout) :: vector(y), matrix(x, y)
+  integer :: i
+
+  do i=1, y
+     vector(i) = vector(i) + scalar
+     matrix(:, i) = i * vector(i)
+  end do
+end subroutine routine_simple_caching
+
+
 subroutine routine_multiline_args &
  ! Test multiline dummy arguments with comments
  & (x, y, scalar, &

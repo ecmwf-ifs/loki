@@ -98,7 +98,7 @@ class PatternFinder(Visitor):
 
 
 @timeit(log_level=DEBUG)
-def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP):
+def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, cache=None):
     """
     Generate an internal IR from the raw OFP (Open Fortran Parser)
     output.
@@ -107,10 +107,10 @@ def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP):
     level than the raw langage constructs that OFP returns.
     """
     if frontend == OFP:
-        ir = OFP2IR(raw_source).visit(ast)
+        ir = OFP2IR(raw_source, cache=cache).visit(ast)
     elif frontend == OMNI:
         ir = convert_omni2ir(ast, type_map=type_map, symbol_map=symbol_map,
-                             raw_source=raw_source)
+                             raw_source=raw_source, cache=cache)
     else:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
