@@ -1,12 +1,12 @@
 from abc import ABCMeta, abstractproperty
 from collections import Iterable
 
-from loki.visitors import GenericVisitor, Visitor
+from loki.visitors import GenericVisitor, Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.logging import warning
 from loki.expression.search import retrieve_variables
 
-__all__ = ['Expression', 'FindVariables', 'ExpressionVisitor']
+__all__ = ['Expression', 'FindVariables', 'SubstituteExpressions', 'ExpressionVisitor']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -56,6 +56,26 @@ class FindVariables(Visitor):
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
         return set(variables) if self.unique else variables
+
+
+class SubstituteExpressions(Transformer):
+    """
+    A dedicated visitor to perform expression substitution in all IR nodes.
+
+    :param expr_map: Expression mapping to apply to all expressions in a tree.
+    """
+
+    def __init__(self, expr_map):
+        super(SubstituteExpressions, self).__init__()
+
+        self.expr_map = expr_map
+
+    def visit_Statement(self, o, **kwargs):
+        target = o.target.xreplace(self.expr_map)
+        expr = o.expr.xreplace(self.expr_map)
+        return o._rebuild(target=target, expr=expr)
+
+    # TODO: Add Loops and Conditionals that have expressions to rebuild.
 
 
 class Expression(object):

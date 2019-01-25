@@ -5,7 +5,8 @@ from copy import deepcopy
 from pathlib import Path
 
 from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
-                  FindNodes, FindVariables, info, as_tuple, Loop,
+                  FindNodes, FindVariables, SubstituteExpressions,
+                  info, as_tuple, Loop,
                   Variable, Call, Pragma, BaseType,
                   DerivedType, Import, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
@@ -25,23 +26,6 @@ def get_typedefs(typedef, xmods=None, frontend=OFP):
         source = SourceFile.from_file(tfile, xmods=xmods, frontend=frontend)
         definitions.update(source.modules[0].typedefs)
     return definitions
-
-
-class VariableTransformer(ExpressionVisitor, Visitor):
-    """
-    Utility :class:`Transformer` that applies string replacements to
-    :class:`Variable`s in-place.
-    """
-
-    def __init__(self, argnames):
-        super(VariableTransformer, self).__init__()
-        self.argnames = argnames
-
-    def visit_Variable(self, o):
-        if o.ref is not None and o.ref.name in self.argnames:
-            # HACK: In-place merging of var with its parent ref
-            o.name = '%s_%s' % (o.ref.name, o.name)
-            o.ref = None
 
 
 class DerivedArgsTransformation(AbstractTransformation):
@@ -74,8 +58,11 @@ class DerivedArgsTransformation(AbstractTransformation):
                  is a :class:`Variable` for each derived sub-variable
                  defined in the original compound type.
         """
-        variables = FindVariables().visit(routine.ir)
+        # Get all variables used in the kernel that have parents
+        variables = FindVariables(unique=True).visit(routine.ir)
+        variables = [v for v in variables if hasattr(v, 'parent') and v.parent is not None]
         candidates = defaultdict(list)
+
         for arg in routine.arguments:
             if isinstance(arg.type, DerivedType):
                 # Skip derived types with no array members
@@ -85,7 +72,7 @@ class DerivedArgsTransformation(AbstractTransformation):
 
                 # Add candidate type variables, preserving order from the typedef
                 arg_member_vars = set(v.name.lower() for v in variables
-                                      if v.ref is not None and v.ref.name.lower() == arg.name.lower())
+                                      if v.parent.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables
                                     if v.name.lower() in arg_member_vars]
 
@@ -113,13 +100,17 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex(None, None) for _ in type_var.dimensions)
+                            new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
                             new_arg = Variable(name=type_var.name, dimensions=new_dims,
-                                               shape=type_var.shape, ref=deepcopy(d_arg))
+                                               shape=type_var.shape, parent=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
-                        i = new_arguments.index(d_arg)
+                        # TODO: This is hacky, but necessary, as the variables
+                        # from caller and callee don't cache, so we
+                        # need to compare their string representation.
+                        new_arg_strs = [str(a) for a in new_arguments]
+                        i = new_arg_strs.index(str(d_arg))
                         new_arguments[i:i+1] = new_args
 
                 # Set the new call signature on the IR ndoe
@@ -160,9 +151,16 @@ class DerivedArgsTransformation(AbstractTransformation):
             i = routine.variables.index(arg)
             routine.variables[i:i+1] = new_vars
 
-        # Replace variable occurences in-place (derived%v => derived_v)
-        argnames = [arg.name for arg in candidates.keys()]
-        VariableTransformer(argnames=argnames).visit(routine.ir)
+        # Create a variable substitution mapper and apply to body
+        argnames = [arg.name.lower() for arg in candidates.keys()]
+        variables = FindVariables(unique=False).visit(routine.body)
+        variables = [v for v in variables
+                     if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
+        vmap = dict((v, routine.Variable(name='%s_%s' % (v.parent.name, v.name),
+                                         dimensions=v.dimensions if v.is_Array else None,
+                                         parent=None, type=v.type, shape=v.shape))
+                    for v in variables)
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
 class Dimension(object):
