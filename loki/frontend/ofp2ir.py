@@ -3,6 +3,7 @@ from collections import OrderedDict, deque
 from pathlib import Path
 import re
 from itertools import zip_longest
+from sympy import evaluate
 
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
@@ -459,7 +460,7 @@ class OFP2IR(GenericVisitor):
 
     _op_map = {
         '+': '+', '-': '-', '*': '*', '/': '/', '**': '**',
-        '.and.': '&', '.or.' : '|', '.not.': '~'
+        '==': '==', '/=': '!=', '.and.': '&', '.or.' : '|', '.not.': '~'
         }
 
     def visit_operation(self, o, source=None):

@@ -27,9 +27,9 @@ subroutine intrinsic_functions(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
 end subroutine intrinsic_functions
 
 
-subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse)
+subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq)
   logical, intent(in) :: t, f
-  logical, intent(out) :: vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse
+  logical, intent(out) :: vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq
 
   vand_t = t .and. t
   vand_f = t .and. f
@@ -39,6 +39,8 @@ subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtru
   vnot_f = .not. t
   vtrue = .true.
   vfalse = .false.
+  veq = 3 == 4
+  vneq = 3 /= 4
 
 end subroutine logical_expr
 

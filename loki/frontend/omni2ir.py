@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from functools import reduce
 import operator
-from sympy import Equality, Add, Mul, Pow
+from sympy import Add, Mul, Pow, Equality, Unequality
 
 
 from loki.frontend.source import Source
@@ -466,7 +466,8 @@ class OMNI2IR(GenericVisitor):
 
     def visit_logNEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return reduce(operator.ne, exprs)
+        assert len(exprs) == 2
+        return Unequality(exprs[0], exprs[1], evaluate=False)
 
 
 def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None, cache=None):

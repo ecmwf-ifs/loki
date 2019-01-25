@@ -69,18 +69,20 @@ def test_logical_expr(refpath, reference, frontend):
     vor_f = f .or. f
     vnot_t = .not. f
     vnot_f = .not. t
+    veq = 3 == 4
+    vneq = 3 /= 4
     """
     # Test the reference solution
-    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse = reference.logical_expr(True, False)
-    assert vand_t and vor_t and vnot_t and vtrue
-    assert not(vand_f and vor_f and vnot_f and vfalse)
+    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = reference.logical_expr(True, False)
+    assert vand_t and vor_t and vnot_t and vtrue and vneq
+    assert not(vand_f and vor_f and vnot_f and vfalse and veq)
 
     # Test the generated identity
     test = generate_identity(refpath, 'logical_expr', frontend=frontend)
     function = getattr(test, 'logical_expr_%s' % frontend)
-    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse = function(True, False)
-    assert vand_t and vor_t and vnot_t and vtrue
-    assert not(vand_f and vor_f and vnot_f and vfalse)
+    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = function(True, False)
+    assert vand_t and vor_t and vnot_t and vtrue and vneq
+    assert not(vand_f and vor_f and vnot_f and vfalse and veq)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
