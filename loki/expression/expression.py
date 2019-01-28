@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractproperty
 from collections import Iterable
+from sympy import Expr, evaluate
 
 from loki.visitors import GenericVisitor, Visitor, Transformer
 from loki.tools import flatten, as_tuple
@@ -50,11 +51,24 @@ class FindVariables(Visitor):
         variables += as_tuple(retrieve_variables(o.expr))
         return set(variables) if self.unique else variables
 
+    def visit_Conditional(self, o, **kwargs):
+        variables = as_tuple(flatten(retrieve_variables(c) for c in o.conditions))
+        variables += as_tuple(flatten(self.visit(c) for c in o.bodies))
+        variables += as_tuple(self.visit(o.else_body))
+        return set(variables) if self.unique else variables
+
     def visit_Loop(self, o, **kwargs):
         variables = as_tuple(retrieve_variables(o.variable))
         variables += as_tuple(flatten(retrieve_variables(c) for c in o.bounds
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
+        return set(variables) if self.unique else variables
+
+    def visit_Call(self, o, **kwargs):
+        variables = as_tuple(flatten(retrieve_variables(a) for a in o.arguments
+                                     if isinstance(a, Expr)))
+        variables += as_tuple(flatten(retrieve_variables(a) for _, a in o.kwarguments
+                                      if isinstance(a, Expr)))
         return set(variables) if self.unique else variables
 
 
@@ -71,11 +85,19 @@ class SubstituteExpressions(Transformer):
         self.expr_map = expr_map
 
     def visit_Statement(self, o, **kwargs):
-        target = o.target.xreplace(self.expr_map)
-        expr = o.expr.xreplace(self.expr_map)
+        with evaluate(False):
+            target = o.target.xreplace(self.expr_map)
+            expr = o.expr.xreplace(self.expr_map)
         return o._rebuild(target=target, expr=expr)
 
-    # TODO: Add Loops and Conditionals that have expressions to rebuild.
+    def visit_Conditional(self, o, **kwargs):
+        with evaluate(False):
+            conditions = tuple(e.xreplace(self.expr_map) for e in o.conditions)
+        bodies = self.visit(o.bodies)
+        else_body = self.visit(o.else_body)
+        return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
+
+    # TODO: Add Loops to rebuild expressions in bounds.
 
 
 class Expression(object):

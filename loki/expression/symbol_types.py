@@ -198,6 +198,7 @@ class Array(sympy.Function, Boolean):
         self._source = kwargs.pop('source', self._source)
         self.initial = kwargs.pop('initial', self.initial)
         self._type = kwargs.pop('type', self._type)
+        self._shape = kwargs.pop('shape', self._shape)
 
     @property
     def type(self):

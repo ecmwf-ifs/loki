@@ -7,7 +7,7 @@ from pathlib import Path
 from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
                   info, as_tuple, Loop,
-                  Variable, Call, Pragma, BaseType,
+                  Array, Call, Pragma, BaseType,
                   DerivedType, Import, RangeIndex, Subroutine,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation,
@@ -93,7 +93,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                 candidates = self._derived_type_arguments(call.context.routine)
 
                 # Simultaneously walk caller and subroutine arguments
-                new_arguments = list(deepcopy(call.arguments))
+                new_arguments = list(call.arguments)
                 for d_arg, k_arg in zip(call.arguments, call.context.routine.arguments):
                     if k_arg in candidates:
                         # Found derived-type argument, unroll according to candidate map
@@ -101,8 +101,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
-                            new_arg = Variable(name=type_var.name, dimensions=new_dims,
-                                               shape=type_var.shape, parent=deepcopy(d_arg))
+                            new_arg = caller.Variable(name=type_var.name, dimensions=new_dims,
+                                                      shape=type_var.shape, parent=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -137,9 +137,9 @@ class DerivedArgsTransformation(AbstractTransformation):
                                     kind=type_var.type.kind,
                                     intent=arg.type.intent)
                 new_name = '%s_%s' % (arg.name, type_var.name)
-                new_var = Variable(name=new_name, type=new_type,
-                                   dimensions=as_tuple(type_var.shape),
-                                   shape=as_tuple(type_var.shape))
+                new_var = routine.Variable(name=new_name, type=new_type,
+                                           dimensions=as_tuple(type_var.shape),
+                                           shape=as_tuple(type_var.shape))
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
@@ -189,7 +189,7 @@ class Dimension(object):
         """
         Return a list of expression strings all signifying "dimension size".
         """
-        iteration = ['%s-%s+1' % (self.iteration[1], self.iteration[0])]
+        iteration = ['%s - %s + 1' % (self.iteration[1], self.iteration[0])]
         return [self.name] + self.aliases + iteration
 
     @property
@@ -236,38 +236,38 @@ class SCATransformation(AbstractTransformation):
         """
         size_expressions = target.size_expressions
         index_expressions = target.index_expressions
+        dim_expressions = size_expressions + index_expressions
 
         # Remove all loops over the target dimensions
         loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
-            if loop.variable == target.variable:
+            if str(loop.variable).upper() == target.variable:
                 loop_map[loop] = loop.body
 
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        routine.variables = [v for v in routine.variables if v not in target.variables]
-        routine.arguments = [a for a in routine.arguments if a not in target.variables]
+        routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
+        routine.arguments = [a for a in routine.arguments if str(a).upper() not in target.variables]
 
-        # Remove dimension sizes from declarations
-        for v in routine.variables:
-            if v.shape is not None and len(v.shape) == len(v.dimensions):
-                v.dimensions = as_tuple(d for d, s in zip(v.dimensions, v.shape)
-                                        if s not in size_expressions)
+        # Map variables containing the target dimension to their replacements
+        vmap = {}
+        for v in as_tuple(routine.variables) + as_tuple(FindVariables().visit(routine.body)):
+            if isinstance(v, Array) and v.shape is not None:
+                # TODO: Note that we still rely on string comparison to identify dimensions
+                new_shape = as_tuple(s for s in v.shape if str(s).upper() not in size_expressions)
+                new_dims = as_tuple(d for d, s in zip(v.dimensions, v.shape)
+                                    if str(s).upper() not in size_expressions)
+                new_dims = None if len(new_dims) == 0 else new_dims
+                if len(v.shape) != len(new_shape):
+                    vmap[v] = routine.Variable(name=v.name, dimensions=new_dims,
+                                               type=v.type, parent=v.parent)
 
-        # Remove all target dimension indices in subroutine body expressions (in-place)
-        for v in FindVariables(unique=False).visit(routine.ir):
-            if v.dimensions is not None and v.shape is not None:
-                # Filter index variables against index expressions
-                # and shape dimensions against size expressions.
-                filtered = [(d, s) for d, s in zip(v.dimensions, v.shape)
-                            if s not in size_expressions and d not in index_expressions]
+        # Apply vmap to variable and argument list and subroutine body
+        routine.arguments = [vmap.get(v, v) for v in routine.arguments]
+        routine.variables = [vmap.get(v, v) for v in routine.variables]
 
-                # Reconstruct variable dimensions and shape from filtered
-                if len(filtered) > 0:
-                    v.dimensions, v._shape = zip(*(filtered))
-                else:
-                    v.dimensions, v._shape = (), None
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -285,42 +285,54 @@ class SCATransformation(AbstractTransformation):
         for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
+                argmap = {}
 
                 # Replace target dimension with a loop index in arguments
                 for arg, val in call.context.arg_iter(call):
-                    if not isinstance(val, Variable):
+                    if not isinstance(val, Array):
                         continue
+
+                    # TODO: Properly construct the vmap with updated dims for the call
+                    new_dims = None
 
                     # Insert ':' for all missing dimensions in argument
                     if arg.shape is not None and len(val.dimensions) == 0:
-                        val.dimensions = tuple(RangeIndex(upper=None) for _ in arg.shape)
+                        new_dims = tuple(RangeIndex() for _ in arg.shape)
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        val.dimensions = tuple(target.variable
-                                               if tdim in size_expressions else ddim
-                                               for ddim, tdim in zip(val.dimensions, val.shape))
+                        new_dims = tuple(caller.Variable(name=target.variable)
+                                         if str(tdim).upper() in size_expressions else ddim
+                                         for ddim, tdim in zip(val.dimensions, val.shape))
+
+                    if new_dims is not None:
+                        # TODO: Need a better way to clone variables with updated dims
+                        argmap[val] = routine.Variable(name=val.name, dimensions=new_dims,
+                                                       parent=val.parent, type=val.type)
+
+                # Apply argmap to the list of call arguments
+                arguments = [argmap.get(a, a) for a in call.arguments]
 
                 # Collect caller-side expressions for dimension sizes and bounds
                 dim_lower = None
                 dim_upper = None
                 for arg, val in call.context.arg_iter(call):
-                    if arg == target.iteration[0]:
+                    if str(arg).upper() == target.iteration[0]:
                         dim_lower = val
-                    if arg == target.iteration[1]:
+                    if str(arg).upper() == target.iteration[1]:
                         dim_upper = val
 
                 # Remove call-side arguments (in-place)
-                arguments = tuple(darg for darg, karg in zip(call.arguments, routine.arguments)
-                                  if karg not in target.variables)
+                arguments = tuple(darg for darg, karg in zip(arguments, routine.arguments)
+                                  if str(karg).upper() not in target.variables)
                 kwarguments = list((darg, karg) for darg, karg in call.kwarguments
-                                   if karg not in target.variables)
+                                   if str(karg).upper() not in target.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable),
-                                bounds=RangeIndex(dim_lower, dim_upper),
+                    loop = Loop(variable=caller.Variable(name=target.variable),
+                                bounds=(dim_lower, dim_upper, None),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
                 else:
@@ -332,7 +344,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in caller.variables:
             # TODO: Find a better way to define raw data type
             dtype = BaseType(name='INTEGER', kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype)]
+            caller.variables += [caller.Variable(name=target.variable, type=dtype)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
