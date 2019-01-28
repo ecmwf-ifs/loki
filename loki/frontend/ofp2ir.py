@@ -3,7 +3,7 @@ from collections import OrderedDict, deque
 from pathlib import Path
 import re
 from itertools import zip_longest
-from sympy import evaluate
+from sympy import evaluate, Add, Mul, Pow, Equality, Unequality
 
 from loki.frontend.source import extract_source
 from loki.visitors import GenericVisitor
@@ -425,6 +425,9 @@ class OFP2IR(GenericVisitor):
         type = o.attrib['type'] if 'type' in o.attrib else None
         kind_param = o.find('kind-param')
         kind = kind_param.attrib['kind'] if kind_param is not None else None
+        if type == 'char':
+            # Ensure correct stringification of char constants
+            value = '"%s"' % value
         return Literal(value=value, kind=kind, type=type, source=source)
 
     def visit_subscripts(self, o, source=None):
@@ -458,26 +461,58 @@ class OFP2IR(GenericVisitor):
         values = [v for v in values if v is not None]  # Filter empy values
         return LiteralList(values=values)
 
-    _op_map = {
-        '+': '+', '-': '-', '*': '*', '/': '/', '**': '**',
-        '==': '==', '/=': '!=', '.and.': '&', '.or.' : '|', '.not.': '~'
-        }
-
     def visit_operation(self, o, source=None):
+        """
+        Construct expressions from individual operations, using left-recursion.
+        """
         ops = [self.visit(op) for op in o.findall('operator')]
-        ops = [op for op in ops if op is not None]  # Filter empty ops
+        ops = [str(op).lower() for op in ops if op is not None]  # Filter empty ops
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
-        # A small bit of inflection to get Sympy expressions from the AST
-        if len(exprs) == 1 and len(ops) == 1:
-            return eval('%s exprs[0]' % self._op_map[ops[0].lower()])
-        else:
-            operators = [self._op_map[op.lower()] for op in ops]
-            expr_refs = ['exprs[%s]' % i for i, _ in enumerate(exprs)]
-            expression = flatten(zip_longest(expr_refs, operators))
-            expression = ' '.join(e for e in expression if e is not None)
-            return eval(expression)
+        # Left-recurse on the list of operations and expressions
+        exprs = deque(exprs)
+        expression = exprs.popleft()
+        for op in ops:
+
+            if op == '+':
+                expression = Add(expression, exprs.popleft(), evaluate=False)
+            elif op == '-':
+                if len(exprs) > 0:
+                    # Binary minus
+                    expression = Add(expression, Mul(-1, exprs.popleft(), evaluate=False), evaluate=False)
+                else:
+                    # Unary minus
+                    expression = Mul(-1, expression, evaluate=False)
+            elif op == '*':
+                expression = Mul(expression, exprs.popleft(), evaluate=False)
+            elif op == '/':
+                expression = Mul(expression, Pow(exprs.popleft(), -1, evaluate=False), evaluate=False)
+            elif op == '**':
+                expression = Pow(expression, exprs.popleft(), evaluate=False)
+            elif op == '==':
+                expression = Equality(expression, exprs.popleft(), evaluate=False)
+            elif op == '/=':
+                expression = Unequality(expression, exprs.popleft(), evaluate=False)
+            elif op == '>':
+                expression = expression > exprs.popleft()
+            elif op == '<':
+                expression = expression < exprs.popleft()
+            elif op == '>=':
+                expression = expression >= exprs.popleft()
+            elif op == '<=':
+                expression = expression <= exprs.popleft()
+            elif op == '.and.':
+                expression = expression & exprs.popleft()
+            elif op == '.or.':
+                expression = expression | exprs.popleft()
+            elif op == '.not.':
+                expression = ~expression
+            else:
+                raise RuntimeError('OFP: Unknown expression operator: %s' % op)
+
+        assert len(exprs) == 0
+        return expression
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
