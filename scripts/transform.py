@@ -351,7 +351,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
-        if loop.variable == target.variable:
+        if str(loop.variable).upper() == target.variable:
             pragma = Pragma(keyword='claw', content='parallelize forward create update')
             loop._update(pragma=pragma)
 
@@ -503,7 +503,7 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
-                        if len(v.dimensions) == 1]
+                        if v.is_Array and len(v.dimensions) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
     for call in FindNodes(Call).visit(routine.body):
