@@ -74,6 +74,9 @@ class Intrinsic(Node):
 
         self.text = text
 
+    def __repr__(self):
+        return 'Intrinsic:: %s' % self.text
+
 
 class Comment(Node):
     """
@@ -83,6 +86,9 @@ class Comment(Node):
         super(Comment, self).__init__(source=source)
 
         self.text = text
+
+    def __repr__(self):
+        return 'Comment:: ... '
 
 
 class CommentBlock(Node):
@@ -94,6 +100,9 @@ class CommentBlock(Node):
         super(CommentBlock, self).__init__(source=source)
 
         self.comments = comments
+
+    def __repr__(self):
+        return 'CommentBlock::'
 
 
 class Pragma(Node):
@@ -312,6 +321,10 @@ class Import(Node):
         self.module = module
         self.symbols = symbols or ()
         self.c_import = c_import
+
+    def __repr__(self):
+        _c = 'C-' if self.c_import else ''
+        return '%sImport:: %s => %s' % (_c, self.module, self.symbols)
 
 
 class Interface(Node):
