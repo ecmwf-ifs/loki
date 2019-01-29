@@ -101,8 +101,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
-                            new_arg = caller.Variable(name=type_var.name, dimensions=new_dims,
-                                                      shape=type_var.shape, parent=deepcopy(d_arg))
+                            new_arg = type_var.clone(dimensions=new_dims, parent=deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -156,10 +155,8 @@ class DerivedArgsTransformation(AbstractTransformation):
         variables = FindVariables(unique=False).visit(routine.body)
         variables = [v for v in variables
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        vmap = dict((v, routine.Variable(name='%s_%s' % (v.parent.name, v.name),
-                                         dimensions=v.dimensions if v.is_Array else None,
-                                         parent=None, type=v.type, shape=v.shape))
-                    for v in variables)
+        vmap = {v: v.clone(name='%s_%s' % (v.parent.name, v.name), parent=None, cache=routine)
+                for v in variables}
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
@@ -260,8 +257,7 @@ class SCATransformation(AbstractTransformation):
                                     if str(s).upper() not in size_expressions)
                 new_dims = None if len(new_dims) == 0 else new_dims
                 if len(v.shape) != len(new_shape):
-                    vmap[v] = routine.Variable(name=v.name, dimensions=new_dims,
-                                               type=v.type, parent=v.parent)
+                    vmap[v] = v.clone(dimensions=new_dims, shape=new_shape, cache=routine)
 
         # Apply vmap to variable and argument list and subroutine body
         routine.arguments = [vmap.get(v, v) for v in routine.arguments]
@@ -306,9 +302,7 @@ class SCATransformation(AbstractTransformation):
                                          for ddim, tdim in zip(val.dimensions, val.shape))
 
                     if new_dims is not None:
-                        # TODO: Need a better way to clone variables with updated dims
-                        argmap[val] = routine.Variable(name=val.name, dimensions=new_dims,
-                                                       parent=val.parent, type=val.type)
+                        argmap[val] = val.clone(dimensions=new_dims, cache=caller)
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]
