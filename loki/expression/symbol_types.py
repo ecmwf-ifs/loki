@@ -1,6 +1,7 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean
+from sympy.codegen.ast import String
 from fastcache import clru_cache
 
 from loki.tools import as_tuple
@@ -357,9 +358,9 @@ class Literal(sympy.Number):
             # Let sympy figure out what we're dealing with
             obj = sympy.sympify(value)
 
-            # Re-insert string markers for raw strings
-            if isinstance(obj, str) and '"' in value:
-                obj = '"%s"' % obj
+            if isinstance(obj, str):
+                # Capture strings and ensure they look ok
+                obj = String('"%s"' % obj)
 
         # And attach out own meta-data
         if hasattr(obj, '_type'):
