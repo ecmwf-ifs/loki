@@ -122,6 +122,11 @@ def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, ca
         # Comment is in-line and can be merged
         # Note, we need to re-create the statement node
         # so that Transformers don't throw away the changes.
+        if frontend == OFP:
+            # OFP provides accurate line numbers, so use them to
+            # verify when to fuse inline comments
+            if pair[1]._source.lines[0] > pair[0]._source.lines[1]:
+                continue
         mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
         mapper[pair[1]] = None  # Mark for deletion
     ir = NestedTransformer(mapper).visit(ir)
