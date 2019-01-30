@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from pathlib import Path
+import math
 
 from loki import clean, compile_and_load, OFP, OMNI
 from conftest import generate_identity
@@ -83,6 +84,41 @@ def test_logical_expr(refpath, reference, frontend):
     vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = function(True, False)
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_literal_expr(refpath, reference, frontend):
+    """
+    v1 = 1
+    v2 = 1.0
+    v3 = 2.3
+    v4 = 2.4_jprb
+    """
+    from loki import SourceFile, FindNodes, Statement
+
+    # Test the reference solution
+    v1, v2, v3, v4 = reference.literal_expr()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    # Fortran will default this to single precision
+    # so we need to give a significant range of error
+    assert math.isclose(v3, 2.3, abs_tol=1.e-6)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'literal_expr', frontend=frontend)
+    function = getattr(test, 'literal_expr_%s' % frontend)
+    v1, v2, v3, v4 = function()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    assert math.isclose(v3, 2.3, abs_tol=1.e-6)
+
+    # In addition to value testing, let's make sure
+    # that we created the correct expression types
+    from loki.expression.symbol_types import IntLiteral, FloatLiteral
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    stmts = FindNodes(Statement).visit(source['literal_expr'].body)
+    assert isinstance(stmts[0].expr, IntLiteral)
+    assert isinstance(stmts[1].expr, FloatLiteral)
+    assert isinstance(stmts[2].expr, FloatLiteral)
+    assert isinstance(stmts[3].expr, FloatLiteral)
+    assert stmts[3].expr._kind == 'jprb'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])

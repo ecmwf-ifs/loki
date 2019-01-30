@@ -45,6 +45,19 @@ subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtru
 end subroutine logical_expr
 
 
+subroutine literal_expr(v1, v2, v3, v4)
+  ! simple literal values
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(out) :: v1, v2, v3, v4
+
+  v1 = 66
+  v2 = 66.0
+  v3 = 2.3
+  v4 = 2.4_jprb
+
+end subroutine literal_expr
+
+
 subroutine cast_expr(v1, v2, v3, v4, v5)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: v1

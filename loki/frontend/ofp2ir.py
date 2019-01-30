@@ -425,6 +425,9 @@ class OFP2IR(GenericVisitor):
         type = o.attrib['type'] if 'type' in o.attrib else None
         kind_param = o.find('kind-param')
         kind = kind_param.attrib['kind'] if kind_param is not None else None
+        # Cast to the right type if given
+        value = int(value) if type == 'int' else value
+        value = float(value) if type == 'real' else value
         return Literal(value=value, kind=kind, type=type, source=source)
 
     def visit_subscripts(self, o, source=None):

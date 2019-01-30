@@ -2,6 +2,7 @@ import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean
 from sympy.codegen.ast import String
+from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
 
 from loki.tools import as_tuple
@@ -339,6 +340,14 @@ class Variable(sympy.Function):
 class FloatLiteral(sympy.Float):
     __slots__ = ['_mpf_', '_prec','_type', '_kind']
 
+    def _fcode(self, printer=None):
+        printed = CodePrinter._print_Float(printer, self)
+        if hasattr(self, '_kind') and self._kind is not None:
+            return '%s_%s' % (printed, self._kind)
+        else:
+            return printed
+
+
 class IntLiteral(sympy.Integer):
     __slots__ = ['p', '_type', '_kind']
 
@@ -363,9 +372,9 @@ class Literal(sympy.Number):
                 obj = String('"%s"' % obj)
 
         # And attach out own meta-data
-        if hasattr(obj, '_type'):
+        if '_type' in obj.__class__.__slots__:
             obj._type = kwargs.get('type', None)
-        if hasattr(obj, '_kind'):
+        if '_kind' in obj.__class__.__slots__:
             obj._kind = kwargs.get('kind', None)
         return obj
 
