@@ -71,11 +71,10 @@ class DerivedArgsTransformation(AbstractTransformation):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name.lower() for v in variables
+                arg_member_vars = set(v.name.split('%')[1].lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables
                                     if v.name.lower() in arg_member_vars]
-
         return candidates
 
     def flatten_derived_args_caller(self, caller):
@@ -155,7 +154,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         variables = FindVariables(unique=False).visit(routine.body)
         variables = [v for v in variables
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        vmap = {v: v.clone(name='%s_%s' % (v.parent.name, v.name), parent=None, cache=routine)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, cache=routine)
                 for v in variables}
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 

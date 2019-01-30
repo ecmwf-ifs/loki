@@ -215,7 +215,7 @@ class Array(sympy.Function):
         # to be used for symbolic caching. Thus, `parent` is
         # always used for caching, even if it's not in the name
         newobj = sympy.Function.__new__(cls, *dimensions)
-        newobj.name = name
+        newobj.name = cls.__name__
         newobj.dimensions = dimensions
         newobj.parent = parent
 
@@ -292,8 +292,7 @@ class Array(sympy.Function):
 
     @property
     def indexed(self):
-        name = self.name if self.parent is None else '%s%%%s' % (self.parent, self.name)
-        return sympy.IndexedBase(name, shape=self.shape or self.args)
+        return sympy.IndexedBase(self.name, shape=self.shape or self.args)
 
     def indexify(self):
         """
