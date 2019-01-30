@@ -67,3 +67,28 @@ subroutine cast_expr(v1, v2, v3, v4, v5)
   v4 = real(v1, kind=jprb)  ! Test a plain cast
   v5 = real(v1, kind=jprb) * max(v2, v3)  ! Cast as part of expression
 end subroutine cast_expr
+
+
+subroutine logical_array(dim, arr, out)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: dim
+  real(kind=jprb), intent(in) :: arr(dim)
+  real(kind=jprb), intent(out) :: out(dim)
+  logical :: mask(dim)
+  integer :: i
+
+  mask(:) = .true.
+  mask(1) = .false.
+  mask(2) = .false.
+
+  do i=1, dim
+    ! Use a logical array and a relational
+    ! containing an array in a single expression
+    if (mask(i) .and. arr(i) > 1.) then
+      out(i) = 3.
+    else
+      out(i) = 1.
+    end if
+  end do
+
+end subroutine logical_array

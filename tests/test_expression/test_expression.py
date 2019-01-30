@@ -136,3 +136,30 @@ def test_cast_expr(refpath, reference, frontend):
     function = getattr(test, 'cast_expr_%s' % frontend)
     v4, v5 = function(2, 1., 4.)
     assert v4 == 2. and v5 == 8.
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_logical_array(refpath, reference, frontend):
+    """
+    mask(1:2) = .false.
+    mask(3:) = .true.
+
+    do i=1, dim
+      ! Use a logical array and a relational
+      ! containing an array in a single expression
+      if (mask(i) .and. in(i) > 1.) then
+        out(i) = 3.
+      else
+        out(i) = 1.
+      end if
+    end do
+    """
+    # Test the reference solution
+    out = np.zeros(6)
+    reference.logical_array(6, [0., 2., -1., 3., 0., 2.], out)
+    assert (out  == [1., 1., 1., 3., 1., 3.]).all()
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'logical_array', frontend=frontend)
+    function = getattr(test, 'logical_array_%s' % frontend)
+    assert (out  == [1., 1., 1., 3., 1., 3.]).all()

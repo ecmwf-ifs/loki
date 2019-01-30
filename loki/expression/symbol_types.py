@@ -74,7 +74,11 @@ class SymbolCache(object):
             cls = self._symbol_type_cache(Scalar, name, parent)
             newobj = self._scalar_cache(cls, name, parent=parent)
         else:
-            cls = self._symbol_type_cache(Array, name, parent)
+            _type = kwargs.get('type', None)
+            if _type and _type.dtype == DataType.BOOL:
+                cls = self._symbol_type_cache(BoolArray, name, parent)
+            else:
+                cls = self._symbol_type_cache(Array, name, parent)
             newobj = self._array_cache(cls, name, dimensions, parent=parent)
 
         # Since we are not actually using the object instation
@@ -313,8 +317,7 @@ class BoolArray(Array, Boolean):
         to this :class:`Array` variable. This is useful for generating
         code for array accesses using the sympy code printers.
         """
-        args = [as_Boolean(a) for a in self.args]
-        return BoolIndexed(self.indexed, *args)
+        return BoolIndexed(self.indexed, *self.args)
 
     @property
     def binary_symbols(self):
