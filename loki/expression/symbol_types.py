@@ -1,11 +1,12 @@
 import sympy
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
-from sympy.logic.boolalg import Boolean
+from sympy.logic.boolalg import Boolean, as_Boolean
 from sympy.codegen.ast import String
 from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
 
 from loki.tools import as_tuple
+from loki.types import DataType
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'LiteralList',
@@ -167,7 +168,7 @@ class Scalar(sympy.Symbol):
         return self._type
 
 
-class Array(sympy.Function, Boolean):
+class Array(sympy.Function):
 
     is_Scalar = False
     is_Array = True
@@ -185,7 +186,12 @@ class Array(sympy.Function, Boolean):
             # Inject the symbol name into the class object.
             # Note, this is the SymPy way to inject custom
             # function naming and ensure symbol caching.
-            cls = _global_symbol_type(cls, name, parent)
+
+            _type = kwargs.get('type', None)
+            if _type and _type.dtype == DataType.BOOL:
+                cls = _global_symbol_type(BoolArray, name, parent)
+            else:
+                cls = _global_symbol_type(Array, name, parent)
         else:
             # A reconstruction of an array(function) object,
             # as triggered during symbolic manipulation.
@@ -283,13 +289,51 @@ class Array(sympy.Function, Boolean):
     @property
     def indexed(self):
         name = self.name if self.parent is None else '%s%%%s' % (self.parent, self.name)
-        return sympy.IndexedBase(name, shape=self.args)
+        return sympy.IndexedBase(name, shape=self.shape or self.args)
 
     def indexify(self):
+        """
+        Return an instance of :class:`sympy.Indexed` that corresponds
+        to this :class:`Array` variable. This is useful for generating
+        code for array accesses using the sympy code printers.
+        """
         return self.indexed[self.args]
+
+
+class BoolArray(Array, Boolean):
+    """
+    A specialised form of an :class:`Array` variable that behaves like
+    a :class:`sympy.logic.boolargl.Boolean`, allowing us to use it in
+    logical expressions.
+    """
+
+    def indexify(self):
+        """
+        Return an instance of :class:`sympy.Indexed` that corresponds
+        to this :class:`Array` variable. This is useful for generating
+        code for array accesses using the sympy code printers.
+        """
+        args = [as_Boolean(a) for a in self.args]
+        return BoolIndexed(self.indexed, *args)
 
     @property
     def binary_symbols(self):
+        # Suppress handing any of our args back to the logic engine,
+        # as they are not booleans.
+        return set()
+
+
+class BoolIndexed(sympy.Indexed, Boolean):
+    """
+    A specialised form of a :class:`sympy.Indexed` symbol that behaves
+    like a :class:`sympy.logic.boolargl.Boolean`, allowing us to use
+    it in logical expressions.
+    """
+
+    @property
+    def binary_symbols(self):
+        # Suppress handing any of our args back to the logic engine,
+        # as they are not booleans.
         return set()
 
 
@@ -297,6 +341,9 @@ class Variable(sympy.Function):
     """
     A symbolic object representing either a :class:`Scalar` or a :class:`Array`
     variable in arithmetic expressions.
+
+    Note, that this is only a convenience constructor that always returns either
+    a :class:`Scalar` or :class:`Array` variable object.
     """
 
     def __new__(cls, *args, **kwargs):
@@ -306,35 +353,16 @@ class Variable(sympy.Function):
         name = kwargs.pop('name')
         dimensions = kwargs.pop('dimensions', None)
         parent = kwargs.pop('parent', None)
+        _type = kwargs.get('type', None)
 
         # Create a new object from the static constructor with global caching!
         if dimensions is None:
             v = Scalar.__new__(Scalar, name=name, parent=parent)
         else:
-            v = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent)
+            v = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent, type=_type)
 
         v.__init__(*args, **kwargs)
         return v
-
-    
-    @property
-    def type(self):
-        return self._type
-
-    @property
-    def shape(self):
-        """
-        Original allocated shape of the variable as a tuple of dimensions.
-        """
-        return self._shape
-
-    @property
-    def children(self):
-        c = self.dimensions
-        if self.parent is not None:
-            c += (self.parent, )
-        return c
-
 
     
 class FloatLiteral(sympy.Float):

@@ -1,6 +1,6 @@
 from sympy import symbols, simplify
 
-from loki import Variable, Scalar, Subroutine, InlineCall, Cast, fsymgen, BaseType
+from loki import Variable, Scalar, Array, Subroutine, InlineCall, Cast, fsymgen, BaseType, indexify
 
 
 def test_symbolic_equivalence():
@@ -61,8 +61,6 @@ def test_symbol_caching_kernel():
     # Symbol with different parents are not equivalent
     f2 = kernel2.Variable(name='f', dimensions=(x, y))
     f3 = kernel2.Variable(name='f', dimensions=(x, y))
-
-    # from IPython import embed; embed()
 
     f0_plus_1 = f0 + 1
     assert f0 + 1 == 1 + f1
@@ -150,3 +148,27 @@ def test_symbol_regenerate_cast():
     assert fsymgen(a) == 'real(x + y)'
     assert fsymgen(b) == 'real(x + y, kind=JPRB)'
     assert fsymgen(c) == 'real(x + y, kind=selected_real_kind(13, 300))'
+
+
+def test_boolean_arrays():
+    """
+    SymPy does not like boolean logic symbols to be mixed with regular
+    symbols, but of course, Fortran does do ``logical :: array(dim)``.
+    This test ensure that our basic variable and expressions can deal
+    with expressions that contain boolean array symbols.
+    """
+
+    x = Variable(name='x')
+    y = Variable(name='y')
+    booltype = BaseType(name='LOGICAL')
+    f = Variable(name='f', dimensions=(x, y))
+    g = Variable(name='g', dimensions=(x, y), type=booltype)
+    h = Array(name='h', dimensions=(x, y), type=booltype)
+
+    # This can causes all kinds of trouble in sympy-land
+    # if we were to use plain Arrays instead of BoolArrays.
+    expr = g & (f > 1) | h
+    indexed = indexify(expr)
+    code = fsymgen(expr)
+
+    assert code == 'h(x, y) .or. g(x, y) .and. f(x, y) > 1'
