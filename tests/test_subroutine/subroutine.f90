@@ -116,6 +116,29 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
 end subroutine routine_dim_shapes
 
 
+subroutine routine_typedefs_simple(item)
+  ! simple vector/matrix arithmetic with a derived type
+  ! imported from an external header module
+  use header, only: derived_type
+  implicit none
+
+  type(derived_type), intent(inout) :: item
+  integer :: i, j, n
+
+  n = 3
+  do i=1, n
+    item%vector(i) = item%vector(i) + item%scalar
+  end do
+
+  do j=1, n
+    do i=1, n
+      item%matrix(i, j) = item%matrix(i, j) + item%scalar
+    end do
+  end do
+
+end subroutine routine_typedefs_simple
+
+
 ! TODO: Below are placeholders for more testing
 ! subroutine routine_imports (...)
 !   ! Test submodule and header imports

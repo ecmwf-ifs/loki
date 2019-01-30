@@ -2,8 +2,22 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables
+from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables, DataType
 from conftest import generate_identity
+
+
+@pytest.fixture(scope='module')
+def header_path():
+    return Path(__file__).parent / 'header.f90'
+
+
+@pytest.fixture(scope='module')
+def header_mod(header_path):
+    """
+    Compile and load the reference solution
+    """
+    clean(filename=header_path)  # Delete parser cache
+    return compile_and_load(header_path, cwd=str(header_path.parent))
 
 
 @pytest.fixture(scope='module')
@@ -12,7 +26,7 @@ def refpath():
 
 
 @pytest.fixture(scope='module')
-def reference(refpath):
+def reference(refpath, header_mod):
     """
     Compile and load the reference solution
     """
@@ -174,3 +188,39 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if v.is_Function]
     assert b_shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_shape_type_propagation(refpath, reference, header_path, header_mod, frontend):
+    """
+    Test for the forward propagation of derived-type information from
+    a standalone module to a foreign subroutine via the :param typedef:
+    argument.
+    """
+    # TODO: Note, if we wanted to test the reference solution we need to extend
+    # compile_and_load to use multiple source files/paths, so that the header
+    # can be compiled alongside the subroutine in the same f90wrap execution.
+
+    # Parse kernel routine and provide external typedefs
+    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    source = SourceFile.from_file(refpath, frontend=frontend, typedefs=header.typedefs)
+    routine = source['routine_typedefs_simple']
+
+    # Check that external typedefs have been propagated to kernel variables
+    # First check that the declared parent variable has the correct type
+    assert routine.arguments[0].name == 'item'
+    assert routine.arguments[0].type.name == 'derived_type'
+
+    # Verify that all variable instances have type and shape information
+    variables = FindVariables().visit(routine.body)
+    assert all(v.type is not None for v in variables)
+
+    # TODO: Verify imported derived type info explicitly
+    vmap = {v.name: v for v in variables}
+    assert vmap['item%scalar'].type.dtype == DataType.FLOAT64
+    assert vmap['item%vector'].type.dtype == DataType.FLOAT64
+    assert vmap['item%matrix'].type.dtype == DataType.FLOAT64
+
+    # TODO: Verify imported shape info is correct
+    assert vmap['item%vector'].shape == (3,)
+    assert vmap['item%matrix'].shape == (3, 3)
