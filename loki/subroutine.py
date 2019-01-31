@@ -125,7 +125,14 @@ class Subroutine(object):
         spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
         spec._update(body=as_tuple(spec_body))
 
-        # TODO: Parse member functions properly
+        # Get the declared shapes of local variables and arguments
+        shape_map = {}
+        for decl in FindNodes(Declaration).visit(spec):
+            for v in decl.variables:
+                if v.is_Array:
+                    shape_map[v.name] = v.shape
+
+        # Parse member functions properly
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
@@ -137,7 +144,8 @@ class Subroutine(object):
 
         # Convert the core kernel to IR
         body = parse_omni_ast(ast.find('body'), cache=cache, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source)
+                              symbol_map=symbol_map, shape_map=shape_map,
+                              raw_source=raw_source)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, typedefs=typedefs, cache=cache)

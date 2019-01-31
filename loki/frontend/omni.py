@@ -71,11 +71,13 @@ def parse_omni_file(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, type_map=None, symbol_map=None, raw_source=None, cache=None):
+    def __init__(self, type_map=None, symbol_map=None, shape_map=None,
+                 raw_source=None, cache=None):
         super(OMNI2IR, self).__init__()
 
         self.type_map = type_map
         self.symbol_map = symbol_map
+        self.shape_map = shape_map
         self.raw_source = raw_source
 
         # Use provided symbol cache for variable generation
@@ -143,7 +145,8 @@ class OMNI2IR(GenericVisitor):
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = self.Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
+        variable = self.Variable(name=name.text, dimensions=dimensions, type=type,
+                                 shape=dimensions, initial=value)
         return Declaration(variables=as_tuple(variable), type=type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -265,8 +268,9 @@ class OMNI2IR(GenericVisitor):
         # explicitly before constructing our symbolic variable.
         vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
         dimensions = as_tuple(self.visit(i) for i in o[1:])
+        shape = self.shape_map.get(vname, None)
         return self.Variable(name=vname, dimensions=dimensions,
-                             type=vtype, parent=parent)
+                             shape=shape, type=vtype, parent=parent)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -472,12 +476,13 @@ class OMNI2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_ast(ast, type_map=None, symbol_map=None, raw_source=None, cache=None):
+def parse_omni_ast(ast, type_map=None, symbol_map=None, shape_map=None,
+                   raw_source=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OMNI2IR(type_map=type_map, symbol_map=symbol_map,
+    ir = OMNI2IR(type_map=type_map, symbol_map=symbol_map, shape_map=shape_map,
                  raw_source=raw_source, cache=cache).visit(ast)
 
     # Perform soime minor sanitation tasks

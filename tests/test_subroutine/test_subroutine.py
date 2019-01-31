@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables, DataType
+from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables, DataType, Array, Scalar
 from conftest import generate_identity
 
 
@@ -191,15 +191,80 @@ def test_routine_dim_shapes(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
-def test_routine_shape_type_propagation(refpath, reference, header_path, header_mod, frontend):
+def test_routine_shape_propagation(refpath, reference, header_path, header_mod, frontend):
+    """
+    Test for the correct identification and forward propagation of variable shapes
+    from the subroutine declaration.
+    """
+    # Parse simple kernel routine to check plain array arguments
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['routine_simple']
+
+    # Check shapes on the internalized variable and argument lists
+    x, y, = routine.arguments[0], routine.arguments[1]
+    # TODO: The string comparison here is due to the fact that shapes are actually
+    # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
+    # This needs some more thorough conceptualisation of dimensions and indices!
+    assert str(routine.arguments[3].shape) == '(x,)'
+    assert str(routine.arguments[4].shape) == '(x, y)'
+
+    # Verify that all variable instances have type and shape information
+    variables = FindVariables().visit(routine.body)
+    assert all(v.shape is not None for v in variables if isinstance(v, Array))
+
+    vmap = {v.name: v for v in variables}
+    assert str(vmap['vector'].shape) == '(x,)'
+    assert str(vmap['matrix'].shape) == '(x, y)'
+
+    # Parse kernel with external typedefs to test shape inferred from
+    # external derived type definition
+    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    source = SourceFile.from_file(refpath, frontend=frontend, typedefs=header.typedefs)
+    routine = source['routine_typedefs_simple']
+
+    # Verify that all derived type variables have shape info
+    variables = FindVariables().visit(routine.body)
+    assert all(v.shape is not None for v in variables if isinstance(v, Array))
+
+    # Verify shape info from imported derived type is propagated
+    vmap = {v.name: v for v in variables}
+    assert str(vmap['item%vector'].shape) == '(x,)'
+    assert str(vmap['item%matrix'].shape) == '(x, y)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_type_propagation(refpath, reference, header_path, header_mod, frontend):
     """
     Test for the forward propagation of derived-type information from
     a standalone module to a foreign subroutine via the :param typedef:
     argument.
     """
-    # TODO: Note, if we wanted to test the reference solution we need to extend
-    # compile_and_load to use multiple source files/paths, so that the header
-    # can be compiled alongside the subroutine in the same f90wrap execution.
+    # TODO: Note, if we wanted to test the reference solution with
+    # typedefs, we need to extend compile_and_load to use multiple
+    # source files/paths, so that the header can be compiled alongside
+    # the subroutine in the same f90wrap execution.
+
+    # Parse simple kernel routine to check plain array arguments
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['routine_simple']
+
+    # Check types on the internalized variable and argument lists
+    assert routine.arguments[0].type.dtype == DataType.INT32
+    assert routine.arguments[1].type.dtype == DataType.INT32
+    assert routine.arguments[2].type.dtype == DataType.FLOAT64
+    assert routine.arguments[3].type.dtype == DataType.FLOAT64
+    assert routine.arguments[4].type.dtype == DataType.FLOAT64
+
+    # Verify that all variable instances have type information
+    variables = FindVariables().visit(routine.body)
+    assert all(v.type is not None for v in variables
+               if isinstance(v, Scalar) or isinstance(v, Array))
+
+    vmap = {v.name: v for v in variables}
+    assert vmap['x'].type.dtype == DataType.INT32
+    assert vmap['scalar'].type.dtype == DataType.FLOAT64
+    assert vmap['vector'].type.dtype == DataType.FLOAT64
+    assert vmap['matrix'].type.dtype == DataType.FLOAT64
 
     # Parse kernel routine and provide external typedefs
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
@@ -215,12 +280,8 @@ def test_routine_shape_type_propagation(refpath, reference, header_path, header_
     variables = FindVariables().visit(routine.body)
     assert all(v.type is not None for v in variables)
 
-    # TODO: Verify imported derived type info explicitly
+    # Verify imported derived type info explicitly
     vmap = {v.name: v for v in variables}
     assert vmap['item%scalar'].type.dtype == DataType.FLOAT64
     assert vmap['item%vector'].type.dtype == DataType.FLOAT64
     assert vmap['item%matrix'].type.dtype == DataType.FLOAT64
-
-    # TODO: Verify imported shape info is correct
-    assert vmap['item%vector'].shape == (3,)
-    assert vmap['item%matrix'].shape == (3, 3)
