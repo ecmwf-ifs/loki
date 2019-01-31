@@ -71,7 +71,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name.split('%')[1].lower() for v in variables
+                arg_member_vars = set(v.basename.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables
                                     if v.name.lower() in arg_member_vars]

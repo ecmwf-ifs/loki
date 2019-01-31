@@ -118,6 +118,7 @@ class Scalar(sympy.Symbol):
         newobj = sympy.Symbol.__new__(cls, name)
         # Use cls.__name__ to get the injected name modifcation
         newobj.name = cls.__name__
+        newobj.basename = name
         newobj.parent = parent
 
         newobj._type = None
@@ -216,6 +217,7 @@ class Array(sympy.Function):
         # always used for caching, even if it's not in the name
         newobj = sympy.Function.__new__(cls, *dimensions)
         newobj.name = cls.__name__
+        newobj.basename = name
         newobj.dimensions = dimensions
         newobj.parent = parent
 
