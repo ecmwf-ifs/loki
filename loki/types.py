@@ -34,6 +34,7 @@ class DataType(IntEnum):
             ('real', 'c_double'): cls.FLOAT64,
             ('real', 'jprb'): cls.FLOAT64,
             ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,
+            ('real', 'selected_real_kind(13, 300)'): cls.FLOAT64,
         }
         type = type if type is None else str(type).lower()
         kind = kind if kind is None else str(kind).lower()

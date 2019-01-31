@@ -1,5 +1,5 @@
-from loki.frontend.parse import parse
-from loki.frontend.omni2ir import convert_omni2ir
+from loki.frontend.omni import parse_omni_ast
+from loki.frontend.ofp import parse_ofp_ast
 from loki.ir import TypeDef, Section
 from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
@@ -36,7 +36,7 @@ class Module(object):
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse(spec_ast, raw_source=raw_source)
+        spec = parse_ofp_ast(spec_ast, raw_source=raw_source)
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
@@ -57,8 +57,8 @@ class Module(object):
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
 
         # Generate spec, filter out external declarations and insert `implicit none`
-        spec = convert_omni2ir(ast.find('declarations'), type_map=type_map,
-                               symbol_map=symbol_map, raw_source=raw_source)
+        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map,
+                              symbol_map=symbol_map, raw_source=raw_source)
         spec = Section(body=spec)
 
         # TODO: Parse member functions properly

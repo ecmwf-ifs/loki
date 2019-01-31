@@ -1,7 +1,8 @@
 from collections import OrderedDict
 
-from loki.frontend.parse import parse, OFP, OMNI
-from loki.frontend.preprocessing import blacklist
+from loki.frontend import OFP, OMNI, blacklist
+from loki.frontend.omni import parse_omni_ast
+from loki.frontend.ofp import parse_ofp_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, CommentBlock, Intrinsic)
 from loki.expression import Variable, FindVariables, Array, Scalar, SymbolCache
@@ -74,7 +75,7 @@ class Subroutine(object):
         cache = SymbolCache()
 
         # Create a IRs for declarations section and the loop body
-        body = parse(ast.find('body'), cache=cache, raw_source=raw_source, frontend=OFP)
+        body = parse_ofp_ast(ast.find('body'), cache=cache, raw_source=raw_source)
 
         # Apply postprocessing rules to re-insert information lost during preprocessing
         for r_name, rule in blacklist.items():
@@ -112,8 +113,8 @@ class Subroutine(object):
         cache = SymbolCache()
 
         # Generate spec, filter out external declarations and docstring
-        spec = parse(ast.find('declarations'), type_map=type_map, cache=cache,
-                     symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
+        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, cache=cache,
+                              symbol_map=symbol_map, raw_source=raw_source)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or d.variables[0].name == name}
         spec = Section(body=Transformer(mapper).visit(spec))
@@ -135,8 +136,8 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = parse(ast.find('body'), cache=cache, type_map=type_map,
-                     symbol_map=symbol_map, raw_source=raw_source, frontend=OMNI)
+        body = parse_omni_ast(ast.find('body'), cache=cache, type_map=type_map,
+                              symbol_map=symbol_map, raw_source=raw_source)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, typedefs=typedefs, cache=cache)

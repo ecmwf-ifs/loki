@@ -10,8 +10,9 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, blacklist, parse_ofp
-from loki.frontend.omni2ir import preprocess_omni, parse_omni
+from loki.frontend import OMNI, OFP, blacklist
+from loki.frontend.omni import preprocess_omni, parse_omni_file
+from loki.frontend.ofp import parse_ofp_file
 
 
 __all__ = ['SourceFile']
@@ -60,7 +61,7 @@ class SourceFile(object):
             raw_source = f.read()
 
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni(filename=str(pppath), xmods=xmods)
+        ast = parse_omni_file(filename=str(pppath), xmods=xmods)
         typetable = ast.find('typeTable')
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
@@ -91,7 +92,7 @@ class SourceFile(object):
             raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        ast = parse_ofp(filename=str(file_path))
+        ast = parse_ofp_file(filename=str(file_path))
 
         # Extract subroutines and pre/post sections from file
         pp_info = None

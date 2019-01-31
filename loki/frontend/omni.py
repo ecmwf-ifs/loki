@@ -8,6 +8,7 @@ from sympy import Add, Mul, Pow, Equality, Unequality
 
 
 from loki.frontend.source import Source
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
 from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
@@ -17,7 +18,7 @@ from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
 
 
-__all__ = ['preprocess_omni', 'parse_omni', 'convert_omni2ir']
+__all__ = ['preprocess_omni', 'parse_omni_file', 'parse_omni_ast']
 
 
 def preprocess_omni(filename, outname, includes=None):
@@ -43,7 +44,7 @@ def preprocess_omni(filename, outname, includes=None):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni(filename, xmods=None):
+def parse_omni_file(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
     """
@@ -105,7 +106,7 @@ class OMNI2IR(GenericVisitor):
         """
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
-        source = Source(lines=(lineno, None), file=file)
+        source = Source(lines=(lineno, lineno), file=file)
         return super(OMNI2IR, self).visit(o, source=source, **kwargs)
 
     def visit_Element(self, o, source=None, **kwargs):
@@ -470,9 +471,18 @@ class OMNI2IR(GenericVisitor):
         return Unequality(exprs[0], exprs[1], evaluate=False)
 
 
-def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None, cache=None):
+@timeit(log_level=DEBUG)
+def parse_omni_ast(ast, type_map=None, symbol_map=None, raw_source=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
-    return OMNI2IR(type_map=type_map, symbol_map=symbol_map,
-                   raw_source=raw_source, cache=cache).visit(omni_ast)
+    # Parse the raw OMNI language AST
+    ir = OMNI2IR(type_map=type_map, symbol_map=symbol_map,
+                 raw_source=raw_source, cache=cache).visit(ast)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+
+    return ir

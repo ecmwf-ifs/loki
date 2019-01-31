@@ -6,6 +6,7 @@ from itertools import zip_longest
 from sympy import evaluate, Add, Mul, Pow, Equality, Unequality
 
 from loki.frontend.source import extract_source
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
 from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
@@ -18,12 +19,12 @@ from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
 
 
-__all__ = ['parse_ofp', 'OFP2IR']
+__all__ = ['parse_ofp_file', 'parse_ofp_ast']
 
 
 @timeit(log_level=DEBUG)
 @disk_cached(argname='filename', suffix='ofpast')
-def parse_ofp(filename):
+def parse_ofp_file(filename):
     """
     Read and parse a source file using the Open Fortran Parser (OFP).
 
@@ -516,3 +517,19 @@ class OFP2IR(GenericVisitor):
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
+
+
+@timeit(log_level=DEBUG)
+def parse_ofp_ast(ast, raw_source=None, cache=None):
+    """
+    Generate an internal IR from the raw OMNI parser AST.
+    """
+    # Parse the raw OMNI language AST
+    ir = OFP2IR(raw_source=raw_source, cache=cache).visit(ast)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+
+    return ir

@@ -1,18 +1,12 @@
-"""
-Module to manage loops and statements via an internal representation(IR)/AST.
-"""
-
 from itertools import groupby
 from enum import IntEnum
 
-from loki.frontend.ofp2ir import OFP2IR
-from loki.frontend.omni2ir import convert_omni2ir
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
 from loki.tools import timeit
 from loki.logging import DEBUG
 
-__all__ = ['parse', 'Frontend', 'OMNI', 'OFP']
+__all__ = ['Frontend', 'OFP', 'OMNI', 'inline_comments', 'cluster_comments', 'inline_pragmas']
 
 
 class Frontend(IntEnum):
@@ -97,24 +91,10 @@ class PatternFinder(Visitor):
     visit_list = visit_tuple
 
 
-@timeit(log_level=DEBUG)
-def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, cache=None):
+def inline_comments(ir):
     """
-    Generate an internal IR from the raw OFP (Open Fortran Parser)
-    output.
-
-    The internal IR is intended to represent the code at a much higher
-    level than the raw langage constructs that OFP returns.
+    Identify inline comments and merge them onto statements
     """
-    if frontend == OFP:
-        ir = OFP2IR(raw_source, cache=cache).visit(ast)
-    elif frontend == OMNI:
-        ir = convert_omni2ir(ast, type_map=type_map, symbol_map=symbol_map,
-                             raw_source=raw_source, cache=cache)
-    else:
-        raise NotImplementedError('Unknown frontend: %s' % frontend)
-
-    # Identify inline comments and merge them onto statements
     pairs = PatternFinder(pattern=(Statement, Comment)).visit(ir)
     pairs += PatternFinder(pattern=(Declaration, Comment)).visit(ir)
     mapper = {}
@@ -122,16 +102,17 @@ def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, ca
         # Comment is in-line and can be merged
         # Note, we need to re-create the statement node
         # so that Transformers don't throw away the changes.
-        if frontend == OFP:
-            # OFP provides accurate line numbers, so use them to
-            # verify when to fuse inline comments
+        if pair[0]._source and pair[1]._source:
             if pair[1]._source.lines[0] > pair[0]._source.lines[1]:
                 continue
         mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
         mapper[pair[1]] = None  # Mark for deletion
-    ir = NestedTransformer(mapper).visit(ir)
+    return NestedTransformer(mapper).visit(ir)
 
-    # Cluster comments into comment blocks
+def cluster_comments(ir):
+    """
+    Cluster comments into comment blocks
+    """
     comment_mapper = {}
     comment_groups = SequenceFinder(node_type=Comment).visit(ir)
     for comments in comment_groups:
@@ -141,11 +122,16 @@ def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, ca
         comment_mapper[comments[0]] = block
         for c in comments[1:]:
             comment_mapper[c] = None
-    ir = NestedTransformer(comment_mapper).visit(ir)
+    return NestedTransformer(comment_mapper).visit(ir)
 
-    # Find pragmas and merge them onto declarations and subroutine calls
-    # Note: Pragmas in derived types are already associated with the
-    # declaration due to way we parse derived types.
+
+def inline_pragmas(ir):
+    """
+    Find pragmas and merge them onto declarations and subroutine calls
+
+    Note: Pragmas in derived types are already associated with the
+    declaration due to way we parse derived types.
+    """
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
     pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
     mapper = {}
@@ -153,6 +139,4 @@ def parse(ast, type_map=None, symbol_map=None, raw_source=None, frontend=OFP, ca
         # Merge pragma with declaration and delete
         mapper[pair[0]] = None  # Mark for deletion
         mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
-    ir = NestedTransformer(mapper).visit(ir)
-
-    return ir
+    return NestedTransformer(mapper).visit(ir)
