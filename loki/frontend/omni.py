@@ -136,18 +136,20 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
-            type = self.visit(tast)
+            _type = self.visit(tast)
+
+            # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = name.attrib['type']
-            type = BaseType(name=BaseType._omni_types.get(t, t))
+            _type = BaseType(name=BaseType._omni_types.get(t, t))
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = self.Variable(name=name.text, dimensions=dimensions, type=type,
+        variable = self.Variable(name=name.text, dimensions=dimensions, type=_type,
                                  shape=dimensions, initial=value)
-        return Declaration(variables=as_tuple(variable), type=type, source=source)
+        return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
@@ -159,22 +161,21 @@ class OMNI2IR(GenericVisitor):
     def visit_FbasicType(self, o, source=None):
         ref = o.attrib.get('ref', None)
         if ref in self.type_map:
-            t = self.visit(self.type_map[ref])
-            name = t.name
-            kind = t.kind
+            _type = self.visit(self.type_map[ref])
         else:
             name = BaseType._omni_types.get(ref, ref)
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-        intent = o.attrib.get('intent', None)
-        allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
-        pointer = o.attrib.get('is_pointer', 'false') == 'true'
-        optional = o.attrib.get('is_optional', 'false') == 'true'
-        parameter = o.attrib.get('is_parameter', 'false') == 'true'
-        target = o.attrib.get('is_target', 'false') == 'true'
-        contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
-        return BaseType(name=name, kind=kind, intent=intent, allocatable=allocatable,
-                        pointer=pointer, optional=optional, parameter=parameter,
-                        target=target, contiguous=contiguous)
+            _type = BaseType(name, kind=kind)
+
+        # OMNI types are build recursively from references (Matroshka-style)
+        _type.intent = o.attrib.get('intent', None)
+        _type.allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
+        _type.pointer = o.attrib.get('is_pointer', 'false') == 'true'
+        _type.optional = o.attrib.get('is_optional', 'false') == 'true'
+        _type.parameter = o.attrib.get('is_parameter', 'false') == 'true'
+        _type.target = o.attrib.get('is_target', 'false') == 'true'
+        _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
+        return _type
 
     def visit_FstructType(self, o, source=None):
         name = o.attrib['type']
@@ -188,10 +189,11 @@ class OMNI2IR(GenericVisitor):
             if t in self.type_map:
                 vtype = self.visit(self.type_map[t])
                 if len(self.type_map[t]) > 0:
-                    dimensions = [self.visit(d) for d in self.type_map[t]]
+                    dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
             else:
                 vtype = BaseType(name=BaseType._omni_types.get(t, t))
-            variables += [self.Variable(name=vname, dimensions=dimensions, type=vtype)]
+            variables += [self.Variable(name=vname, dimensions=dimensions,
+                                        shape=dimensions, type=vtype)]
         return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
@@ -269,6 +271,14 @@ class OMNI2IR(GenericVisitor):
         vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
         dimensions = as_tuple(self.visit(i) for i in o[1:])
         shape = self.shape_map.get(vname, None)
+
+        if parent is not None:
+            # If we have a parent, get the shape info from it
+            assert isinstance(parent.type, DerivedType)
+            typevar = [v for v in parent.type.variables
+                       if v.name.lower() == vname.lower()][0]
+            shape = typevar.dimensions
+
         return self.Variable(name=vname, dimensions=dimensions,
                              shape=shape, type=vtype, parent=parent)
 

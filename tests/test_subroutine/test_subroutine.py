@@ -182,12 +182,12 @@ def test_routine_dim_shapes(refpath, reference, frontend):
 
     # Make sure variable/argument shapes on the routine work
     shapes = [str(v.shape) for v in routine.arguments if v.is_Array]
-    assert shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
+    assert shapes == ['(:,)', '(v1, v2)', '(v1, v2 - 1)']
 
     # Ensure shapes of body variables are ok
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if v.is_Function]
-    assert b_shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
+    assert b_shapes == ['(:,)', '(v1, v2)', '(v1, v2 - 1)']
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
@@ -228,8 +228,8 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
 
     # Verify shape info from imported derived type is propagated
     vmap = {v.name: v for v in variables}
-    assert str(vmap['item%vector'].shape) == '(x,)'
-    assert str(vmap['item%matrix'].shape) == '(x, y)'
+    assert str(vmap['item%vector'].shape) == '(3,)'
+    assert str(vmap['item%matrix'].shape) == '(3, 3)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])

@@ -98,7 +98,7 @@ class Subroutine(object):
                    members=members, ast=ast, typedefs=typedefs, cache=cache)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, typedefs=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
@@ -136,8 +136,8 @@ class Subroutine(object):
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
-                                            typedefs=typedefs, raw_source=raw_source)
+            members = [Subroutine.from_omni(ast=s, typetable=typetable,
+                                            symbol_map=symbol_map, raw_source=raw_source)
                        for s in contains]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
@@ -148,7 +148,7 @@ class Subroutine(object):
                               raw_source=raw_source)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                   members=members, ast=ast, typedefs=typedefs, cache=cache)
+                   members=members, ast=ast, cache=cache)
 
     def Variable(self, *args, **kwargs):
         """

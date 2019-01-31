@@ -38,16 +38,14 @@ class SourceFile(object):
     def from_file(cls, filename, preprocess=False, typedefs=None,
                   xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
-            return cls.from_omni(filename, typedefs=typedefs,
-                                 xmods=xmods, includes=includes)
+            return cls.from_omni(filename, xmods=xmods, includes=includes)
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, typedefs=None,
-                  xmods=None, includes=None):
+    def from_omni(cls, filename, preprocess=False, xmods=None, includes=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
@@ -65,7 +63,7 @@ class SourceFile(object):
         typetable = ast.find('typeTable')
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
-        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source, typedefs=typedefs,
+        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source,
                                          typetable=typetable) for ast in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
