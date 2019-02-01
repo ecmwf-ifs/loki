@@ -99,7 +99,7 @@ class Module(object):
         Map of names and :class:`DerivedType`s defined in this module.
         """
         types = FindNodes(TypeDef).visit(self.spec)
-        return {td.name.upper(): td for td in types}
+        return {td.name.lower(): td for td in types}
 
     @property
     def subroutines(self):

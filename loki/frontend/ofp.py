@@ -1,11 +1,12 @@
 import open_fortran_parser
-from collections import OrderedDict, deque
+from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
 from itertools import zip_longest
 from sympy import evaluate, Add, Mul, Pow, Equality, Unequality
 
 from loki.frontend.source import extract_source
+from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
 from loki.ir import (Loop, Statement, Conditional, Call, Comment,
@@ -14,7 +15,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex,
                              InlineCall, LiteralList, Array)
-from loki.types import BaseType
+from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
 
@@ -37,12 +38,18 @@ def parse_ofp_file(filename):
 
 class OFP2IR(GenericVisitor):
 
-    def __init__(self, raw_source, cache=None):
+    def __init__(self, raw_source, shape_map=None, type_map=None,
+                 typedefs=None, cache=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
+        self.shape_map = shape_map
+        self.type_map = type_map
+        self.typedefs = typedefs
+
         # Store provided symbol cache for variable generation
         self._cache = cache
+
 
     def Variable(self, *args, **kwargs):
         """
@@ -57,21 +64,32 @@ class OFP2IR(GenericVisitor):
         """
         Alternative lookup method for XML element types, identified by ``element.tag``
         """
+        if isinstance(instance, Iterable):
+            return super(OFP2IR, self).lookup_method(instance)
+
         tag = instance.tag.replace('-', '_')
         if tag in self._handlers:
             return self._handlers[tag]
         else:
             return super(OFP2IR, self).lookup_method(instance)
 
-    def visit(self, o):
+    def visit(self, o, **kwargs):
         """
         Generic dispatch method that tries to generate meta-data from source.
         """
+        if isinstance(o, Iterable):
+            return super(OFP2IR, self).visit(o, **kwargs)
+
         try:
             source = extract_source(o.attrib, self._raw_source)
         except KeyError:
             source = None
-        return super(OFP2IR, self).visit(o, source=source)
+        return super(OFP2IR, self).visit(o, source=source, **kwargs)
+
+    def visit_tuple(self, o, source=None):
+        return tuple(self.visit(c) for c in o)
+
+    visit_list = visit_tuple
 
     def visit_Element(self, o, source=None):
         """
@@ -261,7 +279,8 @@ class OFP2IR(GenericVisitor):
                         v_source = extract_source(v.attrib, self._raw_source)
 
                         variables += [self.Variable(name=v.attrib['name'], type=type,
-                                                    dimensions=dimensions, source=v_source)]
+                                                    dimensions=dimensions, shape=dimensions,
+                                                    source=v_source)]
                     declarations += [Declaration(variables=variables, type=type, source=t_source)]
                 return TypeDef(name=derived_name, declarations=declarations,
                                pragmas=pragmas, comments=comments, source=source)
@@ -276,23 +295,26 @@ class OFP2IR(GenericVisitor):
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
                 target = o.find('attribute-target') is not None
-                type = BaseType(name=typename, kind=kind, intent=intent,
-                                allocatable=allocatable, pointer=pointer,
-                                optional=optional, parameter=parameter,
-                                target=target, source=source)
-                variables = [self.visit(v) for v in o.findall('variables/variable')]
-                variables = [v for v in variables if v is not None]
-                # Propagate type onto variables
-                for v in variables:
-                    v._type = type
-                    if isinstance(v, Array):
-                        # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
-                        v.dimensions = as_tuple(d.upper if isinstance(d, RangeIndex) and d == d.upper else d
-                                                for d in v.dimensions)
-
+                if self.typedefs is not None and typename.lower() in self.typedefs:
+                    # Create the local variant of the derived type
+                    struct_type = self.typedefs[typename.lower()]
+                    _type = DerivedType(name=typename, variables=struct_type.variables,
+                                        kind=kind, intent=intent,
+                                        allocatable=allocatable, pointer=pointer,
+                                        optional=optional, parameter=parameter,
+                                        target=target, source=source)
+                else:
+                    # Create a basic variable type
+                    _type = BaseType(name=typename, kind=kind, intent=intent,
+                                     allocatable=allocatable, pointer=pointer,
+                                     optional=optional, parameter=parameter,
+                                     target=target, source=source)
                 dims = o.find('dimensions')
                 dimensions = None if dims is None else as_tuple(self.visit(dims))
-                return Declaration(variables=variables, type=type,
+                variables = [self.visit(v, type=_type, dimensions=dimensions)
+                             for v in o.findall('variables/variable')]
+                variables = [v for v in variables if v is not None]
+                return Declaration(variables=variables, type=_type,
                                    dimensions=dimensions, source=source)
         elif o.attrib['type'] == 'implicit':
             return Intrinsic(text=source.string, source=source)
@@ -382,8 +404,22 @@ class OFP2IR(GenericVisitor):
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(name=o.attrib['id'], arguments=indices)
             else:
-                return self.Variable(name=vname, dimensions=indices,
-                                     parent=parent, source=source)
+                shape = self.shape_map.get(vname, None) if self.shape_map else None
+                _type = self.type_map.get(vname, None) if self.type_map else None
+
+                # If the (possibly external) struct definitions exists
+                # derive the shape and real type from it.
+                if parent is not None and parent.type is not None:
+                    if isinstance(parent.type, DerivedType):
+                        typevar = [v for v in parent.type.variables
+                                   if v.name.lower() == vname.lower()][0]
+                        _type = typevar.type
+                        if typevar.is_Array:
+                            shape = typevar.shape
+
+                var = self.Variable(name=vname, dimensions=indices, parent=parent,
+                                     shape=shape, type=_type, source=source)
+                return var
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
@@ -405,7 +441,8 @@ class OFP2IR(GenericVisitor):
                                          parent=variable, source=source)
         return variable
 
-    def visit_variable(self, o, source=None):
+    def visit_variable(self, o, source=None, **kwargs):
+        _type = kwargs.get('type', None)
         if 'id' not in o.attrib and 'name' not in o.attrib:
             return None
         name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
@@ -413,9 +450,10 @@ class OFP2IR(GenericVisitor):
             dimensions = tuple(self.visit(d) for d in o.find('dimensions'))
             dimensions = tuple(d for d in dimensions if d is not None)
         else:
-            dimensions = None
+            dimensions = kwargs.get('dimensions', None)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        return self.Variable(name=name, dimensions=dimensions, initial=initial, source=source)
+        return self.Variable(name=name, dimensions=dimensions, shape=dimensions,
+                             type=_type, initial=initial, source=source)
 
     def visit_part_ref(self, o, source=None):
         # Return a pure string, as part of a variable name
@@ -520,12 +558,19 @@ class OFP2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, raw_source=None, cache=None):
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, shape_map=None,
+                  type_map=None, typedefs=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OFP2IR(raw_source=raw_source, cache=cache).visit(ast)
+    ir = OFP2IR(shape_map=shape_map, type_map=type_map, typedefs=typedefs,
+                raw_source=raw_source, cache=cache).visit(ast)
+
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    for r_name, rule in blacklist.items():
+        info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
+        ir = rule.postprocess(ir, info)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

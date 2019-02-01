@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from loki.frontend import OFP, OMNI, blacklist
+from loki.frontend import OFP, OMNI
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
@@ -57,10 +57,6 @@ class Subroutine(object):
         # Internalize argument declarations
         self._internalize()
 
-        # Enrich internal representation with meta-data
-        self._attach_derived_types(typedefs=typedefs)
-        self._derive_variable_shape(typedefs=typedefs)
-
         self.bind = bind
         self.is_function = is_function
 
@@ -74,13 +70,30 @@ class Subroutine(object):
 
         cache = SymbolCache()
 
-        # Create a IRs for declarations section and the loop body
-        body = parse_ofp_ast(ast.find('body'), cache=cache, raw_source=raw_source)
+        # Decompose the body into known sections
+        ast_body = list(ast.find('body'))
+        ast_spec = ast.find('body/specification')
+        idx_spec = ast_body.index(ast_spec)
+        ast_docs = ast_body[:idx_spec]
+        ast_body = ast_body[idx_spec+1:]
 
-        # Apply postprocessing rules to re-insert information lost during preprocessing
-        for r_name, rule in blacklist.items():
-            info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-            body = rule.postprocess(body, info)
+        # Create a IRs for the docstring and the declaration spec
+        docs = parse_ofp_ast(ast_docs, cache=cache, pp_info=pp_info, raw_source=raw_source)
+        spec = parse_ofp_ast(ast_spec, cache=cache, typedefs=typedefs,
+                             pp_info=pp_info, raw_source=raw_source)
+
+        # Derive type and shape maps to propagate through the subroutine body
+        type_map = {}
+        shape_map = {}
+        for decl in FindNodes(Declaration).visit(spec):
+            type_map.update({v.name: v.type for v in decl.variables})
+            shape_map.update({v.name: v.shape for v in decl.variables
+                              if isinstance(v, Array)})
+
+        # Generate the subroutine body with all shape and type info
+        body = parse_ofp_ast(ast_body, cache=cache, pp_info=pp_info,
+                             shape_map=shape_map, type_map=type_map,
+                             raw_source=raw_source)
 
         # Parse "member" subroutines recursively
         members = None
@@ -89,12 +102,7 @@ class Subroutine(object):
                                            typedefs=typedefs, pp_info=pp_info)
                        for s in ast.findall('members/subroutine')]
 
-        # Separate docstring and declarations
-        docstring = body[0] if isinstance(body[0], CommentBlock) else None
-        spec = FindNodes(Section).visit(body)[0]
-        body = Transformer({docstring: None, spec: None}).visit(body)
-
-        return cls(name=name, args=args, docstring=docstring, spec=spec, body=body,
+        return cls(name=name, args=args, docstring=docs, spec=spec, body=body,
                    members=members, ast=ast, typedefs=typedefs, cache=cache)
 
     @classmethod
@@ -166,27 +174,17 @@ class Subroutine(object):
         dmap = {}
 
         for decl in FindNodes(Declaration).visit(self.ir):
-            # Propagate dimensions to variables
-            variables = as_tuple(decl.variables)
-            if decl.dimensions is not None:
-                # Re-nitialize variables with declared dimensions
-                variables = [self.Variable(name=v.name, parent=v.parent,
-                                           dimensions=decl.dimensions,
-                                           type=v.type or decl.type)
-                             for v in variables]
-                decl.clone(variables=variables)
-
             # Record all variables independently
-            self.variables += list(variables)
+            self.variables += list(decl.variables)
 
             # Insert argument variable at the position of the dummy
-            for v in variables:
+            for v in decl.variables:
                 if v.name.lower() in self._dummies:
                     idx = self._dummies.index(v.name.lower())
                     self.arguments[idx] = v
 
             # Stash declaration and mark for removal
-            for v in variables:
+            for v in decl.variables:
                 self._decl_map[v] = decl
             dmap[decl] = None
 
@@ -247,93 +245,6 @@ class Subroutine(object):
 
         # TODO: Could extend this to module and header imports to
         # facilitate user-directed inlining.
-
-    def _attach_derived_types(self, typedefs=None):
-        """
-        Attaches the derived type definition from external header
-        files to all :class:`Variable` instances (in-place).
-        """
-        for v in self.variables:
-            if typedefs is not None and v.type is not None and v.type.name.upper() in typedefs:
-                typedef = typedefs[v.type.name.upper()]
-                derived_type = DerivedType(name=typedef.name, variables=typedef.variables,
-                                           intent=v.type.intent, allocatable=v.type.allocatable,
-                                           pointer=v.type.pointer, optional=v.type.optional)
-                v._type = derived_type
-
-    def _derive_variable_shape(self, typedefs=None):
-        """
-        Propgates the allocated dimensions (shape) from variable
-        declarations to :class:`Variables` instances in the code body.
-
-        :param ir: The control-flow IR into which to inject shape info
-        :param declarations: Optional list of :class:`Declaration`s from
-                             which to get shape dimensions.
-        :param typdefs: Optional, additional derived-type definitions
-                        from which to infer sub-variable shapes.
-
-        Note, the shape derivation from derived types is currently
-        limited to first-level nesting only.
-        """
-        typedefs = typedefs or {}
-
-        # Create map of variable names to allocated shape (dimensions)
-        # Make sure you capture sub-variables.
-        shapes = {}
-        derived = {}
-        for v in self.variables:
-            if v.type.name.upper() in typedefs:
-                derived[v.name.upper()] = typedefs[v.type.name.upper()]
-
-            if v.is_Array and v.dimensions is not None:
-                if v.shape is None:
-                    # First derivation of shape goes from allcoated dimensions
-                    shapes[v.name] = v.dimensions if len(v.dimensions) > 0 else None
-                else:
-                    # If shape is already set (by this routine or otherwise)
-                    # we do not override it but propagate to instances.
-                    shapes[v.name] = v.shape
-
-                # Note: The forward propagation of the shapes is a clear
-                # design flaw, as we end up calling this routine in two
-                # contexts:
-                # a) First, propagate the declared dimensions to all
-                #    variable instances in the routine.
-                # b) After IPA infers argument shapes from caller propagate
-                #    these to all variable instancesin the routine.
-                #
-                # TODO: This should be fixed with kernel-level caching
-                # of symbols; so that the variable from the argument
-                # declaration aliases with each symbolic instance of
-                # the variable within a kernel.
-
-        # Override shapes for deferred-shape allocations
-        for alloc in FindNodes(Allocation).visit(self.body):
-            for v in alloc.variables:
-                if v.is_Array:
-                    shapes[v.name] = v.dimensions
-
-        # Apply shapes to meta-data variables
-        for v in self.variables:
-            if v.name in shapes:
-                v._shape = shapes[v.name]
-
-        # Apply shapes to all variables in the IR and all members (in-place)
-        variable_instances = FindVariables(unique=False).visit(self.ir)
-        for member in as_tuple(self.members):
-            variable_instances += FindVariables(unique=False).visit(member.ir)
-        for v in variable_instances:
-            if v.name in shapes:
-                v._shape = shapes[v.name]
-
-            # TODO: Yuck!
-            if hasattr(v, 'parent') and v.parent is not None and v.parent.name.upper() in derived:
-                # We currently only follow a single level of nesting
-                typevars = {tv.name.upper(): tv for tv in derived[v.parent.name.upper()].variables}
-                if v.name.upper() in typevars:
-                    tvar = typevars[v.name.upper()]
-                    if tvar.is_Array:
-                        v._shape = tvar.shape
 
     @property
     def ir(self):
