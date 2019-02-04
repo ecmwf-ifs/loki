@@ -305,8 +305,9 @@ class Subroutine(object):
                 undefined.add(decl.type.kind)
             # Add (pure) variable dimensions that might be defined elsewhere
             for v in decl.variables:
-                undefined.update([str(d) for d in v.dimensions
-                                  if isinstance(d, Variable) and d not in anames])
+                if isinstance(v, Array):
+                    undefined.update([str(d) for d in v.dimensions
+                                      if isinstance(d, Scalar) and d not in anames])
 
         # Create a sub-list of imports based on undefined symbols
         imports = []

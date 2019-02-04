@@ -238,7 +238,7 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth chaeck should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([str(a) for a in args], chunking=3)
+            signature = self.segment([fsymgen(a) for a in args], chunking=3)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in args)

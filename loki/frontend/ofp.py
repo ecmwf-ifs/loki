@@ -3,7 +3,7 @@ from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
 from itertools import zip_longest
-from sympy import evaluate, Add, Mul, Pow, Equality, Unequality
+from sympy import evaluate, Add, Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
@@ -542,11 +542,15 @@ class OFP2IR(GenericVisitor):
             elif op == '<=':
                 expression = expression <= exprs.popleft()
             elif op == '.and.':
-                expression = expression & exprs.popleft()
+                expression = And(expression, exprs.popleft(), evaluate=False)
             elif op == '.or.':
-                expression = expression | exprs.popleft()
+                expression = Or(expression, exprs.popleft(), evaluate=False)
             elif op == '.not.':
-                expression = ~expression
+                expression = Not(expression, evaluate=False)
+            elif op == '.eqv.':
+                expression = Equivalent(expression, exprs.popleft(), evaluate=False)
+            elif op == '.neqv.':
+                expression = Not(Equivalent(expression, exprs.popleft(), evaluate=False), evaluate=False)
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 
