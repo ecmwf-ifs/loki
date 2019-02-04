@@ -118,7 +118,7 @@ class Subroutine(object):
                    members=members, ast=ast, typedefs=typedefs, cache=cache)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
@@ -133,8 +133,8 @@ class Subroutine(object):
         cache = SymbolCache()
 
         # Generate spec, filter out external declarations and docstring
-        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, cache=cache,
-                              symbol_map=symbol_map, raw_source=raw_source)
+        spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
+                              symbol_map=symbol_map, cache=cache, raw_source=raw_source)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or d.variables[0].name == name}
         spec = Section(body=Transformer(mapper).visit(spec))
@@ -156,7 +156,7 @@ class Subroutine(object):
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable,
+            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
                                             symbol_map=symbol_map, raw_source=raw_source)
                        for s in contains]
             # Strip members from the XML before we proceed

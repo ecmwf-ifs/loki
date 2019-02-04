@@ -71,10 +71,11 @@ def parse_omni_file(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, type_map=None, symbol_map=None, shape_map=None,
+    def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
                  raw_source=None, cache=None):
         super(OMNI2IR, self).__init__()
 
+        self.typedefs = typedefs
         self.type_map = type_map
         self.symbol_map = symbol_map
         self.shape_map = shape_map
@@ -137,6 +138,18 @@ class OMNI2IR(GenericVisitor):
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
+
+            # Hacky..: Override derived type meta-info with provided ``typedefs``.
+            # This is needed to get the Loki-specific (pragma-driven) dimensions on
+            # derived-type components, that are otherwise deferred.
+            if _type is not None and self.typedefs is not None:
+                typedef= self.typedefs.get(_type.name.lower(), None)
+                if typedef is not None:
+                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
+                                        intent=_type.intent, allocatable=_type.allocatable,
+                                        pointer=_type.pointer, optional=_type.optional,
+                                        parameter=_type.parameter, target=_type.target,
+                                        contiguous=_type.contiguous)
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
@@ -258,6 +271,16 @@ class OMNI2IR(GenericVisitor):
         t = o.attrib['type']
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
+
+            # Inject derived-type definition override :(
+            if vtype is not None and self.typedefs is not None:
+                typedef= self.typedefs.get(vtype.name.lower(), None)
+                if typedef is not None:
+                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
+                                        intent=_type.intent, allocatable=_type.allocatable,
+                                        pointer=_type.pointer, optional=_type.optional,
+                                        parameter=_type.parameter, target=_type.target,
+                                        contiguous=_type.contiguous)
         else:
             vtype = BaseType(name=BaseType._omni_types.get(t, t))
 
@@ -277,7 +300,7 @@ class OMNI2IR(GenericVisitor):
             assert isinstance(parent.type, DerivedType)
             typevar = [v for v in parent.type.variables
                        if v.name.lower() == vname.lower()][0]
-            shape = typevar.dimensions
+            shape = typevar.shape or typevar.dimensions
 
         return self.Variable(name=vname, dimensions=dimensions,
                              shape=shape, type=vtype, parent=parent)
@@ -486,14 +509,14 @@ class OMNI2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_ast(ast, type_map=None, symbol_map=None, shape_map=None,
+def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
                    raw_source=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OMNI2IR(type_map=type_map, symbol_map=symbol_map, shape_map=shape_map,
-                 raw_source=raw_source, cache=cache).visit(ast)
+    ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
+                 shape_map=shape_map, raw_source=raw_source, cache=cache).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)
