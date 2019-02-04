@@ -95,6 +95,18 @@ class Subroutine(object):
                              shape_map=shape_map, type_map=type_map,
                              raw_source=raw_source)
 
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        alloc_map = {}
+        for alloc in FindNodes(Allocation).visit(body):
+            for v in alloc.variables:
+                if v.is_Array:
+                    alloc_map[v.name.lower()] = v.dimensions
+        for v in FindVariables().visit(body):
+            if v.name.lower() in alloc_map:
+                v._shape = alloc_map[v.name.lower()]
+
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
@@ -154,6 +166,18 @@ class Subroutine(object):
         body = parse_omni_ast(ast.find('body'), cache=cache, type_map=type_map,
                               symbol_map=symbol_map, shape_map=shape_map,
                               raw_source=raw_source)
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        alloc_map = {}
+        for alloc in FindNodes(Allocation).visit(body):
+            for v in alloc.variables:
+                if v.is_Array:
+                    alloc_map[v.name.lower()] = v.dimensions
+        for v in FindVariables().visit(body):
+            if v.name.lower() in alloc_map:
+                v._shape = alloc_map[v.name.lower()]
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, cache=cache)

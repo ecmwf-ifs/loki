@@ -398,7 +398,7 @@ class OFP2IR(GenericVisitor):
 
         def generate_variable(vname, indices, parent, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
-                                 'SELECTED_REAL_KIND']:
+                                 'SELECTED_REAL_KIND', 'ALLOCATED']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine

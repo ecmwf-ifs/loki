@@ -254,7 +254,7 @@ class Array(sympy.Function):
         # them. Note, we need to be very careful not to pass eg,
         # `type=None` down, as it might invalidate cached info.
         if self.name and 'name' not in kwargs:
-            kwargs['name'] = self.name
+            kwargs['name'] = self.basename
         if self.dimensions and 'dimensions' not in kwargs:
             kwargs['dimensions'] = self.dimensions
         if self.parent and 'parent' not in kwargs:
