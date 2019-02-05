@@ -51,7 +51,8 @@ class SymbolCache(object):
 
     def __init__(self):
         # Instantiate local symbol caches
-        self._symbol_type_cache = cacheit(_symbol_type)
+        self._symbol_type_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                             unhashable='ignore')(_symbol_type)
         self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
                                        unhashable='ignore')(Array.__new_stage2__)
         self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
