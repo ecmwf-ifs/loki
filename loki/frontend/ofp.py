@@ -15,6 +15,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex,
                              InlineCall, LiteralList, Array)
+from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
@@ -553,6 +554,15 @@ class OFP2IR(GenericVisitor):
                 expression = Not(Equivalent(expression, exprs.popleft(), evaluate=False), evaluate=False)
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
+
+        if o.find('parenthesized_expr') is not None:
+            # Force explicitly parenthesised operations
+            if expression.is_Add:
+                expression = ParenthesisedAdd(*expression.args)
+            if expression.is_Mul:
+                expression = ParenthesisedMul(*expression.args)
+            if expression.is_Pow:
+                expression = ParenthesisedPow(*expression.args)
 
         assert len(exprs) == 0
         return expression

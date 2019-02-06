@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import clean, compile_and_load, OFP, OMNI
+from loki import clean, compile_and_load, OFP, OMNI, SourceFile, fgen
 from conftest import generate_identity
 
 
@@ -163,3 +163,36 @@ def test_logical_array(refpath, reference, frontend):
     test = generate_identity(refpath, 'logical_array', frontend=frontend)
     function = getattr(test, 'logical_array_%s' % frontend)
     assert (out  == [1., 1., 1., 3., 1., 3.]).all()
+
+
+@pytest.mark.parametrize('frontend', [OFP])
+def test_parenthesis(refpath, reference, frontend):
+    """
+    v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
+
+    Note, that this test is very niche, as it ensures that mathematically
+    insignificant (and hence sort of wrong) bracketing is still honoured.
+    The reason is that, if sub-expressions are sufficiently complexity,
+    this can still cause round-off deviations and hence destroy
+    bit-reproducibility.
+
+    Also note, that the OMNI-frontend parser will resolve precedence and
+    hence we cannot honour these precedence cases (for now).
+    """
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['parenthesis']
+    stmt = list(routine.body)[0]
+
+    # Check that the reduntant bracket around the minus
+    # and the first exponential are still there.
+    assert str(stmt.expr) == '1.3*(v1**1.23) + (-v2**1.26 + 1)'
+    assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v2**1.26_jprb)'
+
+    # Now perform a simple substitutions on the expression
+    # and make sure we are still parenthesising as we should!
+    from loki import SubstituteExpressions
+    v2 = routine.Variable(name='v2')
+    v4 = routine.Variable(name='v4')
+    stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
+    assert str(stmt2.expr) == '1.3*(v1**1.23) + (-v4**1.26 + 1)'
+    assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v4**1.26_jprb)'

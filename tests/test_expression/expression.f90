@@ -92,3 +92,13 @@ subroutine logical_array(dim, arr, out)
   end do
 
 end subroutine logical_array
+
+
+subroutine parenthesis(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(out) :: v3
+
+  v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - v2**1.26_jprb)
+
+end subroutine parenthesis
