@@ -317,6 +317,7 @@ class BoolArray(Array, Boolean):
     logical expressions.
     """
 
+    is_Boolean = True
     # Boolean (lattice) expressions cancel commutative terms,
     # so we need to revert our hack here to prevent side-effects.
     is_commutative = True
@@ -343,6 +344,7 @@ class BoolIndexed(sympy.Indexed, Boolean):
     it in logical expressions.
     """
 
+    is_Boolean = True
     # Boolean (lattice) expressions cancel commutative terms,
     # so we need to revert our hack here to prevent side-effects.
     is_commutative = True

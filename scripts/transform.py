@@ -334,7 +334,7 @@ class SCATransformation(AbstractTransformation):
         caller.body = Transformer(replacements).visit(caller.body)
 
         # Finally, we add the declaration of the loop variable
-        if wrap and target.variable not in caller.variables:
+        if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = BaseType(name='INTEGER', kind='JPIM')
             caller.variables += [caller.Variable(name=target.variable, type=dtype)]
@@ -606,7 +606,7 @@ class InferArgShapeTransformation(AbstractTransformation):
 
                 # Insert shapes of call values into routine arguments
                 for arg, val in call.context.arg_iter(call):
-                    if arg.shape is not None and len(arg.shape) > 0:
+                    if isinstance(arg, Array) and len(arg.shape) > 0:
                         if all(d == ':' for d in arg.shape):
                             if len(val.shape) == len(arg.shape):
                                 # We're passing the full value array, copy shape

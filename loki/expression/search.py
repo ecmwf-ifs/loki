@@ -8,6 +8,8 @@ be improved upon as demonstrated here:
 https://github.com/opesci/devito/blob/master/devito/symbolics/search.py
 """
 
+from .symbol_types import BoolArray
+
 __all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables']
 
 
@@ -24,7 +26,7 @@ def q_function(expr):
 
 
 def q_variable(expr):
-    if expr.is_Function and not expr.is_Boolean:
+    if expr.is_Function and (not expr.is_Boolean or isinstance(expr, BoolArray)):
         # Prevent picking up boolean function (And, Or, Not, etc)
         return expr.is_Array
     else:
