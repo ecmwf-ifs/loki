@@ -309,16 +309,13 @@ class OMNI2IR(GenericVisitor):
         return self.visit(o[0])
 
     def visit_indexRange(self, o, source=None):
-        if 'is_assumed_shape' in o.attrib and o.attrib['is_assumed_shape'] == 'true':
-            return RangeIndex(lower=None, upper=None, step=None)
-        else:
-            lbound = o.find('lowerBound')
-            lower = self.visit(lbound) if lbound is not None else None
-            ubound = o.find('upperBound')
-            upper = self.visit(ubound) if ubound is not None else None
-            st = o.find('step')
-            step = self.visit(st) if st is not None else None
-            return RangeIndex(lower=lower, upper=upper, step=step)
+        lbound = o.find('lowerBound')
+        lower = self.visit(lbound) if lbound is not None else None
+        ubound = o.find('upperBound')
+        upper = self.visit(ubound) if ubound is not None else None
+        st = o.find('step')
+        step = self.visit(st) if st is not None else None
+        return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
         return Literal(value=float(o.text), kind=o.attrib.get('kind', None))

@@ -112,3 +112,14 @@ subroutine commutativity(v1, v2, v3)
   v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
 
 end subroutine commutativity
+
+
+subroutine index_ranges(dim, v1, v2, v3, v4, v5)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: dim
+  real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
+  real(kind=jprb), intent(out) :: v5(:)
+
+  ! v4(:) = v2(:)*v1(::2) - v3(0:4:2)
+
+end subroutine index_ranges

@@ -214,3 +214,19 @@ def test_commutativity(refpath, reference, frontend):
     # not yet non-commutative.
     assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) == 'v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_index_ranges(refpath, reference, frontend):
+    """
+    real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4)
+    real(kind=jprb), intent(out) :: v4(:)
+    """
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['index_ranges']
+    vmap = routine.variable_map
+
+    assert str(vmap['v1']) == 'v1(:)'
+    assert str(vmap['v2']) == 'v2(0:)'
+    assert str(vmap['v3']) == 'v3(0:4)'
+    assert str(vmap['v4']) == 'v4(dim)'

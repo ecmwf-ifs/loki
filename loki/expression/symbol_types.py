@@ -506,14 +506,18 @@ class RangeIndex(sympy.Idx):
             lower = None if lower == 1 else lower
             step = None if step == 1 else step
 
-            # TODO: Careful, if lower is not None, we get garbage
-            # symbol strings (eg. (y, None, 2) => `y:::2`.
-            # This is due to a fudge, where we use RangeIndex objects
-            # with only upper value as dimension sizes, so they print
-            # (None, x, None) => `x`, not `:x` as would be correct.
-            label = ':' if upper is None else str(upper)
-            label = label if lower is None else '%s:%s' % (lower, label)
-            label = label if step is None else '%s:%s' % (label, step)
+            # If we are given only an ``upper`` bound,
+            # short-ciruit and return the symbol itself
+            if upper is not None and lower is None and step is None:
+                return upper if hasattr(upper, 'is_Symbol') else sympy.Symbol(upper)
+
+            # Derive symbol string from bounds
+            _upper = '' if upper is None else str(upper)
+            _lower = '' if lower is None else str(lower)
+            label = '%s:%s' % (_lower, _upper)
+            if step is not None:
+                label = '%s:%s' % (label, step)
+
         return sympy.Expr.__new__(cls, sympy.Symbol(label))
 
     def __init__(self, lower=None, upper=None, step=None):
