@@ -1,6 +1,6 @@
 from sympy import evaluate
 from sympy.printing import fcode
-from sympy.codegen.fnodes import ArrayConstructor
+from sympy.codegen.fnodes import ArrayConstructor, String
 from functools import partial
 from collections import Iterable
 
@@ -184,7 +184,8 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o):
         expr = fsymgen(o.expr)
-        values = ['DEFAULT' if v is None else '(%s)' % fsymgen(v) for v in o.values]
+        values = ['DEFAULT' if v is None else (fsymgen(v) if isinstance(v, tuple) else '(%s)' % fsymgen(v))
+                  for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -229,7 +230,7 @@ class FortranCodegen(Visitor):
 
     def visit_Call(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments)
+            kwargs = tuple(String('%s=%s' % (k, v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments

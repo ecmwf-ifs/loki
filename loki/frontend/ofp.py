@@ -400,7 +400,7 @@ class OFP2IR(GenericVisitor):
 
         def generate_variable(vname, indices, parent, source):
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
-                                 'SELECTED_REAL_KIND', 'ALLOCATED']:
+                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
@@ -511,6 +511,15 @@ class OFP2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
+        def booleanize(expr):
+            """
+            Super-hacky helper function to force boolean array when needed
+            """
+            if isinstance(expr, Array) and not expr.is_Boolean:
+                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
+            else:
+                return expr
+
         # Left-recurse on the list of operations and expressions
         exprs = deque(exprs)
         expression = exprs.popleft()
@@ -533,28 +542,32 @@ class OFP2IR(GenericVisitor):
                 expression = Mul._from_args([expression, div], is_commutative=False)
             elif op == '**':
                 expression = Pow(expression, exprs.popleft(), evaluate=False)
-            elif op == '==':
+            elif op == '==' or op == '.eq.':
                 expression = Equality(expression, exprs.popleft(), evaluate=False)
-            elif op == '/=':
+            elif op == '/=' or op == '.ne.':
                 expression = Unequality(expression, exprs.popleft(), evaluate=False)
-            elif op == '>':
+            elif op == '>' or op == '.gt.':
                 expression = expression > exprs.popleft()
-            elif op == '<':
+            elif op == '<' or op == '.lt.':
                 expression = expression < exprs.popleft()
-            elif op == '>=':
+            elif op == '>=' or op == '.ge.':
                 expression = expression >= exprs.popleft()
-            elif op == '<=':
+            elif op == '<=' or op == '.le.':
                 expression = expression <= exprs.popleft()
             elif op == '.and.':
-                expression = And(expression, exprs.popleft(), evaluate=False)
+                e2 = booleanize(exprs.popleft())
+                expression = And(booleanize(expression), e2, evaluate=False)
             elif op == '.or.':
-                expression = Or(expression, exprs.popleft(), evaluate=False)
+                e2 = booleanize(exprs.popleft())
+                expression = Or(booleanize(expression), e2, evaluate=False)
             elif op == '.not.':
-                expression = Not(expression, evaluate=False)
+                expression = Not(booleanize(expression), evaluate=False)
             elif op == '.eqv.':
-                expression = Equivalent(expression, exprs.popleft(), evaluate=False)
+                e2 = booleanize(exprs.popleft())
+                expression = Equivalent(booleanize(expression), e2, evaluate=False)
             elif op == '.neqv.':
-                expression = Not(Equivalent(expression, exprs.popleft(), evaluate=False), evaluate=False)
+                e2 = booleanize(exprs.popleft())
+                expression = Not(Equivalent(booleanize(expression), e2, evaluate=False), evaluate=False)
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 
