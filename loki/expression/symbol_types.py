@@ -179,6 +179,10 @@ class Array(sympy.Function):
     is_Scalar = False
     is_Array = True
 
+    # Loki array variable are by default non-commutative to preserve
+    # term ordering in defensive "parse-unparse" cycles.
+    is_commutative = False
+
     def __new__(cls, *args, **kwargs):
         """
         1st-level variable creation with name injection via the object class
@@ -313,6 +317,10 @@ class BoolArray(Array, Boolean):
     logical expressions.
     """
 
+    # Boolean (lattice) expressions cancel commutative terms,
+    # so we need to revert our hack here to prevent side-effects.
+    is_commutative = True
+
     def indexify(self):
         """
         Return an instance of :class:`sympy.Indexed` that corresponds
@@ -334,6 +342,10 @@ class BoolIndexed(sympy.Indexed, Boolean):
     like a :class:`sympy.logic.boolargl.Boolean`, allowing us to use
     it in logical expressions.
     """
+
+    # Boolean (lattice) expressions cancel commutative terms,
+    # so we need to revert our hack here to prevent side-effects.
+    is_commutative = True
 
     @property
     def binary_symbols(self):

@@ -3,7 +3,8 @@ from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
 from itertools import zip_longest
-from sympy import evaluate, Add, Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
+from sympy import evaluate, Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
+from sympy.core.numbers import NegativeOne
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
@@ -15,7 +16,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex,
                              InlineCall, LiteralList, Array)
-from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+from loki.expression.operations import NonCommutativeAdd, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
@@ -516,18 +517,20 @@ class OFP2IR(GenericVisitor):
         for op in ops:
 
             if op == '+':
-                expression = Add(expression, exprs.popleft(), evaluate=False)
+                expression = NonCommutativeAdd._from_args([expression, exprs.popleft()], is_commutative=False)
             elif op == '-':
                 if len(exprs) > 0:
                     # Binary minus
-                    expression = Add(expression, Mul(-1, exprs.popleft(), evaluate=False), evaluate=False)
+                    neg = Mul._from_args([NegativeOne(), exprs.popleft()], is_commutative=False)
+                    expression = NonCommutativeAdd._from_args([expression, neg], is_commutative=False)
                 else:
                     # Unary minus
-                    expression = Mul(-1, expression, evaluate=False)
+                    expression = Mul._from_args([NegativeOne(), expression], is_commutative=False)
             elif op == '*':
-                expression = Mul(expression, exprs.popleft(), evaluate=False)
+                expression = Mul._from_args([expression, exprs.popleft()], is_commutative=False)
             elif op == '/':
-                expression = Mul(expression, Pow(exprs.popleft(), -1, evaluate=False), evaluate=False)
+                div = Pow(exprs.popleft(), NegativeOne(), evaluate=False)
+                expression = Mul._from_args([expression, div], is_commutative=False)
             elif op == '**':
                 expression = Pow(expression, exprs.popleft(), evaluate=False)
             elif op == '==':
@@ -558,11 +561,11 @@ class OFP2IR(GenericVisitor):
         if o.find('parenthesized_expr') is not None:
             # Force explicitly parenthesised operations
             if expression.is_Add:
-                expression = ParenthesisedAdd(*expression.args)
+                expression = ParenthesisedAdd(*expression.args, evaluate=False)
             if expression.is_Mul:
-                expression = ParenthesisedMul(*expression.args)
+                expression = ParenthesisedMul(*expression.args, evaluate=False)
             if expression.is_Pow:
-                expression = ParenthesisedPow(*expression.args)
+                expression = ParenthesisedPow(*expression.args, evaluate=False)
 
         assert len(exprs) == 0
         return expression

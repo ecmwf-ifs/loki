@@ -102,3 +102,13 @@ subroutine parenthesis(v1, v2, v3)
   v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - v2**1.26_jprb)
 
 end subroutine parenthesis
+
+
+subroutine commutativity(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), pointer, intent(in) :: v1(:), v2
+  real(kind=jprb), pointer, intent(out) :: v3(:)
+
+  v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
+
+end subroutine commutativity
