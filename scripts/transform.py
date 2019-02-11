@@ -294,11 +294,13 @@ class SCATransformation(AbstractTransformation):
                     if arg.shape is not None and len(val.dimensions) == 0:
                         new_dims = tuple(RangeIndex() for _ in arg.shape)
 
+                    v_dims = val.dimensions if len(val.dimensions) > 0 else new_dims
+
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         new_dims = tuple(caller.Variable(name=target.variable)
                                          if str(tdim).upper() in size_expressions else ddim
-                                         for ddim, tdim in zip(val.dimensions, val.shape))
+                                         for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
                         argmap[val] = val.clone(dimensions=new_dims, cache=caller)

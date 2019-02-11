@@ -139,6 +139,36 @@ subroutine routine_typedefs_simple(item)
 end subroutine routine_typedefs_simple
 
 
+subroutine routine_call_callee(x, y, vector, matrix, another)
+  ! Simple routine to be called from another routine
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y), another(x, y)
+
+  vector(:) = 6.66
+  matrix(:,:) = 9.99
+  another(:,:) = 7.77
+
+end subroutine routine_call_callee
+
+
+subroutine routine_call_caller(x, y, vector, matrix, item)
+  ! Simple routine calling another routine
+  use header, only: derived_type
+  implicit none
+
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  type(derived_type), intent(inout) :: item
+
+  ! To a parser, these arrays look like scalarst!
+  call routine_call_callee(x, y, vector, matrix, item%matrix)
+
+end subroutine routine_call_caller
+
+
 ! TODO: Below are placeholders for more testing
 ! subroutine routine_imports (...)
 !   ! Test submodule and header imports

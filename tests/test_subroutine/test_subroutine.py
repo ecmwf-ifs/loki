@@ -285,3 +285,34 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert vmap['item%scalar'].type.dtype == DataType.FLOAT64
     assert vmap['item%vector'].type.dtype == DataType.FLOAT64
     assert vmap['item%matrix'].type.dtype == DataType.FLOAT64
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_routine_call_arrays(refpath, reference, header_path, header_mod, frontend):
+    """
+    Test that arrays passed down a subroutine call are treated as arrays.
+    """
+    from loki import FindNodes, Call, fgen
+
+    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    source = SourceFile.from_file(refpath, frontend=frontend, typedefs=header.typedefs)
+    routine = source['routine_call_caller']
+    call = FindNodes(Call).visit(routine.body)[0]
+
+    assert str(call.arguments[0]) == 'x'
+    assert str(call.arguments[1]) == 'y'
+    assert str(call.arguments[2]) == 'vector'
+    assert str(call.arguments[3]) == 'matrix'
+    assert str(call.arguments[4]) == 'item%matrix'
+
+    assert call.arguments[0].is_Scalar
+    assert call.arguments[1].is_Scalar
+    assert call.arguments[2].is_Array
+    assert call.arguments[3].is_Array
+    assert call.arguments[4].is_Array
+
+    assert str(call.arguments[2].shape) == '(x,)'
+    assert str(call.arguments[3].shape) == '(x, y)'
+    assert str(call.arguments[4].shape) == '(3, 3)'
+
+    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'

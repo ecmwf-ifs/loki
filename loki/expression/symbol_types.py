@@ -69,13 +69,17 @@ class SymbolCache(object):
         name = kwargs.pop('name')
         dimensions = kwargs.pop('dimensions', None)
         parent = kwargs.pop('parent', None)
+        # Shape is not used to cache, so we leave it
+        # in kwargs for __init__ to fully use it
+        shape = kwargs.get('shape', None)
 
         # Create scalar or array symbol using local caches
-        if dimensions is None:
+        if dimensions is None and (shape is None or len(shape) == 0):
             cls = self._symbol_type_cache(Scalar, name, parent)
             newobj = self._scalar_cache(cls, name, parent=parent)
         else:
             _type = kwargs.get('type', None)
+            dimensions = () if dimensions is None else dimensions
             if _type and _type.dtype == DataType.BOOL:
                 cls = self._symbol_type_cache(BoolArray, name, parent)
             else:
@@ -291,11 +295,23 @@ class Array(sympy.Function):
         """
         return self._shape
 
-    def _fcode(self, printer=None):
+    def _sympyrepr(self, printer=None):
         """
-        Define how we would like to be printed in Fortran code.
+        Define how we would like to be printed in Fortran code. This will
+        remove any indices/sizes if ``len(self.dimensions) == 0``.
+
+        We need to override this, so that we may have :class:`sympy.Function`
+        behaviour, but allow empty ``.args`` tuples for representing
+        arrays without indices/sizes (for example in a function call).
         """
-        return str(self)
+        s = self.func.__name__
+        if len(self.args) > 0:
+            a = ','.join(printer.doprint(a) for a in self.args)
+            s += '(%s)' % a
+        return s
+
+    _sympystr = _sympyrepr
+    _fcode = _sympyrepr
 
     @property
     def indexed(self):
@@ -372,10 +388,13 @@ class Variable(sympy.Function):
         name = kwargs.pop('name')
         dimensions = kwargs.pop('dimensions', None)
         parent = kwargs.pop('parent', None)
+        # Shape and type are not used for caching, so we leave it in
+        # kwargs for __init__ to take it off
         _type = kwargs.get('type', None)
+        shape = kwargs.get('shape', None)
 
         # Create a new object from the static constructor with global caching!
-        if dimensions is None:
+        if dimensions is None and (shape is None or len(shape) == 0):
             v = Scalar.__new__(Scalar, name=name, parent=parent)
         else:
             v = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent, type=_type)

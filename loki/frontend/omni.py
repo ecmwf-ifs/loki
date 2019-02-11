@@ -255,6 +255,7 @@ class OMNI2IR(GenericVisitor):
                            bodies=(bodies, ), else_body=else_body)
 
     def visit_FmemberRef(self, o, lookahead=False, source=None):
+        vname = o.attrib['member']
         t = o.attrib['type']
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
@@ -264,10 +265,20 @@ class OMNI2IR(GenericVisitor):
 
         if lookahead:
             # Hack: Return components of Variable symbol to allow deferred creation
-            return o.attrib['member'], vtype, parent
-        return self.Variable(name=o.attrib['member'], type=vtype, parent=parent)
+            return vname, vtype, parent
+
+        shape = None
+        if parent is not None:
+            # If we have a parent, get the shape info from it
+            assert isinstance(parent.type, DerivedType)
+            typevar = [v for v in parent.type.variables
+                       if v.name.lower() == vname.lower()][0]
+            shape = typevar.shape or typevar.dimensions
+
+        return self.Variable(name=vname, type=vtype, parent=parent, shape=shape)
 
     def visit_Var(self, o, lookahead=False, source=None):
+        vname = o.text
         t = o.attrib['type']
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
@@ -285,8 +296,12 @@ class OMNI2IR(GenericVisitor):
             vtype = BaseType(name=BaseType._omni_types.get(t, t))
 
         if lookahead:
-            return o.text, vtype, None
-        return self.Variable(name=o.text)
+            return vname, vtype, None
+
+        shape = None
+        if self.shape_map is not None:
+            shape = self.shape_map.get(vname, None)
+        return self.Variable(name=vname, type=vtype, shape=shape)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
