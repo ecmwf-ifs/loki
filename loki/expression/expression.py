@@ -99,6 +99,13 @@ class SubstituteExpressions(Transformer):
 
     # TODO: Add Loops to rebuild expressions in bounds.
 
+    def visit_Call(self, o, **kwargs):
+        with evaluate(False):
+            arguments = tuple(a.xreplace(self.expr_map) for a in o.arguments)
+            kwarguments = tuple((k, v.xreplace(self.expr_map)) for k, v in o.kwarguments)
+            # TODO: Re-build the call context
+        return o._rebuild(arguments=arguments, kwarguments=kwarguments)
+
 
 class Expression(object):
     """
