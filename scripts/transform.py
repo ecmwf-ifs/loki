@@ -156,6 +156,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
         vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, cache=routine)
                 for v in variables}
+
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
@@ -284,7 +285,7 @@ class SCATransformation(AbstractTransformation):
 
                 # Replace target dimension with a loop index in arguments
                 for arg, val in call.context.arg_iter(call):
-                    if not isinstance(val, Array):
+                    if not isinstance(arg, Array) or not isinstance(val, Array):
                         continue
 
                     # TODO: Properly construct the vmap with updated dims for the call
@@ -601,29 +602,42 @@ class InferArgShapeTransformation(AbstractTransformation):
     the caller.
     """
 
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, caller, **kwargs):
 
-        for call in FindNodes(Call).visit(routine.body):
+        for call in FindNodes(Call).visit(caller.body):
             if call.context is not None and call.context.active:
+                routine = call.context.routine
 
-                # Insert shapes of call values into routine arguments
+                # Create a variable map with new shape information from caller
+                vmap = {}
                 for arg, val in call.context.arg_iter(call):
                     if isinstance(arg, Array) and len(arg.shape) > 0:
-                        if all(d == ':' for d in arg.shape):
+                        # Only create new shapes for deferred dimension args
+                        if all(str(d) == ':' for d in arg.shape):
                             if len(val.shape) == len(arg.shape):
                                 # We're passing the full value array, copy shape
-                                arg._shape = val.shape
+                                vmap[arg] = arg.clone(shape=val.shape, cache=routine)
                             else:
                                 # Passing a sub-array of val, find the right index
-                                idx = [s for s, d in zip(val.shape, val.dimensions)
-                                       if d == ':']
-                                arg._shape = as_tuple(idx)
+                                new_shape = [s for s, d in zip(val.shape, val.dimensions)
+                                             if str(d) == ':']
+                                vmap[arg] = arg.clone(shape=new_shape, cache=routine)
 
                 # TODO: The derived call-side dimensions can be undefined in the
                 # called routine, so we need to add them to the call signature.
 
-                # Propagate the new shape through the IR
-                call.context.routine._derive_variable_shape()
+                # Propagate the updated variables to variable definitions in routine
+                routine.arguments = [vmap.get(v, v) for v in routine.arguments]
+                routine.variables = [vmap.get(v, v) for v in routine.variables]
+
+                # And finally propagate this to the variable instances
+                vname_map = {k.name.lower(): v for k, v in vmap.items()}
+                vmap_body = {}
+                for v in FindVariables().visit(routine.body):
+                    if v.name.lower() in vname_map:
+                        new_shape = vname_map[v.name.lower()].shape
+                        vmap_body[v] = v.clone(shape=new_shape, cache=routine)
+                routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
 
 
 class RapsTransformation(BasicTransformation):
