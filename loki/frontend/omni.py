@@ -10,7 +10,7 @@ from sympy import Add, Mul, Pow, Equality, Unequality
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, SymbolCache
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType
@@ -195,6 +195,15 @@ class OMNI2IR(GenericVisitor):
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
         variables = []
+
+        # TODO: THIS IS A MASSIVE HACK!
+        # Since we create derived type definitions from pre-processed OMNI-AST,
+        # we need to prevent accidental variable aliasing between the definitions
+        # in the type and the routine. For this, we basically stash the cache here
+        #and re-instate it once we have all type variables.
+        previous_cache = self._cache
+        self._cache = SymbolCache()
+
         for s in o.find('symbols'):
             vname = s.find('name').text
             t = s.attrib['type']
@@ -207,6 +216,8 @@ class OMNI2IR(GenericVisitor):
                 vtype = BaseType(name=BaseType._omni_types.get(t, t))
             variables += [self.Variable(name=vname, dimensions=dimensions,
                                         shape=dimensions, type=vtype)]
+
+        self._cache = previous_cache
         return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
