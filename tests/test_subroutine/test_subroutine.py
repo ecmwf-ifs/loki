@@ -182,7 +182,7 @@ def test_routine_dim_shapes(refpath, reference, frontend):
 
     # Make sure variable/argument shapes on the routine work
     shapes = [str(v.shape) for v in routine.arguments if v.is_Array]
-    assert shapes == ['(:,)', '(v1, v2)', '(v1, v2 - 1)']
+    assert shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
 
     # Ensure shapes of body variables are ok
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)

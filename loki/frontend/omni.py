@@ -413,7 +413,6 @@ class OMNI2IR(GenericVisitor):
         deallocations = []
         for a in allocs:
             v = self.visit(a[0])
-            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
             deallocations += [Deallocation(variable=v)]
         return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
 

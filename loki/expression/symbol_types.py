@@ -93,7 +93,7 @@ class SymbolCache(object):
                 cls = self._class_cache(BoolArray, name, parent, cache=self)
             else:
                 cls = self._class_cache(Array, name, parent, cache=self)
-            newobj = self._array_cache(cls, name, dimensions, parent=parent)
+            newobj = self._array_cache(cls, name, dimensions=dimensions, parent=parent)
 
         # Since we are not actually using the object instation
         # mechanism, we need to call __init__ ourselves.
@@ -246,7 +246,7 @@ class Array(sympy.Function, CachedMeta):
             parent = kwargs.pop('parent', None)
 
         # Create a new object from the static constructor with global caching!
-        return Array.__xnew_cached_(cls, name, dimensions, parent=parent)
+        return Array.__xnew_cached_(cls, name, dimensions=dimensions, parent=parent)
 
     def __new_stage2__(cls, name, dimensions, parent=None):
         """
@@ -259,7 +259,6 @@ class Array(sympy.Function, CachedMeta):
         newobj = sympy.Function.__new__(cls, *dimensions)
         newobj.name = cls.__name__
         newobj.basename = name
-        newobj.dimensions = dimensions
         newobj.parent = parent
 
         return newobj
@@ -317,6 +316,13 @@ class Array(sympy.Function, CachedMeta):
             return Variable(**kwargs)
         else:
             return cache.Variable(**kwargs)
+
+    @property
+    def dimensions(self):
+        """
+        Symbolic representation of the dimensions or indices.
+        """
+        return self.args
 
     @property
     def type(self):
