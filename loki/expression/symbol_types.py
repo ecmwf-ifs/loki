@@ -1,4 +1,5 @@
 import sympy
+import weakref
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean, as_Boolean
 from sympy.codegen.ast import String
@@ -13,13 +14,20 @@ __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'LiteralList',
            'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache']
 
 
-def _symbol_type(cls, name, parent=None):
+def _symbol_class(cls, name, parent=None, cache=None):
     """
     Create new type instance from cls and inject symbol name
+
+    Note, in order to keep multiple independent caches, play nicely
+    with SymPys reinstaniation mechanism and restore meta-data from
+    our caches, we need to hide a reference to our original cache in
+    the class definition.
     """
     # Add the parent-object if it exists (`parent`)
     parent = ('%s%%' % parent) if parent is not None else ''
     name = '%s%s' % (parent, name)
+    if cache is not None:
+        cls._cache = weakref.ref(cache)
     return type(name, (cls, ), dict(cls.__dict__))
 
 
@@ -36,8 +44,8 @@ def indexify(expr, evaluate=True):
 """
 A global cache of modified symbol class objects
 """
-_global_symbol_type = cacheit(_symbol_type)
-
+_global_class_cache = cacheit(_symbol_class)
+_global_meta_cache = {}
 
 
 class SymbolCache(object):
@@ -51,12 +59,13 @@ class SymbolCache(object):
 
     def __init__(self):
         # Instantiate local symbol caches
-        self._symbol_type_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
-                                             unhashable='ignore')(_symbol_type)
+        self._class_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
+                                       unhashable='ignore')(_symbol_class)
         self._array_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
                                        unhashable='ignore')(Array.__new_stage2__)
         self._scalar_cache = clru_cache(SYMPY_CACHE_SIZE, typed=True,
                                         unhashable='ignore')(Scalar.__new_stage2__)
+        self._meta_cache = {}
 
     def Variable(self, *args, **kwargs):
         """
@@ -75,15 +84,15 @@ class SymbolCache(object):
 
         # Create scalar or array symbol using local caches
         if dimensions is None and (shape is None or len(shape) == 0):
-            cls = self._symbol_type_cache(Scalar, name, parent)
+            cls = self._class_cache(Scalar, name, parent, cache=self)
             newobj = self._scalar_cache(cls, name, parent=parent)
         else:
             _type = kwargs.get('type', None)
             dimensions = () if dimensions is None else dimensions
             if _type and _type.dtype == DataType.BOOL:
-                cls = self._symbol_type_cache(BoolArray, name, parent)
+                cls = self._class_cache(BoolArray, name, parent, cache=self)
             else:
-                cls = self._symbol_type_cache(Array, name, parent)
+                cls = self._class_cache(Array, name, parent, cache=self)
             newobj = self._array_cache(cls, name, dimensions, parent=parent)
 
         # Since we are not actually using the object instation
@@ -92,7 +101,28 @@ class SymbolCache(object):
         return newobj
 
 
-class Scalar(sympy.Symbol):
+class CachedMeta(object):
+    """
+    Base class for addtiona lmeta-data caching on top of  symbol caching.
+
+    This class provides the mechanism that re-attaches instance variable
+    """
+
+    def __init__(self, *args, **kwargs):
+        if hasattr(self.__class__, '_cache'):
+            # Pull our original cache from the symbol __class__
+            cache = self.__class__._cache()._meta_cache
+        else:
+            cache = _global_meta_cache
+
+        # Second-level caching of meta-date info
+        if self.__class__ in cache:
+            self.__dict__ = cache[self.__class__]().__dict__
+        else:
+            cache[self.__class__] = weakref.ref(self)
+
+
+class Scalar(sympy.Symbol, CachedMeta):
 
     is_Scalar = True
     is_Array = False
@@ -104,7 +134,7 @@ class Scalar(sympy.Symbol):
         name = kwargs.pop('name', args[0] if len(args) > 0 else None)
         parent = kwargs.pop('parent', None)
         # Name injection for symbols via cls (so we can do `a%scalar`)
-        cls = _global_symbol_type(Scalar, name, parent)
+        cls = _global_class_cache(Scalar, name, parent)
 
         # Create a new object from the static constructor with global caching!
         return Scalar.__xnew_cached_(cls, name, parent=parent)
@@ -114,9 +144,6 @@ class Scalar(sympy.Symbol):
         2nd-level constructor: arguments to this constructor are used
         for symbolic caching
         """
-        # Create a new class object to inject custom variable naming
-        # newcls = _symbol_type(cls, name, parent)
-
         # Setting things here before __init__ forces them
         # to be used for symbolic caching. Thus, `parent` is
         # always used for caching, even if it's not in the name
@@ -125,10 +152,6 @@ class Scalar(sympy.Symbol):
         newobj.name = cls.__name__
         newobj.basename = name
         newobj.parent = parent
-
-        newobj._type = None
-        newobj.initial = None
-        newobj._source = None
 
         return newobj
 
@@ -139,9 +162,18 @@ class Scalar(sympy.Symbol):
         """
         Initialisation of non-cached objects attributes
         """
-        self._source = kwargs.pop('source', None) or self._source
-        self.initial = kwargs.pop('initial', None) or self.initial
-        self._type = kwargs.pop('type', None) or self._type
+        # Initialize meta attributes from cache
+        super(Scalar, self).__init__(*args, **kwargs)
+
+        # Ensure all non-cached attributes exists
+        self._source = self._source if hasattr(self, '_source') else None
+        self.initial = self.initial if hasattr(self, 'initial') else None
+        self._type = self._type if hasattr(self, '_type') else None
+
+        # Override attributes with explicitly provided kwargs
+        self._source = kwargs.pop('source', self._source)
+        self.initial = kwargs.pop('initial', self.initial)
+        self._type = kwargs.pop('type', self._type)
 
     def clone(self, **kwargs):
         """
@@ -178,7 +210,7 @@ class Scalar(sympy.Symbol):
         return self._type
 
 
-class Array(sympy.Function):
+class Array(sympy.Function, CachedMeta):
 
     is_Scalar = False
     is_Array = True
@@ -203,9 +235,9 @@ class Array(sympy.Function):
 
             _type = kwargs.get('type', None)
             if _type and _type.dtype == DataType.BOOL:
-                cls = _global_symbol_type(BoolArray, name, parent)
+                cls = _global_class_cache(BoolArray, name, parent)
             else:
-                cls = _global_symbol_type(Array, name, parent)
+                cls = _global_class_cache(Array, name, parent)
         else:
             # A reconstruction of an array(function) object,
             # as triggered during symbolic manipulation.
@@ -230,11 +262,6 @@ class Array(sympy.Function):
         newobj.dimensions = dimensions
         newobj.parent = parent
 
-        newobj._type = None
-        newobj._shape = None
-        newobj.initial = None
-        newobj._source = None
-
         return newobj
 
     # Use the sympy.core.cache.cacheit decorator to a kernel to create
@@ -245,10 +272,20 @@ class Array(sympy.Function):
         """
         Initialisation of non-cached objects attributes
         """
-        self._source = kwargs.pop('source', None) or self._source
-        self.initial = kwargs.pop('initial', None) or self.initial
-        self._type = kwargs.pop('type', None) or self._type
-        self._shape = kwargs.pop('shape', None) or self._shape
+        # Initialize meta attributes from cache
+        super(Array, self).__init__(*args, **kwargs)
+
+        # Ensure all non-cached attributes exists
+        self._source = self._source if hasattr(self, '_source') else None
+        self.initial = self.initial if hasattr(self, 'initial') else None
+        self._type = self._type if hasattr(self, '_type') else None
+        self._shape = self._shape if hasattr(self, '_shape') else None
+
+        # Override attributes with explicitly provided kwargs
+        self._source = kwargs.pop('source', self._source)
+        self.initial = kwargs.pop('initial', self.initial)
+        self._type = kwargs.pop('type', self._type)
+        self._shape = kwargs.pop('shape', self._shape)
 
     def clone(self, **kwargs):
         """
@@ -395,12 +432,13 @@ class Variable(sympy.Function):
 
         # Create a new object from the static constructor with global caching!
         if dimensions is None and (shape is None or len(shape) == 0):
-            v = Scalar.__new__(Scalar, name=name, parent=parent)
+            newobj = Scalar.__new__(Scalar, name=name, parent=parent)
         else:
-            v = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent, type=_type)
+            newobj = Array.__new__(Array, name=name, dimensions=dimensions, parent=parent, type=_type)
 
-        v.__init__(*args, **kwargs)
-        return v
+        # Explicit invocation of __init__ for non-sympy meta data
+        newobj.__init__(*args, **kwargs)
+        return newobj
 
     
 class FloatLiteral(sympy.Float):
