@@ -273,7 +273,9 @@ class OMNI2IR(GenericVisitor):
             assert isinstance(parent.type, DerivedType)
             typevar = [v for v in parent.type.variables
                        if v.name.lower() == vname.lower()][0]
-            shape = typevar.shape or typevar.dimensions
+            shape = None
+            if typevar.is_Array:
+                shape = typevar.shape or typevar.dimensions
 
         return self.Variable(name=vname, type=vtype, parent=parent, shape=shape)
 
