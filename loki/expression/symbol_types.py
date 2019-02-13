@@ -171,9 +171,9 @@ class Scalar(sympy.Symbol, CachedMeta):
         self._type = self._type if hasattr(self, '_type') else None
 
         # Override attributes with explicitly provided kwargs
-        self._source = kwargs.pop('source', self._source)
-        self.initial = kwargs.pop('initial', self.initial)
-        self._type = kwargs.pop('type', self._type)
+        self._source = kwargs.pop('source', None) or self._source
+        self.initial = kwargs.pop('initial', None) or self.initial
+        self._type = kwargs.pop('type', None) or self._type
 
     def clone(self, **kwargs):
         """
@@ -282,10 +282,10 @@ class Array(sympy.Function, CachedMeta):
         self._shape = self._shape if hasattr(self, '_shape') else None
 
         # Override attributes with explicitly provided kwargs
-        self._source = kwargs.pop('source', self._source)
-        self.initial = kwargs.pop('initial', self.initial)
-        self._type = kwargs.pop('type', self._type)
-        self._shape = kwargs.pop('shape', self._shape)
+        self._source = kwargs.pop('source', None) or self._source
+        self.initial = kwargs.pop('initial', None) or self.initial
+        self._type = kwargs.pop('type', None) or self._type
+        self._shape = kwargs.pop('shape', None) or self._shape
 
     def clone(self, **kwargs):
         """
