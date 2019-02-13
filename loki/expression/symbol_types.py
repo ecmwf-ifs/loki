@@ -343,7 +343,7 @@ class Array(sympy.Function, CachedMeta):
         """
         s = self.func.__name__
         if len(self.args) > 0:
-            a = ','.join(printer.doprint(a) for a in self.args)
+            a = ', '.join(printer.doprint(a) for a in self.args)
             s += '(%s)' % a
         return s
 
