@@ -2,7 +2,7 @@ import sympy
 import weakref
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean, as_Boolean
-from sympy.codegen.ast import String
+from sympy.codegen.ast import String, Pointer
 from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
 
@@ -366,7 +366,10 @@ class Array(sympy.Function, CachedMeta):
         to this :class:`Array` variable. This is useful for generating
         code for array accesses using the sympy code printers.
         """
-        return self.indexed[self.args]
+        try:
+            return self.indexed[self.args]
+        except sympy.indexed.IndexException:
+            return Pointer(self)
 
 
 class BoolArray(Array, Boolean):
