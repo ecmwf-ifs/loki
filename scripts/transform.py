@@ -154,7 +154,8 @@ class DerivedArgsTransformation(AbstractTransformation):
         variables = FindVariables(unique=False).visit(routine.body)
         variables = [v for v in variables
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, cache=routine)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None,
+                           type=None, cache=routine)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
@@ -247,17 +248,23 @@ class SCATransformation(AbstractTransformation):
         routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
         routine.arguments = [a for a in routine.arguments if str(a).upper() not in target.variables]
 
-        # Map variables containing the target dimension to their replacements
+        # Establish the new dimensions and shapes first, before cloning the variables
+        # The reason for this is that shapes of all variable instances are linked
+        # via caching, meaning we can easily void the shape of an unprocessed variable.
+        variables = list(routine.variables) + list(FindVariables().visit(routine.body))
+        variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
+        shape_map = {v.name: v.shape for v in variables}
+
+        # Now generate a mapping of old to new variable symbols
         vmap = {}
-        for v in as_tuple(routine.variables) + as_tuple(FindVariables().visit(routine.body)):
-            if isinstance(v, Array) and v.shape is not None:
-                # TODO: Note that we still rely on string comparison to identify dimensions
-                new_shape = as_tuple(s for s in v.shape if str(s).upper() not in size_expressions)
-                new_dims = as_tuple(d for d, s in zip(v.dimensions, v.shape)
-                                    if str(s).upper() not in size_expressions)
-                new_dims = None if len(new_dims) == 0 else new_dims
-                if len(v.shape) != len(new_shape):
-                    vmap[v] = v.clone(dimensions=new_dims, shape=new_shape, cache=routine)
+        for v in variables:
+            old_shape = shape_map[v.name]
+            new_shape = as_tuple(s for s in old_shape if str(s).upper() not in size_expressions)
+            new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
+                                if str(s).upper() not in size_expressions)
+            new_dims = None if len(new_dims) == 0 else new_dims
+            if len(old_shape) != len(new_shape):
+                vmap[v] = v.clone(dimensions=new_dims, shape=new_shape, cache=routine)
 
         # Apply vmap to variable and argument list and subroutine body
         routine.arguments = [vmap.get(v, v) for v in routine.arguments]

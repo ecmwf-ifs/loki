@@ -163,9 +163,9 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = parse_omni_ast(ast.find('body'), cache=cache, type_map=type_map,
-                              symbol_map=symbol_map, shape_map=shape_map,
-                              raw_source=raw_source)
+        body = parse_omni_ast(ast.find('body'), cache=cache, typedefs=typedefs,
+                              type_map=type_map, symbol_map=symbol_map,
+                              shape_map=shape_map, raw_source=raw_source)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual

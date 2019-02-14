@@ -165,10 +165,20 @@ class OMNI2IR(GenericVisitor):
         return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
+        # TODO: THIS IS A MASSIVE HACK!
+        # Since we create derived type definitions from pre-processed OMNI-AST,
+        # we need to prevent accidental variable aliasing between the definitions
+        # in the type and the routine. For this, we basically stash the cache here
+        #and re-instate it once we have all type variables.
+        previous_cache = self._cache
+        self._cache = SymbolCache()
+
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
         decls = as_tuple(Declaration(variables=(v, ), type=v.type)
                          for v in derived.variables)
+
+        self._cache = previous_cache
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
@@ -298,13 +308,13 @@ class OMNI2IR(GenericVisitor):
 
             # Inject derived-type definition override :(
             if vtype is not None and self.typedefs is not None:
-                typedef= self.typedefs.get(vtype.name.lower(), None)
+                typedef = self.typedefs.get(vtype.name.lower(), None)
                 if typedef is not None:
                     vtype = DerivedType(name=typedef.name, variables=typedef.variables,
-                                        intent=_type.intent, allocatable=_type.allocatable,
-                                        pointer=_type.pointer, optional=_type.optional,
-                                        parameter=_type.parameter, target=_type.target,
-                                        contiguous=_type.contiguous)
+                                        intent=vtype.intent, allocatable=vtype.allocatable,
+                                        pointer=vtype.pointer, optional=vtype.optional,
+                                        parameter=vtype.parameter, target=vtype.target,
+                                        contiguous=vtype.contiguous)
         else:
             vtype = BaseType(name=BaseType._omni_types.get(t, t))
 
