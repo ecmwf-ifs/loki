@@ -158,6 +158,21 @@ class Scalar(sympy.Symbol, CachedMeta):
     # Create a globally cached symbol constructor.
     __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
 
+    def __attr_from_kwargs(self, attr, kwargs, key=None):
+        """
+        Helper to set object attributes during ``symbol.__init__(...)``
+        that prevents accidental overriding of previously cached values.
+        """
+        key = attr if key is None else key
+
+        # Ensure attribute exists
+        if not hasattr(self, attr):
+            setattr(self, attr, None)
+
+        # Pull value from kwargs if it's not None
+        if key in kwargs and kwargs[key] is not None:
+            setattr(self, attr, kwargs[key])
+
     def __init__(self, *args, **kwargs):
         """
         Initialisation of non-cached objects attributes
@@ -165,15 +180,11 @@ class Scalar(sympy.Symbol, CachedMeta):
         # Initialize meta attributes from cache
         super(Scalar, self).__init__(*args, **kwargs)
 
-        # Ensure all non-cached attributes exists
-        self._source = self._source if hasattr(self, '_source') else None
-        self.initial = self.initial if hasattr(self, 'initial') else None
-        self._type = self._type if hasattr(self, '_type') else None
-
-        # Override attributes with explicitly provided kwargs
-        self._source = kwargs.pop('source', None) or self._source
-        self.initial = kwargs.pop('initial', None) or self.initial
-        self._type = kwargs.pop('type', None) or self._type
+        # Ensure all non-cached attributes exists and override if
+        # explicitly provided. Is there a nicer way to do this?
+        self.__attr_from_kwargs('_source', kwargs, key='_source')
+        self.__attr_from_kwargs('initial', kwargs, key='initial')
+        self.__attr_from_kwargs('_type', kwargs, key='type')
 
     def clone(self, **kwargs):
         """
@@ -267,6 +278,21 @@ class Array(sympy.Function, CachedMeta):
     # a static globally cached symbol constructor.
     __xnew_cached_ = staticmethod(cacheit(__new_stage2__))
 
+    def __attr_from_kwargs(self, attr, kwargs, key=None):
+        """
+        Helper to set object attributes during ``symbol.__init__(...)``
+        that prevents accidental overriding of previously cached values.
+        """
+        key = attr if key is None else key
+
+        # Ensure attribute exists
+        if not hasattr(self, attr):
+            setattr(self, attr, None)
+
+        # Pull value from kwargs if it's not None
+        if key in kwargs and kwargs[key] is not None:
+            setattr(self, attr, kwargs[key])
+
     def __init__(self, *args, **kwargs):
         """
         Initialisation of non-cached objects attributes
@@ -274,17 +300,12 @@ class Array(sympy.Function, CachedMeta):
         # Initialize meta attributes from cache
         super(Array, self).__init__(*args, **kwargs)
 
-        # Ensure all non-cached attributes exists
-        self._source = self._source if hasattr(self, '_source') else None
-        self.initial = self.initial if hasattr(self, 'initial') else None
-        self._type = self._type if hasattr(self, '_type') else None
-        self._shape = self._shape if hasattr(self, '_shape') else None
-
-        # Override attributes with explicitly provided kwargs
-        self._source = kwargs.pop('source', None) or self._source
-        self.initial = kwargs.pop('initial', None) or self.initial
-        self._type = kwargs.pop('type', None) or self._type
-        self._shape = kwargs.pop('shape', None) or self._shape
+        # Ensure all non-cached attributes exists and override if
+        # explicitly provided. Is there a nicer way to do this?
+        self.__attr_from_kwargs('_source', kwargs, key='_source')
+        self.__attr_from_kwargs('initial', kwargs, key='initial')
+        self.__attr_from_kwargs('_type', kwargs, key='type')
+        self.__attr_from_kwargs('_shape', kwargs, key='shape')
 
     def clone(self, **kwargs):
         """
