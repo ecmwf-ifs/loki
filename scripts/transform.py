@@ -3,6 +3,7 @@ import toml
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
+from sympy import evaluate
 
 from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
@@ -254,7 +255,13 @@ class SCATransformation(AbstractTransformation):
         # Establish the new dimensions and shapes first, before cloning the variables
         # The reason for this is that shapes of all variable instances are linked
         # via caching, meaning we can easily void the shape of an unprocessed variable.
-        variables = list(routine.variables) + list(FindVariables().visit(routine.body))
+        variables = list(routine.variables)
+        variables += list(FindVariables().visit(routine.body))
+
+        # We also include the member routines in the replacement process, as they share
+        # declarations and thus a variable cache.
+        for m in as_tuple(routine.members):
+            variables += list(FindVariables().visit(m.body))
         variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
         shape_map = {v.name: v.shape for v in variables}
 
@@ -273,7 +280,13 @@ class SCATransformation(AbstractTransformation):
         routine.arguments = [vmap.get(v, v) for v in routine.arguments]
         routine.variables = [vmap.get(v, v) for v in routine.variables]
 
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        # Apply substitution map to replacements to capture nesting
+        with evaluate(False):
+            vmap2 = {k: v.xreplace(vmap) for k, v in vmap.items()}
+
+        routine.body = SubstituteExpressions(vmap2).visit(routine.body)
+        for m in as_tuple(routine.members):
+            m.body = SubstituteExpressions(vmap2).visit(m.body)
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -318,6 +331,7 @@ class SCATransformation(AbstractTransformation):
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]
+                kwarguments = as_tuple((k, argmap.get(a, a)) for k, a in call.kwarguments)
 
                 # Collect caller-side expressions for dimension sizes and bounds
                 dim_lower = None
@@ -331,7 +345,7 @@ class SCATransformation(AbstractTransformation):
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(arguments, routine.arguments)
                                   if str(karg).upper() not in target.variables)
-                kwarguments = list((darg, karg) for darg, karg in call.kwarguments
+                kwarguments = list((darg, karg) for darg, karg in kwarguments
                                    if str(karg).upper() not in target.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 

@@ -61,14 +61,14 @@ class Subroutine(object):
         self.is_function = is_function
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, cache=None):
         name = name or ast.attrib['name']
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
         args = [arg.attrib['name'].upper() for arg in arg_ast]
 
-        cache = SymbolCache()
+        cache = SymbolCache() if cache is None else cache
 
         # Decompose the body into known sections
         ast_body = list(ast.find('body'))
@@ -110,7 +110,7 @@ class Subroutine(object):
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source,
+            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, cache=cache,
                                            typedefs=typedefs, pp_info=pp_info)
                        for s in ast.findall('members/subroutine')]
 
