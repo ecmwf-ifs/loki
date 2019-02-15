@@ -188,6 +188,9 @@ class Dimension(object):
         Return a list of expression strings all signifying "dimension size".
         """
         iteration = ['%s - %s + 1' % (self.iteration[1], self.iteration[0])]
+        # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
+        iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
+        iteration += ['1:%s' % self.name]
         return [self.name] + self.aliases + iteration
 
     @property
