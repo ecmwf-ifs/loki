@@ -3,6 +3,7 @@ import weakref
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean, as_Boolean
 from sympy.codegen.ast import String, Pointer
+from sympy.codegen.fnodes import ArrayConstructor
 from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
 
@@ -516,7 +517,7 @@ class Literal(sympy.Number):
 class LiteralList(object):
 
     def __new__(self, values):
-        return tuple(Literal(v) for v in values)
+        return ArrayConstructor(elements=[Literal(v) for v in values])
 
 
 class InlineCall(sympy.codegen.ast.FunctionCall, Boolean):

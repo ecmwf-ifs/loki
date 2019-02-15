@@ -5,6 +5,7 @@ import re
 from itertools import zip_longest
 from sympy import evaluate, Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
 from sympy.core.numbers import NegativeOne
+from sympy.codegen.fnodes import reshape
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
@@ -399,7 +400,9 @@ class OFP2IR(GenericVisitor):
     def visit_name(self, o, source=None):
 
         def generate_variable(vname, indices, parent, source):
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
+            if vname.upper() == 'RESHAPE':
+                return reshape(indices[0], shape=indices[1])
+            elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
@@ -420,7 +423,7 @@ class OFP2IR(GenericVisitor):
                             shape = typevar.shape
 
                 var = self.Variable(name=vname, dimensions=indices, parent=parent,
-                                     shape=shape, type=_type, source=source)
+                                    shape=shape, type=_type, source=source)
                 return var
 
         # Creating compound variables is a bit tricky, so let's first

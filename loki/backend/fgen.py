@@ -13,8 +13,12 @@ from loki.expression import indexify
 __all__ = ['fgen', 'FortranCodegen', 'fsymgen']
 
 
-# TODO: Make configurable
-fsymgen = partial(fcode, standard=95, source_format='free', order='none', contract=False)
+# TODO: These options should be runtime-configurable
+
+# Note, the 2003 standard will print :class:`sympy.ArrayConstructor`
+# as ``[...]`` rather than ``(/.../)``, which prevents occasional
+# issues with spacing around line continuations.
+fsymgen = partial(fcode, standard=2003, source_format='free', order='none', contract=False)
 
 
 class FortranCodegen(Visitor):
@@ -263,13 +267,15 @@ class FortranCodegen(Visitor):
 
     def visit_Scalar(self, o):
         if o.initial is not None:
-            # TODO: This can cause re-creation of "Array" symbols,
-            # which ultimately ends in disaster...
             if isinstance(o.initial, Iterable):
                 value = ArrayConstructor(elements=o.initial)
             else:
                 value = o.initial
-            return fsymgen(value, assign_to=indexify(o))
+            # TODO: This is super-hacky! We need to find
+            # a rigorous way to do this, but various corner
+            # cases around opinter assignments break the
+            # shape verification in sympy.
+            return '%s = %s' % (o, fsymgen(value))
         else:
             return fsymgen(o)
 
