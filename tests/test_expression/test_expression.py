@@ -185,7 +185,7 @@ def test_parenthesis(refpath, reference, frontend):
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
-    assert str(stmt.expr) == '1.3*(v1**1.23) + (-v2**1.26 + 1)'
+    assert str(stmt.expr) == '1.3*(v1**1.23) + (1 - v2**1.26)'
     assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v2**1.26_jprb)'
 
     # Now perform a simple substitutions on the expression
@@ -194,7 +194,7 @@ def test_parenthesis(refpath, reference, frontend):
     v2 = routine.Variable(name='v2')
     v4 = routine.Variable(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
-    assert str(stmt2.expr) == '1.3*(v1**1.23) + (-v4**1.26 + 1)'
+    assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v4**1.26_jprb)'
 
 
@@ -231,12 +231,14 @@ def test_index_ranges(refpath, reference, frontend):
     assert str(vmap['v1']) == 'v1(:)'
     assert str(vmap['v2']) == 'v2(0:)'
     assert str(vmap['v3']) == 'v3(0:4)'
-    assert str(vmap['v4']) == 'v4(dim)'
+    # OMNI will insert implicit lower=1 into shape declarations,
+    # we simply have to live with it... :(
+    assert str(vmap['v4']) == 'v4(dim)' or str(vmap['v4']) == 'v4(1:dim)'
     assert str(vmap['v5']) == 'v5(1:dim)'
 
     from loki import FindVariables
     vmap_body = {v.name: v for v in FindVariables().visit(routine.body)}
     assert str(vmap_body['v1']) == 'v1(::2)'
-    assert str(vmap_body['v2']) == 'v2(i:dim)'
+    assert str(vmap_body['v2']) == 'v2(1:dim)'
     assert str(vmap_body['v3']) == 'v3(0:4:2)'
     assert str(vmap_body['v5']) == 'v5(:)'

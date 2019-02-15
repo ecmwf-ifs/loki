@@ -290,13 +290,13 @@ class OMNI2IR(GenericVisitor):
 
         shape = None
         if parent is not None:
-            # If we have a parent, get the shape info from it
-            assert isinstance(parent.type, DerivedType)
-            typevar = [v for v in parent.type.variables
-                       if v.name.lower() == vname.lower()][0]
-            shape = None
-            if typevar.is_Array:
-                shape = typevar.shape or typevar.dimensions
+            # If we have a parent with a type, get the shape info from it
+            if isinstance(parent.type, DerivedType):
+                typevar = [v for v in parent.type.variables
+                           if v.name.lower() == vname.lower()][0]
+                shape = None
+                if typevar.is_Array:
+                    shape = typevar.shape or typevar.dimensions
 
         return self.Variable(name=vname, type=vtype, parent=parent, shape=shape)
 
@@ -334,11 +334,11 @@ class OMNI2IR(GenericVisitor):
         shape = self.shape_map.get(vname, None)
 
         if parent is not None:
-            # If we have a parent, get the shape info from it
-            assert isinstance(parent.type, DerivedType)
-            typevar = [v for v in parent.type.variables
-                       if v.name.lower() == vname.lower()][0]
-            shape = typevar.shape or typevar.dimensions
+            # If we have a parent with a type, get the shape info from it
+            if isinstance(parent.type, DerivedType):
+                typevar = [v for v in parent.type.variables
+                           if v.name.lower() == vname.lower()][0]
+                shape = typevar.shape or typevar.dimensions
 
         return self.Variable(name=vname, dimensions=dimensions,
                              shape=shape, type=vtype, parent=parent)

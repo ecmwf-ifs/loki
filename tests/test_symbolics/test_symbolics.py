@@ -163,8 +163,8 @@ def test_symbol_regenerate_inlinecall():
     assert 3*b == simplify(b + 2*b)
 
     # And finally check correct Fortran printing
-    assert fsymgen(a) == 'a(f(x, y), g)'
-    assert fsymgen(b) == 'b(f(x, y), g, x=x, y=y)'
+    assert fsymgen(a) == 'a(f(x,y), g)'
+    assert fsymgen(b) == 'b(f(x,y), g, x=x, y=y)'
 
 
 def test_symbol_regenerate_cast():
@@ -223,4 +223,4 @@ def test_boolean_arrays():
     indexed = indexify(expr)
     code = fsymgen(expr)
 
-    assert code == 'h(x, y) .or. g(x, y) .and. f(x, y) > 1'
+    assert code == 'h(x,y) .or. g(x,y) .and. f(x,y) > 1'

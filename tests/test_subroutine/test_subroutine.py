@@ -42,7 +42,8 @@ def test_routine_simple(refpath, reference, frontend):
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']  # OMNI
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_simple', frontend=frontend)
@@ -64,13 +65,15 @@ def test_routine_simple_caching(refpath, reference, frontend):
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
     assert routine.arguments[2].type.name.lower() == 'real'
     assert routine.arguments[3].type.name.lower() == 'real'
 
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple_caching']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)']
+    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)']
     # Ensure that the types in the second routine have been picked up
     assert routine.arguments[2].type.name.lower() == 'integer'
     assert routine.arguments[3].type.name.lower() == 'integer'
@@ -84,7 +87,8 @@ def test_routine_multiline_args(refpath, reference, frontend):
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_multiline_args']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)']
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_multiline_args', frontend=frontend)
@@ -106,7 +110,8 @@ def test_routine_local_variables(refpath, reference, frontend):
     # Test the internals of the :class:`Subroutine`
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_local_variables']
     routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)']
+    assert routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)'] \
+        or routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x,1:y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_local_variables', frontend=frontend)
@@ -123,10 +128,13 @@ def test_routine_arguments(refpath, reference, frontend):
 
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_arguments']
     routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
-                            'i', 'j', 'local_vector(x)', 'local_matrix(x, y)']
+    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
+                            'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'] \
+        or routine_vars == ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
+                            'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x, y)']
+    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)']
 
     # Test the generated identity results
     test = generate_identity(refpath, 'routine_arguments', frontend=frontend)
@@ -151,8 +159,8 @@ def test_find_variables(refpath, reference, frontend):
     # Note, we are not counting declarations here
     assert sum(1 for s in vars_all if str(s) == 'i') == 6
     assert sum(1 for s in vars_all if str(s) == 'j') == 3
-    assert sum(1 for s in vars_all if str(s) == 'matrix(i, j)') == 1
-    assert sum(1 for s in vars_all if str(s) == 'matrix(x, y)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'matrix(i,j)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'matrix(x,y)') == 1
     assert sum(1 for s in vars_all if str(s) == 'maximum') == 1
     assert sum(1 for s in vars_all if str(s) == 'vector(i)') == 2
     assert sum(1 for s in vars_all if str(s) == 'x') == 3
@@ -161,8 +169,8 @@ def test_find_variables(refpath, reference, frontend):
     vars_unique = FindVariables(unique=True).visit(routine.ir)
     assert sum(1 for s in vars_unique if str(s) == 'i') == 1
     assert sum(1 for s in vars_unique if str(s) == 'j') == 1
-    assert sum(1 for s in vars_unique if str(s) == 'matrix(i, j)') == 1
-    assert sum(1 for s in vars_unique if str(s) == 'matrix(x, y)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(i,j)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(x,y)') == 1
     assert sum(1 for s in vars_unique if str(s) == 'maximum') == 1
     assert sum(1 for s in vars_unique if str(s) == 'vector(i)') == 1
     assert sum(1 for s in vars_unique if str(s) == 'x') == 1
@@ -178,16 +186,19 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     # TODO: Need a named subroutine lookup
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_dim_shapes']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(v1, v2 - 1)']
+    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(1:v1,v2 - 1)'] \
+        or routine_args == ['v1', 'v2', 'v3(:)', 'v4(1:v1,1:v2)', 'v5(1:v1,1:v2 - 1)'] \
 
     # Make sure variable/argument shapes on the routine work
     shapes = [str(v.shape) for v in routine.arguments if v.is_Array]
-    assert shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
+    assert shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
+        or shapes == ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
 
     # Ensure shapes of body variables are ok
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if v.is_Function]
-    assert b_shapes == ['(v1,)', '(v1, v2)', '(v1, v2 - 1)']
+    assert b_shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
+        or b_shapes == ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
@@ -205,16 +216,16 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
     # TODO: The string comparison here is due to the fact that shapes are actually
     # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
     # This needs some more thorough conceptualisation of dimensions and indices!
-    assert str(routine.arguments[3].shape) == '(x,)'
-    assert str(routine.arguments[4].shape) == '(x, y)'
+    assert str(routine.arguments[3].shape) in ['(x,)', '(1:x,)']
+    assert str(routine.arguments[4].shape) in ['(x, y)', '(1:x, 1:y)']
 
     # Verify that all variable instances have type and shape information
     variables = FindVariables().visit(routine.body)
     assert all(v.shape is not None for v in variables if isinstance(v, Array))
 
     vmap = {v.name: v for v in variables}
-    assert str(vmap['vector'].shape) == '(x,)'
-    assert str(vmap['matrix'].shape) == '(x, y)'
+    assert str(vmap['vector'].shape) in ['(x,)', '(1:x,)']
+    assert str(vmap['matrix'].shape) in ['(x, y)', '(1:x, 1:y)']
 
     # Parse kernel with external typedefs to test shape inferred from
     # external derived type definition
@@ -228,8 +239,8 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
 
     # Verify shape info from imported derived type is propagated
     vmap = {v.name: v for v in variables}
-    assert str(vmap['item%vector'].shape) == '(3,)'
-    assert str(vmap['item%matrix'].shape) == '(3, 3)'
+    assert str(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
+    assert str(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
@@ -311,8 +322,8 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
     assert call.arguments[3].is_Array
     assert call.arguments[4].is_Array
 
-    assert str(call.arguments[2].shape) == '(x,)'
-    assert str(call.arguments[3].shape) == '(x, y)'
-    assert str(call.arguments[4].shape) == '(3, 3)'
+    assert str(call.arguments[2].shape) in ['(x,)', '(1:x,)']
+    assert str(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert str(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
