@@ -2,7 +2,7 @@ import sympy
 import weakref
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
 from sympy.logic.boolalg import Boolean, as_Boolean
-from sympy.codegen.ast import String, Pointer
+from sympy.codegen.ast import String, Pointer, none
 from sympy.codegen.fnodes import ArrayConstructor
 from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
@@ -582,42 +582,62 @@ class RangeIndex(sympy.Idx):
     is_Symbol = True
     is_Function = False
 
+    @classmethod
+    def _label(cls, lower, upper, step):
+        upper = None if upper is none else upper
+        lower = None if lower is none else lower
+        step = None if step is none else step
+
+        upper = '' if upper is None else str(upper)
+        lower = '' if lower is None else str(lower)
+        label = '%s:%s' % (lower, upper)
+        if step is not None:
+            label = '%s:%s' % (label, step)
+        return label
+
+    @cacheit
     def __new__(cls, *args, **kwargs):
-        if len(args) > 0:
-            # Already know our symbol
-            label = args[0]
-            return sympy.Expr.__new__(cls, label)
-        else:
-            lower = kwargs.get('lower', None)
-            upper = kwargs.get('upper', None)
-            step = kwargs.get('step', None)
+        lower, upper, step = None, None, None
+        if len(args) == 1:
+            upper = args[0]
+        elif len(args) == 2:
+            lower = args[0]
+            upper = args[1]
+        elif len(args) == 3:
+            lower = args[0]
+            upper = args[1]
+            step = args[2]
 
-            # If we are given only an ``upper`` bound,
-            # short-ciruit and return the symbol itself
-            if upper is not None and lower is None and step is None:
-                return upper if hasattr(upper, 'is_Symbol') else sympy.Symbol(upper)
+        lower = kwargs.get('lower', lower)
+        upper = kwargs.get('upper', upper)
+        step = kwargs.get('step', step)
 
-            # Derive symbol string from bounds
-            _upper = '' if upper is None else str(upper)
-            _lower = '' if lower is None else str(lower)
-            label = '%s:%s' % (_lower, _upper)
-            if step is not None:
-                label = '%s:%s' % (label, step)
+        # Short-circuit for direct indices
+        if upper is not None and lower is None and step is None:
+            return upper
 
-        return sympy.Expr.__new__(cls, sympy.Symbol(label))
+        label = cls._label(lower, upper, step)
 
-    def __init__(self, lower=None, upper=None, step=None):
-        self._lower = lower
-        self._upper = upper
-        self._step = step
+        obj = sympy.Expr.__new__(cls, label)
+        obj._lower = lower
+        obj._upper = upper
+        obj._step = step
 
-    @property
-    def symbol(self):
-        return self.args[0]
+        return obj
 
     @property
-    def name(self):
-        return self.symbol.name
+    def args(self):
+        args = []
+        args += [none] if self._lower is None else [self._lower]
+        args += [none] if self._upper is None else [self._upper]
+        args += [none] if self._step is None else [self._step]
+        return args
+
+    def _sympystr(self, p):
+        return self._label(self._lower, self._upper, self._step)
+
+    _sympyrepr = _sympystr
+    _fcode = _sympystr
 
     @property
     def lower(self):

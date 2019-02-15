@@ -224,3 +224,23 @@ def test_boolean_arrays():
     code = fsymgen(expr)
 
     assert code == 'h(x,y) .or. g(x,y) .and. f(x,y) > 1'
+
+
+def test_range_index():
+    """
+    Ensure proper sybolic behaviour for array ranges, like variable
+    substitution on bounds.
+    """
+    from loki import RangeIndex
+
+    i = Variable(name='i')
+    j = Variable(name='j')
+    k = Variable(name='k')
+
+    assert str(RangeIndex(i)) == 'i'
+    assert str(RangeIndex(lower=i)) == 'i:'
+    assert str(RangeIndex(step=i)) == '::i'
+
+    idx = RangeIndex(lower=i, upper=j, step=k)
+    assert str(idx) == 'i:j:k'
+    assert str(idx.xreplace({i: k})) == 'k:j:k'
