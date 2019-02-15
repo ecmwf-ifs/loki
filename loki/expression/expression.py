@@ -71,6 +71,10 @@ class FindVariables(Visitor):
                                       if isinstance(a, Expr)))
         return set(variables) if self.unique else variables
 
+    def visit_Allocation(self, o, **kwargs):
+        variables = as_tuple(flatten(retrieve_variables(a) for a in o.variables))
+        return set(variables) if self.unique else variables
+
 
 class SubstituteExpressions(Transformer):
     """
@@ -105,6 +109,11 @@ class SubstituteExpressions(Transformer):
             kwarguments = tuple((k, v.xreplace(self.expr_map)) for k, v in o.kwarguments)
             # TODO: Re-build the call context
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
+
+    def visit_Allocation(self, o, **kwargs):
+        with evaluate(False):
+            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        return o._rebuild(variables=variables)
 
 
 class Expression(object):

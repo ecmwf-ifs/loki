@@ -197,8 +197,8 @@ def test_routine_dim_shapes(refpath, reference, frontend):
     # Ensure shapes of body variables are ok
     b_shapes = [str(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if v.is_Function]
-    assert b_shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
-        or b_shapes == ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
+    assert b_shapes == ['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
+        or b_shapes == ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
