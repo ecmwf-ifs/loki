@@ -481,9 +481,14 @@ class OFP2IR(GenericVisitor):
     def visit_subscript(self, o, source=None):
         # TODO: Drop this entire routine, but beware the base-case!
         if o.find('range'):
-            lower = self.visit(o.find('range/lower-bound'))
-            upper = self.visit(o.find('range/upper-bound'))
-            return RangeIndex(lower=lower, upper=upper)
+            lower, upper, step = None, None, None
+            if o.find('range/lower-bound') is not None:
+                lower = self.visit(o.find('range/lower-bound'))
+            if o.find('range/upper-bound') is not None:
+                upper = self.visit(o.find('range/upper-bound'))
+            if o.find('range/step') is not None:
+                step = self.visit(o.find('range/step'))
+            return RangeIndex(lower=lower, upper=upper, step=step)
         elif 'type' in o.attrib and o.attrib['type'] == "upper-bound-assumed-shape":
             lower = self.visit(o[0])
             return RangeIndex(lower=lower, upper=None)

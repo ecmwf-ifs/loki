@@ -592,10 +592,6 @@ class RangeIndex(sympy.Idx):
             upper = kwargs.get('upper', None)
             step = kwargs.get('step', None)
 
-            # Drop trivial default bounds and step sizes
-            lower = None if lower == 1 else lower
-            step = None if step == 1 else step
-
             # If we are given only an ``upper`` bound,
             # short-ciruit and return the symbol itself
             if upper is not None and lower is None and step is None:

@@ -219,8 +219,10 @@ def test_commutativity(refpath, reference, frontend):
 @pytest.mark.parametrize('frontend', [OFP, OMNI])
 def test_index_ranges(refpath, reference, frontend):
     """
-    real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4)
-    real(kind=jprb), intent(out) :: v4(:)
+    real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
+    real(kind=jprb), intent(out) :: v5(1:dim)
+
+    v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
     """
     source = SourceFile.from_file(refpath, frontend=frontend)
     routine = source['index_ranges']
@@ -230,3 +232,11 @@ def test_index_ranges(refpath, reference, frontend):
     assert str(vmap['v2']) == 'v2(0:)'
     assert str(vmap['v3']) == 'v3(0:4)'
     assert str(vmap['v4']) == 'v4(dim)'
+    assert str(vmap['v5']) == 'v5(1:dim)'
+
+    from loki import FindVariables
+    vmap_body = {v.name: v for v in FindVariables().visit(routine.body)}
+    assert str(vmap_body['v1']) == 'v1(::2)'
+    assert str(vmap_body['v2']) == 'v2(i:dim)'
+    assert str(vmap_body['v3']) == 'v3(0:4:2)'
+    assert str(vmap_body['v5']) == 'v5(:)'
