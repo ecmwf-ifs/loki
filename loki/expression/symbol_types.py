@@ -208,7 +208,7 @@ class Scalar(sympy.Symbol, CachedMeta):
         if self.initial and 'initial' not in kwargs:
             kwargs['initial'] = self.initial
 
-        cache = kwargs.pop('cache', None)
+        cache = kwargs.pop('cache', None) or self.__class__._cache
         if cache is None:
             return Variable(**kwargs)
         else:

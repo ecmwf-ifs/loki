@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, ExpressionVisitor, Array)
+                             Literal, ExpressionVisitor, Array, SubstituteExpressions)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -263,69 +263,12 @@ class FortranCTransformation(BasicTransformation):
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
 
+        self._resolve_vector_notation(kernel, **kwargs)
+        self._resolve_omni_size_indexing(kernel, **kwargs)
+
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-
-        # Resolve implicit vector notation by inserting explicit loops
-        loop_map = {}
-        index_vars = set()
-        for stmt in FindNodes(Statement).visit(kernel.body):
-            # Loop over all variables and replace them with loop indices
-            vdims = set()
-            index_map = {}
-            for v in FindVariables(unique=False).visit(stmt):
-                # TODO: Really need to introduce SymbolBase
-                dimensions = v.dimensions if isinstance(v, Array) else ()
-                shape = v.shape if isinstance(v, Array) else ()
-                for dim, s in zip(dimensions, as_tuple(shape)):
-                    if isinstance(dim, RangeIndex):
-                        vtype = BaseType(name='integer', kind='4')
-                        ivar = Variable(name='i_%s' % s, type=vtype)
-                        vdims.add(ivar)
-                        index_map[ivar] = s
-                        v._args = as_tuple(d if d is not dim else ivar
-                                           for d in v.dimensions)
-                        v.dimensions = v.args
-            index_vars.update(list(vdims))
-
-            # Recursively build new loop nest over all implicit dims
-            if len(vdims) > 0:
-                loop = None
-                body = stmt
-                for ivar in vdims:
-                    # TODO: Handle more complex ranges
-                    bounds = (Literal(1), index_map[ivar], None)
-                    loop = Loop(variable=ivar, body=body, bounds=bounds)
-                    body = loop
-
-                loop_map[stmt] = loop
-
-        if len(loop_map) > 0:
-            kernel.body = Transformer(loop_map).visit(kernel.body)
-        kernel.variables += list(index_vars)
-
-        # Invert data/loop accesses from column to row-major
-        # TODO: Take care of the indexing shift between C and Fortran.
-        # Basically, we are relying on the CGen to shuft the iteration
-        # indices and dearly hope that nobody uses the index's value.
-        for v in FindVariables(unique=True).visit(kernel.body):
-            if isinstance(v, Array):
-                v._args = as_tuple(reversed(v._args))
-                v.dimensions = v.args
-
-        # Invert the argument dimensions for the automatic cast generation
-        for v in kernel.variables:
-            if isinstance(v, Array):
-                # TODO: This is super hacky! Argh...
-                v._args = as_tuple(reversed(v._args))
-                v.dimensions = v.args
-
-        # Shift each array indices to adjust to C indexing conventions
-        for v in FindVariables(unique=True).visit(kernel.body):
-            if isinstance(v, Array):
-                # TODO: We really need a better way of doing this
-                # (re-generate symbols and substitute!)
-                v._args = as_tuple(d - 1 for d in v._args)
-                v.dimensions = v.args
+        self._invert_array_indices(kernel, **kwargs)
+        self._shift_to_zero_indexing(kernel, **kwargs)
 
         # Replace known numerical intrinsic functions
         class IntrinsicVisitor(ExpressionVisitor):
@@ -347,3 +290,103 @@ class FortranCTransformation(BasicTransformation):
             intrinsic.visit(stmt.expr)
 
         return kernel
+
+    def _resolve_vector_notation(self, kernel, **kwargs):
+        """
+        Resolve implicit vector notation by inserting explicit loops
+        """
+        loop_map = {}
+        index_vars = set()
+        vmap = {}
+        for stmt in FindNodes(Statement).visit(kernel.body):
+            # Loop over all variables and replace them with loop indices
+            vdims = []
+            shape_index_map = {}
+            index_range_map = {}
+            for v in FindVariables(unique=False).visit(stmt):
+                if not isinstance(v, Array):
+                    continue
+
+                for dim, s in zip(v.dimensions, as_tuple(v.shape)):
+                    if isinstance(dim, RangeIndex):
+                        # Create new index variable
+                        vtype = BaseType(name='integer', kind='4')
+                        ivar = Variable(name='i_%s' % s.upper, type=vtype)
+                        shape_index_map[s] = ivar
+                        index_range_map[ivar] = s
+
+                        if ivar not in vdims:
+                            vdims.append(ivar)
+
+                # Add index variable to range replacement
+                new_dims = as_tuple(shape_index_map.get(s, d)
+                                    for d, s in zip(v.dimensions, v.shape))
+                vmap[v] = v.clone(dimensions=new_dims)
+
+            index_vars.update(list(vdims))
+
+            # Recursively build new loop nest over all implicit dims
+            if len(vdims) > 0:
+                loop = None
+                body = stmt
+                for ivar in vdims:
+                    irange = index_range_map[ivar]
+                    bounds = (irange.lower or Literal(1), irange.upper, irange.step)
+                    loop = Loop(variable=ivar, body=body, bounds=bounds)
+                    body = loop
+
+                loop_map[stmt] = loop
+
+        if len(loop_map) > 0:
+            kernel.body = Transformer(loop_map).visit(kernel.body)
+        kernel.variables += list(set(index_vars))
+
+        # Apply variable substitution
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+
+    def _resolve_omni_size_indexing(self, kernel, **kwargs):
+        """
+        Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
+        """
+        vmap = {}
+        for v in kernel.variables:
+            if isinstance(v, Array):
+                new_dims = as_tuple(d.upper if isinstance(d, RangeIndex) \
+                                    and d.lower == 1 and d.step is None else d
+                                    for d in v.dimensions)
+                vmap[v] = v.clone(dimensions=new_dims)
+        kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+
+    def _invert_array_indices(self, kernel, **kwargs):
+        """
+        Invert data/loop accesses from column to row-major
+
+        TODO: Take care of the indexing shift between C and Fortran.
+        Basically, we are relying on the CGen to shift the iteration
+        indices and dearly hope that nobody uses the index's value.
+        """
+        # Invert array indices in the kernel body
+        vmap = {}
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if isinstance(v, Array):
+                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+
+        # Invert variable and argument dimensions for the automatic cast generation
+        for v in kernel.variables:
+            if isinstance(v, Array):
+                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+        kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+
+    def _shift_to_zero_indexing(self, kernel, **kwargs):
+        """
+        Shift each array indices to adjust to C indexing conventions
+        """
+        vmap = {}
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if isinstance(v, Array):
+                new_dims = as_tuple(d - 1 for d in v.dimensions)
+                vmap[v] = v.clone(dimensions=new_dims)
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
