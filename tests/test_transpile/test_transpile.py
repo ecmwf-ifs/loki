@@ -163,6 +163,45 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.c == 12.
 
 
+def test_transpile_derived_type_array(refpath, reference, builder):
+    """
+    Tests handling of multi-dimensional arrays and pointers.
+
+    a_struct%scalar = 3.
+    a_struct%vector(i) = a_struct%scalar + 2.
+    a_struct%matrix(j,i) = a_struct%vector(i) + 1.
+    """
+
+    # Test the reference solution
+    a_struct = reference.transpile_type.array_struct()
+    reference.transpile_type.alloc_arrays(a_struct)
+    reference.transpile_derived_type_array(a_struct)
+    assert a_struct.scalar == 3.
+    assert (a_struct.vector == 5.).all()
+    assert (a_struct.matrix == 6.).all()
+    reference.transpile_type.free_arrays(a_struct)
+
+    # Translate the header module to expose parameters
+    typepath = refpath.parent/'transpile_type.f90'
+    typemod = SourceFile.from_file(typepath)['transpile_type']
+    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+                                  typedefs=typemod.typedefs)
+    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath, builder,
+                           objects=[Obj(source_path='transpile_type.f90')],
+                           wrap=['transpile_type.f90'], header_modules=[typemod])
+
+    a_struct = reference.transpile_type.array_struct()
+    reference.transpile_type.alloc_arrays(a_struct)
+    function = c_kernel.transpile_derived_type_array_fc_mod.transpile_derived_type_fc
+    function(a_struct)
+    assert a_struct.scalar == 3.
+    assert (a_struct.vector == 5.).all()
+    assert (a_struct.matrix == 6.).all()
+    reference.transpile_type.free_arrays(a_struct)
+
+
 def test_transpile_module_variables(refpath, reference, builder):
     """
     Tests the use of imported module variables (via getter routines in C)

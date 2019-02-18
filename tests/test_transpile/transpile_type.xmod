@@ -4,73 +4,211 @@
     <name>iso_fortran_env</name>
   </depends>
   <typeTable>
-    <FbasicType type="Iaace80" is_parameter="true" ref="Fint"/>
-    <FbasicType type="Iaad0a0" is_parameter="true" ref="Fint"/>
-    <FbasicType type="Iaade50" is_save="true" ref="Fint"/>
-    <FbasicType type="Raae600" ref="Freal">
+    <FbasicType type="I228ee20" is_parameter="true" ref="Fint"/>
+    <FbasicType type="I228f040" is_parameter="true" ref="Fint"/>
+    <FbasicType type="I228fdd0" is_save="true" ref="Fint"/>
+    <FbasicType type="R2290580" ref="Freal">
       <kind>
-        <Var type="Iaace80" scope="local">real32</Var>
+        <Var type="I228ee20" scope="local">real32</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="Raae820" is_save="true" ref="Raae600"/>
-    <FbasicType type="Raa4a40" ref="Freal">
+    <FbasicType type="R22907a0" is_save="true" ref="R2290580"/>
+    <FbasicType type="R22869b0" ref="Freal">
       <kind>
-        <Var type="Iaad0a0" scope="local">real64</Var>
+        <Var type="I228f040" scope="local">real64</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="Raa4c60" is_save="true" ref="Raa4a40"/>
-    <FstructType type="Saa5050">
+    <FbasicType type="R2286bd0" is_save="true" ref="R22869b0"/>
+    <FstructType type="S2286fc0">
       <symbols>
         <id type="Fint">
           <name>a</name>
         </id>
-        <id type="Raa62b0">
+        <id type="R2288220">
           <name>b</name>
         </id>
-        <id type="Raa7330">
+        <id type="R22892e0">
           <name>c</name>
         </id>
       </symbols>
     </FstructType>
-    <FbasicType type="Raa6090" ref="Freal">
+    <FbasicType type="R2288000" ref="Freal">
       <kind>
-        <Var type="Iaace80" scope="local">real32</Var>
+        <Var type="I228ee20" scope="local">real32</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="Raa62b0" ref="Raa6090"/>
-    <FbasicType type="Raa7110" ref="Freal">
+    <FbasicType type="R2288220" ref="R2288000"/>
+    <FbasicType type="R22890c0" ref="Freal">
       <kind>
-        <Var type="Iaad0a0" scope="local">real64</Var>
+        <Var type="I228f040" scope="local">real64</Var>
       </kind>
     </FbasicType>
-    <FbasicType type="Raa7330" ref="Raa7110"/>
+    <FbasicType type="R22892e0" ref="R22890c0"/>
+    <FstructType type="S2289810">
+      <symbols>
+        <id type="R228a360">
+          <name>scalar</name>
+        </id>
+        <id type="A228b040">
+          <name>vector</name>
+        </id>
+        <id type="A228bf40">
+          <name>matrix</name>
+        </id>
+      </symbols>
+    </FstructType>
+    <FbasicType type="R228a140" ref="Freal">
+      <kind>
+        <Var type="I228f040" scope="local">real64</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="R228a360" is_allocatable="true" ref="R228a140"/>
+    <FbasicType type="R228acf0" ref="Freal">
+      <kind>
+        <Var type="I228f040" scope="local">real64</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="R228af10" is_allocatable="true" ref="R228acf0"/>
+    <FbasicType type="A228b040" is_allocatable="true" ref="R228af10">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="R228bac0" ref="Freal">
+      <kind>
+        <Var type="I228f040" scope="local">real64</Var>
+      </kind>
+    </FbasicType>
+    <FbasicType type="R228bce0" is_allocatable="true" ref="R228bac0"/>
+    <FbasicType type="A228be10" is_allocatable="true" ref="R228bce0">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="A228bf40" is_allocatable="true" ref="R228bce0">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FfunctionType type="F228cf60" return_type="Fvoid">
+      <params>
+        <name type="S228dca0">struct</name>
+      </params>
+    </FfunctionType>
+    <FbasicType type="S228db70" ref="S2289810"/>
+    <FbasicType type="S228dca0" intent="inout" ref="S228db70"/>
+    <FbasicType type="A22b3e00" is_allocatable="true" ref="R228af10">
+      <indexRange>
+        <lowerBound>
+          <FintConstant type="Fint">1</FintConstant>
+        </lowerBound>
+        <upperBound>
+          <FintConstant type="Fint">3</FintConstant>
+        </upperBound>
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="R228ea30" is_allocatable="true" ref="R228af10"/>
+    <FbasicType type="A228eb60" is_allocatable="true" ref="R228ea30">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="A22b6250" is_allocatable="true" ref="R228bce0">
+      <indexRange>
+        <lowerBound>
+          <FintConstant type="Fint">1</FintConstant>
+        </lowerBound>
+        <upperBound>
+          <FintConstant type="Fint">3</FintConstant>
+        </upperBound>
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="A22b6510" is_allocatable="true" ref="R228bce0">
+      <indexRange>
+        <lowerBound>
+          <FintConstant type="Fint">1</FintConstant>
+        </lowerBound>
+        <upperBound>
+          <FintConstant type="Fint">3</FintConstant>
+        </upperBound>
+      </indexRange>
+      <indexRange>
+        <lowerBound>
+          <FintConstant type="Fint">1</FintConstant>
+        </lowerBound>
+        <upperBound>
+          <FintConstant type="Fint">3</FintConstant>
+        </upperBound>
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="R22b5190" is_allocatable="true" ref="R228bce0"/>
+    <FbasicType type="A22b52c0" is_allocatable="true" ref="R22b5190">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="A22b53f0" is_allocatable="true" ref="R22b5190">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FfunctionType type="F22b7980" return_type="Fvoid">
+      <params>
+        <name type="S22b86c0">struct</name>
+      </params>
+    </FfunctionType>
+    <FbasicType type="S22b8590" ref="S2289810"/>
+    <FbasicType type="S22b86c0" intent="inout" ref="S22b8590"/>
+    <FbasicType type="R22b9210" is_allocatable="true" ref="R228af10"/>
+    <FbasicType type="A22b9340" is_allocatable="true" ref="R22b9210">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="R22ba170" is_allocatable="true" ref="R228bce0"/>
+    <FbasicType type="A22ba2a0" is_allocatable="true" ref="R22ba170">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
+    <FbasicType type="A22ba3d0" is_allocatable="true" ref="R22ba170">
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+      <indexRange is_assumed_shape="true">
+      </indexRange>
+    </FbasicType>
   </typeTable>
   <identifiers>
-    <id type="Iaace80" sclass="flocal" original_name="real32" declared_in="iso_fortran_env">
+    <id type="I228ee20" sclass="flocal" original_name="real32" declared_in="iso_fortran_env">
       <name>real32</name>
     </id>
-    <id type="Iaad0a0" sclass="flocal" original_name="real64" declared_in="iso_fortran_env">
+    <id type="I228f040" sclass="flocal" original_name="real64" declared_in="iso_fortran_env">
       <name>real64</name>
     </id>
-    <id type="Iaade50" sclass="fsave" original_name="param1" declared_in="transpile_type">
+    <id type="I228fdd0" sclass="fsave" original_name="param1" declared_in="transpile_type">
       <name>param1</name>
     </id>
-    <id type="Raae820" sclass="fsave" original_name="param2" declared_in="transpile_type">
+    <id type="R22907a0" sclass="fsave" original_name="param2" declared_in="transpile_type">
       <name>param2</name>
     </id>
-    <id type="Raa4c60" sclass="fsave" original_name="param3" declared_in="transpile_type">
+    <id type="R2286bd0" sclass="fsave" original_name="param3" declared_in="transpile_type">
       <name>param3</name>
     </id>
-    <id type="Saa5050" sclass="ftype_name" original_name="my_struct" declared_in="transpile_type">
+    <id type="S2286fc0" sclass="ftype_name" original_name="my_struct" declared_in="transpile_type">
       <name>my_struct</name>
+    </id>
+    <id type="S2289810" sclass="ftype_name" original_name="array_struct" declared_in="transpile_type">
+      <name>array_struct</name>
+    </id>
+    <id type="F228cf60" sclass="ffunc" original_name="alloc_arrays" declared_in="transpile_type">
+      <name>alloc_arrays</name>
+    </id>
+    <id type="F22b7980" sclass="ffunc" original_name="free_arrays" declared_in="transpile_type">
+      <name>free_arrays</name>
     </id>
   </identifiers>
   <declarations>
     <varDecl>
-      <name type="Iaace80">real32</name>
+      <name type="I228ee20">real32</name>
     </varDecl>
     <varDecl>
-      <name type="Iaad0a0">real64</name>
+      <name type="I228f040">real64</name>
     </varDecl>
   </declarations>
   <interfaceDecls>
