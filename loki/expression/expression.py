@@ -5,9 +5,10 @@ from sympy import Expr, evaluate
 from loki.visitors import GenericVisitor, Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.logging import warning
-from loki.expression.search import retrieve_variables
+from loki.expression.search import retrieve_symbols, retrieve_functions, retrieve_variables
 
-__all__ = ['Expression', 'FindVariables', 'SubstituteExpressions', 'ExpressionVisitor']
+__all__ = ['Expression', 'FindSymbols', 'FindFunctions', 'FindVariables',
+           'SubstituteExpressions', 'ExpressionFinder', 'ExpressionVisitor']
 
 
 class ExpressionVisitor(GenericVisitor):
@@ -19,24 +20,37 @@ class ExpressionVisitor(GenericVisitor):
         return tuple(self.visit(c, **kwargs) for c in o.children)
 
 
-class FindVariables(Visitor):
+class ExpressionFinder(Visitor):
     """
-    A dedicated visitor to collect all variables used in an IR tree.
+    Base class visitor to collect specific sub-expressions,
+    eg. functions or symbls, from all nodes in an IR tree.
 
-    Note: With `unique=False` all variables instanecs are traversed,
-    allowing us to change them in-place. Conversely, `unique=True`
-    returns a :class:`set` of unique :class:`Variable` objects that
-    can be used to check if a particular variable is used in a given
-    context.
+    :param retrieve: Custom retrieval function that yields all wanted
+                     sub-expressions from an expression.
+    :param unique: If ``True`` the visitor will return a set of unique sub-expression
+                   instead of a list of possibly repeated instances.
 
-    Note: :class:`Variable` objects are not recursed on in themselves.
-    That means that individual component variables or dimension indices
-    are not traversed or included in the final :class:`set`.
+    Note that :class:`FindXXX` classes are provided to find the most
+    common sub-expression types, eg. symbols, functions and variables.
     """
 
-    def __init__(self, unique=True):
-        super(FindVariables, self).__init__()
+    # By default we return nothing
+    retrieval_function = lambda x: ()
+
+    def __init__(self, unique=True, retrieve=None):
+        super(ExpressionFinder, self).__init__()
         self.unique = unique
+
+        # Use custom retrieval function or the class default
+        # TODO: This is pretty hacky, isn't it..?
+        if retrieve is not None:
+            type(self).retrieval_function = staticmethod(retrieve)
+
+    def retrieve(self, expr):
+        """
+        Internal retrieval function used on expressions.
+        """
+        return self.retrieval_function(expr)
 
     default_retval = tuple
 
@@ -47,33 +61,61 @@ class FindVariables(Visitor):
     visit_list = visit_tuple
 
     def visit_Statement(self, o, **kwargs):
-        variables = as_tuple(retrieve_variables(o.target))
-        variables += as_tuple(retrieve_variables(o.expr))
+        variables = as_tuple(self.retrieve(o.target))
+        variables += as_tuple(self.retrieve(o.expr))
         return set(variables) if self.unique else variables
 
     def visit_Conditional(self, o, **kwargs):
-        variables = as_tuple(flatten(retrieve_variables(c) for c in o.conditions))
+        variables = as_tuple(flatten(self.retrieve(c) for c in o.conditions))
         variables += as_tuple(flatten(self.visit(c) for c in o.bodies))
         variables += as_tuple(self.visit(o.else_body))
         return set(variables) if self.unique else variables
 
     def visit_Loop(self, o, **kwargs):
-        variables = as_tuple(retrieve_variables(o.variable))
-        variables += as_tuple(flatten(retrieve_variables(c) for c in o.bounds
+        variables = as_tuple(self.retrieve(o.variable))
+        variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
         return set(variables) if self.unique else variables
 
     def visit_Call(self, o, **kwargs):
-        variables = as_tuple(flatten(retrieve_variables(a) for a in o.arguments
+        variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments
                                      if isinstance(a, Expr)))
-        variables += as_tuple(flatten(retrieve_variables(a) for _, a in o.kwarguments
+        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments
                                       if isinstance(a, Expr)))
         return set(variables) if self.unique else variables
 
     def visit_Allocation(self, o, **kwargs):
-        variables = as_tuple(flatten(retrieve_variables(a) for a in o.variables))
+        variables = as_tuple(flatten(self.retrieve(a) for a in o.variables))
         return set(variables) if self.unique else variables
+
+
+class FindSymbols(ExpressionFinder):
+    """
+    A visitor to collect all :class:`sympy.Symbol` symbols in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(retrieve_symbols)
+
+
+class FindFunctions(ExpressionFinder):
+    """
+    A visitor to collect all :class:`sympy.Function` symbols in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(retrieve_functions)
+
+
+class FindVariables(ExpressionFinder):
+    """
+    A visitor to collect all variables (:class:`loki.Scalar` and
+    :class:`loki.Array`) symbols used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(retrieve_variables)
 
 
 class SubstituteExpressions(Transformer):

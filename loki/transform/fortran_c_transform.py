@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType, DataType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, ExpressionVisitor, Array, SubstituteExpressions)
+                             Literal, ExpressionVisitor, Array, SubstituteExpressions, ExpressionFinder)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -269,25 +269,7 @@ class FortranCTransformation(BasicTransformation):
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(kernel, **kwargs)
         self._shift_to_zero_indexing(kernel, **kwargs)
-
-        # Replace known numerical intrinsic functions
-        class IntrinsicVisitor(ExpressionVisitor):
-            _intrinsic_map = {
-                'epsilon': 'DBL_EPSILON',
-                'min': 'fmin', 'max': 'fmax',
-                'abs': 'fabs', 'sign': 'copysign',
-            }
-
-            def visit_InlineCall(self, o):
-                if o.name.text.lower() in self._intrinsic_map:
-                    o.name = self._intrinsic_map[o.name.text.lower()]
-
-                for c in o.children:
-                    self.visit(c)
-
-        intrinsic = IntrinsicVisitor()
-        for stmt in FindNodes(Statement).visit(kernel.body):
-            intrinsic.visit(stmt.expr)
+        self._replace_intrinsics(kernel, **kwargs)
 
         return kernel
 
@@ -390,3 +372,31 @@ class FortranCTransformation(BasicTransformation):
                 new_dims = as_tuple(d - 1 for d in v.dimensions)
                 vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+
+
+    def _replace_intrinsics(self, kernel, **kwargs):
+        """
+        Replace known numerical intrinsic functions.
+        """
+        def q_inlinecall(expr):
+            return isinstance(expr, InlineCall)
+
+        def retrieve_inlinecall(expr):
+            return expr.find(q_inlinecall)
+
+        _intrinsic_map = {
+            'epsilon': 'DBL_EPSILON',
+            'min': 'fmin', 'max': 'fmax',
+            'abs': 'fabs', 'sign': 'copysign',
+        }
+
+        callmap = {}
+        for c in ExpressionFinder(retrieve=retrieve_inlinecall).visit(kernel.body):
+            cname = c.name.text.lower()
+            if cname in _intrinsic_map:
+                callmap[c] = InlineCall(name=_intrinsic_map[cname],
+                                        arguments=c.arguments, kwarguments=c.kwarguments)
+
+        # Capture nesting by applying map to itself before applying to the kernel
+        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
+        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
