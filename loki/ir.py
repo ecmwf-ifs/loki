@@ -424,6 +424,8 @@ class TypeDef(Node):
     Internal representation of derived type definition
     """
 
+    _traversable = ['declarations']
+
     def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None):
         super(TypeDef, self).__init__(source=source)
 

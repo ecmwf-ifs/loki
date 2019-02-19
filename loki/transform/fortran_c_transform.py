@@ -73,7 +73,8 @@ class FortranCTransformation(BasicTransformation):
         decls = []
         for v in derived.variables:
             ctype = v.type.dtype.isoctype
-            decls += [Declaration(variables=(v, ), type=ctype)]
+            vnew = v.clone(name=v.name.lower())
+            decls += [Declaration(variables=(vnew, ), type=ctype)]
             typename = '%s_c' % derived.name
         return TypeDef(name=typename, bind_c=True, declarations=decls)
 
@@ -196,8 +197,18 @@ class FortranCTransformation(BasicTransformation):
                 v.type.dtype.ctype, module.name.lower(), v.name.lower())
             spec += [Intrinsic(text=tmpl_function)]
 
-        # Re-create spec with getters and typedefs to wipe Fortran-specifics
-        spec += FindNodes(TypeDef).visit(module.spec)
+        # Re-create type definitions with range indices (``:``) replaced by pointers
+        for td in FindNodes(TypeDef).visit(module.spec):
+            vmap = {}
+            for decl in td.declarations:
+                for v in decl.variables:
+                    # Note that we force lower-case on all struct variables
+                    if v.is_Array:
+                        new_dims = as_tuple(d for d in v.dimensions if not isinstance(d, RangeIndex))
+                        vmap[v] = v.clone(name=v.name.lower(), dimensions=new_dims)
+                    else:
+                        vmap[v] = v.clone(name=v.name.lower())
+            spec += [SubstituteExpressions(vmap).visit(td)]
 
         # Re-generate header module without subroutines
         return Module(name='%s_c' % module.name, spec=spec)
@@ -236,7 +247,12 @@ class FortranCTransformation(BasicTransformation):
         body = Transformer({}).visit(routine.body)
         body = as_tuple(getter_calls) + as_tuple(body)
 
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
+        # Force all variables to lower-caps, as C/C++ is case-sensitive
+        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
+                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
+        body = SubstituteExpressions(vmap).visit(body)
+
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body, cache=routine._cache)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
 
@@ -255,13 +271,15 @@ class FortranCTransformation(BasicTransformation):
 
         # Resolve implicit struct mappings through "associates"
         assoc_map = {}
+        vmap = {}
         for assoc in FindNodes(Scope).visit(kernel.body):
             invert_assoc = {v: k for k, v in assoc.associations.items()}
             for v in FindVariables(unique=False).visit(kernel.body):
                 if v in invert_assoc:
-                    v.ref = invert_assoc[v].ref
+                    vmap[v] = v.clone(parent=invert_assoc[v].parent)
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
         self._resolve_vector_notation(kernel, **kwargs)
         self._resolve_omni_size_indexing(kernel, **kwargs)

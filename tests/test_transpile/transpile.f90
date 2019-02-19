@@ -77,25 +77,25 @@ subroutine transpile_derived_type(a_struct)
 end subroutine transpile_derived_type
 
 
-subroutine transpile_derived_type_array(a_struct)
-  use transpile_type, only: array_struct
-  implicit none
-     ! real(kind=real64) :: vector(:)
-     ! real(kind=real64) :: matrix(:,:)
-  type(array_struct), intent(inout) :: a_struct
-  integer :: i, j
+! subroutine transpile_derived_type_array(a_struct)
+!   use transpile_type, only: array_struct
+!   implicit none
+!      ! real(kind=real64) :: vector(:)
+!      ! real(kind=real64) :: matrix(:,:)
+!   type(array_struct), intent(inout) :: a_struct
+!   integer :: i, j
 
-  a_struct%scalar = 3.
-  do i=1, 3
-    a_struct%vector(i) = a_struct%scalar + 2.
-  end do
-  do i=1, 3
-    do j=1, 3
-      a_struct%matrix(j,i) = a_struct%vector(i) + 1.
-    end do
-  end do
+!   a_struct%scalar = 3.
+!   do i=1, 3
+!     a_struct%vector(i) = a_struct%scalar + 2.
+!   end do
+!   do i=1, 3
+!     do j=1, 3
+!       a_struct%matrix(j,i) = a_struct%vector(i) + 1.
+!     end do
+!   end do
 
-end subroutine transpile_derived_type_array
+! end subroutine transpile_derived_type_array
 
 
 subroutine transpile_module_variables(a, b, c)

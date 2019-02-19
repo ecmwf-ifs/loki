@@ -1,6 +1,6 @@
 from sympy.printing.ccode import C99CodePrinter
 from functools import partial
-from sympy.codegen.ast import (real, float32, float64)
+from sympy.codegen.ast import (real, float32, float64, Declaration)
 
 from loki.tools import chunks, as_tuple
 from loki.visitors import Visitor, FindNodes
@@ -30,12 +30,9 @@ class CExpressionPrinter(C99CodePrinter):
 
         return output
 
-    def _print_Scalar(self, expr):
-        if expr.parent is None:
-            return super(CExpressionPrinter, self)._print_Symbol(expr)
-        else:
-            # TODO: Words cannot express my disguust here...
-            return '%s->%s' % (expr.parent, expr.name.split('%')[1])
+    def _print_Pointer(self, expr):
+        s = str(expr.symbol)
+        return '*%s' % s
 
 
 def csymgen(expr, assign_to=None, **kwargs):
@@ -156,7 +153,7 @@ class CCodegen(Visitor):
     def visit_TypeDef(self, o):
         self._depth += 1
         decls = self.visit(o.declarations)
-        self._depth += 1
+        self._depth -= 1
         return 'struct %s {\n%s\n} ;' % (o.name, decls)
 
     def visit_Comment(self, o):
@@ -187,14 +184,7 @@ class CCodegen(Visitor):
         if o.target.type.dtype == DataType.FLOAT32:
             type_aliases[real] = float32
 
-        # Collect pointer variables for dereferencing
-        # TODO: Cache sets of symbols on statements
-        dereference = [v for v in FindVariables().visit(o)
-                       if v.type is not None and v.type.pointer]
-
-        stmt = csymgen(expr, assign_to=target,
-                       type_aliases=type_aliases,
-                       dereference=dereference)
+        stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 

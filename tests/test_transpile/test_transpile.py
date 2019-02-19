@@ -163,6 +163,7 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.c == 12.
 
 
+@pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
 def test_transpile_derived_type_array(refpath, reference, builder):
     """
     Tests handling of multi-dimensional arrays and pointers.

@@ -208,7 +208,9 @@ class Scalar(sympy.Symbol, CachedMeta):
         if self.initial and 'initial' not in kwargs:
             kwargs['initial'] = self.initial
 
-        cache = kwargs.pop('cache', None) or self.__class__._cache
+        cache = kwargs.pop('cache', None)
+        if cache is None and hasattr(self.__class__, '_cache'):
+            cache = self.__class__._cache()
         if cache is None:
             return Variable(**kwargs)
         else:
@@ -220,6 +222,12 @@ class Scalar(sympy.Symbol, CachedMeta):
         Internal representation of the declared data type.
         """
         return self._type
+
+    def _ccode(self, printer=None):
+        s = CodePrinter._print_Symbol(printer, self)
+        if self.type is not None and self.type.pointer:
+            s = '*%s' % s
+        return s.replace('%', '->')
 
 
 class Array(sympy.Function, CachedMeta):
@@ -576,11 +584,20 @@ class Cast(sympy.codegen.ast.FunctionCall):
     _sympyrepr = _fcode
     _sympystr = _sympyrepr
 
+    def _ccode(self, printer=None):
+        """
+        Define how we would like to be printed in Fortrano code.
+        """
+        expr = printer._print(self.expression)
+        return '(%s *) %s' % (self.name, expr)
+
 
 class RangeIndex(sympy.Idx):
 
     is_Symbol = True
     is_Function = False
+    is_Scalar = False
+    is_Array = False
 
     @classmethod
     def _label(cls, lower, upper, step):
@@ -638,6 +655,9 @@ class RangeIndex(sympy.Idx):
 
     _sympyrepr = _sympystr
     _fcode = _sympystr
+
+    def _ccode(self, p):
+        return ''
 
     @property
     def lower(self):

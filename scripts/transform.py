@@ -155,8 +155,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         variables = FindVariables(unique=False).visit(routine.body)
         variables = [v for v in variables
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None,
-                           type=None, cache=routine)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)

@@ -157,6 +157,19 @@ class SubstituteExpressions(Transformer):
             variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
         return o._rebuild(variables=variables)
 
+    def visit_Declaration(self, o, **kwargs):
+        with evaluate(False):
+            if o.dimensions is not None:
+                dimensions = tuple(d.xreplace(self.expr_map) for d in o.dimensions)
+            else:
+                dimensions = None
+            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        return o._rebuild(dimensions=dimensions, variables=variables)
+
+    def visit_TypeDef(self, o, **kwargs):
+        declarations = self.visit(o.declarations)
+        return o._rebuild(declarations=declarations)
+
 
 class Expression(object):
     """
