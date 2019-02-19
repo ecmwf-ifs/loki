@@ -7,7 +7,6 @@ from collections import Iterable
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType
-from loki.ir import Statement
 from loki.expression import indexify
 
 __all__ = ['fgen', 'FortranCodegen', 'fsymgen']

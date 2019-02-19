@@ -1,12 +1,11 @@
 from collections import OrderedDict
 
-from loki.frontend import OFP, OMNI
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
-                     CallContext, CommentBlock, Intrinsic)
-from loki.expression import Variable, FindVariables, Array, Scalar, SymbolCache
-from loki.types import BaseType, DerivedType
+                     CallContext, Intrinsic)
+from loki.expression import FindVariables, Array, Scalar, SymbolCache
+from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
 

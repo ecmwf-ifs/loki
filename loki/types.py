@@ -1,5 +1,4 @@
 from enum import IntEnum
-from collections import OrderedDict
 
 __all__ = ['BaseType', 'DerivedType', 'DataType']
 

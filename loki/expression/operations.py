@@ -5,10 +5,6 @@ nevertheless change code results.
 """
 
 from sympy.core import Add, Mul, Pow
-from sympy.core.cache import cacheit
-from sympy.logic.boolalg import as_Boolean
-from sympy.core.basic import as_Basic
-from sympy.core.numbers import One, Zero
 from sympy.core.singleton import S
 
 

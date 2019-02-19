@@ -1,13 +1,12 @@
 import sympy
 import weakref
 from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
-from sympy.logic.boolalg import Boolean, as_Boolean
+from sympy.logic.boolalg import Boolean
 from sympy.codegen.ast import String, Pointer, none
 from sympy.codegen.fnodes import ArrayConstructor
 from sympy.printing.codeprinter import CodePrinter
 from fastcache import clru_cache
 
-from loki.tools import as_tuple
 from loki.types import DataType
 
 
@@ -484,9 +483,9 @@ class Variable(sympy.Function):
         newobj.__init__(*args, **kwargs)
         return newobj
 
-    
+
 class FloatLiteral(sympy.Float):
-    __slots__ = ['_mpf_', '_prec','_type', '_kind']
+    __slots__ = ['_mpf_', '_prec', '_type', '_kind']
 
     def _fcode(self, printer=None):
         printed = CodePrinter._print_Float(printer, self)

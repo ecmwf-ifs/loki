@@ -2,8 +2,7 @@ import open_fortran_parser
 from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
-from itertools import zip_longest
-from sympy import evaluate, Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
+from sympy import Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
 from sympy.core.numbers import NegativeOne
 from sympy.codegen.fnodes import reshape
 
@@ -19,7 +18,7 @@ from loki.expression import (Variable, Literal, RangeIndex,
                              InlineCall, LiteralList, Array)
 from loki.expression.operations import NonCommutativeAdd, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
-from loki.tools import as_tuple, timeit, disk_cached, flatten
+from loki.tools import as_tuple, timeit, disk_cached
 from loki.logging import info, DEBUG
 
 
@@ -52,7 +51,6 @@ class OFP2IR(GenericVisitor):
 
         # Store provided symbol cache for variable generation
         self._cache = cache
-
 
     def Variable(self, *args, **kwargs):
         """
@@ -403,7 +401,7 @@ class OFP2IR(GenericVisitor):
             if vname.upper() == 'RESHAPE':
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
-                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
+                                   'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(name=vname, arguments=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine

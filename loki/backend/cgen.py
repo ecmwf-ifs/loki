@@ -1,13 +1,12 @@
 from sympy.printing.ccode import C99CodePrinter
-from functools import partial
-from sympy.codegen.ast import (real, float32, float64, Declaration)
+from sympy.codegen.ast import real, float32
 from sympy import evaluate
 
-from loki.tools import chunks, as_tuple
+from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes
 from loki.types import DataType, DerivedType
-from loki.ir import TypeDef, Declaration, Import
-from loki.expression import Literal, indexify, FindVariables
+from loki.ir import Import
+from loki.expression import indexify
 
 __all__ = ['cgen', 'CCodegen', 'csymgen']
 
@@ -26,8 +25,8 @@ class CExpressionPrinter(C99CodePrinter):
         --------
         V[x,y,z] -> V[x][y][z]
         """
-        output = self._print(expr.base.label) \
-                 + ''.join(['[' + self._print(x).replace(' ', '') + ']' for x in expr.indices])
+        output = self._print(expr.base.label)
+        output += ''.join('[' + self._print(x).replace(' ', '') + ']' for x in expr.indices)
 
         return output
 
@@ -129,7 +128,7 @@ class CCodegen(Visitor):
         imports += '#include <math.h>\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
 
-        return imports + '\n\n' + header + casts + spec + '\n' +  body + footer
+        return imports + '\n\n' + header + casts + spec + '\n' + body + footer
 
     def visit_Section(self, o):
         return self.visit(o.body) + '\n'
@@ -208,6 +207,7 @@ class CCodegen(Visitor):
 
     def visit_Intrinsic(self, o):
         return o.text
+
 
 def cgen(ir):
     """

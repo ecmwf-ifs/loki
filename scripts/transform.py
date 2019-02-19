@@ -5,14 +5,14 @@ from copy import deepcopy
 from pathlib import Path
 from sympy import evaluate
 
-from loki import (SourceFile, Visitor, ExpressionVisitor, Transformer,
+from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
                   info, as_tuple, Loop,
                   Array, Call, Pragma, BaseType,
-                  DerivedType, Import, RangeIndex, Subroutine,
+                  DerivedType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation,
-                  Frontend, OMNI, OFP, cgen, fgen)
+                  Frontend, OMNI, OFP, fgen)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -239,8 +239,6 @@ class SCATransformation(AbstractTransformation):
         from the given routine.
         """
         size_expressions = target.size_expressions
-        index_expressions = target.index_expressions
-        dim_expressions = size_expressions + index_expressions
 
         # Remove all loops over the target dimensions
         loop_map = OrderedDict()
@@ -567,7 +565,6 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
 
 
-
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
@@ -598,7 +595,6 @@ def transpile(out_path, header, source, driver, xmod, include):
     out_path = Path(out_path)
     source_out = (out_path / routine.name.lower()).with_suffix('.c.F90')
     driver_out = (out_path / driver.name.lower()).with_suffix('.c.F90')
-    c_path = (out_path / ('%s_c' % routine.name.lower())).with_suffix('.c')
 
     # Unroll derived-type arguments into multiple arguments
     # Caller must go first, as it needs info from routine
@@ -784,19 +780,18 @@ class RapsTransformation(BasicTransformation):
                     h_deps.replace(str(ok_path), str(ok_path).replace(original, '%s.%s' % (original, mode)))
                     self.loki_deps.content += [h_deps]
 
-
         # Run through all previous dependencies and inject
         # the transformed object/header names
         for d in self.loki_deps.content:
             # We're depended on by an auto-generated header
-            if isinstance(d, Dependency) and '%s.intfb.ok'%original in str(d.deps):
+            if isinstance(d, Dependency) and '%s.intfb.ok' % original in str(d.deps):
                 intfb = d.find('%s.intfb.ok' % original)
                 if intfb is not None:
                     intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
                     d.replace(intfb, intfb_new)
 
             # We're depended on by an natural header
-            if isinstance(d, Dependency) and '%s.ok'%original in str(d.deps):
+            if isinstance(d, Dependency) and '%s.ok' % original in str(d.deps):
                 intfb = d.find('%s.ok' % original)
                 if intfb is not None:
                     intfb_new = intfb.replace(original, '%s.%s' % (original, mode))

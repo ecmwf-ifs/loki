@@ -1,23 +1,11 @@
-from abc import ABCMeta, abstractproperty
-from collections import Iterable
 from sympy import Expr, evaluate
 
-from loki.visitors import GenericVisitor, Visitor, Transformer
+from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.logging import warning
 from loki.expression.search import retrieve_symbols, retrieve_functions, retrieve_variables
 
-__all__ = ['Expression', 'FindSymbols', 'FindFunctions', 'FindVariables',
-           'SubstituteExpressions', 'ExpressionFinder', 'ExpressionVisitor']
-
-
-class ExpressionVisitor(GenericVisitor):
-
-    def visit_Statement(self, o, **kwargs):
-        return tuple([self.visit(o.target, **kwargs), self.visit(o.expr, **kwargs)])
-
-    def visit_Expression(self, o, **kwargs):
-        return tuple(self.visit(c, **kwargs) for c in o.children)
+__all__ = ['FindSymbols', 'FindFunctions', 'FindVariables',
+           'SubstituteExpressions', 'ExpressionFinder']
 
 
 class ExpressionFinder(Visitor):
@@ -174,45 +162,3 @@ class SubstituteExpressions(Transformer):
     def visit_TypeDef(self, o, **kwargs):
         declarations = self.visit(o.declarations)
         return o._rebuild(declarations=declarations)
-
-
-class Expression(object):
-    """
-    Base class for aithmetic and logical expressions.
-
-    Note: :class:`Expression` objects are not part of the IR hierarchy,
-    because re-building each individual expression tree during
-    :class:`Transformer` passes can quickly become much more costly
-    than re-building the control flow structures.
-    """
-
-    __metaclass__ = ABCMeta
-
-    def __init__(self, source=None):
-        self._source = source
-
-    @abstractproperty
-    def expr(self):
-        """
-        Symbolic representation - might be used in this raw form
-        for code generation.
-        """
-        pass
-
-    @abstractproperty
-    def type(self):
-        """
-        Data type of (sub-)expressions.
-
-        Note, that this is the pure data type (eg. int32, float64),
-        not the full variable declaration type (allocatable, pointer,
-        etc.). This is so that we may reason about it recursively.
-        """
-        pass
-
-    def __repr__(self):
-        return self.expr
-
-    @property
-    def children(self):
-        return ()

@@ -143,7 +143,7 @@ class OMNI2IR(GenericVisitor):
             # This is needed to get the Loki-specific (pragma-driven) dimensions on
             # derived-type components, that are otherwise deferred.
             if _type is not None and self.typedefs is not None:
-                typedef= self.typedefs.get(_type.name.lower(), None)
+                typedef = self.typedefs.get(_type.name.lower(), None)
                 if typedef is not None:
                     _type = DerivedType(name=typedef.name, variables=typedef.variables,
                                         intent=_type.intent, allocatable=_type.allocatable,
@@ -169,7 +169,7 @@ class OMNI2IR(GenericVisitor):
         # Since we create derived type definitions from pre-processed OMNI-AST,
         # we need to prevent accidental variable aliasing between the definitions
         # in the type and the routine. For this, we basically stash the cache here
-        #and re-instate it once we have all type variables.
+        # and re-instate it once we have all type variables.
         previous_cache = self._cache
         self._cache = SymbolCache()
 
@@ -210,7 +210,7 @@ class OMNI2IR(GenericVisitor):
         # Since we create derived type definitions from pre-processed OMNI-AST,
         # we need to prevent accidental variable aliasing between the definitions
         # in the type and the routine. For this, we basically stash the cache here
-        #and re-instate it once we have all type variables.
+        # and re-instate it once we have all type variables.
         previous_cache = self._cache
         self._cache = SymbolCache()
 

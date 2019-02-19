@@ -1,16 +1,16 @@
 from collections import OrderedDict
-from sympy import Idx, evaluate
+from sympy import evaluate
 
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
-from loki.backend import fgen, cgen
+from loki.backend import cgen
 from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
                      TypeDef, Statement, Scope, Loop)
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.types import BaseType, DerivedType, DataType
+from loki.types import BaseType, DerivedType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, ExpressionVisitor, Array, SubstituteExpressions, ExpressionFinder)
+                             Literal, Array, SubstituteExpressions, ExpressionFinder)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -188,7 +188,7 @@ class FortranCTransformation(BasicTransformation):
         # Generate stubs for getter functions
         spec = []
         for decl in FindNodes(Declaration).visit(module.spec):
-            assert len(decl.variables) == 1;
+            assert len(decl.variables) == 1
             v = decl.variables[0]
             # Bail if not a basic type
             if v.type.dtype is None:
@@ -391,7 +391,6 @@ class FortranCTransformation(BasicTransformation):
                     new_dims = as_tuple(d - 1 for d in v.dimensions)
                     vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
 
     def _replace_intrinsics(self, kernel, **kwargs):
         """

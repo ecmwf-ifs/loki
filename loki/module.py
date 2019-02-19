@@ -91,7 +91,7 @@ class Module(object):
                             dims = [d.strip() for d in dims]
                             # Override dimensions (hacky: not transformer-safe!)
                             v._shape = as_tuple(Literal(value=d) if d.isnumeric() else Variable(name=d)
-                                                    for d in dims)
+                                                for d in dims)
 
     @property
     def typedefs(self):

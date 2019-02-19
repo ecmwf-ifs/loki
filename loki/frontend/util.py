@@ -3,8 +3,6 @@ from enum import IntEnum
 
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
-from loki.tools import timeit
-from loki.logging import DEBUG
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'inline_comments', 'cluster_comments', 'inline_pragmas']
 
@@ -108,6 +106,7 @@ def inline_comments(ir):
         mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
         mapper[pair[1]] = None  # Mark for deletion
     return NestedTransformer(mapper).visit(ir)
+
 
 def cluster_comments(ir):
     """
