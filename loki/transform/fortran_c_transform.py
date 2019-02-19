@@ -412,9 +412,13 @@ class FortranCTransformation(BasicTransformation):
         for c in ExpressionFinder(retrieve=retrieve_inlinecall).visit(kernel.body):
             cname = c.name.text.lower()
             if cname in _intrinsic_map:
-                callmap[c] = InlineCall(name=_intrinsic_map[cname],
-                                        arguments=c.arguments, kwarguments=c.kwarguments)
+                if cname == 'epsilon':
+                    callmap[c] = kernel.Variable(name=_intrinsic_map[cname])
+                else:
+                    callmap[c] = InlineCall(name=_intrinsic_map[cname],
+                                            arguments=c.arguments, kwarguments=c.kwarguments)
 
         # Capture nesting by applying map to itself before applying to the kernel
+        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
         callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

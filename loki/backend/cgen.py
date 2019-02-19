@@ -196,7 +196,7 @@ class CCodegen(Visitor):
         if len(bodies) > 1:
             raise NotImplementedError('Multi-body cnoditionals not yet supported')
 
-        cond = csymgen(o.conditions[0])
+        cond = csymgen(indexify(o.conditions[0]))
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + else_branch + '%s}\n' % self.indent

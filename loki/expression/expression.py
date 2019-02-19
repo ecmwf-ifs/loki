@@ -143,7 +143,12 @@ class SubstituteExpressions(Transformer):
         else_body = self.visit(o.else_body)
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
-    # TODO: Add Loops to rebuild expressions in bounds.
+    def visit_Loop(self, o, **kwargs):
+        with evaluate(False):
+            variable = o.variable.xreplace(self.expr_map)
+            bounds = tuple(b if b is None else b.xreplace(self.expr_map) for b in o.bounds)
+            body = self.visit(o.body)
+        return o._rebuild(variable=variable, bounds=bounds, body=body)
 
     def visit_Call(self, o, **kwargs):
         with evaluate(False):

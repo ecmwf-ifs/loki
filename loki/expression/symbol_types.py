@@ -589,7 +589,9 @@ class Cast(sympy.codegen.ast.FunctionCall):
         Define how we would like to be printed in Fortrano code.
         """
         expr = printer._print(self.expression)
-        return '(%s *) %s' % (self.name, expr)
+        # TODO: Until we sort out or types, we simply derive it
+        dtype = DataType.from_type_kind(self.name, self.kind)
+        return '(%s)(%s)' % (dtype.ctype, expr)
 
 
 class RangeIndex(sympy.Idx):
