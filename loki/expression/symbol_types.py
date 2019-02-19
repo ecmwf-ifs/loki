@@ -27,9 +27,11 @@ def _symbol_class(cls, name, parent=None, cache=None):
     # Add the parent-object if it exists (`parent`)
     parent = ('%s%%' % parent) if parent is not None else ''
     name = '%s%s' % (parent, name)
+
+    newcls = type(name, (cls, ), dict(cls.__dict__))
     if cache is not None:
-        cls._cache = weakref.ref(cache)
-    return type(name, (cls, ), dict(cls.__dict__))
+        newcls._cache = weakref.ref(cache)
+    return newcls
 
 
 def indexify(expr, evaluate=True):
@@ -342,6 +344,9 @@ class Array(sympy.Function, CachedMeta):
             kwargs['initial'] = self.initial
 
         cache = kwargs.pop('cache', None)
+        if cache is None and hasattr(self.__class__, '_cache'):
+            cache = self.__class__._cache()
+
         if cache is None:
             return Variable(**kwargs)
         else:

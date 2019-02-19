@@ -155,7 +155,10 @@ class DerivedArgsTransformation(AbstractTransformation):
         variables = FindVariables(unique=False).visit(routine.body)
         variables = [v for v in variables
                      if hasattr(v, 'parent') and str(v.parent).lower() in argnames]
-        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None)
+        # Note: The ``type=None`` prevents this clone from overwriting the type
+        # we just derived above, as it would otherwise use whaterever type we
+        # had derived previously (ie. the pointer type from the struct definition.)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, type=None)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
@@ -273,7 +276,7 @@ class SCATransformation(AbstractTransformation):
                                 if str(s).upper() not in size_expressions)
             new_dims = None if len(new_dims) == 0 else new_dims
             if len(old_shape) != len(new_shape):
-                vmap[v] = v.clone(dimensions=new_dims, shape=new_shape, cache=routine)
+                vmap[v] = v.clone(dimensions=new_dims, shape=new_shape)
 
         # Apply vmap to variable and argument list and subroutine body
         routine.arguments = [vmap.get(v, v) for v in routine.arguments]
@@ -639,12 +642,12 @@ class InferArgShapeTransformation(AbstractTransformation):
                         if all(str(d) == ':' for d in arg.shape):
                             if len(val.shape) == len(arg.shape):
                                 # We're passing the full value array, copy shape
-                                vmap[arg] = arg.clone(shape=val.shape, cache=routine)
+                                vmap[arg] = arg.clone(shape=val.shape)
                             else:
                                 # Passing a sub-array of val, find the right index
                                 new_shape = [s for s, d in zip(val.shape, val.dimensions)
                                              if str(d) == ':']
-                                vmap[arg] = arg.clone(shape=new_shape, cache=routine)
+                                vmap[arg] = arg.clone(shape=new_shape)
 
                 # TODO: The derived call-side dimensions can be undefined in the
                 # called routine, so we need to add them to the call signature.
@@ -659,7 +662,7 @@ class InferArgShapeTransformation(AbstractTransformation):
                 for v in FindVariables().visit(routine.body):
                     if v.name.lower() in vname_map:
                         new_shape = vname_map[v.name.lower()].shape
-                        vmap_body[v] = v.clone(shape=new_shape, cache=routine)
+                        vmap_body[v] = v.clone(shape=new_shape)
                 routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
 
 

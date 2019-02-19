@@ -186,7 +186,7 @@ class CCodegen(Visitor):
             expr = indexify(o.expr)
 
         type_aliases = {}
-        if o.target.type.dtype == DataType.FLOAT32:
+        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
             type_aliases[real] = float32
 
         stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
