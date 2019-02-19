@@ -490,6 +490,9 @@ class FloatLiteral(sympy.Float):
         else:
             return printed
 
+    def _ccode(self, printer=None):
+        return CodePrinter._print_Float(printer, self)
+
 
 class IntLiteral(sympy.Integer):
     __slots__ = ['p', '_type', '_kind']

@@ -1,6 +1,7 @@
 from sympy.printing.ccode import C99CodePrinter
 from functools import partial
 from sympy.codegen.ast import (real, float32, float64, Declaration)
+from sympy import evaluate
 
 from loki.tools import chunks, as_tuple
 from loki.visitors import Visitor, FindNodes
@@ -26,7 +27,7 @@ class CExpressionPrinter(C99CodePrinter):
         V[x,y,z] -> V[x][y][z]
         """
         output = self._print(expr.base.label) \
-                 + ''.join(['[' + self._print(x) + ']' for x in expr.indices])
+                 + ''.join(['[' + self._print(x).replace(' ', '') + ']' for x in expr.indices])
 
         return output
 
@@ -37,6 +38,7 @@ class CExpressionPrinter(C99CodePrinter):
 
 def csymgen(expr, assign_to=None, **kwargs):
     settings = {
+        'order': 'none',
         'contract': False,
     }
     settings.update(**kwargs)
@@ -177,8 +179,11 @@ class CCodegen(Visitor):
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
-        target = indexify(o.target)
-        expr = indexify(o.expr)
+        # Surpress evaluation of expressions to avoid accuracy errors
+        # due to symbolic expression re-writing.
+        with evaluate(False):
+            target = indexify(o.target)
+            expr = indexify(o.expr)
 
         type_aliases = {}
         if o.target.type.dtype == DataType.FLOAT32:

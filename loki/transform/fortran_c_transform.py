@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from sympy import Idx
+from sympy import Idx, evaluate
 
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
@@ -387,8 +387,9 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=True).visit(kernel.body):
             if isinstance(v, Array):
-                new_dims = as_tuple(d - 1 for d in v.dimensions)
-                vmap[v] = v.clone(dimensions=new_dims)
+                with evaluate(False):
+                    new_dims = as_tuple(d - 1 for d in v.dimensions)
+                    vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
 
@@ -412,13 +413,16 @@ class FortranCTransformation(BasicTransformation):
         for c in ExpressionFinder(retrieve=retrieve_inlinecall).visit(kernel.body):
             cname = c.name.text.lower()
             if cname in _intrinsic_map:
-                if cname == 'epsilon':
-                    callmap[c] = kernel.Variable(name=_intrinsic_map[cname])
-                else:
-                    callmap[c] = InlineCall(name=_intrinsic_map[cname],
-                                            arguments=c.arguments, kwarguments=c.kwarguments)
+                with evaluate(False):
+                    if cname == 'epsilon':
+                        callmap[c] = kernel.Variable(name=_intrinsic_map[cname])
+                    else:
+                        callmap[c] = InlineCall(name=_intrinsic_map[cname],
+                                                arguments=c.arguments,
+                                                kwarguments=c.kwarguments)
 
         # Capture nesting by applying map to itself before applying to the kernel
-        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
-        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
+        with evaluate(False):
+            callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
+            callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
