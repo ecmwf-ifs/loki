@@ -22,8 +22,6 @@ to create a Loki-specific virtual environment:
 # Create virtual env
 python3 -m venv loki_env
 source loki_env/bin/activate
-pip install --upgrade pip
-pip install numpy
 
 # Clone and install dev version of Loki
 git clone ssh://git@git.ecmwf.int:7999/~naml/loki.git
@@ -167,6 +165,12 @@ replacement.
           vmap[v] = v.clone(dimensions=v.dimensions[1:])
   routine.body = SubstituteExpressions(vmap).visit(routine.body)
   ```
+
+* SymPy will by default attempt to re-write certain expressions during
+  code generation.  These changes are numerically neutral, but may
+  introduce round-off error in complex expressions. There are a few
+  places in the package and some in the transformation script that
+  suppress this feature (`with evaulate(False):`).
 
 * The treatment of boolean logic in SymPy is fundamentally different
   to numbers, so a variable can either be a boolean or a number. To get
