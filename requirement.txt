@@ -1,7 +1,0 @@
-pytest
-git+https://github.com/mlange05/open-fortran-parser-xml@mlange05.dev
-click
-toml
-networkx
-graphviz
-f90wrap

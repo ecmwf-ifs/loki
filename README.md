@@ -19,7 +19,18 @@ including some dependencies on dev branches. It is therefore recommended
 to create a Loki-specific virtual environment:
 
 ```
-...
+# Create virtual env
+python3 -m venv loki_env
+source loki_env/bin/activate
+pip install --upgrade pip
+pip install numpy
+
+# Clone and install dev version of Loki
+git clone ssh://git@git.ecmwf.int:7999/~naml/loki.git
+cd loki
+pip install numpy  # Needed during next step
+pip install -r requirements.txt
+pip install -e .  # Installs Loki dev copy in editable mode
 ```
 
 ### Core concepts (the philosophical bit)
