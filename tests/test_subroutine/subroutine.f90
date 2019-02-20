@@ -15,6 +15,24 @@ subroutine routine_simple (x, y, scalar, vector, matrix)
 end subroutine routine_simple
 
 
+subroutine routine_simple_caching (x, y, scalar, vector, matrix)
+  ! A simple standard looking routine to test variable caching.
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, parameter :: jpim = selected_int_kind(9)
+  integer, intent(in) :: x, y
+  ! The next two share names with `routine_simple`, but have different
+  ! dimensions or types, so that we can test variable caching.
+  integer(kind=jpim), intent(in) :: scalar
+  integer(kind=jpim), intent(inout) :: vector(y), matrix(x, y)
+  integer :: i
+
+  do i=1, y
+     vector(i) = vector(i) + scalar
+     matrix(:, i) = i * vector(i)
+  end do
+end subroutine routine_simple_caching
+
+
 subroutine routine_multiline_args &
  ! Test multiline dummy arguments with comments
  & (x, y, scalar, &
@@ -93,8 +111,62 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
   allocate(v3(v1))
   v3(v1-v2+1) = 1.
   v4(3:v1,1:v2-3) = 2.
+  v5(:,:) = 3.
 
 end subroutine routine_dim_shapes
+
+
+subroutine routine_typedefs_simple(item)
+  ! simple vector/matrix arithmetic with a derived type
+  ! imported from an external header module
+  use header, only: derived_type
+  implicit none
+
+  type(derived_type), intent(inout) :: item
+  integer :: i, j, n
+
+  n = 3
+  do i=1, n
+    item%vector(i) = item%vector(i) + item%scalar
+  end do
+
+  do j=1, n
+    do i=1, n
+      item%matrix(i, j) = item%matrix(i, j) + item%scalar
+    end do
+  end do
+
+end subroutine routine_typedefs_simple
+
+
+subroutine routine_call_callee(x, y, vector, matrix, another)
+  ! Simple routine to be called from another routine
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y), another(x, y)
+
+  vector(:) = 6.66
+  matrix(:,:) = 9.99
+  another(:,:) = 7.77
+
+end subroutine routine_call_callee
+
+
+subroutine routine_call_caller(x, y, vector, matrix, item)
+  ! Simple routine calling another routine
+  use header, only: derived_type
+  implicit none
+
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  type(derived_type), intent(inout) :: item
+
+  ! To a parser, these arrays look like scalarst!
+  call routine_call_callee(x, y, vector, matrix, item%matrix)
+
+end subroutine routine_call_caller
 
 
 ! TODO: Below are placeholders for more testing

@@ -2,10 +2,15 @@ from subprocess import check_call, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
+from functools import reduce
+import operator
+from sympy import Add, Mul, Pow, Equality, Unequality
+
 
 from loki.frontend.source import Source
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, Operation, InlineCall, RangeIndex, Cast
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, SymbolCache
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType
@@ -13,7 +18,7 @@ from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
 
 
-__all__ = ['preprocess_omni', 'parse_omni', 'convert_omni2ir']
+__all__ = ['preprocess_omni', 'parse_omni_file', 'parse_omni_ast']
 
 
 def preprocess_omni(filename, outname, includes=None):
@@ -39,7 +44,7 @@ def preprocess_omni(filename, outname, includes=None):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni(filename, xmods=None):
+def parse_omni_file(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
     """
@@ -66,12 +71,27 @@ def parse_omni(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, type_map=None, symbol_map=None, raw_source=None):
+    def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
+                 raw_source=None, cache=None):
         super(OMNI2IR, self).__init__()
 
+        self.typedefs = typedefs
         self.type_map = type_map
         self.symbol_map = symbol_map
+        self.shape_map = shape_map
         self.raw_source = raw_source
+
+        # Use provided symbol cache for variable generation
+        self._cache = cache
+
+    def Variable(self, *args, **kwargs):
+        """
+        Instantiate cached variable symbols from local symbol cache.
+        """
+        if self._cache is None:
+            return Variable(*args, **kwargs)
+        else:
+            return self._cache.Variable(*args, **kwargs)
 
     def lookup_method(self, instance):
         """
@@ -83,20 +103,20 @@ class OMNI2IR(GenericVisitor):
         else:
             return super(OMNI2IR, self).lookup_method(instance)
 
-    def visit(self, o):
+    def visit(self, o, **kwargs):
         """
         Generic dispatch method that tries to generate meta-data from source.
         """
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
-        source = Source(lines=(lineno, None), file=file)
-        return super(OMNI2IR, self).visit(o, source=source)
+        source = Source(lines=(lineno, lineno), file=file)
+        return super(OMNI2IR, self).visit(o, source=source, **kwargs)
 
-    def visit_Element(self, o, source=None):
+    def visit_Element(self, o, source=None, **kwargs):
         """
         Universal default for XML element types
         """
-        children = tuple(self.visit(c) for c in o)
+        children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -117,69 +137,104 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
-            type = self.visit(tast)
+            _type = self.visit(tast)
+
+            # Hacky..: Override derived type meta-info with provided ``typedefs``.
+            # This is needed to get the Loki-specific (pragma-driven) dimensions on
+            # derived-type components, that are otherwise deferred.
+            if _type is not None and self.typedefs is not None:
+                typedef = self.typedefs.get(_type.name.lower(), None)
+                if typedef is not None:
+                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
+                                        intent=_type.intent, allocatable=_type.allocatable,
+                                        pointer=_type.pointer, optional=_type.optional,
+                                        parameter=_type.parameter, target=_type.target,
+                                        contiguous=_type.contiguous)
+
+            # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
-            # Flatten trivial dimension to variables (eg. `1:v` - > `v`)
-            dimensions = as_tuple(d.upper if d == d.upper else d for d in dimensions)
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = name.attrib['type']
-            type = BaseType(name=BaseType._omni_types.get(t, t))
+            _type = BaseType(name=BaseType._omni_types.get(t, t))
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
-        variable = Variable(name=name.text, dimensions=dimensions, type=type, initial=value)
-        return Declaration(variables=as_tuple(variable), type=type, source=source)
+        variable = self.Variable(name=name.text, dimensions=dimensions, type=_type,
+                                 shape=dimensions, initial=value)
+        return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
+        # TODO: THIS IS A MASSIVE HACK!
+        # Since we create derived type definitions from pre-processed OMNI-AST,
+        # we need to prevent accidental variable aliasing between the definitions
+        # in the type and the routine. For this, we basically stash the cache here
+        # and re-instate it once we have all type variables.
+        previous_cache = self._cache
+        self._cache = SymbolCache()
+
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
         decls = as_tuple(Declaration(variables=(v, ), type=v.type)
                          for v in derived.variables)
+
+        self._cache = previous_cache
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
         ref = o.attrib.get('ref', None)
         if ref in self.type_map:
-            t = self.visit(self.type_map[ref])
-            name = t.name
-            kind = t.kind
+            _type = self.visit(self.type_map[ref])
         else:
             name = BaseType._omni_types.get(ref, ref)
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-        intent = o.attrib.get('intent', None)
-        allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
-        pointer = o.attrib.get('is_pointer', 'false') == 'true'
-        optional = o.attrib.get('is_optional', 'false') == 'true'
-        parameter = o.attrib.get('is_parameter', 'false') == 'true'
-        target = o.attrib.get('is_target', 'false') == 'true'
-        contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
-        return BaseType(name=name, kind=kind, intent=intent, allocatable=allocatable,
-                        pointer=pointer, optional=optional, parameter=parameter,
-                        target=target, contiguous=contiguous)
+            _type = BaseType(name, kind=kind)
+
+        # OMNI types are build recursively from references (Matroshka-style)
+        _type.intent = o.attrib.get('intent', None)
+        _type.allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
+        _type.pointer = o.attrib.get('is_pointer', 'false') == 'true'
+        _type.optional = o.attrib.get('is_optional', 'false') == 'true'
+        _type.parameter = o.attrib.get('is_parameter', 'false') == 'true'
+        _type.target = o.attrib.get('is_target', 'false') == 'true'
+        _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
+        return _type
 
     def visit_FstructType(self, o, source=None):
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
         variables = []
+
+        # TODO: THIS IS A MASSIVE HACK!
+        # Since we create derived type definitions from pre-processed OMNI-AST,
+        # we need to prevent accidental variable aliasing between the definitions
+        # in the type and the routine. For this, we basically stash the cache here
+        # and re-instate it once we have all type variables.
+        previous_cache = self._cache
+        self._cache = SymbolCache()
+
         for s in o.find('symbols'):
             vname = s.find('name').text
             t = s.attrib['type']
+            dimensions = None
             if t in self.type_map:
                 vtype = self.visit(self.type_map[t])
-                dimensions = [self.visit(d) for d in self.type_map[t]]
+                if len(self.type_map[t]) > 0:
+                    dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
             else:
                 vtype = BaseType(name=BaseType._omni_types.get(t, t))
-                dimensions = None
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype)]
+            variables += [self.Variable(name=vname, dimensions=dimensions,
+                                        shape=dimensions, type=vtype)]
+
+        self._cache = previous_cache
         return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text)
+            associations[var] = self.Variable(name=i.find('name').text)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -206,50 +261,102 @@ class OMNI2IR(GenericVisitor):
         assert (o.find('body') is not None)
         variable = self.visit(o.find('Var'))
         body = self.visit(o.find('body'))
-        bounds = self.visit(o.find('indexRange'))
+        # TODO: What do we do with loop bounds? Tuple or Range?
+        lower = self.visit(o.find('indexRange/lowerBound'))
+        upper = self.visit(o.find('indexRange/upperBound'))
+        step = self.visit(o.find('indexRange/step'))
+        bounds = lower, upper, step
         return Loop(variable=variable, body=body, bounds=bounds)
 
     def visit_FifStatement(self, o, source=None):
-        conditions = as_tuple(self.visit(c) for c in o.findall('condition'))
+        conditions = [self.visit(c) for c in o.findall('condition')]
         bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return Conditional(conditions=conditions, bodies=(bodies, ), else_body=else_body)
+        return Conditional(conditions=as_tuple(conditions),
+                           bodies=(bodies, ), else_body=else_body)
 
-    def visit_FmemberRef(self, o, source=None):
+    def visit_FmemberRef(self, o, lookahead=False, source=None):
+        vname = o.attrib['member']
         t = o.attrib['type']
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
         else:
             vtype = BaseType(name=BaseType._omni_types.get(t, t))
-        var = Variable(name=o.attrib['member'], type=vtype)
-        var.ref = self.visit(o.find('varRef'))
-        return var
+        parent = self.visit(o.find('varRef'))
 
-    def visit_Var(self, o, source=None):
-        return Variable(name=o.text)
+        if lookahead:
+            # Hack: Return components of Variable symbol to allow deferred creation
+            return vname, vtype, parent
+
+        shape = None
+        if parent is not None:
+            # If we have a parent with a type, get the shape info from it
+            if isinstance(parent.type, DerivedType):
+                typevar = [v for v in parent.type.variables
+                           if v.name.lower() == vname.lower()][0]
+                shape = None
+                if typevar.is_Array:
+                    shape = typevar.shape or typevar.dimensions
+
+        return self.Variable(name=vname, type=vtype, parent=parent, shape=shape)
+
+    def visit_Var(self, o, lookahead=False, source=None):
+        vname = o.text
+        t = o.attrib['type']
+        if t in self.type_map:
+            vtype = self.visit(self.type_map[t])
+
+            # Inject derived-type definition override :(
+            if vtype is not None and self.typedefs is not None:
+                typedef = self.typedefs.get(vtype.name.lower(), None)
+                if typedef is not None:
+                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
+                                        intent=vtype.intent, allocatable=vtype.allocatable,
+                                        pointer=vtype.pointer, optional=vtype.optional,
+                                        parameter=vtype.parameter, target=vtype.target,
+                                        contiguous=vtype.contiguous)
+        else:
+            vtype = BaseType(name=BaseType._omni_types.get(t, t))
+
+        if lookahead:
+            return vname, vtype, None
+
+        shape = None
+        if self.shape_map is not None:
+            shape = self.shape_map.get(vname, None)
+        return self.Variable(name=vname, type=vtype, shape=shape)
 
     def visit_FarrayRef(self, o, source=None):
-        v = self.visit(o[0])
-        v.dimensions = as_tuple(self.visit(i) for i in o[1:])
-        return v
+        # Hack: Get variable components here and derive the dimensions
+        # explicitly before constructing our symbolic variable.
+        vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
+        dimensions = as_tuple(self.visit(i) for i in o[1:])
+        shape = self.shape_map.get(vname, None)
+
+        if parent is not None:
+            # If we have a parent with a type, get the shape info from it
+            if isinstance(parent.type, DerivedType):
+                typevar = [v for v in parent.type.variables
+                           if v.name.lower() == vname.lower()][0]
+                shape = typevar.shape or typevar.dimensions
+
+        return self.Variable(name=vname, dimensions=dimensions,
+                             shape=shape, type=vtype, parent=parent)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
 
     def visit_indexRange(self, o, source=None):
-        if 'is_assumed_shape' in o.attrib and o.attrib['is_assumed_shape'] == 'true':
-            return RangeIndex(lower=None, upper=None, step=None)
-        else:
-            lbound = o.find('lowerBound')
-            lower = self.visit(lbound) if lbound is not None else None
-            ubound = o.find('upperBound')
-            upper = self.visit(ubound) if ubound is not None else None
-            st = o.find('step')
-            step = self.visit(st) if st is not None else None
-            return RangeIndex(lower=lower, upper=upper, step=step)
+        lbound = o.find('lowerBound')
+        lower = self.visit(lbound) if lbound is not None else None
+        ubound = o.find('upperBound')
+        upper = self.visit(ubound) if ubound is not None else None
+        st = o.find('step')
+        step = self.visit(st) if st is not None else None
+        return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=o.text, kind=o.attrib.get('kind', None))
+        return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text, type=DataType.BOOL)
@@ -258,7 +365,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value='"%s"' % o.text)
 
     def visit_FintConstant(self, o, source=None):
-        return Literal(value=o.text)
+        return Literal(value=int(o.text))
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
@@ -289,8 +396,8 @@ class OMNI2IR(GenericVisitor):
                 kind = self.visit(args[1])
                 if isinstance(kind, tuple):
                     kind = kind[1]  # Yuckk!
-                btype = BaseType(name=o.find('name').text, kind=kind)
-                return Cast(expr=expr, type=btype)
+                dtype = BaseType(name=o.find('name').text, kind=kind)
+                return Cast(dtype.name, expression=expr, kind=dtype.kind)
             else:
                 return InlineCall(name=name, arguments=args, kwarguments=kwargs)
         else:
@@ -304,9 +411,11 @@ class OMNI2IR(GenericVisitor):
         if o.find('allocOpt') is not None:
             data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
-            v = self.visit(a[0])
-            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
-            variables += [v]
+            vname, vtype, parent = self.visit(a[0], lookahead=True)
+            dimensions = as_tuple(self.visit(i) for i in a[1:])
+            dimensions = None if len(dimensions) == 0 else dimensions
+            variables += [self.Variable(name=vname, dimensions=dimensions,
+                                        type=vtype, parent=parent)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
@@ -314,7 +423,6 @@ class OMNI2IR(GenericVisitor):
         deallocations = []
         for a in allocs:
             v = self.visit(a[0])
-            v.dimensions = as_tuple(self.visit(i) for i in a[1:])
             deallocations += [Deallocation(variable=v)]
         return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
 
@@ -345,6 +453,12 @@ class OMNI2IR(GenericVisitor):
         args = ', '.join('%s' % v for v in values)
         return Intrinsic(text='write(%s) %s' % (nargs, args))
 
+    def visit_FprintStatement(self, o, source):
+        values = [self.visit(v) for v in o.find('valueList')]
+        args = ', '.join('%s' % v for v in values)
+        fmt = o.attrib['format']
+        return Intrinsic(text='print %s, %s' % (fmt, args))
+
     def visit_FformatDecl(self, o, source):
         # Hackery galore; this is wrong on soooo many levels! :(
         lineno = int(o.attrib['lineno'])
@@ -360,68 +474,87 @@ class OMNI2IR(GenericVisitor):
 
     def visit_plusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['+'], operands=exprs)
+        assert len(exprs) == 2
+        return Add(exprs[0], exprs[1], evaluate=False)
 
     def visit_minusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['-'], operands=exprs)
+        assert len(exprs) == 2
+        return Add(exprs[0], Mul(-1, exprs[1], evaluate=False), evaluate=False)
 
     def visit_mulExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['*'], operands=exprs)
+        assert len(exprs) == 2
+        return Mul(exprs[0], exprs[1], evaluate=False)
 
     def visit_divExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['/'], operands=exprs)
+        assert len(exprs) == 2
+        return Mul(exprs[0], Pow(exprs[1], -1, evaluate=False), evaluate=False)
 
     def visit_FpowerExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['**'], operands=exprs)
+        assert len(exprs) == 2
+        return Pow(exprs[0], exprs[1], evaluate=False)
 
     def visit_unaryMinusExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['-'], operands=exprs)
+        assert len(exprs) == 1
+        return Mul(-1, exprs[0], evaluate=False)
 
     def visit_logOrExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.or.'], operands=exprs)
+        return reduce(operator.or_, exprs)
 
     def visit_logAndExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.and.'], operands=exprs)
+        return reduce(operator.and_, exprs)
 
     def visit_logNotExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['.not.'], operands=exprs)
+        assert len(exprs) == 1
+        return operator.invert(exprs[0])
 
     def visit_logLTExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['<'], operands=exprs)
+        return reduce(operator.lt, exprs)
 
     def visit_logLEExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['<='], operands=exprs)
+        return reduce(operator.le, exprs)
 
     def visit_logGTExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['>'], operands=exprs)
+        return reduce(operator.gt, exprs)
 
     def visit_logGEExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['>='], operands=exprs)
+        return reduce(operator.ge, exprs)
 
     def visit_logEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['=='], operands=exprs)
+        assert len(exprs) == 2
+        return Equality(exprs[0], exprs[1], evaluate=False)
 
     def visit_logNEQExpr(self, o, source=None):
         exprs = [self.visit(c) for c in o]
-        return Operation(ops=['/='], operands=exprs)
+        assert len(exprs) == 2
+        return Unequality(exprs[0], exprs[1], evaluate=False)
 
 
-def convert_omni2ir(omni_ast, type_map=None, symbol_map=None, raw_source=None):
+@timeit(log_level=DEBUG)
+def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
+                   raw_source=None, cache=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
-    return OMNI2IR(type_map=type_map, symbol_map=symbol_map,
-                   raw_source=raw_source).visit(omni_ast)
+    # Parse the raw OMNI language AST
+    ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
+                 shape_map=shape_map, raw_source=raw_source, cache=cache).visit(ast)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+
+    return ir

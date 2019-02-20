@@ -22,7 +22,7 @@ class Node(object):
 
     def __new__(cls, *args, **kwargs):
         obj = super(Node, cls).__new__(cls)
-        argnames = inspect.getargspec(cls.__init__).args
+        argnames = inspect.getfullargspec(cls.__init__).args
         obj._args = {k: v for k, v in zip(argnames[1:], args)}
         obj._args.update(kwargs.items())
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
@@ -74,6 +74,9 @@ class Intrinsic(Node):
 
         self.text = text
 
+    def __repr__(self):
+        return 'Intrinsic:: %s' % self.text
+
 
 class Comment(Node):
     """
@@ -83,6 +86,9 @@ class Comment(Node):
         super(Comment, self).__init__(source=source)
 
         self.text = text
+
+    def __repr__(self):
+        return 'Comment:: ... '
 
 
 class CommentBlock(Node):
@@ -94,6 +100,9 @@ class CommentBlock(Node):
         super(CommentBlock, self).__init__(source=source)
 
         self.comments = comments
+
+    def __repr__(self):
+        return 'CommentBlock::'
 
 
 class Pragma(Node):
@@ -209,6 +218,9 @@ class Statement(Node):
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
+    def __repr__(self):
+        return 'Stmt:: %s = %s' % (self.target, self.expr)
+
 
 class MaskedStatement(Node):
     """
@@ -310,6 +322,10 @@ class Import(Node):
         self.symbols = symbols or ()
         self.c_import = c_import
 
+    def __repr__(self):
+        _c = 'C-' if self.c_import else ''
+        return '%sImport:: %s => %s' % (_c, self.module, self.symbols)
+
 
 class Interface(Node):
     """
@@ -407,6 +423,8 @@ class TypeDef(Node):
     """
     Internal representation of derived type definition
     """
+
+    _traversable = ['declarations']
 
     def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None):
         super(TypeDef, self).__init__(source=source)

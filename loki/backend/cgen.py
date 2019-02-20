@@ -1,10 +1,47 @@
-from loki.tools import chunks, as_tuple
+from sympy.printing.ccode import C99CodePrinter
+from sympy.codegen.ast import real, float32
+from sympy import evaluate
+
+from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes
 from loki.types import DataType, DerivedType
-from loki.ir import TypeDef, Declaration, Import
-from loki.expression import Operation, Literal
+from loki.ir import Import
+from loki.expression import indexify
 
-__all__ = ['cgen', 'CCodegen', 'cexprgen', 'CExprCodegen']
+__all__ = ['cgen', 'CCodegen', 'csymgen']
+
+
+class CExpressionPrinter(C99CodePrinter):
+    """
+    Custom CodePrinter extension for forcing our specific flavour
+    of C expression printing.
+    """
+
+    def _print_Indexed(self, expr):
+        """
+        Print an Indexed as a C-like multidimensional array.
+
+        Examples
+        --------
+        V[x,y,z] -> V[x][y][z]
+        """
+        output = self._print(expr.base.label)
+        output += ''.join('[' + self._print(x).replace(' ', '') + ']' for x in expr.indices)
+
+        return output
+
+    def _print_Pointer(self, expr):
+        s = str(expr.symbol)
+        return '*%s' % s
+
+
+def csymgen(expr, assign_to=None, **kwargs):
+    settings = {
+        'order': 'none',
+        'contract': False,
+    }
+    settings.update(**kwargs)
+    return CExpressionPrinter(settings).doprint(expr, assign_to)
 
 
 class CCodegen(Visitor):
@@ -54,7 +91,7 @@ class CCodegen(Visitor):
         aptr = []
         for a in o.arguments:
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
-            if a.dimensions is not None and len(a.dimensions) > 0:
+            if a.is_Array > 0:
                 aptr += ['* restrict v_']
             elif isinstance(a.type, DerivedType):
                 aptr += ['*']
@@ -72,7 +109,7 @@ class CCodegen(Visitor):
         # Generate the array casts for pointer arguments
         casts = '%s/* Array casts for pointer arguments */\n' % self.indent
         for a in o.arguments:
-            if a.dimensions is not None and len(a.dimensions) > 0:
+            if a.is_Array > 0:
                 dtype = self.visit(a.type)
                 # str(d).lower() is a bad hack to ensure caps-alignment
                 outer_dims = ''.join('[%s]' % str(d).lower() for d in a.dimensions[1:])
@@ -91,7 +128,7 @@ class CCodegen(Visitor):
         imports += '#include <math.h>\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
 
-        return imports + '\n\n' + header + casts + spec + '\n' +  body + footer
+        return imports + '\n\n' + header + casts + spec + '\n' + body + footer
 
     def visit_Section(self, o):
         return self.visit(o.body) + '\n'
@@ -102,9 +139,9 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
-        vstr = [cexprgen(v) for v in o.variables]
+        vstr = [csymgen(indexify(v)) for v in o.variables]
         vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
-        vinit = ['' if v.initial is None else (' = %s' % cexprgen(v.initial)) for v in o.variables]
+        vinit = ['' if v.initial is None else (' = %s' % csymgen(v.initial)) for v in o.variables]
         variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
         return self.indent + '%s %s;' % (type, variables) + comment
 
@@ -117,7 +154,7 @@ class CCodegen(Visitor):
     def visit_TypeDef(self, o):
         self._depth += 1
         decls = self.visit(o.declarations)
-        self._depth += 1
+        self._depth -= 1
         return 'struct %s {\n%s\n} ;' % (o.name, decls)
 
     def visit_Comment(self, o):
@@ -132,16 +169,26 @@ class CCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        increment = ('++' if o.bounds.step is None else '+=%s' % o.bounds.step)
-        lvar = cexprgen(o.variable)
-        lower = cexprgen(o.bounds.lower)
-        upper = cexprgen(o.bounds.upper)
-        criteria = '<=' if o.bounds.step is None or eval(str(o.bounds.step)) > 0 else '>='
+        increment = ('++' if o.bounds[2] is None else '+=%s' % o.bounds[2])
+        lvar = csymgen(o.variable)
+        lower = csymgen(o.bounds[0])
+        upper = csymgen(o.bounds[1])
+        criteria = '<=' if o.bounds[2] is None or eval(str(o.bounds[2])) > 0 else '>='
         header = 'for (%s=%s; %s%s%s; %s%s)' % (lvar, lower, lvar, criteria, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
-        stmt = cexprgen(o, linewidth=self.linewidth, indent=self.indent)
+        # Surpress evaluation of expressions to avoid accuracy errors
+        # due to symbolic expression re-writing.
+        with evaluate(False):
+            target = indexify(o.target)
+            expr = indexify(o.expr)
+
+        type_aliases = {}
+        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
+            type_aliases[real] = float32
+
+        stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -153,7 +200,7 @@ class CCodegen(Visitor):
         if len(bodies) > 1:
             raise NotImplementedError('Multi-body cnoditionals not yet supported')
 
-        cond = cexprgen(o.conditions[0], op_spaces=True)
+        cond = csymgen(indexify(o.conditions[0]))
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + else_branch + '%s}\n' % self.indent
@@ -161,161 +208,9 @@ class CCodegen(Visitor):
     def visit_Intrinsic(self, o):
         return o.text
 
+
 def cgen(ir):
     """
     Generate standardized C code from one or many IR objects/trees.
     """
     return CCodegen().visit(ir)
-
-
-class CExprCodegen(Visitor):
-    """
-    Tree visitor to generate a single C assignment expression from a
-    tree of sub-expressions.
-
-    :param linewidth: Maximum width to after which to insert linebreaks.
-    :param op_spaces: Flag indicating whether to use spaces around operators.
-    """
-
-    def __init__(self, linewidth=90, indent='', op_spaces=False, parenthesise=True):
-        super(CExprCodegen, self).__init__()
-        self.linewidth = linewidth
-        self.indent = indent
-        self.op_spaces = op_spaces
-        self.parenthesise = parenthesise
-
-        # We ignore outer indents and count from 0
-        self._width = 0
-
-    def append(self, line, txt):
-        """Insert linebreaks when requested width is hit."""
-        if self._width + len(txt) > self.linewidth:
-            self._width = len(txt)
-            line += '\n%s ' % self.indent + txt
-        else:
-            self._width += len(txt)
-            line += txt
-        return line
-
-    @classmethod
-    def default_retval(cls):
-        return ""
-
-    def visit(self, o, line):
-        """
-        Overriding base `.visit()` to auto-count width and enforce
-        line breaks.
-        """
-        meth = self.lookup_method(o)
-        return meth(o, line)
-
-    def visit_str(self, o, line):
-        return self.append(line, str(o))
-
-    visit_Expression = visit_str
-
-    def visit_Statement(self, o, line):
-        line = self.visit(o.target, line=line)
-        line = self.append(line, ' = ')
-        line = self.visit(o.expr, line=line)
-        line = self.append(line, ';')
-        return line
-
-    def visit_Variable(self, o, line):
-        # Prepend '*' for scalar pointer variables
-        if o.type and o.type.pointer and (o.dimensions is None or len(o.dimensions) == 0):
-            line = self.append(line, '*')
-        if o.ref is not None:
-            # TODO: Super-hacky; we always assume pointer-to-struct arguments
-            line = self.visit(o.ref, line=line)
-            line = self.append(line, '->')
-        line = self.append(line, o.name.lower())
-        if o.dimensions is not None and len(o.dimensions) > 0:
-            for d in o.dimensions:
-                line = self.append(line, '[')
-                line = self.visit(d, line=line)
-                line = self.append(line, ']')
-        return line
-
-    def visit_Operation(self, o, line):
-        ops_map = {
-            '.or.': '||',
-            '.and.': '&&',
-            '.not.': '!'
-        }
-
-        if len(o.ops) == 1 and len(o.operands) == 1:
-            # Special case: a unary operator
-            if o.parenthesis or self.parenthesise:
-                line = self.append(line, '(')
-            op = o.ops[0].lower()
-            op = ops_map[op] if op in ops_map else op
-            line = self.append(line, op)
-            line = self.visit(o.operands[0], line=line)
-            if o.parenthesis or self.parenthesise:
-                line = self.append(line, ')')
-            return line
-
-        if len(o.ops) == 1 and o.ops[0] == '**':
-            # Hacky way of dealing with power operator
-            if len(o.operands) == 2:
-                line = self.append(line, 'pow(')
-                line = self.visit(o.operands[0], line=line)
-                line = self.append(line, ',')
-                line = self.visit(o.operands[1], line=line)
-                line = self.append(line, ')')
-                return line
-            else:
-                raise NotImplementedError('CGen: Power operator with > 2 operands')
-
-        if o.parenthesis or self.parenthesise:
-            line = self.append(line, '(')
-        line = self.visit(o.operands[0], line=line)
-        for op, operand in zip(o.ops, o.operands[1:]):
-            s_op = (' %s ' % op) if self.op_spaces else str(op)
-            s_op = s_op.strip().lower()
-            s_op = ops_map[s_op.lower()] if s_op.lower() in ops_map else s_op
-            line = self.append(line, s_op)
-            line = self.visit(operand, line=line)
-        if o.parenthesis or self.parenthesise:
-            line = self.append(line, ')')
-        return line
-
-    def visit_Literal(self, o, line):
-        if o.type is not None and o.type is DataType.BOOL:
-            bmap = {'.true.': 'true', '.false.': 'false'}
-            value = bmap[o.value.lower()]
-        else:
-            value = o.value
-        return self.append(line, value)
-
-    def visit_InlineCall(self, o, line):
-        # MASSIVE HACK!
-        if o.name.upper() == 'DBL_EPSILON':
-            return self.append(line, o.name)
-
-        line = self.append(line, '%s(' % o.name)
-        if len(o.arguments) > 0:
-            line = self.visit(o.arguments[0], line=line)
-            for arg in o.arguments[1:]:
-                line = self.append(line, ', ')
-                line = self.visit(arg, line=line)
-            for kw, arg in as_tuple(o.kwarguments):
-                line = self.append(line, ', ')
-                line = self.append(line, '%s=' % kw)
-                line = self.visit(arg, line=line)
-        return self.append(line, ')')
-
-    def visit_Cast(self, o, line):
-        line = self.append(line, '(')
-        line = self.visit(o.type.dtype.ctype, line=line)
-        line = self.append(line, ') ')
-        return self.visit(o._expr, line=line)
-
-
-def cexprgen(expr, linewidth=90, indent='', op_spaces=False):
-    """
-    Generate C expression code from a tree of sub-expressions.
-    """
-    return CExprCodegen(linewidth=linewidth, indent=indent,
-                        op_spaces=op_spaces).visit(expr, line='')

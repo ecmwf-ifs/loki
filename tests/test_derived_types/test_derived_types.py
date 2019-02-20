@@ -96,3 +96,34 @@ def test_array_indexing_deferred(refpath, reference, frontend):
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     reference.free_deferred(item)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])
+def test_array_indexing_nested(refpath, reference, frontend):
+    """
+    item%a_vector(:) = 666.
+    item%another_item%a_vector(:) = 999.
+
+    do i=1, 3
+       item%another_item%matrix(:, i) = vals(i)
+    end do
+    """
+    # Test the reference solution
+    item = reference.nested()
+    reference.array_indexing_nested(item)
+    assert (item.a_vector == 666.).all()
+    assert (item.another_item.vector == 999.).all()
+    assert (item.another_item.matrix == np.array([[1., 2., 3.],
+                                                  [1., 2., 3.],
+                                                  [1., 2., 3.]])).all()
+
+    # Test the generated identity
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='array_indexing_nested', frontend=frontend)
+    item = test.nested()
+    getattr(test, 'array_indexing_nested_%s' % frontend)(item)
+    assert (item.a_vector == 666.).all()
+    assert (item.another_item.vector == 999.).all()
+    assert (item.another_item.matrix == np.array([[1., 2., 3.],
+                                                  [1., 2., 3.],
+                                                  [1., 2., 3.]])).all()

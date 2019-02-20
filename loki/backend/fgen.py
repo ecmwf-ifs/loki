@@ -1,8 +1,23 @@
+from sympy import evaluate
+from sympy.printing import fcode
+from sympy.codegen.fnodes import ArrayConstructor, String
+from functools import partial
+from collections import Iterable
+
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
 from loki.types import BaseType
+from loki.expression import indexify
 
-__all__ = ['fgen', 'FortranCodegen', 'fexprgen', 'FExprCodegen']
+__all__ = ['fgen', 'FortranCodegen', 'fsymgen']
+
+
+# TODO: These options should be runtime-configurable
+
+# Note, the 2003 standard will print :class:`sympy.ArrayConstructor`
+# as ``[...]`` rather than ``(/.../)``, which prevents occasional
+# issues with spacing around line continuations.
+fsymgen = partial(fcode, standard=2003, source_format='free', order='none', contract=False)
 
 
 class FortranCodegen(Visitor):
@@ -138,12 +153,12 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s%s' % (o.variable, o.bounds.lower, o.bounds.upper,
-                                  ', %s' % o.bounds.step if o.bounds.step is not None else '')
+        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
+                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
-        condition = fexprgen(o.condition, op_spaces=True)
+        condition = fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
@@ -158,21 +173,22 @@ class FortranCodegen(Visitor):
             self._depth = 0  # Surpress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
-            cond = fexprgen(o.conditions[0], op_spaces=True)
+            cond = fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
         else:
             self._depth += 1
             bodies = [self.visit(b) for b in o.bodies]
             else_body = self.visit(o.else_body)
             self._depth -= 1
-            headers = ['IF (%s) THEN' % fexprgen(c, op_spaces=True) for c in o.conditions]
+            headers = ['IF (%s) THEN' % fsymgen(c) for c in o.conditions]
             main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
             return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
-        expr = fexprgen(o.expr)
-        values = ['DEFAULT' if v is None else '(%s)' % fexprgen(v) for v in o.values]
+        expr = fsymgen(o.expr)
+        values = ['DEFAULT' if v is None else (fsymgen(v) if isinstance(v, tuple) else '(%s)' % fsymgen(v))
+                  for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -182,12 +198,21 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        stmt = fexprgen(o, linewidth=self.linewidth, indent=self.indent)
+        # Surpress evaluation of expressions to avoid accuracy errors
+        # due to symbolic expression re-writing.
+        with evaluate(False):
+            target = indexify(o.target)
+            expr = indexify(o.expr)
+        stmt = fsymgen(expr, assign_to=target)
+        if o.ptr:
+            # Manually force pointer assignment notation
+            # ... Hack me baby, one more time ...
+            stmt = stmt.replace(' = ', ' => ')
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
     def visit_MaskedStatement(self, o):
-        condition = fexprgen(o.condition)
+        condition = fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         default = self.visit(o.default)
@@ -208,7 +233,7 @@ class FortranCodegen(Visitor):
 
     def visit_Call(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple('%s=%s' % (k, v) for k, v in o.kwarguments)
+            kwargs = tuple(String('%s=%s' % (k, v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments
@@ -217,7 +242,7 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth chaeck should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([str(a) for a in args], chunking=3)
+            signature = self.segment([fsymgen(a) for a in args], chunking=3)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in args)
@@ -225,7 +250,8 @@ class FortranCodegen(Visitor):
 
     def visit_Allocation(self, o):
         source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
-        variables = ','.join(str(v) for v in o.variables)
+        variables = ','.join(v.name if isinstance(v, str) else str(v)
+                             for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
@@ -238,14 +264,21 @@ class FortranCodegen(Visitor):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
 
-    def visit_Variable(self, o):
-        if len(o.dimensions) > 0:
-            dims = [str(d) if d is not None else ':' for d in o.dimensions]
-            dims = '(%s)' % ','.join(dims)
+    def visit_Scalar(self, o):
+        if o.initial is not None:
+            if isinstance(o.initial, Iterable):
+                value = ArrayConstructor(elements=o.initial)
+            else:
+                value = o.initial
+            # TODO: This is super-hacky! We need to find
+            # a rigorous way to do this, but various corner
+            # cases around opinter assignments break the
+            # shape verification in sympy.
+            return '%s = %s' % (o, fsymgen(value))
         else:
-            dims = ''
-        initial = '' if o.initial is None else ' = %s' % fexprgen(o.initial)
-        return '%s%s%s' % (o.name, dims, initial)
+            return fsymgen(o)
+
+    visit_Array = visit_Scalar
 
     def visit_BaseType(self, o):
         tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name
@@ -278,137 +311,3 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
-
-
-class FExprCodegen(Visitor):
-    """
-    Tree visitor to generate a single Fortran assignment expression
-    from a tree of sub-expressions.
-
-    :param linewidth: Maximum width to after which to insert linebreaks.
-    :param op_spaces: Flag indicating whether to use spaces around operators.
-    """
-
-    def __init__(self, linewidth=90, indent='', op_spaces=False,
-                 parenthesise=True):
-        super(FExprCodegen, self).__init__()
-        self.linewidth = linewidth
-        self.indent = indent
-        self.op_spaces = op_spaces
-        self.parenthesise = parenthesise
-
-        # We ignore outer indents and count from 0
-        self._width = 0
-
-    def append(self, line, txt):
-        """Insert linebreaks when requested width is hit."""
-        if self._width + len(txt) > self.linewidth:
-            self._width = len(txt)
-            line += '&\n%s& ' % self.indent + txt
-        else:
-            self._width += len(txt)
-            line += txt
-        return line
-
-    @classmethod
-    def default_retval(cls):
-        return ""
-
-    def visit(self, o, line):
-        """
-        Overriding base `.visit()` to auto-count width and enforce
-        line breaks.
-        """
-        meth = self.lookup_method(o)
-        return meth(o, line)
-
-    def visit_str(self, o, line):
-        return self.append(line, str(o))
-
-    visit_Expression = visit_str
-
-    def visit_tuple(self, o, line):
-        for i, e in enumerate(o):
-            line = self.visit(e, line=line)
-            if i < len(o)-1:
-                line = self.append(line, ', ')
-        return line
-
-    visit_list = visit_tuple
-
-    def visit_Variable(self, o, line):
-        if o.ref is not None:
-            line = self.visit(o.ref, line=line)
-            line = self.append(line, '%')
-        line = self.append(line, o.name)
-        if o.dimensions is not None and len(o.dimensions) > 0:
-            line = self.append(line, '(')
-            line = self.visit(o.dimensions, line=line)
-            line = self.append(line, ')')
-        return line
-
-    def visit_Statement(self, o, line):
-        line = self.visit(o.target, line=line)
-        line = self.append(line, ' => ' if o.ptr else ' = ')
-        line = self.visit(o.expr, line=line)
-        return line
-
-    def visit_Operation(self, o, line):
-        if len(o.ops) == 1 and len(o.operands) == 1:
-            # Special case: a unary operator
-            if o.parenthesis or self.parenthesise:
-                line = self.append(line, '(')
-            line = self.append(line, o.ops[0])
-            line = self.visit(o.operands[0], line=line)
-            if o.parenthesis or self.parenthesise:
-                line = self.append(line, ')')
-            return line
-
-        if o.parenthesis or self.parenthesise:
-            line = self.append(line, '(')
-        line = self.visit(o.operands[0], line=line)
-        for op, operand in zip(o.ops, o.operands[1:]):
-            s_op = (' %s ' % op) if self.op_spaces else str(op)
-            line = self.append(line, s_op)
-            line = self.visit(operand, line=line)
-        if o.parenthesis or self.parenthesise:
-            line = self.append(line, ')')
-        return line
-
-    def visit_Literal(self, o, line):
-        value = str(o)
-        return self.append(line, value)
-
-    def visit_LiteralList(self, o, line):
-        line = self.append(line, '(/')
-        line = self.visit(o.values, line=line)
-        line = self.append(line, '/)')
-        return line
-
-    def visit_InlineCall(self, o, line):
-        line = self.append(line, '%s(' % o.name)
-        if len(o.arguments) > 0:
-            line = self.visit(o.arguments[0], line=line)
-            for arg in o.arguments[1:]:
-                line = self.append(line, ', ')
-                line = self.visit(arg, line=line)
-            for kw, arg in as_tuple(o.kwarguments):
-                line = self.append(line, ', ')
-                line = self.append(line, '%s=' % kw)
-                line = self.visit(arg, line=line)
-        return self.append(line, ')')
-
-    def visit_Cast(self, o, line):
-        line = self.append(line, '%s(' % o.type.name)
-        line = self.visit(o._expr, line=line)
-        line = self.append(line, ', kind=')
-        line = self.visit(o.type.kind, line=line)
-        return self.append(line, ')')
-
-
-def fexprgen(expr, linewidth=90, indent='', op_spaces=False, parenthesise=True):
-    """
-    Generate Fortran expression code from a tree of sub-expressions.
-    """
-    return FExprCodegen(linewidth=linewidth, indent=indent, op_spaces=op_spaces,
-                        parenthesise=parenthesise).visit(expr, line='')

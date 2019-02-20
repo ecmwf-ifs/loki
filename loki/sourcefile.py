@@ -10,8 +10,9 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, blacklist, parse_ofp
-from loki.frontend.omni2ir import preprocess_omni, parse_omni
+from loki.frontend import OMNI, OFP, blacklist
+from loki.frontend.omni import preprocess_omni, parse_omni_file
+from loki.frontend.ofp import parse_ofp_file
 
 
 __all__ = ['SourceFile']
@@ -37,16 +38,14 @@ class SourceFile(object):
     def from_file(cls, filename, preprocess=False, typedefs=None,
                   xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
-            return cls.from_omni(filename, typedefs=typedefs,
-                                 xmods=xmods, includes=includes)
+            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, typedefs=None,
-                  xmods=None, includes=None):
+    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None, includes=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
@@ -60,11 +59,11 @@ class SourceFile(object):
             raw_source = f.read()
 
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni(filename=str(pppath), xmods=xmods)
+        ast = parse_omni_file(filename=str(pppath), xmods=xmods)
         typetable = ast.find('typeTable')
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
-        routines = [Subroutine.from_omni(ast=ast, raw_source=raw_source, typedefs=typedefs,
+        routines = [Subroutine.from_omni(ast=ast, typedefs=typedefs, raw_source=raw_source,
                                          typetable=typetable) for ast in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
@@ -91,7 +90,7 @@ class SourceFile(object):
             raw_source = f.read()
 
         # Parse the file content into a Fortran AST
-        ast = parse_ofp(filename=str(file_path))
+        ast = parse_ofp_file(filename=str(file_path))
 
         # Extract subroutines and pre/post sections from file
         pp_info = None
