@@ -105,7 +105,7 @@ class SymbolCache(object):
 
 class CachedMeta(object):
     """
-    Base class for addtiona lmeta-data caching on top of  symbol caching.
+    Base class for addtional meta-data caching on top of symbol caching.
 
     This class provides the mechanism that re-attaches instance variable
     """
@@ -190,7 +190,7 @@ class Scalar(sympy.Symbol, CachedMeta):
 
     def clone(self, **kwargs):
         """
-        Replicate the :class:`Array` variable with the provided overrides.
+        Replicate the :class:`Scalar` variable with the provided overrides.
 
         Note, if :param dimensions: is provided as ``None``, as
         :class:`Scalar` variable will be created.
