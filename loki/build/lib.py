@@ -110,7 +110,7 @@ class Lib(object):
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
         compiler.link(target=target, objs=objs, shared=shared)
 
-    def wrap(self, modname, builder, sources=None):
+    def wrap(self, modname, builder, sources=None, libs=None, lib_dirs=None):
         """
         Wrap the compiled library using ``f90wrap`` and return the loaded module.
 
@@ -128,8 +128,8 @@ class Lib(object):
         wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
         wrappers = [w for w in wrappers if (build_dir/w).exists()]
 
-        libs = [self.name]
-        lib_dirs = [str(build_dir.absolute())]
+        libs = [self.name] + (libs or [])
+        lib_dirs = [str(build_dir.absolute())] + (lib_dirs or [])
         compiler.f2py(modname=modname, source=wrappers,
                       libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
 
