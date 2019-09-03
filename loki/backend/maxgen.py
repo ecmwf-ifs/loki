@@ -252,9 +252,8 @@ class MaxjCCodegen(CCodegen):
 #        arguments += [(a, size_vars[a.name]) for a in p_args if a.type.intent.lower() == 'inout']
         for a in o.arguments:
             if a in p_args and a.type.intent.lower() == 'inout':
-                a_clone = a.clone()
-                a_clone.pointer = None
-                arguments += [a_clone]
+                # TODO: This is not safe! clone() does not make a deepcopy
+                arguments += [a.clone(name='*' + a.name, type=a.type)]
             else:
                 arguments += [a]
         # arguments += [a for a in o.arguments]
@@ -267,7 +266,7 @@ class MaxjCCodegen(CCodegen):
         return super(MaxjCCodegen, self).visit_Subroutine(o)
 
     def visit_Call(self, o):
-        astr = [str(a) for a in o.arguments]
+        astr = [a.name.lower() for a in o.arguments]
         return '%s%s(%s);' % (self.indent, o.name, ', '.join(astr))
 
 

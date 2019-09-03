@@ -6,7 +6,8 @@ from pathlib import Path
 
 from loki import SourceFile, OMNI, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
-from loki.build.max_compiler import compile
+from loki.build.max_compiler import (compile, compile_maxj, compile_max,
+                                     generate_max, get_max_includes)
 
 
 def check_maxeler():
@@ -72,7 +73,7 @@ def refpath():
 @pytest.fixture(scope='module')
 def builder(refpath):
     path = refpath.parent
-    return Builder(source_dirs=path, build_dir=path/'build')
+    return Builder(source_dirs=path, include_dirs=get_max_includes(), build_dir=path/'build')
 
 
 @pytest.fixture(scope='module')
@@ -96,14 +97,22 @@ def max_transpile(routine, refpath, builder, objects=None, wrap=None):
     f2max = FortranMaxTransformation()
     f2max.apply(routine=routine, path=refpath.parent)
 
+    # Generate simulation object file from maxj kernel
+    compile_maxj(src=f2max.maxj_kernel_path.parent, build_dir=builder.build_dir)
+    max_path = generate_max(manager=f2max.maxj_manager_path.stem, maxj_src=f2max.maxj_src,
+                            max_filename=routine.name, build_dir=builder.build_dir,
+                            package=routine.name)
+    max_obj = compile_max(max_path, '%s_max.o' % max_path.stem, build_dir=builder.build_dir)
+    max_include = max_obj.parent / ('%s_MAX5C_DFE_SIM/results' % routine.name)
+
     # Build and wrap the cross-compiled library
-#    objects = (objects or []) + [Obj(source_path=f2max.wrapperpath.name),
-#                                 Obj(source_path=f2max.c_path.name)]
-#    lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
-#    lib.build(builder=builder)
-#
-#    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
-#                    sources=(wrap or []) + [f2max.wrapperpath.name])
+    objects = (objects or []) + [Obj(source_path=f2max.c_path.name),
+                                 Obj(source_path=f2max.wrapperpath.name)]
+    lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
+    lib.build(builder=builder, include_dirs=[max_include], external_objs=[max_obj])
+
+    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
+                    sources=(wrap or []) + [f2max.wrapperpath.name])
 
 
 def test_simulator(simulator):
@@ -178,6 +187,7 @@ def test_routine_axpy(refpath, reference, builder):
     max_kernel = max_transpile(source['routine_axpy'], refpath, builder)
 
 
+@pytest.mark.skip(reason='Loops not yet supported')
 def test_routine_shift(refpath, reference, builder):
 
     # Test the reference solution

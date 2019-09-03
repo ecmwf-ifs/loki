@@ -40,23 +40,23 @@ class FortranMaxTransformation(BasicTransformation):
         elif isinstance(source, Subroutine):
             # Generate maxj kernel that is to be run on the FPGA
             maxj_kernel = self.generate_maxj_kernel(source)
-            target_dir = path / maxj_kernel.name
-            target_dir.mkdir(exist_ok=True)
-            self.maxj_kernel_path = (target_dir / maxj_kernel.name).with_suffix('.maxj')
+            self.maxj_src = path / maxj_kernel.name
+            self.maxj_src.mkdir(exist_ok=True)
+            self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
 
             # Generate matching kernel manager
-            self.maxj_manager_path = Path('%sManager.maxj' % (target_dir / maxj_kernel.name))
+            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
             SourceFile.to_file(source=maxjmanagergen(source), path=self.maxj_manager_path)
 
             # Generate C host code
             c_kernel = self.generate_c_kernel(source)
-            self.c_path = (target_dir / c_kernel.name).with_suffix('.c')
+            self.c_path = (self.maxj_src / c_kernel.name).with_suffix('.c')
             SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
 
             # Generate Fortran wrapper routine
             wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (target_dir / wrapper.name.lower()).with_suffix('.f90')
+            self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
         else:

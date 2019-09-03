@@ -6,8 +6,8 @@ from loki.build.compiler import clean
 from loki.build.tools import as_tuple, delete, execute, flatten
 
 
-__all__ = ['clean_max', 'compile', 'compile_c',
-           'compile_maxj', 'generate_max', 'link_obj']
+__all__ = ['clean_max', 'compile', 'compile_c', 'compile_maxj',
+           'generate_max', 'get_max_includes', 'link_obj']
 
 
 def get_classpath():
@@ -19,17 +19,17 @@ def get_classpath():
     return ':'.join([str(p) for p in classpath])
 
 
-def get_includes():
+def get_max_includes():
     """
     Build the includes for Maxeler tools from the environment.
     """
     incdirs = [Path(environ['MAXCOMPILERDIR']) / 'include']
     incdirs += [Path(environ['MAXCOMPILERDIR']) / 'include' / 'slic']
     incdirs += [Path(environ['MAXELEROSDIR']) / 'include']
-    return flatten([('-I', str(inc)) for inc in incdirs])
+    return incdirs
 
 
-def get_libs():
+def get_max_libs():
     """
     Build the library includes and links for Maxeler tools from the environment.
     """
@@ -136,9 +136,8 @@ def compile_c(src, build_dir, include_dirs=None):
     src = src.glob('*.c') if src.is_dir() else [src]
 
     build = ['gcc', '-c', '-fPIC', '-std=c99', '-O0', '-Wall', '-Wextra']
-    build += get_includes()
-    if include_dirs is not None:
-        build += flatten([('-I', str(inc)) for inc in include_dirs])
+    include_dirs = (include_dirs or []) + get_max_includes()
+    build += flatten([('-I', str(inc)) for inc in include_dirs])
     build += [str(s) for s in src]
     execute(build, cwd=build_dir)
 
@@ -157,7 +156,7 @@ def link_obj(objs, target, build_dir):
     build = ['gcc']
     if Path(target).suffix == '.so':
         build += ['-shared'] 
-    build += ['-o', str(target)] + list(objs) + get_libs()
+    build += ['-o', str(target)] + list(objs) + get_max_libs()
     execute(build, cwd=build_dir)
 
 
