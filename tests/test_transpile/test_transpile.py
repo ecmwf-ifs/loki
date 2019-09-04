@@ -43,8 +43,8 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
     f2c.apply(routine=routine, path=refpath.parent)
 
     # Build and wrap the cross-compiled library
-    objects = (objects or []) + [Obj(source_path=f2c.wrapperpath.name),
-                                 Obj(source_path=f2c.c_path.name)]
+    objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
+                                 Obj(source_path=f2c.c_path)]
     lib = Lib(name='fc_%s' % routine.name, objs=objects, shared=False)
     lib.build(builder=builder)
 
@@ -220,8 +220,8 @@ def test_transpile_module_variables(refpath, reference, builder):
 
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,
-                           objects=[Obj(source_path='transpile_type.f90'),
-                                    Obj(source_path='transpile_type_fc.f90')],
+                           objects=[Obj(source_path=refpath.parent / 'transpile_type.f90'),
+                                    Obj(source_path=refpath.parent / 'transpile_type_fc.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
     c_kernel.transpile_type.param1 = 2
