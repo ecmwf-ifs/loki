@@ -38,26 +38,27 @@ class FortranMaxTransformation(BasicTransformation):
             raise NotImplementedError('Module translation not yet done')
 
         elif isinstance(source, Subroutine):
-            # Generate maxj kernel that is to be run on the FPGA
-            maxj_kernel = self.generate_maxj_kernel(source)
-            self.maxj_src = path / maxj_kernel.name
+            self.maxj_src = path / source.name
             self.maxj_src.mkdir(exist_ok=True)
-            self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
-            SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
 
-            # Generate matching kernel manager
-            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
-            SourceFile.to_file(source=maxjmanagergen(source), path=self.maxj_manager_path)
+            # Generate Fortran wrapper routine
+            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
+            self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
+            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
             # Generate C host code
             c_kernel = self.generate_c_kernel(source)
             self.c_path = (self.maxj_src / c_kernel.name).with_suffix('.c')
             SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
 
-            # Generate Fortran wrapper routine
-            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+            # Generate maxj kernel that is to be run on the FPGA
+            maxj_kernel = self.generate_maxj_kernel(source)
+            self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
+            SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
+
+            # Generate matching kernel manager
+            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
+            SourceFile.to_file(source=maxjmanagergen(source), path=self.maxj_manager_path)
 
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
@@ -114,17 +115,6 @@ class FortranMaxTransformation(BasicTransformation):
                     v._type = arg_map[v.name].type
 
         self._resolve_vector_notation(kernel, **kwargs)
-
-        # TODO: This is NOT how you do it! This is silly!
-        # (But it might work for the very first kernel...)
-#        vmap = {}
-#        for stmt in FindNodes(Statement).visit(kernel.body):
-#            for v in FindNodes(Variable).visit(stmt):
-#                if not isinstance(v, Array):
-#                    continue
-#                vmap[v] = v.clone(dimensions=(1,))
-#        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
         self._resolve_omni_size_indexing(kernel, **kwargs)
 
         return kernel
@@ -272,7 +262,7 @@ class FortranMaxTransformation(BasicTransformation):
         wrapper_body = casts_in
         wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
-        wrapper = Subroutine(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body)
+        wrapper = Subroutine(name='%s_fmax' % routine.name, spec=wrapper_spec, body=wrapper_body)
 
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]

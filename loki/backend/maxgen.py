@@ -241,7 +241,7 @@ class MaxjCCodegen(CCodegen):
             stmts += [Statement(target=size_vars[v.name], expr=expr)]
 
         # Add variable for ticks
-        ticks_argument = Variable(name='ticks', type=size_t_type, initial=100)
+        ticks_argument = Variable(name='ticks', type=size_t_type, initial=10000)
         o.variables = [ticks_argument] + o.variables
 #        stmts += [Statement(target=ticks_argument, expr=100)]
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 from loki import SourceFile, OMNI, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
-from loki.build.max_compiler import (compile, compile_maxj, compile_max,
-                                     generate_max, get_max_includes)
+from loki.build.max_compiler import (compile, compile_maxj, compile_max, generate_max,
+                                     get_max_includes, get_max_libs, get_max_libdirs)
 
 
 def check_maxeler():
@@ -111,8 +111,10 @@ def max_transpile(routine, refpath, builder, objects=None, wrap=None):
     lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
     lib.build(builder=builder, include_dirs=[max_include], external_objs=[max_obj])
 
+    # maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
     return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
-                    sources=(wrap or []) + [f2max.wrapperpath.name])
+                    sources=(wrap or []) + [f2max.wrapperpath.name],
+                    libs=get_max_libs(), lib_dirs=get_max_libdirs())
 
 
 def test_simulator(simulator):
@@ -173,7 +175,7 @@ def test_passthrough_ctypes(simulator, build_dir, refpath):
     assert list(data_in) == list(data_out)
 
 
-def test_routine_axpy(refpath, reference, builder):
+def test_routine_axpy(refpath, reference, builder, simulator):
 
     # Test the reference solution
     a = -3.
@@ -182,9 +184,24 @@ def test_routine_axpy(refpath, reference, builder):
     reference.routine_axpy(a=a, x=x, y=y)
     assert np.all(a * 2. + y == x)
 
-    # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_axpy'], refpath, builder)
+    simulator.restart()
+    # TODO: For some reason we have to generate and run the kernel twice in the same instance of
+    # the simulator to actually get any results other than 0. Probably doing something wrong with
+    # the Maxeler language...
+    for _ in range(2):
+        # Generate the transpiled kernel
+        source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+        max_kernel = max_transpile(source['routine_axpy'], refpath, builder)
+
+        # Test the transpiled kernel
+        a = -3.
+        x = np.zeros(shape=(1,), order='F') + 2.
+        y = np.zeros(shape=(1,), order='F') + 10.
+        max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax(a, x, y)
+        print(x)
+    simulator.stop()
+#    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)
+    assert np.all(a * 2. + y == x)
 
 
 @pytest.mark.skip(reason='Loops not yet supported')
