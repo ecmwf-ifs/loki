@@ -9,6 +9,15 @@ subroutine routine_axpy(a, x, y)
   x = a * x + y
 end subroutine routine_axpy
 
+subroutine routine_copy(x, y)
+  ! A simple routine that copies the value of x to y 
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: x
+  real(kind=jprb), intent(out) :: y
+
+  y = x
+end subroutine routine_copy
+
 subroutine routine_shift(length, scalar, vector_in, vector_out)
   ! A simple standard looking routine to test argument declarations
   ! and generator toolchain
