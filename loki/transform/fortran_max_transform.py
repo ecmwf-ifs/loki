@@ -79,10 +79,14 @@ class FortranMaxTransformation(BasicTransformation):
             self.c_path = (self.maxj_src / c_kernel.name).with_suffix('.c')
             SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
 
-            # Generate Fortran wrapper routine
-            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+            # Generate maxj kernel that is to be run on the FPGA
+            maxj_kernel = self.generate_maxj_kernel(source)
+            self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
+            SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
+
+            # Generate matching kernel manager
+            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
+            SourceFile.to_file(source=maxjmanagergen(source), path=self.maxj_manager_path)
 
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
