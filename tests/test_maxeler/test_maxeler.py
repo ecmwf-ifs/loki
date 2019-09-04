@@ -107,8 +107,7 @@ def max_transpile(routine, refpath, builder, objects=None, wrap=None):
     max_include = max_obj.parent / ('%s_MAX5C_DFE_SIM/results' % routine.name)
 
     # Build and wrap the cross-compiled library
-    objects = (objects or []) + [Obj(source_path=f2max.c_path.name),
-                                 Obj(source_path=f2max.wrapperpath.name)]
+    objects = (objects or []) + [Obj(source_path=f2max.c_path), Obj(source_path=f2max.wrapperpath)]
     lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
     lib.build(builder=builder, include_dirs=[max_include], external_objs=[max_obj])
 
@@ -199,7 +198,6 @@ def test_routine_axpy(refpath, reference, builder, simulator):
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
         max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax(a, x, y)
-        print(x)
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)
     assert np.all(a * 2. + y == x)

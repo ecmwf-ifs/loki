@@ -174,16 +174,23 @@ class MaxjManagerCodegen(object):
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;\n'
         imports += 'import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;\n'
         imports += 'import com.maxeler.platform.max5.manager.MAX5CManager;\n'
+        imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;\n'
+        imports += '\n'
 
         header = 'public class %sManager extends MAX5CManager {\n\n' % o.name
         self._depth += 1
+        header += self.indent + 'public static final String kernelName = "%sKernel";\n\n' % o.name
         header += self.indent + 'public %sManager(EngineParameters params) {\n' % o.name
         self._depth += 1
 
         body = [self.indent + 'super(params);\n']
-        body += ['Kernel kernel = new %sKernel(makeKernelParameters("%sKernel"));\n'
-                 % (o.name, o.name)]
+        body += ['Kernel kernel = new %sKernel(makeKernelParameters(kernelName));\n' % o.name]
         body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
+
+        # Specify default values for interface parameters
+        body += ['\n']
+        body += ['EngineInterface ei = new EngineInterface("kernel");\n']
+        body += ['ei.setTicks(kernelName, 1000);\n'] # TODO: Put a useful value here!
 
         # Insert in/out streams
         in_vars = []
@@ -191,13 +198,16 @@ class MaxjManagerCodegen(object):
         # TODO: Add support for streams
 #        in_vars = [v for v in o.arguments
 #                   if v.type.intent.lower() in ('in', 'inout') and (v.type.pointer or v.type.allocatable)]
-        body += ['kernelBlock.getInput("%s_in") <== addStreamFromCPU("%s_in");\n' % (v.name, v.name)
+        body += ['\n']
+        body += ['kernelBlock.getInput("{0}_in") <== addStreamFromCPU("{0}_in");\n'.format(v.name)
                  for v in in_vars]
 #        out_vars = [v for v in o.arguments
 #                    if v.type.intent.lower() in ('out', 'inout') and (v.type.pointer or v.type.allocatable)]
-        body += ['addStreamToCPU("%s_out") <== kernelBlock.getOutput("%s_out");\n' % (v.name, v.name)
+        body += ['addStreamToCPU("{0}_out") <== kernelBlock.getOutput("{0}_out");\n'.format(v.name)
                  for v in out_vars]
 
+        body += ['\n']
+        body += ['createSLiCinterface(ei);\n']
         body = self.indent.join(body)
 
         self._depth -= 1
@@ -241,12 +251,11 @@ class MaxjCCodegen(CCodegen):
             stmts += [Statement(target=size_vars[v.name], expr=expr)]
 
         # Add variable for ticks
-        ticks_argument = Variable(name='ticks', type=size_t_type, initial=10000)
-        o.variables = [ticks_argument] + o.variables
-#        stmts += [Statement(target=ticks_argument, expr=100)]
+        #ticks_argument = Variable(name='ticks', type=size_t_type, initial=10000)
+        #o.variables = [ticks_argument] + o.variables
 
         # Create signature for call to maxj kernel and insert byte size arguments
-        arguments = [ticks_argument]
+        arguments = [] # [ticks_argument]
         # TODO: Add support for streams
 #        arguments = [(a, size_vars[a.name]) if a in p_args else (a,) for a in o.arguments]
 #        arguments += [(a, size_vars[a.name]) for a in p_args if a.type.intent.lower() == 'inout']
@@ -258,7 +267,7 @@ class MaxjCCodegen(CCodegen):
                 arguments += [a]
         # arguments += [a for a in o.arguments]
         arguments += [a for a in p_args if a.type.intent.lower() == 'inout']
-        call_name = o.name[:-2] if o.name[-2:] == '_c' else o.name
+        call_name = (o.name[:-2] if o.name[-2:] == '_c' else o.name) + '_kernel'
         call = Call(name=call_name, arguments=flatten(arguments))
 
         # Replace body and parse this subroutine using the original visitor
