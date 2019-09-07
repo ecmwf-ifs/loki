@@ -119,6 +119,17 @@ class DataType(IntEnum):
         }
         return map.get(self, None)
 
+    @property
+    def jtype(self):
+        """
+        String representing the Java equivalent of this data type.
+        """
+        map = {
+            self.BOOL: 'boolean', self.INT32: 'int',
+            self.FLOAT32: 'float', self.FLOAT64: 'double',
+        }
+        return map.get(self, None)
+
 
 class SymbolType:
     """
