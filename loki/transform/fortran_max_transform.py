@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from pathlib import Path
+from sympy import evaluate
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
@@ -57,11 +58,30 @@ class FortranMaxTransformation(BasicTransformation):
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
 
             # Generate matching kernel manager
+            maxj_manager = self.generate_maxj_manager(source)
             self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
-            SourceFile.to_file(source=maxjmanagergen(source), path=self.maxj_manager_path)
+            SourceFile.to_file(source=maxjmanagergen(maxj_manager), path=self.maxj_manager_path)
 
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
+
+    def generate_maxj_manager(self, routine, **kwargs):
+        # Replicate the kernel to strip the Fortran-specific boilerplate
+        spec = Section()
+        body = as_tuple(Transformer({}).visit(routine.body))
+
+        # Force all variables to lower-case, as Java is case-sensitive
+        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
+                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
+        body = SubstituteExpressions(vmap).visit(body)
+
+        kernel = Subroutine(name=routine.name, spec=spec, body=body, cache=routine._cache)
+        kernel.arguments = routine.arguments
+        kernel.variables = routine.variables
+
+        self._resolve_omni_size_indexing(kernel, **kwargs)
+
+        return kernel
 
     def generate_maxj_kernel(self, routine, **kwargs):
         # Change imports to C header includes
@@ -116,6 +136,11 @@ class FortranMaxTransformation(BasicTransformation):
 
         self._resolve_vector_notation(kernel, **kwargs)
         self._resolve_omni_size_indexing(kernel, **kwargs)
+
+        # TODO: Resolve reductions (eg. SUM(myvar(:)))
+#        self._invert_array_indices(kernel, **kwargs)
+        self._shift_to_zero_indexing(kernel, **kwargs)
+#        self._replace_intrinsics(kernel, **kwargs)
 
         return kernel
 
@@ -195,7 +220,7 @@ class FortranMaxTransformation(BasicTransformation):
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
 #        self._invert_array_indices(kernel, **kwargs)
-#        self._shift_to_zero_indexing(kernel, **kwargs)
+        self._shift_to_zero_indexing(kernel, **kwargs)
 #        self._replace_intrinsics(kernel, **kwargs)
 
         return kernel
@@ -335,3 +360,15 @@ class FortranMaxTransformation(BasicTransformation):
                 vmap[v] = v.clone(dimensions=new_dims)
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+
+    def _shift_to_zero_indexing(self, kernel, **kwargs):
+        """
+        Shift each array indices to adjust to Java indexing conventions
+        """
+        vmap = {}
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if isinstance(v, Array):
+                with evaluate(False):
+                    new_dims = as_tuple(d - 1 for d in v.dimensions)
+                    vmap[v] = v.clone(dimensions=new_dims)
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)

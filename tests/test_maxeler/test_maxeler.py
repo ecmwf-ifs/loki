@@ -198,6 +198,7 @@ def test_routine_axpy(refpath, reference, builder, simulator):
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
         max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax(a, x, y)
+        print(x)
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)
     assert np.all(a * 2. + y == x)
@@ -219,12 +220,43 @@ def test_routine_copy(refpath, reference, builder, simulator):
         # Test the transpiled kernel
         x = np.zeros(1) + 2.
         y = max_kernel.routine_copy_fmax_mod.routine_copy_fmax(x)
+        print(y)
 
     simulator.stop()
     assert np.all(y == x)
 
 
-@pytest.mark.skip(reason='Loops not yet supported')
+def test_routine_fixed_loop(refpath, reference, builder, simulator):
+
+    # Test the reference solution
+    n, m = 6, 4
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    # tensor = np.zeros(shape=(n, m), order='F') + 4.
+    reference.routine_fixed_loop(scalar, vector, vector)  # , tensor)
+    assert np.all(vector == 8.)
+    # assert np.all(tensor == [[11., 21., 31., 41.],
+    #                          [12., 22., 32., 42.],
+    #                          [13., 23., 33., 43.]])
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder)
+
+    # Test the transpiled kernel
+    n, m = 6, 4
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    # tensor = np.zeros(shape=(n, m), order='F') + 4.
+    function = max_kernel.routine_fixed_loop_fmax_mod.routine_fixed_loop_fmax
+    simulator.call(function, scalar, vector, vector)  # , tensor)
+    assert np.all(vector == 8.)
+    # assert np.all(tensor == [[11., 21., 31., 41.],
+    #                          [12., 22., 32., 42.],
+    #                          [13., 23., 33., 43.]])
+
+
+@pytest.mark.skip(reason='Dynamic loop lengths not yet supported')
 def test_routine_shift(refpath, reference, builder):
 
     # Test the reference solution
