@@ -120,6 +120,17 @@ class DataType(IntEnum):
         return map.get(self, None)
 
     @property
+    def maxjManagertype(self):
+        """
+        String representing the MaxJ equivalent of this data type in the Manager.
+        """
+        map = {
+            self.INT32: 'CPUTypes.INT32',
+            self.FLOAT32: 'CPUTypes.FLOAT', self.FLOAT64: 'CPUTypes.DOUBLE',
+        }
+        return map.get(self, None)
+
+    @property
     def jtype(self):
         """
         String representing the Java equivalent of this data type.
