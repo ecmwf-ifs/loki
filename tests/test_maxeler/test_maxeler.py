@@ -52,9 +52,9 @@ def simulator():
             execute(cmd)
             self.stop()
 
-        def call(self, fn, *args):
+        def call(self, fn, *args, **kwargs):
             self.restart()
-            ret = fn(*args)
+            ret = fn(*args, **kwargs)
             self.stop()
             return ret
 
@@ -197,7 +197,7 @@ def test_routine_axpy(refpath, reference, builder, simulator):
         a = -3.
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
-        max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax(a, x, y)
+        max_kernel.routine_axpy_c_fmax_mod.routine_axpy_c_fmax(1, a, x, y)
         print(x)
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)
@@ -219,7 +219,7 @@ def test_routine_copy(refpath, reference, builder, simulator):
 
         # Test the transpiled kernel
         x = np.zeros(1) + 2.
-        y = max_kernel.routine_copy_fmax_mod.routine_copy_fmax(x)
+        y = max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax(1, x)
         print(y)
 
     simulator.stop()
@@ -232,8 +232,8 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
     n, m = 6, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
-    # tensor = np.zeros(shape=(n, m), order='F') + 4.
-    reference.routine_fixed_loop(scalar, vector, vector)  # , tensor)
+    tensor = np.zeros(shape=(n, m), order='F') + 4.
+    reference.routine_fixed_loop(scalar, vector, vector, tensor)
     assert np.all(vector == 8.)
     # assert np.all(tensor == [[11., 21., 31., 41.],
     #                          [12., 22., 32., 42.],
@@ -244,12 +244,12 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
     max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder)
 
     # Test the transpiled kernel
-    n, m = 6, 4
+    n, m = 6, 1
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
-    # tensor = np.zeros(shape=(n, m), order='F') + 4.
-    function = max_kernel.routine_fixed_loop_fmax_mod.routine_fixed_loop_fmax
-    simulator.call(function, scalar, vector, vector)  # , tensor)
+    tensor = np.zeros(shape=(n, m), order='C') + 4.
+    function = max_kernel.routine_fixed_loop_c_fmax_mod.routine_fixed_loop_c_fmax
+    simulator.call(function, 1, scalar, vector, n * 8, vector, n * 8, tensor, n * m * 8)
     assert np.all(vector == 8.)
     # assert np.all(tensor == [[11., 21., 31., 41.],
     #                          [12., 22., 32., 42.],

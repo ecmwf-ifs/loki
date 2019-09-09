@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from pathlib import Path
-from sympy import evaluate
+from sympy import evaluate, Mul
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
@@ -10,7 +10,7 @@ from loki.ir import Call, Import, Interface, Intrinsic, Loop, Section, Statement
 from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.subroutine import Subroutine
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 from loki.types import BaseType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
@@ -43,14 +43,15 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_src.mkdir(exist_ok=True)
 
             # Generate Fortran wrapper routine
-            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
+            host_interface = self.generate_host_interface(source)
+            wrapper = self.generate_iso_c_wrapper_routine(host_interface, c_structs)
             self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
 
             # Generate C host code
-            c_kernel = self.generate_c_kernel(source)
-            self.c_path = (self.maxj_src / c_kernel.name).with_suffix('.c')
-            SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
+            c_interface = self.generate_c_interface_routine(host_interface)
+            self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
+            SourceFile.to_file(source=maxjcgen(c_interface), path=self.c_path)
 
             # Generate maxj kernel that is to be run on the FPGA
             maxj_kernel = self.generate_maxj_kernel(source)
@@ -67,7 +68,7 @@ class FortranMaxTransformation(BasicTransformation):
 
     def generate_maxj_manager(self, routine, **kwargs):
         # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section()
+        spec = Section(body=[])
         body = as_tuple(Transformer({}).visit(routine.body))
 
         # Force all variables to lower-case, as Java is case-sensitive
@@ -84,33 +85,10 @@ class FortranMaxTransformation(BasicTransformation):
         return kernel
 
     def generate_maxj_kernel(self, routine, **kwargs):
-        # Change imports to C header includes
-        imports = []
-        getter_calls = []
-#        header_map = {m.name.lower(): m for m in as_tuple(self.header_modules)}
-#        for imp in FindNodes(Import).visit(routine.spec):
-#            if imp.module.lower() in header_map:
-#                # Create a C-header import
-#                imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
-#
-#                # For imported modulevariables, create a declaration and call the getter
-#                module = header_map[imp.module]
-#                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
-#                mod_vars = {v.name.lower(): v for v in mod_vars}
-#
-#                for s in imp.symbols:
-#                    if s.lower() in mod_vars:
-#                        var = mod_vars[s.lower()]
-#
-#                        decl = Declaration(variables=[var], type=var.type)
-#                        getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-#                        vget = Statement(target=var, expr=InlineCall(name=getter, arguments=()))
-#                        getter_calls += [decl, vget]
-
         # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=imports)
+        spec = Section(body=[])
         body = Transformer({}).visit(routine.body)
-        body = as_tuple(getter_calls) + as_tuple(body)
+        body = as_tuple(body)
 
         # Force all variables to lower-case, as Java is case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
@@ -125,6 +103,7 @@ class FortranMaxTransformation(BasicTransformation):
         for arg in kernel.arguments:
             if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
                 arg.type.pointer = True
+
         # Propagate that reference pointer to all variables
         arg_map = {a.name: a for a in kernel.arguments}
         for v in FindVariables(unique=False).visit(kernel.body):
@@ -144,86 +123,71 @@ class FortranMaxTransformation(BasicTransformation):
 
         return kernel
 
-    def generate_c_kernel(self, routine, **kwargs):
+    def generate_host_interface(self, routine, **kwargs):
         """
-        Re-generate the C kernel and insert wrapper-specific peculiarities,
-        such as the explicit getter calls for imported module-level variables.
+        Generate the necessary call for the host interface.
         """
-
-        # Change imports to C header includes
-        imports = []
-        getter_calls = []
-#        header_map = {m.name.lower(): m for m in as_tuple(self.header_modules)}
-#        for imp in FindNodes(Import).visit(routine.spec):
-#            if imp.module.lower() in header_map:
-#                # Create a C-header import
-#                imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
-#
-#                # For imported modulevariables, create a declaration and call the getter
-#                module = header_map[imp.module]
-#                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
-#                mod_vars = {v.name.lower(): v for v in mod_vars}
-#
-#                for s in imp.symbols:
-#                    if s.lower() in mod_vars:
-#                        var = mod_vars[s.lower()]
-#
-#                        decl = Declaration(variables=[var], type=var.type)
-#                        getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-#                        vget = Statement(target=var, expr=InlineCall(name=getter, arguments=()))
-#                        getter_calls += [decl, vget]
-
-        # Add import of kernel header
-        imports += [Import(module='%s.h' % routine.name, c_import=True)]
-
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=imports)
-        body = Transformer({}).visit(routine.body)
-        body = as_tuple(getter_calls) + as_tuple(body)
-
-        # Force all variables to lower-caps, as C/C++ is case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
-        body = SubstituteExpressions(vmap).visit(body)
-
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body, cache=routine._cache)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+        # The arguments for the host interface subroutine are the same as for the original kernel
+        # plus some additional ones.
+        arguments = routine.arguments
 
         # Force pointer on reference-passed arguments
-        for arg in kernel.arguments:
-            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-                arg.type.pointer = True
-        # Propagate that reference pointer to all variables
-        arg_map = {a.name: a for a in kernel.arguments}
-        for v in FindVariables(unique=False).visit(kernel.body):
-            if v.name in arg_map:
-                if v.type:
-                    v.type.pointer = arg_map[v.name].type.pointer
-                else:
-                    v._type = arg_map[v.name].type
+        #for arg in arguments:
+        #    if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
+        #        arg.type.pointer = True
 
-        # Resolve implicit struct mappings through "associates"
-#        assoc_map = {}
-#        vmap = {}
-#        for assoc in FindNodes(Scope).visit(kernel.body):
-#            invert_assoc = {v: k for k, v in assoc.associations.items()}
-#            for v in FindVariables(unique=False).visit(kernel.body):
-#                if v in invert_assoc:
-#                    vmap[v] = v.clone(parent=invert_assoc[v].parent)
-#            assoc_map[assoc] = assoc.body
-#        kernel.body = Transformer(assoc_map).visit(kernel.body)
-#        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+        # First, add an argument for ticks
+        size_t_type = BaseType('INTEGER', intent='in')  # TODO: make this size_t
+        ticks_argument = Variable(name='ticks', type=size_t_type)
+        arguments = [ticks_argument] + arguments
 
-        self._resolve_vector_notation(kernel, **kwargs)
+        # Copy all arguments and split up inout arguments
+        #ptr_args = [a for a in arguments if a.type.pointer or a.type.allocatable]
+        ptr_args = [a for a in arguments if not (a.type.intent.lower() == 'in' and a.is_Scalar)]
+        variables = []
+        out_variables = []
+        for arg in arguments:
+            if arg in ptr_args and arg.type.intent.lower() in ('inout', 'out'):
+                if arg.type.intent.lower() == 'inout':
+                    variables += [arg.clone(name='%s_in' % arg.name, initial=arg,
+                                            type=arg.type.clone(pointer=False, intent='in'))]
+                out_variables += [arg]
+            else:
+                variables += [arg]
+        variables += out_variables
+
+        # The DFE wants to know how big arrays are, so we replace array arguments by
+        # pairs of (arg, arg_size)
+        arg_pairs = {a: (a, Variable(name='%s_size' % a.name, type=size_t_type)) if a.is_Array
+                     else a for a in variables}
+        arguments = flatten([arg_pairs[a] for a in arguments])
+        var_pairs = {a: (a, Variable(name='%s_byte_size' % a.name, type=size_t_type,
+                                     initial=arg_pairs[a][1]))  # TODO: Include sizeof here?
+                     if a.is_Array else a for a in variables}
+        variables = flatten([var_pairs[a] for a in variables])
+
+        # The entire body is just a call to the SLiC interface
+        spec = Transformer().visit(routine.spec)
+        body = (Call(name=routine.name, arguments=variables),)
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
+        kernel.arguments = arguments
+        kernel.variables = variables
+
         self._resolve_omni_size_indexing(kernel, **kwargs)
 
-        # TODO: Resolve reductions (eg. SUM(myvar(:)))
-#        self._invert_array_indices(kernel, **kwargs)
-        self._shift_to_zero_indexing(kernel, **kwargs)
-#        self._replace_intrinsics(kernel, **kwargs)
-
         return kernel
+
+    def generate_c_interface_routine(self, routine):
+
+        # Force pointer on reference-passed arguments
+        for arg in routine.arguments:
+            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
+                arg.type.pointer = True
+
+        # Remove imports and other declarations
+        routine.spec = Section(body=[])
+
+        return routine
 
     def generate_iso_c_interface(self, routine, c_structs):
         """
@@ -236,7 +200,7 @@ class FortranMaxTransformation(BasicTransformation):
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_spec.body += as_tuple(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
-                                  body=None, bind='%s_c' % routine.name)
+                                  body=None, bind=routine.name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
@@ -258,6 +222,11 @@ class FortranMaxTransformation(BasicTransformation):
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
         interface = self.generate_iso_c_interface(routine, c_structs)
+
+        # Remove pointer properties
+        #for arg in routine.arguments:
+        #    if arg.type.pointer:
+        #        arg.type.pointer = False
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)

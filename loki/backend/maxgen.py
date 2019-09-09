@@ -3,10 +3,10 @@ from sympy import evaluate
 from sympy.codegen.ast import real, float32
 
 from loki.backend import CCodegen, csymgen
-from loki.expression import indexify
+from loki.expression import indexify, Variable
 from loki.ir import Call, Import, Declaration
 from loki.tools import chunks, flatten
-from loki.types import DataType
+from loki.types import BaseType, DataType
 from loki.visitors import Visitor, FindNodes, Transformer
 
 
@@ -40,34 +40,32 @@ class MaxjCodegen(Visitor):
         L = len(v.dimensions) if v.is_Array else 0
 
         # Build nested parameterized type
-        types = ['DFEVector<%s>'] * L + ['DFEVar']
-        types = [reduce(lambda p, n: n % p, types[::-(i+1)]) for i in range(L)]
-        types += ['DFEVar']  # Fallback for scalar arguments
+        types = ['DFEVar'] + ['DFEVector<%s>'] * L
+        types = [reduce(lambda p, n: n % p, types[:i]) for i in range(1, L+2)]
 
         # Deduce matching type constructor
-        inits = ([('DFEVectorType<%s>', 'new DFEVectorType<%s>(%s, %s)')] * L
-                 + [('DFEVar', base_type)])
-        inits = [reduce(lambda p, n: (n[0] % p[0], n[1] % (p[0], p[1], v.dimensions[L-i])),
-                        inits[::-i]) for i in range(1, L+1)]
-        inits += [('DFEVar', base_type)]  # Fallback for scalar arguments
+        init_templates = ['new DFEVectorType<%s>(%s, %s)'] * L
+        inits = [base_type]
+        for i in range(L):
+            inits += [init_templates[i] % (types[i], inits[i], v.dimensions[-(i+1)])]
 
         if is_input:
             # Determine matching initialization routine
             if v.type.intent is not None and v.type.intent.lower() in ('in', 'inout'):
                 stream = 'io.%s("%s_in", %s)' % ('input' if v.is_Array else 'scalarInput',
-                                                 v.name, inits[0][1])
+                                                 v.name, inits[-1])
             else:
-                stream = '%s.newInstance(this)' % inits[0][1]
+                stream = '%s.newInstance(this)' % inits[-1]
 
         else:
             # Matching outflow statement
             if v.type.intent is not None and v.type.intent.lower() in ('out', 'inout'):
                 stream = 'io.{0}utput("{1}_out", {1}, {2})'.format('o' if v.is_Array else 'scalarO',
-                                                                   v.name, inits[0][1])
+                                                                   v.name, inits[-1])
             else:
                 stream = None
 
-        return types[0], stream
+        return types[-1], stream
 
     def visit_Node(self, o):
         return self.indent + '// <%s>' % o.__class__.__name__
@@ -126,13 +124,6 @@ class MaxjCodegen(Visitor):
         body = self.visit(o.body)
 
         # Insert outflow statements for output variables
-#        out_vars = [v for v in o.arguments if v.type.intent.lower() in ('out', 'inout')]
-#        out_types = [self.visit(v.type) for v in out_vars]
-#        out_func = {True: 'output', False: 'scalarOutput'}
-#        outflow = ['io.{0}("{1}_out", {1}, {2});\n'.format(out_func[v.is_Array], v.name, t)
-#                   for v, t in zip(out_vars, out_types)]
-#        outflow = self.indent.join([''] + outflow)
-
         outflow = [self.type_and_stream(v, is_input=False)
                    for v in o.arguments if v.type.intent.lower() in ('out', 'inout')]
         outflow = '\n'.join(['%s%s;' % (self.indent, a[1]) for a in outflow])
@@ -191,7 +182,8 @@ class MaxjCodegen(Visitor):
             type_aliases[real] = float32
 
         if o.target.is_Array:
-            stmt = '%s <== %s;\n' % (target, expr)
+#            stmt = '%s <== %s;\n' % (target, expr)
+            stmt = '%s <== %s;\n' % (target, csymgen(expr, type_aliases=type_aliases))
         else:
             stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
@@ -227,25 +219,22 @@ class MaxjManagerCodegen(object):
         imports += 'import com.maxeler.maxcompiler.v2.build.EngineParameters;\n'
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;\n'
         imports += 'import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;\n'
+        # imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;\n'
+        # imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;\n'
         imports += 'import com.maxeler.platform.max5.manager.MAX5CManager;\n'
         imports += '\n'
 
+        # Class definitions
         header = 'public class %sManager extends MAX5CManager {\n\n' % o.name
         self._depth += 1
         header += self.indent + 'public static final String kernelName = "%sKernel";\n\n' % o.name
         header += self.indent + 'public %sManager(EngineParameters params) {\n' % o.name
         self._depth += 1
 
+        # Making the kernel known
         body = [self.indent + 'super(params);\n']
         body += ['Kernel kernel = new %sKernel(makeKernelParameters(kernelName));\n' % o.name]
         body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
-
-        # Specify default values for interface parameters
-        body += ['\n']
-        body += ['EngineInterface ei = new EngineInterface("kernel");\n']
-        body += ['ei.setTicks(kernelName, 1000);\n']  # TODO: Put a useful value here!
 
         # Insert in/out streams
         in_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() in ('in', 'inout')]
@@ -256,20 +245,26 @@ class MaxjManagerCodegen(object):
         body += ['addStreamToCPU("{0}_out") <== kernelBlock.getOutput("{0}_out");\n'.format(v.name)
                  for v in out_vars]
 
-        # Specify sizes of streams
-        stream_template = 'ei.setStream("{0}", {1}, {2} * {1}.sizeInBytes());\n'
-        in_sizes = [', '.join([str(d) for d in v.dimensions]) for v in in_vars]
-        out_sizes = [', '.join([str(d) for d in v.dimensions]) for v in out_vars]
-        body += ['\n']
-        body += [stream_template.format(v.name + '_in', v.type.dtype.maxjManagertype, s)
-                 for v, s in zip(in_vars, in_sizes)]
-        body += [stream_template.format(v.name + '_out', v.type.dtype.maxjManagertype, s)
-                 for v, s in zip(out_vars, out_sizes)]
+        # Specify default values for interface parameters
+        # body += ['\n']
+        # body += ['EngineInterface ei = new EngineInterface("kernel");\n']
+        # body += ['ei.setTicks(kernelName, 1000);\n']  # TODO: Put a useful value here!
 
-        body += ['\n']
-        body += ['createSLiCinterface(ei);\n']
+        # Specify sizes of streams
+        # stream_template = 'ei.setStream("{0}", {1}, {2} * {1}.sizeInBytes());\n'
+        # in_sizes = [', '.join([str(d) for d in v.dimensions]) for v in in_vars]
+        # out_sizes = [', '.join([str(d) for d in v.dimensions]) for v in out_vars]
+        # body += ['\n']
+        # body += [stream_template.format(v.name + '_in', v.type.dtype.maxjManagertype, s)
+        #          for v, s in zip(in_vars, in_sizes)]
+        # body += [stream_template.format(v.name + '_out', v.type.dtype.maxjManagertype, s)
+        #          for v, s in zip(out_vars, out_sizes)]
+
+        # body += ['\n']
+        # body += ['createSLiCinterface(ei);\n']
         body = self.indent.join(body)
 
+        # Writing the main for maxJavaRun
         self._depth -= 1
         main_header = self.indent + '}\n\n'
         main_header += self.indent + 'public static void main(String[] args) {\n'
@@ -290,35 +285,11 @@ class MaxjManagerCodegen(object):
 
 class MaxjCCodegen(CCodegen):
 
-    def visit_Subroutine(self, o):
-        # size_t_type = BaseType('INTEGER', kind='size_t')
-
-        # Remove any variables that are not arguments
-        o.variables = [v for v in o.variables if v in o.arguments]
-        p_args = [a for a in o.arguments if a.type.pointer or a.type.allocatable]
-
-        # Add variable for ticks
-        # ticks_argument = Variable(name='ticks', type=size_t_type, initial=10000)
-        # o.variables = [ticks_argument] + o.variables
-
-        # Create input arguments
-        arguments = [a for a in o.arguments if not (a in p_args and a.type.intent.lower() == 'out')]
-
-        # Create a second argument for inout-variables and out variables with pointer type removed
-        arguments += [a.clone(name=' ' + a.name, type=a.type.clone(pointer=False))
-                      for a in p_args if a.type.intent.lower() in ('inout', 'out')]
-
-        # Replace body and parse this subroutine using the original visitor
-        call_name = (o.name[:-2] if o.name[-2:] == '_c' else o.name) + '_kernel'
-        o.body = (Call(name=call_name, arguments=flatten(arguments)),)
-        return super(MaxjCCodegen, self).visit_Subroutine(o)
-
     def visit_Call(self, o):
-        def print_arg(arg):
-            return '*%s' % arg.name if not arg.is_Array and arg.type.pointer else arg.name
-
-        # astr = [csymgen(a) for a in o.arguments]
-        astr = [print_arg(a) for a in o.arguments]
+        #astr = [csymgen(a) for a in o.arguments]
+        #astr = ['*%s' % arg.name if not arg.is_Array and arg.type.pointer else arg.name
+        #        for arg in o.arguments]
+        astr = [arg.name for arg in o.arguments]
         return '%s%s(%s);' % (self.indent, o.name, ', '.join(astr))
 
 
