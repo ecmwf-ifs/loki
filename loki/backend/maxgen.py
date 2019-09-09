@@ -261,11 +261,6 @@ class MaxjManagerCodegen(object):
         body += ['Kernel kernel = new %sKernel(makeKernelParameters(kernelName));\n' % o.name]
         body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
 
-        # Specify default values for interface parameters
-        body += ['\n']
-        body += ['EngineInterface ei = new EngineInterface("kernel");\n']
-        body += ['ei.setTicks(kernelName, 1000);\n']  # TODO: Put a useful value here!
-
         # Insert in/out streams
         in_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() == 'in']
         out_vars = [v for v in o.arguments

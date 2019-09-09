@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from pathlib import Path
-from sympy import evaluate
+from sympy import evaluate, Mul
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
@@ -340,6 +340,11 @@ class FortranMaxTransformation(BasicTransformation):
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
         interface = self.generate_iso_c_interface(routine, c_structs)
+
+        # Remove pointer properties
+        #for arg in routine.arguments:
+        #    if arg.type.pointer:
+        #        arg.type.pointer = False
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
