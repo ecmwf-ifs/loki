@@ -247,7 +247,7 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
     max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder)
 
     # Test the transpiled kernel
-    n, m = 6, 1
+    n, m = 6, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.

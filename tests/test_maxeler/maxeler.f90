@@ -23,7 +23,7 @@ end subroutine routine_copy
 subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
   use iso_fortran_env, only: real64
   implicit none
-  integer, parameter :: n=6, m=1
+  integer, parameter :: n=6, m=4
   real(kind=real64), intent(in) :: scalar
   real(kind=real64), intent(in) :: tensor(n, m), vector(n) 
   real(kind=real64), intent(out) :: vector_out(n)
