@@ -20,13 +20,13 @@ subroutine routine_copy(x, y)
   y = x
 end subroutine routine_copy
 
-subroutine routine_fixed_loop(scalar, vector, vector_out, tensor) ! , tensor_out)
+subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
   use iso_fortran_env, only: real64
   implicit none
-  integer, parameter :: n=6, m=1
+  integer, parameter :: n=6, m=4
   real(kind=real64), intent(in) :: scalar
-  real(kind=real64), intent(in) :: vector(n), tensor(n, m)
-  real(kind=real64), intent(out) :: vector_out(n) ! , tensor_out(n, m)
+  real(kind=real64), intent(in) :: tensor(n, m), vector(n) 
+  real(kind=real64), intent(out) :: vector_out(n)
   integer :: i, j
 
   ! For testing, the operation is:

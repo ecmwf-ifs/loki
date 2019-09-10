@@ -182,8 +182,8 @@ class MaxjCodegen(Visitor):
             type_aliases[real] = float32
 
         if o.target.is_Array:
-#            stmt = '%s <== %s;\n' % (target, expr)
-            stmt = '%s <== %s;\n' % (target, csymgen(expr, type_aliases=type_aliases))
+            stmt = '%s <== %s;\n' % (csymgen(target, type_aliases=type_aliases),
+                                     csymgen(expr, type_aliases=type_aliases))
         else:
             stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''

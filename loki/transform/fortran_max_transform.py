@@ -117,7 +117,7 @@ class FortranMaxTransformation(BasicTransformation):
         self._resolve_omni_size_indexing(kernel, **kwargs)
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-#        self._invert_array_indices(kernel, **kwargs)
+        self._invert_array_indices(kernel, **kwargs)
         self._shift_to_zero_indexing(kernel, **kwargs)
 #        self._replace_intrinsics(kernel, **kwargs)
 
@@ -131,30 +131,26 @@ class FortranMaxTransformation(BasicTransformation):
         # plus some additional ones.
         arguments = routine.arguments
 
-        # Force pointer on reference-passed arguments
-        #for arg in arguments:
-        #    if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-        #        arg.type.pointer = True
-
         # First, add an argument for ticks
         size_t_type = BaseType('INTEGER', intent='in')  # TODO: make this size_t
         ticks_argument = Variable(name='ticks', type=size_t_type)
         arguments = [ticks_argument] + arguments
 
         # Copy all arguments and split up inout arguments
-        #ptr_args = [a for a in arguments if a.type.pointer or a.type.allocatable]
-        ptr_args = [a for a in arguments if not (a.type.intent.lower() == 'in' and a.is_Scalar)]
-        variables = []
-        out_variables = []
-        for arg in arguments:
-            if arg in ptr_args and arg.type.intent.lower() in ('inout', 'out'):
-                if arg.type.intent.lower() == 'inout':
-                    variables += [arg.clone(name='%s_in' % arg.name, initial=arg,
-                                            type=arg.type.clone(pointer=False, intent='in'))]
-                out_variables += [arg]
-            else:
-                variables += [arg]
-        variables += out_variables
+        # Apparently, scalars are kept in-order, followed by instreams (alphabetically) and
+        # then outstreams (alphabetically)
+        variables = flatten([(arg, arg.clone(name='%s_in' % arg.name, initial=arg,
+                                             type=arg.type.clone(pointer=False, intent='in')))
+                              if arg.type.intent.lower() == 'inout' else arg
+                              for arg in arguments])
+        scalar_variables = [arg for arg in variables
+                            if arg.type.intent.lower() == 'in' and arg.is_Scalar]
+        in_variables = [arg for arg in variables
+                        if arg.type.intent.lower() == 'in' and arg.is_Array]
+        out_variables = [arg for arg in variables if arg.type.intent.lower() in ('inout', 'out')]
+        in_variables.sort(key=lambda a: a.name)
+        out_variables.sort(key=lambda a: a.name)
+        variables = scalar_variables + in_variables + out_variables
 
         # The DFE wants to know how big arrays are, so we replace array arguments by
         # pairs of (arg, arg_size)
@@ -162,7 +158,7 @@ class FortranMaxTransformation(BasicTransformation):
                      else a for a in variables}
         arguments = flatten([arg_pairs[a] for a in arguments])
         var_pairs = {a: (a, Variable(name='%s_byte_size' % a.name, type=size_t_type,
-                                     initial=arg_pairs[a][1]))  # TODO: Include sizeof here?
+                                     initial=arg_pairs[a][1]))
                      if a.is_Array else a for a in variables}
         variables = flatten([var_pairs[a] for a in variables])
 
@@ -327,6 +323,28 @@ class FortranMaxTransformation(BasicTransformation):
                                     and d.lower == 1 and d.step is None else d
                                     for d in v.dimensions)
                 vmap[v] = v.clone(dimensions=new_dims)
+        kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+
+    def _invert_array_indices(self, kernel, **kwargs):
+        """
+        Invert data/loop accesses from column to row-major
+
+        TODO: Take care of the indexing shift between C and Fortran.
+        Basically, we are relying on the CGen to shift the iteration
+        indices and dearly hope that nobody uses the index's value.
+        """
+        # Invert array indices in the kernel body
+        vmap = {}
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if isinstance(v, Array):
+                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+
+        # Invert variable and argument dimensions for the automatic cast generation
+        for v in kernel.variables:
+            if isinstance(v, Array):
+                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
