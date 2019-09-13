@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import clean, compile_and_load, OFP, OMNI, SourceFile, fgen
+from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen
 from conftest import generate_identity
 
 
@@ -21,7 +21,7 @@ def reference(refpath):
     return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_simple_expr(refpath, reference, frontend):
     """
     v5 = (v1 + v2) * (v3 - v4)

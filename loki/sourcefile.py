@@ -5,14 +5,16 @@ Fortran source code file.
 import pickle
 from pathlib import Path
 from collections import OrderedDict
+from fparser.two.Fortran2003 import Subroutine_Subprogram
 
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, blacklist
+from loki.frontend import OMNI, OFP, FP, blacklist
 from loki.frontend.omni import preprocess_omni, parse_omni_file
 from loki.frontend.ofp import parse_ofp_file
+from loki.frontend.fparser import parse_fparser_file
 
 
 __all__ = ['SourceFile']
@@ -41,6 +43,8 @@ class SourceFile(object):
             return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
+        elif frontend == FP:
+            return cls.from_fparser(filename)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
 
@@ -104,6 +108,18 @@ class SourceFile(object):
         modules = [Module.from_ofp(ast=m, raw_source=raw_source)
                    for m in ast.findall('file/module')]
         return cls(filename, routines=routines, modules=modules, ast=ast)
+
+    @classmethod
+    def from_fparser(cls, filename):
+        file_path = Path(filename)
+
+        # Parse the file content into a Fortran AST
+        ast = parse_fparser_file(filename=str(file_path))
+
+        routine_asts = [r for r in ast.content if isinstance(r, Subroutine_Subprogram)]
+        routines = [Subroutine.from_fparser(ast=r) for r in routine_asts]
+
+        from IPython import embed; embed()       
 
     @classmethod
     def preprocess(cls, file_path, pp_path, info_path, kinds=None):

@@ -2,6 +2,7 @@ from collections import OrderedDict
 
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
+from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, Intrinsic)
 from loki.expression import FindVariables, Array, Scalar, SymbolCache
@@ -180,6 +181,20 @@ class Subroutine(object):
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, cache=cache)
+
+    @classmethod
+    def from_fparser(cls, ast, name=None):
+        routine_stmt = ast.content[0]
+        name = name or routine_stmt.get_name().string
+        dummy_arg_list = routine_stmt.items[2]
+        args = [arg.string.upper() for arg in dummy_arg_list.items]
+
+        cache = SymbolCache()
+
+        spec = parse_fparser_ast(ast.content[1])
+        from IPython import embed; embed() 
+
+        body = parse_fparser_ast(ast.content[2])
 
     def Variable(self, *args, **kwargs):
         """
