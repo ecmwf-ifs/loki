@@ -31,6 +31,16 @@ pip install -r requirements.txt
 pip install -e .  # Installs Loki dev copy in editable mode
 ```
 
+Open Fortran Parser (OFP) requires a few additional steps to work.
+First, change the version number to `0.5.3` in 
+`../loki_env/src/open-fortran-parser/open_fortran_parser/_version.py`.
+Then do the following:
+
+```
+python3 -m open_fortran_parser --deps # Add the displayed CLASSPATH to
+                                      # your environment
+```
+
 ### Core concepts (the philosophical bit)
 
 Please note that, on a fundamental level, converting between different
