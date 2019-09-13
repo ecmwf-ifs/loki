@@ -119,7 +119,10 @@ class SourceFile(object):
         routine_asts = [r for r in ast.content if isinstance(r, Subroutine_Subprogram)]
         routines = [Subroutine.from_fparser(ast=r) for r in routine_asts]
 
-        from IPython import embed; embed()       
+        # TODO: Do modules!
+        modules = []
+
+        return cls(filename, routines=routines, modules=modules, ast=ast)
 
     @classmethod
     def preprocess(cls, file_path, pp_path, info_path, kinds=None):

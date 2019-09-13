@@ -187,14 +187,16 @@ class Subroutine(object):
         routine_stmt = ast.content[0]
         name = name or routine_stmt.get_name().string
         dummy_arg_list = routine_stmt.items[2]
-        args = [arg.string.upper() for arg in dummy_arg_list.items]
+        args = [arg.string for arg in dummy_arg_list.items]
 
         cache = SymbolCache()
 
-        spec = parse_fparser_ast(ast.content[1])
-        from IPython import embed; embed() 
+        spec = parse_fparser_ast(ast.content[1], cache=cache)
+        spec = Section(body=spec)
 
-        body = parse_fparser_ast(ast.content[2])
+        body = parse_fparser_ast(ast.content[2], cache=cache)
+
+        return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast, cache=cache)
 
     def Variable(self, *args, **kwargs):
         """
