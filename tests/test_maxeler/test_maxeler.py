@@ -3,6 +3,7 @@ import ctypes as ct
 import numpy as np
 import os
 from pathlib import Path
+import ctypes as ct
 
 from loki import SourceFile, OMNI, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
