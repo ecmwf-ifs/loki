@@ -38,7 +38,7 @@ def test_simple_expr(refpath, reference, frontend):
     assert v5 == 25. and v6 == 6.
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_intrinsic_functions(refpath, reference, frontend):
     """
     vmin = min(v1, v2)
@@ -61,7 +61,7 @@ def test_intrinsic_functions(refpath, reference, frontend):
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_logical_expr(refpath, reference, frontend):
     """
     vand_t = t .and. t
@@ -85,7 +85,7 @@ def test_logical_expr(refpath, reference, frontend):
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_literal_expr(refpath, reference, frontend):
     """
     v1 = 1
@@ -121,7 +121,7 @@ def test_literal_expr(refpath, reference, frontend):
     assert stmts[3].expr._kind == 'jprb'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cast_expr(refpath, reference, frontend):
     """
     v4 = real(v1, kind=jprb)
@@ -138,7 +138,7 @@ def test_cast_expr(refpath, reference, frontend):
     assert v4 == 2. and v5 == 8.
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_logical_array(refpath, reference, frontend):
     """
     mask(1:2) = .false.
@@ -165,7 +165,7 @@ def test_logical_array(refpath, reference, frontend):
     assert (out  == [1., 1., 1., 3., 1., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, FP])
 def test_parenthesis(refpath, reference, frontend):
     """
     v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
@@ -198,7 +198,7 @@ def test_parenthesis(refpath, reference, frontend):
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v4**1.26_jprb)'
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, FP])
 def test_commutativity(refpath, reference, frontend):
     """
     v3 = 1._jprb + v2*v1 - v2 - v3
@@ -216,7 +216,7 @@ def test_commutativity(refpath, reference, frontend):
     assert fgen(stmt) == 'v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_index_ranges(refpath, reference, frontend):
     """
     real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)

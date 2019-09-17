@@ -1,13 +1,13 @@
 from fparser.two.parser import ParserFactory
 from fparser.common.readfortran import FortranFileReader
-from sympy import Add, Mul, Pow, Equality, Unequality
+from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import Comment, Declaration, Statement
 from loki.types import DataType, BaseType
-from loki.expression import Variable, Literal, InlineCall
+from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.logging import info, error, DEBUG
 from loki.tools import timeit, as_tuple, flatten
@@ -67,11 +67,18 @@ class FParser2IR(GenericVisitor):
         # return o.tostr()
         dtype = kwargs.get('dtype', None)
         initial = kwargs.get('initial', None)
+        dimensions = kwargs.get('dimensions', None)
         vname = o.tostr()
-        return self.Variable(name=vname, dtype=dtype, initial=initial)
+        return self.Variable(name=vname, dtype=dtype, dimensions=dimensions, initial=initial)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
-        return Literal(value=o.items[0], kind=o.items[1])
+        return Literal(value=int(o.items[0]), kind=o.items[1])
+
+    def visit_Real_Literal_Constant(self, o, **kwargs):
+        return Literal(value=float(o.items[0]), kind=o.items[1])
+
+    def visit_Logical_Literal_Constant(self, o, **kwargs):
+        return Literal(value=o.items[0], type=DataType.BOOL)
 
     def visit_Attr_Spec(self, o, **kwargs):
         return o.tostr()
@@ -103,8 +110,17 @@ class FParser2IR(GenericVisitor):
 
     def visit_Part_Ref(self, o, **kwargs):
         name = o.items[0].tostr()
-        args = self.visit(o.items[1])
-        return InlineCall(name=name, arguments=args)
+        args = as_tuple(self.visit(o.items[1]))
+        kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+        arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
+
+    def visit_Array_Section(self, o, **kwargs):
+        dimensions = as_tuple(self.visit(o.items[1]))
+        return self.visit(o.items[0], dimensions=dimensions)
+
+    def visit_Substring_Range(self, o, **kwargs):
+        return RangeIndex(lower=o.items[0], upper=o.items[1])
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         dtype, kind = self.visit(o.items[0])
@@ -119,7 +135,7 @@ class FParser2IR(GenericVisitor):
             intent = 'out'
         base_type = BaseType(dtype, kind=kind, intent=intent,
                              parameter='parameter' in attrs)
-        variables = tuple(self.visit(v, dtype=base_type) for v in as_tuple(o.items[2]))
+        variables = as_tuple(self.visit(v, dtype=base_type) for v in as_tuple(o.items[2]))
         return Declaration(variables=flatten(variables), type=base_type)
 
     def visit_Assignment_Stmt(self, o, **kwargs):
@@ -127,7 +143,20 @@ class FParser2IR(GenericVisitor):
         expr = self.visit(o.items[2])
         return Statement(target=target, expr=expr)
 
-    def generic_expr(self, op, exprs):
+    def visit_operation(self, op, exprs):
+        """
+        Construct expressions from individual operations, suppressing SymPy simplifications.
+        """
+
+        def booleanize(expr):
+            """
+            Super-hacky helper function to force boolean array when needed
+            """
+            if isinstance(expr, Array) and not expr.is_Boolean:
+                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
+            else:
+                return expr
+
         if op == '*':
             return Mul(exprs[0], exprs[1], evaluate=False)
         elif op == '/':
@@ -138,23 +167,44 @@ class FParser2IR(GenericVisitor):
             return Add(exprs[0], Mul(-1, exprs[1], evaluate=False), evaluate=False)
         elif op == '**':
             return Pow(exprs[0], exprs[1], evaluate=False)
+        elif op.lower() == '.and.':
+            e1 = booleanize(exprs[0])
+            e2 = booleanize(exprs[1])
+            return And(e1, e2, evaluate=False)
+        elif op.lower() == '.or.':
+            e1 = booleanize(exprs[0])
+            e2 = booleanize(exprs[1])
+            return Or(e1, e2, evaluate=False)
+        elif op == '==' or op.lower() == '.eq.':
+            return Equality(exprs[0], exprs[1], evaluate=False)
+        elif op == '/=' or op.lower() == '.ne.':
+            return Unequality(exprs[0], exprs[1], evaluate=False)
+        elif op.lower() == '.not.':
+            e1 = booleanize(exprs[0])
+            return Not(e1, evaluate=False)
         else:
             raise RuntimeError('FParser: Error parsing generic expression')
 
     def visit_Add_Operand(self, o, **kwargs):
-        e1 = self.visit(o.items[0])
-        e2 = self.visit(o.items[2])
-        return self.generic_expr(op=o.items[1], exprs=[e1, e2])
+        if len(o.items) > 2:
+            exprs = [self.visit(o.items[0])]
+            exprs += [self.visit(o.items[2])]
+            return self.visit_operation(op=o.items[1], exprs=exprs)
+        else:
+            exprs = [self.visit(o.items[1])]
+            return self.visit_operation(op=o.items[0], exprs=exprs)
 
-    def visit_Mult_Operand(self, o, **kwargs):
-        e1 = self.visit(o.items[0])
-        e2 = self.visit(o.items[2])
-        return self.generic_expr(op=o.items[1], exprs=[e1, e2])
+    visit_Mult_Operand = visit_Add_Operand
+    visit_And_Operand = visit_Add_Operand
+    visit_Or_Operand = visit_Add_Operand
+    visit_Equiv_Operand = visit_Add_Operand
 
     def visit_Level_2_Expr(self, o, **kwargs):
         e1 = self.visit(o.items[0])
         e2 = self.visit(o.items[2])
-        return self.generic_expr(op=o.items[1], exprs=[e1, e2])
+        return self.visit_operation(op=o.items[1], exprs=[e1, e2])
+
+    visit_Level_4_Expr = visit_Level_2_Expr
 
     def visit_Parenthesis(self, o, **kwargs):
         expression = self.visit(o.items[1])
