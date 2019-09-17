@@ -6,7 +6,7 @@ from loki.build.compiler import clean
 from loki.build.tools import as_tuple, delete, execute, flatten
 
 
-__all__ = ['clean_max', 'compile_and_load', 'compile_c',
+__all__ = ['clean_max', 'compile', 'compile_c',
            'compile_maxj', 'generate_max', 'link_obj']
 
 
@@ -147,25 +147,29 @@ def compile_c(src, build_dir, include_dirs=None):
 
 def link_obj(objs, target, build_dir):
     """
-    Links object files to build an executable.
+    Links object files to build an executable or shared library.
 
     :param objs: List of object files.
-    :param target: Output filename of executable.
+    :param target: Output filename of executable or shared library.
     """
     info('Linking: %s' % target)
     objs = set(str(o) for o in objs)  # Convert to set of str to eliminate doubles
-    build = ['gcc', '-o', str(target)] + list(objs) + get_libs()
+    build = ['gcc']
+    if Path(target).suffix == '.so':
+        build += ['-shared'] 
+    build += ['-o', str(target)] + list(objs) + get_libs()
     execute(build, cwd=build_dir)
 
 
-def compile_and_load(maxj_src, c_src, build_dir, target, manager, package=None):
+def compile(maxj_src, c_src, build_dir, target, manager, package=None):
     clean(build_dir)
     clean_max(build_dir, package)
 
     compile_maxj(maxj_src, build_dir=build_dir)
-    max_filename = generate_max(manager, maxj_src, Path(target).name,
+    max_filename = generate_max(manager, maxj_src, package or Path(target).stem,
                                 build_dir=build_dir, package=package)
     mobj_filename = compile_max(max_filename, '%s_max.o' % max_filename.stem, build_dir=build_dir)
 
     obj_filename = compile_c(c_src, build_dir, include_dirs=[Path(max_filename).parent])
     link_obj(obj_filename + [mobj_filename], target, build_dir)
+
