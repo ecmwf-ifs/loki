@@ -1,0 +1,27 @@
+/**
+ * Document: MaxCompiler Tutorial (maxcompiler-tutorial.pdf)
+ * Chapter: 4      Example: 1      Name: Pass-Through
+ * MaxFile name: PassThrough
+ * Summary:
+ * 	 Kernel that takes a stream of values and returns back the same stream.
+ */
+
+package passthrough;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+
+class PassThroughKernel extends Kernel {
+
+	PassThroughKernel(KernelParameters parameters)
+	{
+		super(parameters);
+
+		// Input
+		DFEVar x = io.input("x", dfeUInt(32));
+
+		// Output
+		io.output("y", x, dfeUInt(32));
+	}
+}

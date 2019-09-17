@@ -11,11 +11,11 @@ from loki.build.logging import debug, error
 __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
 
 
-def execute(args, cwd=None):
+def execute(args, cwd=None, env=None):
     debug('Executing: %s', ' '.join(args))
     cwd = cwd if cwd is None else str(cwd)
     try:
-        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
+        run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd, env=env)
     except CalledProcessError as e:
         error('Execution failed with:')
         error(e.output.decode("utf-8"))
