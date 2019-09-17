@@ -35,7 +35,7 @@ def parse_ofp_file(filename):
     """
     filepath = Path(filename)
     info("[Frontend.OFP] Parsing %s" % filepath.name)
-    return open_fortran_parser.parse(filepath)
+    return open_fortran_parser.parse(filepath, raise_on_error=True)
 
 
 class OFP2IR(GenericVisitor):

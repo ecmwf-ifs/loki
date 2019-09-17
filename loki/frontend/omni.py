@@ -1,4 +1,4 @@
-from subprocess import check_call, CalledProcessError
+from subprocess import check_output, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
@@ -37,7 +37,7 @@ def preprocess_omni(filename, outname, includes=None):
     cmd += ['%s' % filepath]
 
     try:
-        check_call(cmd)
+        check_output(cmd)
     except CalledProcessError as e:
         error('[OMNI] Preprocessing failed: %s' % ' '.join(cmd))
         raise e
@@ -61,7 +61,7 @@ def parse_omni_file(filename, xmods=None):
     cmd += ['%s' % filepath]
 
     try:
-        check_call(cmd)
+        check_output(cmd)
     except CalledProcessError as e:
         error('[%s] Parsing failed: %s' % ('omni', ' '.join(cmd)))
         raise e

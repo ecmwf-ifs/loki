@@ -10,6 +10,6 @@ coloredlogs
 tqdm
 
 # Some dependencies require specific dev branches
-git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev
-git+https://github.com/jameskermode/f90wrap.git@py3
+-e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
+git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/sympy/sympy.git
