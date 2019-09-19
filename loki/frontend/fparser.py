@@ -5,7 +5,7 @@ from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
-from loki.ir import Comment, Declaration, Statement
+from loki.ir import Comment, Declaration, Statement, Loop
 from loki.types import DataType, BaseType
 from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
@@ -80,6 +80,12 @@ class FParser2IR(GenericVisitor):
     def visit_Logical_Literal_Constant(self, o, **kwargs):
         return Literal(value=o.items[0], type=DataType.BOOL)
 
+    def visit_Attr_Spec_List(self, o, **kwargs):
+        return as_tuple(self.visit(i) for i in o.items)
+        
+    def visit_Dimension_Attr_Spec(self, o, **kwargs):
+        return self.visit(o.items[1])
+
     def visit_Attr_Spec(self, o, **kwargs):
         return o.tostr()
 
@@ -111,9 +117,13 @@ class FParser2IR(GenericVisitor):
     def visit_Part_Ref(self, o, **kwargs):
         name = o.items[0].tostr()
         args = as_tuple(self.visit(o.items[1]))
-        kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
-        arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
+        if name.lower() in ['min', 'max', 'exp', 'sqrt', 'abs', 'log',
+                             'selected_real_kind', 'allocated', 'present']:
+            kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+            return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
+        else:
+            return self.Variable(name=name, dimensions=args)
 
     def visit_Array_Section(self, o, **kwargs):
         dimensions = as_tuple(self.visit(o.items[1]))
@@ -124,8 +134,11 @@ class FParser2IR(GenericVisitor):
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         dtype, kind = self.visit(o.items[0])
-        attrs = tuple(self.visit(a) for a in as_tuple(o.items[1]))
-        attrs = tuple(str(a).lower().strip() for a in attrs)
+        attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
+        # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
+        dimensions = [a for a in attrs if isinstance(a, tuple)]
+        dimensions = None if len(dimensions) == 0 else dimensions[0]
+        attrs = tuple(str(a).lower().strip() for a in attrs if isinstance(a, str))
         intent = None
         if 'intent(in)' in attrs:
             intent = 'in'
@@ -135,10 +148,30 @@ class FParser2IR(GenericVisitor):
             intent = 'out'
         base_type = BaseType(dtype, kind=kind, intent=intent,
                              parameter='parameter' in attrs)
-        variables = as_tuple(self.visit(v, dtype=base_type) for v in as_tuple(o.items[2]))
+        variables = as_tuple(self.visit(v, dtype=base_type, dimensions=dimensions)
+                             for v in as_tuple(o.items[2]))
         return Declaration(variables=flatten(variables), type=base_type)
 
+    def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
+        from IPython import embed; embed()
+        variable, (lower, upper) = self.visit(o.content[0])
+        step = None 
+        bounds = lower, upper, step
+        body = as_tuple(self.visit(o.content[1]))
+        from IPython import embed; embed()
+        return Loop(variable=variable, body=body, bounds=bounds)
+
+    def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
+        variable, bounds = self.visit(o.items[1])
+        return variable, bounds
+
+    def visit_Loop_Control(self, o, **kwargs):
+        variable = self.visit(o.items[1][0])
+        bounds = as_tuple(self.visit(a) for a in as_tuple(o.items[1][1]))
+        return variable, bounds
+
     def visit_Assignment_Stmt(self, o, **kwargs):
+        # from IPython import embed; embed()
         target = self.visit(o.items[0])
         expr = self.visit(o.items[2])
         return Statement(target=target, expr=expr)
@@ -234,6 +267,9 @@ def parse_fparser_ast(ast, cache=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
+
+    from IPython import embed; embed()
+
     # Parse the raw FParser language AST into our internal IR
     ir = FParser2IR(cache=cache).visit(ast)
 
