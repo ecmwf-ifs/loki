@@ -75,6 +75,17 @@ class DataType(IntEnum):
 
         return type_map[value]
 
+    @property
+    def maxjtype(self):
+        """
+        String representing the MaxJ equivalent of this data type.
+        """
+        map = {
+            self.BOOL: 'dfeBool()', self.INT32: 'dfeInt(32)',
+            self.FLOAT32: 'dfeFloat(8, 24)', self.FLOAT64: 'dfeFloat(11, 53)',
+        }
+        return map.get(self, None)
+
 
 class SymbolType:
     """

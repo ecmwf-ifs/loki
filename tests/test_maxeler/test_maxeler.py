@@ -1,9 +1,11 @@
 import pytest
+import ctypes as ct
+import numpy as np
 import os
 from pathlib import Path
-import ctypes as ct
 
-from loki.build.tools import execute
+from loki import SourceFile, OMNI, FortranMaxTransformation
+from loki.build import Builder, Obj, Lib, execute
 from loki.build.max_compiler import compile
 
 
@@ -63,15 +65,45 @@ def build_dir():
 
 
 @pytest.fixture(scope='module')
-def src_root():
-    return Path(__file__).parent
+def refpath():
+    return Path(__file__).parent / 'maxeler.f90'
 
 
-def test_detect_environment():
+@pytest.fixture(scope='module')
+def builder(refpath):
+    path = refpath.parent
+    return Builder(source_dirs=path, build_dir=path/'build')
+
+
+@pytest.fixture(scope='module')
+def reference(refpath, builder):
     """
-    Skipped if the Maxeler environment was not detected, succeeds otherwise.
+    Compile and load the reference solution
     """
-    assert True
+    builder.clean()
+
+    sources = ['maxeler.f90']
+    objects = [Obj(source_path=s) for s in sources]
+    lib = Lib(name='ref', objs=objects, shared=False)
+    lib.build(builder=builder)
+    return lib.wrap(modname='ref', sources=sources, builder=builder)
+
+
+def max_transpile(routine, refpath, builder, objects=None, wrap=None):
+    builder.clean()
+
+    # Create transformation object and apply
+    f2max = FortranMaxTransformation()
+    f2max.apply(routine=routine, path=refpath.parent)
+
+    # Build and wrap the cross-compiled library
+#    objects = (objects or []) + [Obj(source_path=f2max.wrapperpath.name),
+#                                 Obj(source_path=f2max.c_path.name)]
+#    lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
+#    lib.build(builder=builder)
+#
+#    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
+#                    sources=(wrap or []) + [f2max.wrapperpath.name])
 
 
 def test_simulator(simulator):
@@ -83,22 +115,22 @@ def test_simulator(simulator):
     assert True
 
 
-def test_passthrough(simulator, build_dir, src_root):
+def test_passthrough(simulator, build_dir, refpath):
     """
     A simple test streaming data to the DFE and back to CPU.
     """
-    compile(c_src=src_root / 'passthrough', maxj_src=src_root / 'passthrough',
+    compile(c_src=refpath.parent / 'passthrough', maxj_src=refpath.parent / 'passthrough',
             build_dir=build_dir, target='PassThrough', manager='PassThroughMAX5CManager',
             package='passthrough')
     simulator.run(build_dir / 'PassThrough')
 
 
-def test_passthrough_ctypes(simulator, build_dir, src_root):
+def test_passthrough_ctypes(simulator, build_dir, refpath):
     """
     A simple test streaming data to the DFE and back to CPU, called via ctypes
     """
     # First, build shared library
-    compile(c_src=src_root / 'passthrough', maxj_src=src_root / 'passthrough',
+    compile(c_src=refpath.parent / 'passthrough', maxj_src=refpath.parent / 'passthrough',
             build_dir=build_dir, target='libPassThrough.so', manager='PassThroughMAX5CManager',
             package='passthrough')
     lib = ct.CDLL(build_dir / 'libPassThrough.so')
@@ -130,3 +162,33 @@ def test_passthrough_ctypes(simulator, build_dir, src_root):
     # Run DFE function
     simulator.call(func_dfe, ct.c_uint64(size), data_in, size_bytes, data_out, size_bytes)
     assert list(data_in) == list(data_out)
+
+
+def test_routine_axpy(refpath, reference, builder):
+
+    # Test the reference solution
+    n = 10
+    a = -3.
+    x = np.zeros(shape=(n,), order='F') + range(n)
+    y = np.zeros(shape=(n,), order='F') + range(n) + 10.
+    reference.routine_axpy(n=n, a=-3, x=x, y=y)
+    assert np.all(a * np.array(range(n), order='F') + y == x)
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_axpy'], refpath, builder)
+
+
+def test_routine_shift(refpath, reference, builder):
+
+    # Test the reference solution
+    length = 10
+    scalar = 7
+    vector_in = np.array(range(length), order='F', dtype=np.intc)
+    vector_out = np.zeros(length, order='F', dtype=np.intc)
+    reference.routine_shift(length, scalar, vector_in, vector_out)
+    assert np.all(vector_out == np.array(range(length)) + scalar)
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_shift'], refpath, builder)
