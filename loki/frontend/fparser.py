@@ -1,4 +1,6 @@
 from fparser.two.parser import ParserFactory
+from fparser.two.utils import get_child, walk_ast
+from fparser.two.Fortran2003 import *
 from fparser.common.readfortran import FortranFileReader
 from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
 
@@ -13,6 +15,25 @@ from loki.logging import info, error, DEBUG
 from loki.tools import timeit, as_tuple, flatten
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
+
+
+def node_sublist(nodelist, starttype, endtype):
+    """
+    Extract a subset of nodes from a list that sits between marked
+    start and end nodes.
+    """
+    sublist = []
+    active = False
+    for node in nodelist:
+        if isinstance(node, endtype):
+            active = False
+
+        if active:
+            sublist += [node]
+
+        if isinstance(node, starttype):
+            active = True
+    return sublist
 
 
 class FParser2IR(GenericVisitor):
@@ -64,12 +85,13 @@ class FParser2IR(GenericVisitor):
             return children if len(children) > 0 else None
 
     def visit_Name(self, o, **kwargs):
-        # return o.tostr()
-        dtype = kwargs.get('dtype', None)
-        initial = kwargs.get('initial', None)
-        dimensions = kwargs.get('dimensions', None)
+        # This one is evil, as it is used flat in expressions,
+        # forcing us to generate ``Variable`` objects, and in
+        # declarations, where nonde of the metadata is available
+        # at this low level!
         vname = o.tostr()
-        return self.Variable(name=vname, dtype=dtype, dimensions=dimensions, initial=initial)
+        dimensions = kwargs.get('dimensions', None)
+        return self.Variable(name=vname, dimensions=dimensions)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         return Literal(value=int(o.items[0]), kind=o.items[1])
@@ -98,21 +120,48 @@ class FParser2IR(GenericVisitor):
         return Comment(text=o.tostr())
 
     def visit_Entity_Decl(self, o, **kwargs):
+        # Don't recurse here, as the node is a ``Name`` and will
+        # generate a pre-cached ``Variable`` object otherwise!
+        vname = o.items[0].tostr()
         dtype = kwargs.get('dtype', None)
-        initial = None if o.items[3] is None else self.visit(o.items[3])
-        v = self.visit(o.items[0], dtype=dtype, initial=initial)
-        return v
+
+        dims = get_child(o, Explicit_Shape_Spec_List)
+        dimensions = self.visit(dims) if dims is not None else kwargs.get('dimensions', None)
+
+        init = get_child(o, Initialization)
+        initial = self.visit(init) if init is not None else None
+
+        return self.Variable(name=vname, dtype=dtype, dimensions=dimensions, initial=initial)
+
+    def visit_Entity_Decl_List(self, o, **kwargs):
+        return as_tuple(self.visit(i, **kwargs) for i in as_tuple(o.items))
+
+    def visit_Explicit_Shape_Spec(self, o, **kwargs):
+        return self.visit(o.items[1])
+
+    def visit_Explicit_Shape_Spec_List(self, o, **kwargs):
+        return as_tuple(self.visit(i) for i in o.items)
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         dtype = o.items[0]
         kind = o.items[1].items[1].tostr() if o.items[1] is not None else None
         return dtype, kind
 
+    def visit_Intrinsic_Name(self, o, **kwargs):
+        return o.tostr()
+
     def visit_Initialization(self, o, **kwargs):
         return self.visit(o.items[1])
 
+    def visit_Intrinsic_Function_Reference(self, o, **kwargs):
+        name = self.visit(o.items[0])
+        arguments = self.visit(o.items[1])
+        return InlineCall(name=name, arguments=arguments)
+
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
+
+    visit_Actual_Arg_Spec_List = visit_Section_Subscript_List
 
     def visit_Part_Ref(self, o, **kwargs):
         name = o.items[0].tostr()
@@ -133,7 +182,8 @@ class FParser2IR(GenericVisitor):
         return RangeIndex(lower=o.items[0], upper=o.items[1])
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
-        dtype, kind = self.visit(o.items[0])
+        basetype_node = get_child(o, Intrinsic_Type_Spec)
+        dtype, kind = self.visit(basetype_node)
         attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
         # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
         dimensions = [a for a in attrs if isinstance(a, tuple)]
@@ -148,17 +198,21 @@ class FParser2IR(GenericVisitor):
             intent = 'out'
         base_type = BaseType(dtype, kind=kind, intent=intent,
                              parameter='parameter' in attrs)
-        variables = as_tuple(self.visit(v, dtype=base_type, dimensions=dimensions)
-                             for v in as_tuple(o.items[2]))
-        return Declaration(variables=flatten(variables), type=base_type)
+        variables = self.visit(o.items[2], dtype=base_type, dimensions=dimensions)
+        return Declaration(variables=flatten(variables), type=base_type, dimensions=dimensions)
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
-        from IPython import embed; embed()
-        variable, (lower, upper) = self.visit(o.content[0])
-        step = None 
+        # Extract loop header and get stepping info
+        # TODO: Will need to handle labeled ones too at some point
+        dostmt = get_child(o, Nonlabel_Do_Stmt)
+        variable, (lower, upper) = self.visit(dostmt)
+        step = None  # TOOD: Need to handle this at some point!
         bounds = lower, upper, step
-        body = as_tuple(self.visit(o.content[1]))
-        from IPython import embed; embed()
+
+        # Extract and process the loop body
+        body_nodes = node_sublist(o.content, Nonlabel_Do_Stmt, End_Do_Stmt)
+        body = as_tuple(self.visit(node) for node in body_nodes)
+
         return Loop(variable=variable, body=body, bounds=bounds)
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
@@ -171,7 +225,6 @@ class FParser2IR(GenericVisitor):
         return variable, bounds
 
     def visit_Assignment_Stmt(self, o, **kwargs):
-        # from IPython import embed; embed()
         target = self.visit(o.items[0])
         expr = self.visit(o.items[2])
         return Statement(target=target, expr=expr)
@@ -267,8 +320,6 @@ def parse_fparser_ast(ast, cache=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
-
-    from IPython import embed; embed()
 
     # Parse the raw FParser language AST into our internal IR
     ir = FParser2IR(cache=cache).visit(ast)
