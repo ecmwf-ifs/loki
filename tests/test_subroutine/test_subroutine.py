@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FindVariables, DataType, Array, Scalar
+from loki import clean, compile_and_load, SourceFile, OFP, OMNI, FP, FindVariables, DataType, Array, Scalar
 from conftest import generate_identity
 
 
@@ -34,7 +34,7 @@ def reference(refpath, header_mod):
     return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_simple(refpath, reference, header_path, frontend):
     """
     A simple standard looking routine to test argument declarations.
@@ -60,7 +60,7 @@ def test_routine_simple(refpath, reference, header_path, frontend):
     assert np.all(matrix[1, :] == 10.)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_simple_caching(refpath, reference, header_path, frontend):
     """
     A simple standard looking routine to test variable caching.
@@ -86,7 +86,7 @@ def test_routine_simple_caching(refpath, reference, header_path, frontend):
     assert routine.arguments[3].type.name.lower() == 'integer'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_multiline_args(refpath, reference, header_path, frontend):
     """
     A simple standard looking routine to test argument declarations.
@@ -112,7 +112,7 @@ def test_routine_multiline_args(refpath, reference, header_path, frontend):
     assert np.all(matrix[1, :] == 10.)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_local_variables(refpath, reference, header_path, frontend):
     """
     Test local variables and types
@@ -133,7 +133,7 @@ def test_routine_local_variables(refpath, reference, header_path, frontend):
     assert np.all(maximum == 38.)  # 10*x + 2*y
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_arguments(refpath, reference, header_path, frontend):
     """
     A set of test to test internalisation and handling of arguments.
@@ -163,7 +163,7 @@ def test_routine_arguments(refpath, reference, header_path, frontend):
                              [22., 24., 26.]])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_find_variables(refpath, reference, header_path, frontend):
     """
     Tests the `FindVariables` utility (not the best place to put this).
@@ -195,7 +195,7 @@ def test_find_variables(refpath, reference, header_path, frontend):
     assert sum(1 for s in vars_unique if str(s) == 'y') == 1
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_dim_shapes(refpath, reference, header_path, frontend):
     """
     A set of test to ensure matching different dimension and shape
@@ -222,7 +222,7 @@ def test_routine_dim_shapes(refpath, reference, header_path, frontend):
         or b_shapes == ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_shape_propagation(refpath, reference, header_path, header_mod, frontend):
     """
     Test for the correct identification and forward propagation of variable shapes
@@ -264,7 +264,7 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
     assert str(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_type_propagation(refpath, reference, header_path, header_mod, frontend):
     """
     Test for the forward propagation of derived-type information from
@@ -319,7 +319,7 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert vmap['item%matrix'].type.dtype == DataType.FLOAT64
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_call_arrays(refpath, reference, header_path, header_mod, frontend):
     """
     Test that arrays passed down a subroutine call are treated as arrays.

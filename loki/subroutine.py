@@ -61,6 +61,20 @@ class Subroutine(object):
         self.is_function = is_function
 
     @classmethod
+    def _infer_allocatable_shapes(cls, body):
+        """
+        Infer variable symbol shapes from allocations of ``allocatable`` arrays.
+        """
+        alloc_map = {}
+        for alloc in FindNodes(Allocation).visit(body):
+            for v in alloc.variables:
+                if v.is_Array:
+                    alloc_map[v.name.lower()] = v.dimensions
+        for v in FindVariables().visit(body):
+            if v.name.lower() in alloc_map:
+                v._shape = alloc_map[v.name.lower()]
+
+    @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, cache=None):
         name = name or ast.attrib['name']
 
@@ -98,14 +112,7 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        alloc_map = {}
-        for alloc in FindNodes(Allocation).visit(body):
-            for v in alloc.variables:
-                if v.is_Array:
-                    alloc_map[v.name.lower()] = v.dimensions
-        for v in FindVariables().visit(body):
-            if v.name.lower() in alloc_map:
-                v._shape = alloc_map[v.name.lower()]
+        cls._infer_allocatable_shapes(body)
 
         # Parse "member" subroutines recursively
         members = None
@@ -170,20 +177,13 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        alloc_map = {}
-        for alloc in FindNodes(Allocation).visit(body):
-            for v in alloc.variables:
-                if v.is_Array:
-                    alloc_map[v.name.lower()] = v.dimensions
-        for v in FindVariables().visit(body):
-            if v.name.lower() in alloc_map:
-                v._shape = alloc_map[v.name.lower()]
+        cls._infer_allocatable_shapes(body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, cache=cache)
 
     @classmethod
-    def from_fparser(cls, ast, name=None):
+    def from_fparser(cls, ast, name=None, typedefs=None):
         routine_stmt = ast.content[0]
         name = name or routine_stmt.get_name().string
         dummy_arg_list = routine_stmt.items[2]
@@ -191,10 +191,24 @@ class Subroutine(object):
 
         cache = SymbolCache()
 
-        spec = parse_fparser_ast(ast.content[1], cache=cache)
+        spec = parse_fparser_ast(ast.content[1], typedefs=typedefs, cache=cache)
         spec = Section(body=spec)
 
-        body = parse_fparser_ast(ast.content[2], cache=cache)
+        # Derive type and shape maps to propagate through the subroutine body
+        type_map = {}
+        shape_map = {}
+        for decl in FindNodes(Declaration).visit(spec):
+            type_map.update({v.name: v.type for v in decl.variables})
+            shape_map.update({v.name: v.shape for v in decl.variables
+                              if isinstance(v, Array)})
+
+        body = parse_fparser_ast(ast.content[2], shape_map=shape_map, type_map=type_map, cache=cache)
+        body = Section(body=body)
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        cls._infer_allocatable_shapes(body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast, cache=cache)
 

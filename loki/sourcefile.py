@@ -5,7 +5,7 @@ Fortran source code file.
 import pickle
 from pathlib import Path
 from collections import OrderedDict
-from fparser.two.Fortran2003 import Subroutine_Subprogram
+from fparser.two import Fortran2003
 
 from loki.subroutine import Subroutine
 from loki.module import Module
@@ -44,7 +44,7 @@ class SourceFile(object):
         elif frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         elif frontend == FP:
-            return cls.from_fparser(filename)
+            return cls.from_fparser(filename, typedefs=typedefs)
         else:
             raise NotImplementedError('Unknown frontend: %s' % frontend)
 
@@ -110,17 +110,18 @@ class SourceFile(object):
         return cls(filename, routines=routines, modules=modules, ast=ast)
 
     @classmethod
-    def from_fparser(cls, filename):
+    def from_fparser(cls, filename, typedefs=None):
         file_path = Path(filename)
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_file(filename=str(file_path))
 
-        routine_asts = [r for r in ast.content if isinstance(r, Subroutine_Subprogram)]
-        routines = [Subroutine.from_fparser(ast=r) for r in routine_asts]
+        routine_asts = [r for r in ast.content if isinstance(r, Fortran2003.Subroutine_Subprogram)]
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs) for r in routine_asts]
 
         # TODO: Do modules!
-        modules = []
+        module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
+        modules = [Module.from_fparser(ast=r) for r in module_asts]
 
         return cls(filename, routines=routines, modules=modules, ast=ast)
 
