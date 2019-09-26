@@ -86,8 +86,11 @@ class Module(object):
             spec = parse_fparser_ast(spec_ast)
             spec = Section(body=spec)
 
-        # TODO: Subroutines in modules!
-        routines = []
+        routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
+        routines = None
+        if routines_ast is not None:
+            routines = [Subroutine.from_fparser(ast=s) for s in routines_ast.content
+                        if isinstance(s, Fortran2003.Subroutine_Subprogram)]
 
         return cls(name=name, spec=spec, routines=routines, ast=ast)
 

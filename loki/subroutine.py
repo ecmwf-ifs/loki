@@ -1,4 +1,6 @@
 from collections import OrderedDict
+from fparser.two import Fortran2003
+from fparser.two.utils import get_child
 
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
@@ -184,14 +186,15 @@ class Subroutine(object):
 
     @classmethod
     def from_fparser(cls, ast, name=None, typedefs=None):
-        routine_stmt = ast.content[0]
+        routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
         name = name or routine_stmt.get_name().string
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items]
 
         cache = SymbolCache()
 
-        spec = parse_fparser_ast(ast.content[1], typedefs=typedefs, cache=cache)
+        spec_ast = get_child(ast, Fortran2003.Specification_Part)
+        spec = parse_fparser_ast(spec_ast, typedefs=typedefs, cache=cache)
         spec = Section(body=spec)
 
         # Derive type and shape maps to propagate through the subroutine body
@@ -202,7 +205,8 @@ class Subroutine(object):
             shape_map.update({v.name: v.shape for v in decl.variables
                               if isinstance(v, Array)})
 
-        body = parse_fparser_ast(ast.content[2], shape_map=shape_map, type_map=type_map, cache=cache)
+        body_ast = get_child(ast, Fortran2003.Execution_Part)
+        body = parse_fparser_ast(body_ast, shape_map=shape_map, type_map=type_map, cache=cache)
         body = Section(body=body)
 
         # Big, but necessary hack:

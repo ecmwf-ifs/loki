@@ -7,9 +7,9 @@ from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
-from loki.ir import Comment, Declaration, Statement, Loop, Allocation, TypeDef, Import, Intrinsic, Call
+from loki.ir import Comment, Declaration, Statement, Loop, Allocation, Deallocation, TypeDef, Import, Intrinsic, Call
 from loki.types import DataType, BaseType, DerivedType
-from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex
+from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.logging import info, error, DEBUG
 from loki.tools import timeit, as_tuple, flatten
@@ -94,8 +94,14 @@ class FParser2IR(GenericVisitor):
         # at this low level!
         vname = o.tostr()
         dimensions = kwargs.get('dimensions', None)
-        shape = self.shape_map.get(vname, None) if self.shape_map else None
-        dtype = self.type_map.get(vname, None) if self.type_map else None
+        # Careful! Mind the many ways in whic this can get called with
+        # outside inforamtion (either in kwargs or maps stored on self).
+        shape = kwargs.get('shape', None)
+        if shape is None:
+            shape = self.shape_map.get(vname, None) if self.shape_map else None
+        dtype = kwargs.get('dtype', None)
+        if dtype is None:
+            dtype = self.type_map.get(vname, None) if self.type_map else None
         parent = kwargs.get('parent', None)
 
         # If a parent variable is given, try to infer type and shape
@@ -120,9 +126,15 @@ class FParser2IR(GenericVisitor):
 
     def visit_Attr_Spec_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
+
+    def visit_Component_Attr_Spec_List(self, o, **kwargs):
+        return as_tuple(self.visit(i) for i in o.items)
         
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
         return self.visit(o.items[1])
+
+    def visit_Component_Attr_Spec(self, o, **kwargs):
+        return o.tostr()
 
     def visit_Attr_Spec(self, o, **kwargs):
         return o.tostr()
@@ -162,12 +174,19 @@ class FParser2IR(GenericVisitor):
         return self.Variable(name=vname, type=dtype, dimensions=dimensions,
                              shape=dimensions, initial=initial)
 
-    visit_Component_Decl = visit_Entity_Decl
+    def visit_Component_Decl(self, o, **kwargs):
+        dtype = kwargs.get('dtype', None)
+        dims = get_child(o, Explicit_Shape_Spec_List)
+        dims = get_child(o, Assumed_Shape_Spec_List) if dims is None else dims
+        dims = get_child(o, Deferred_Shape_Spec_List) if dims is None else dims
+        dimensions = self.visit(dims) if dims is not None else kwargs.get('dimensions', None)
+        return self.visit(o.items[0], dimensions=dimensions, dtype=dtype, shape=dimensions)
 
     def visit_Entity_Decl_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in as_tuple(o.items))
 
-    visit_Component_Decl_List = visit_Entity_Decl_List
+    def visit_Component_Decl_List(self, o, **kwargs):
+        return as_tuple(self.visit(i, **kwargs) for i in as_tuple(o.items))
 
     def visit_Explicit_Shape_Spec(self, o, **kwargs):
         lower = None if o.items[0] is None else self.visit(o.items[0])
@@ -185,10 +204,17 @@ class FParser2IR(GenericVisitor):
     def visit_Assumed_Shape_Spec_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
 
+    def visit_Deferred_Shape_Spec(self, o, **kwargs):
+        lower = None if o.items[0] is None else self.visit(o.items[0])
+        upper = None if o.items[1] is None else self.visit(o.items[1])
+        return RangeIndex(lower=lower, upper=upper, step=None)
+
+    def visit_Deferred_Shape_Spec_List(self, o, **kwargs):
+        return as_tuple(self.visit(i) for i in o.items)
+
     def visit_Allocation(self, o, **kwargs):
-        vname = o.items[0].tostr()
         dimensions = self.visit(o.items[1])
-        return self.Variable(name=vname, dimensions=dimensions)
+        return self.visit(o.items[0], dimensions=dimensions)
 
     def visit_Allocate_Shape_Spec(self, o, **kwargs):
         lower = None if o.items[0] is None else self.visit(o.items[0])
@@ -203,6 +229,11 @@ class FParser2IR(GenericVisitor):
         variables = as_tuple(self.visit(a) for a in allocations.items)
         return Allocation(variables=variables)
 
+    def visit_Deallocate_Stmt(self, o, **kwargs):
+        deallocations = get_child(o, Allocate_Object_List)
+        variables = as_tuple(self.visit(a) for a in deallocations.items)
+        return Deallocation(variable=variables)
+
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         dtype = o.items[0]
         kind = o.items[1].items[1].tostr() if o.items[1] is not None else None
@@ -213,6 +244,13 @@ class FParser2IR(GenericVisitor):
 
     def visit_Initialization(self, o, **kwargs):
         return self.visit(o.items[1])
+
+    def visit_Array_Constructor(self, o, **kwargs):
+        values = self.visit(o.items[1])
+        return LiteralList(values=values)
+
+    def visit_Ac_Value_List(self, o, **kwargs):
+        return as_tuple(self.visit(i) for i in o.items)
 
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
         name = self.visit(o.items[0])
@@ -233,8 +271,12 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Ref(self, o, **kwargs):
         pname = o.items[0].tostr()
-        parent = self.Variable(name=pname)
-        return self.visit(o.items[1], parent=parent)
+        v = self.Variable(name=pname)
+        for i in o.items[1:-1]:
+            # Careful not to propagate type or dims here
+            v = self.visit(i, parent=v)
+        # Attach types and dims to final leaf variable
+        return self.visit(o.items[-1], parent=v, **kwargs)
 
     def visit_Part_Ref(self, o, **kwargs):
         name = o.items[0].tostr()
@@ -315,7 +357,7 @@ class FParser2IR(GenericVisitor):
         return as_tuple(self.visit(a) for a in o.content)
 
     def visit_Data_Component_Def_Stmt(self, o, **kwargs):
-        dtype, kind = self.visit(get_child(o, Intrinsic_Type_Spec))
+        # First, determine type attributes
         attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
         # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
         dimensions = [a for a in attrs if isinstance(a, tuple)]
@@ -328,14 +370,32 @@ class FParser2IR(GenericVisitor):
             intent = 'inout'
         elif 'intent(out)' in attrs:
             intent = 'out'
-        base_type = BaseType(dtype, kind=kind, intent=intent,
-                             parameter='parameter' in attrs,
-                             optional='optional' in attrs,
-                             allocatable='allocatable' in attrs,
-                             pointer='pointer' in attrs)
-        variables = self.visit(o.items[2], dtype=base_type, dimensions=dimensions)
+
+        # Next, figure out the type we're declararing
+        dtype = None
+        basetype_ast = get_child(o, Intrinsic_Type_Spec)
+        if basetype_ast is not None:
+            dtype, kind = self.visit(basetype_ast)
+            dtype = BaseType(dtype, kind=kind, intent=intent,
+                             parameter='parameter' in attrs, optional='optional' in attrs,
+                             allocatable='allocatable' in attrs, pointer='pointer' in attrs)
+
+        derived_type_ast = get_child(o, Declaration_Type_Spec)
+        if derived_type_ast is not None:
+            typename = derived_type_ast.items[1].tostr()
+            # TODO: Insert variable information from stored TypeDef!
+            if self.typedefs is not None and typename in self.typedefs:
+                variables = self.typedefs[typename].variables
+            else:
+                variables = None
+            dtype = DerivedType(name=typename, variables=variables, intent=intent,
+                                allocatable='allocatable' in attrs,
+                                pointer='pointer' in attrs, optional='optional' in attrs,
+                                parameter='parameter' in attrs, target='target' in attrs)
+
+        variables = self.visit(o.items[2], dtype=dtype, dimensions=dimensions)
         # TODO: Deal with our Loki-specific dimension annotations
-        return Declaration(variables=flatten(variables), type=base_type, dimensions=dimensions)
+        return Declaration(variables=flatten(variables), type=dtype, dimensions=dimensions)
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
         # Extract loop header and get stepping info

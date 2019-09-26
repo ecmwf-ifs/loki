@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, OFP, OMNI
+from loki import clean, compile_and_load, OFP, OMNI, FP
 from conftest import generate_identity
 
 
@@ -21,7 +21,7 @@ def reference(refpath):
     return getattr(pymod, refpath.stem)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_simple_loops(refpath, reference, frontend):
     """
     item%vector = item%vector + vec
@@ -46,7 +46,7 @@ def test_simple_loops(refpath, reference, frontend):
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_array_indexing_explicit(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
@@ -70,7 +70,7 @@ def test_array_indexing_explicit(refpath, reference, frontend):
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_array_indexing_deferred(refpath, reference, frontend):
     """
     item.a(:, :) = 666.
@@ -98,7 +98,7 @@ def test_array_indexing_deferred(refpath, reference, frontend):
     reference.free_deferred(item)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_array_indexing_nested(refpath, reference, frontend):
     """
     item%a_vector(:) = 666.
