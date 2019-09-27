@@ -198,7 +198,7 @@ def test_parenthesis(refpath, reference, frontend):
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v4**1.26_jprb)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP])
+@pytest.mark.parametrize('frontend', [OFP])
 def test_commutativity(refpath, reference, frontend):
     """
     v3 = 1._jprb + v2*v1 - v2 - v3

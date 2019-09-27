@@ -1,5 +1,6 @@
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child, walk_ast
+from fparser.two import Fortran2003
 from fparser.two.Fortran2003 import *
 from fparser.common.readfortran import FortranFileReader
 from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
@@ -254,8 +255,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
         name = self.visit(o.items[0])
-        arguments = self.visit(o.items[1])
-        return InlineCall(name=name, arguments=arguments)
+        args = self.visit(o.items[1])
+        kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+        arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
@@ -306,7 +309,9 @@ class FParser2IR(GenericVisitor):
         return self.visit(o.items[0], dimensions=dimensions)
 
     def visit_Substring_Range(self, o, **kwargs):
-        return RangeIndex(lower=o.items[0], upper=o.items[1])
+        lower = None if o.items[0] is None else self.visit(o.items[0])
+        upper = None if o.items[1] is None else self.visit(o.items[1])
+        return RangeIndex(lower=lower, upper=upper)
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         # First, pick out parameters, including explicit DIMENSIONs
@@ -415,6 +420,20 @@ class FParser2IR(GenericVisitor):
         variable, bounds = self.visit(o.items[1])
         return variable, bounds
 
+    def visit_If_Construct(self, o, **kwargs):
+        if_then = get_child(o, Fortran2003.If_Then_Stmt)
+        conditions = tuple(self.visit(if_then))
+        body_ast = node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt)
+        else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
+        # TODO: Multiple elif bodies..!
+        bodies = tuple(self.visit(body_ast))
+        else_body = tuple(self.visit(else_ast))
+        return Conditional(conditions=conditions, bodies=bodies,
+                           else_body=else_body, inline=if_then is None)
+
+    def visit_If_Then_Stmt(self, o, **kwargs):
+        return self.visit(o.items[0])
+
     def visit_Call_Stmt(self, o, **kwargs):
         name = o.items[0].tostr()
         args = self.visit(o.items[1])
@@ -468,6 +487,14 @@ class FParser2IR(GenericVisitor):
             return Equality(exprs[0], exprs[1], evaluate=False)
         elif op == '/=' or op.lower() == '.ne.':
             return Unequality(exprs[0], exprs[1], evaluate=False)
+        elif op == '>' or op.lower() == '.gt.':
+            return exprs[0] > exprs[1]
+        elif op == '<' or op.lower() == '.lt.':
+            return exprs[0] < exprs[1]
+        elif op == '>=' or op.lower() == '.ge.':
+            return exprs[0] >= exprs[1]
+        elif op == '<=' or op.lower() == '.le.':
+            return exprs[0] <= exprs[1]
         elif op.lower() == '.not.':
             e1 = booleanize(exprs[0])
             return Not(e1, evaluate=False)
