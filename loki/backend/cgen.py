@@ -3,7 +3,7 @@ from sympy.codegen.ast import real, float32
 from sympy import evaluate
 
 from loki.tools import chunks
-from loki.visitors import Visitor, FindNodes
+from loki.visitors import Visitor, FindNodes, Transformer
 from loki.types import DataType, DerivedType
 from loki.ir import Import
 from loki.expression import indexify
@@ -116,17 +116,22 @@ class CCodegen(Visitor):
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 
-        spec = self.visit(o.spec)
-        body = self.visit(o.body)
-        footer = '\n%sreturn 0;\n}' % self.indent
-        self._depth -= 1
-
-        # And finally some boilerplate imports...
+        # Some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
         imports += '#include <float.h>\n'
         imports += '#include <math.h>\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
+
+        # ...remove imports from the spec...
+        import_map = {imprt: None for imprt in FindNodes(Import).visit(o.spec)}
+        o.spec = Transformer(import_map).visit(o.spec) 
+
+        # ...and generate the rest of spec and body
+        spec = self.visit(o.spec)
+        body = self.visit(o.body)
+        footer = '\n%sreturn 0;\n}' % self.indent
+        self._depth -= 1
 
         return imports + '\n\n' + header + casts + spec + '\n' + body + footer
 
