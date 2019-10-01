@@ -74,6 +74,16 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
 
+            # Generate C host code
+            c_kernel = self.generate_c_kernel(source)
+            self.c_path = (target_dir / c_kernel.name).with_suffix('.c')
+            SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
+
+            # Generate Fortran wrapper routine
+            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
+            self.wrapperpath = (target_dir / wrapper.name.lower()).with_suffix('.f90')
+            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
 
