@@ -1,13 +1,12 @@
 
-subroutine routine_axpy(n, a, x, y)
+subroutine routine_axpy(a, x, y)
   ! A simple standard routine that computes x = a * x + y for
   ! scalar arguments
   integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: n
-  real(kind=jprb), intent(in) :: a, y(n)
-  real(kind=jprb), intent(inout) :: x(n)
+  real(kind=jprb), intent(in) :: a, y
+  real(kind=jprb), intent(inout) :: x
 
-  x(:) = a * x(:) + y(:)
+  x = a * x + y
 end subroutine routine_axpy
 
 subroutine routine_shift(length, scalar, vector_in, vector_out)

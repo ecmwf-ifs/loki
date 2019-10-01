@@ -167,12 +167,11 @@ def test_passthrough_ctypes(simulator, build_dir, refpath):
 def test_routine_axpy(refpath, reference, builder):
 
     # Test the reference solution
-    n = 10
     a = -3.
-    x = np.zeros(shape=(n,), order='F') + range(n)
-    y = np.zeros(shape=(n,), order='F') + range(n) + 10.
-    reference.routine_axpy(n=n, a=-3, x=x, y=y)
-    assert np.all(a * np.array(range(n), order='F') + y == x)
+    x = np.zeros(shape=(1,), order='F') + 2.
+    y = np.zeros(shape=(1,), order='F') + 10.
+    reference.routine_axpy(a=a, x=x, y=y)
+    assert np.all(a * 2. + y == x)
 
     # Generate the transpiled kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
@@ -182,7 +181,7 @@ def test_routine_axpy(refpath, reference, builder):
 def test_routine_shift(refpath, reference, builder):
 
     # Test the reference solution
-    length = 10
+    length = 2
     scalar = 7
     vector_in = np.array(range(length), order='F', dtype=np.intc)
     vector_out = np.zeros(length, order='F', dtype=np.intc)
