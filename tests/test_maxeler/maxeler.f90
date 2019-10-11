@@ -48,12 +48,25 @@ subroutine routine_moving_average(length, data_in, data_out)
   real(kind=real32), intent(in) :: data_in(length)
   real(kind=real32), intent(out) :: data_out(length)
   integer :: i
+  real(kind=real32) :: prev, next, divisor
 
-  data_out(1) = (data_in(1) + data_in(2)) / 2.0
-  do i=2, length-1
-    data_out(i) = (data_in(i-1) + data_in(i) + data_in(i+1)) / 3.0
+  !$loki sca
+  do i=1, length
+    divisor = 1.0
+    if (i > 1) then
+      prev = data_in(i-1)
+      divisor = divisor + 1.0
+    else
+      prev = 0
+    end if
+    if (i < length) then
+      next = data_in(i+1)
+      divisor = divisor + 1.0
+    else
+      next = 0
+    end if
+    data_out(i) = (prev + data_in(i) + next) / divisor
   end do
-  data_out(length) = (data_in(length-1) + data_in(length)) / 2.0
 end subroutine routine_moving_average
 
 subroutine routine_shift(length, scalar, vector_in, vector_out)
