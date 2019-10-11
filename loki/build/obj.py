@@ -114,7 +114,7 @@ class Obj(object):
         return as_tuple(self.modules + self.subroutines)
 
     def build(self, builder=None, logger=None, compiler=None,
-              workqueue=None, force=False):
+              workqueue=None, force=False, include_dirs=None):
         """
         Execute the respective build command according to the given
         :param toochain:.
@@ -124,7 +124,8 @@ class Obj(object):
         logger = logger or builder.logger
         compiler = compiler or builder.compiler
         build_dir = builder.build_dir
-        include_dirs = builder.include_dirs if builder else None
+        include_dirs = (include_dirs or []) + ((builder.include_dirs if builder else None) or [])
+        include_dirs = include_dirs if len(include_dirs) > 0 else None
 
         if self.source_path is None:
             raise RuntimeError('No source file found for %s' % self)

@@ -115,14 +115,16 @@ class Builder(object):
             for f in path.glob(r):
                 delete(f)
 
-    def build(self, filename, target=None, shared=True):
+    def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):
         item = self.get_item(filename)
         self.logger.info("Building %s" % item)
 
         build_dir = str(self.build_dir) if self.build_dir else None
 
+        # Include optional external objects in the build
+        objs = [Path(o).resolve() for o in external_objs or []]
+
         # Build the entire dependency graph, including the source object
-        objs = []
         dependencies = self.get_dependency_graph(item)
         for dep in reversed(list(nx.topological_sort(dependencies))):
             dep.build(compiler=self.compiler, build_dir=build_dir,

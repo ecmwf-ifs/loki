@@ -1,5 +1,6 @@
 import networkx as nx
 from operator import attrgetter
+from pathlib import Path
 from tqdm import tqdm
 
 from loki.build.tools import as_tuple, find_paths
@@ -16,7 +17,7 @@ class Lib(object):
     """
     A library object linked from multiple compiled objects (:class:`Obj`).
 
-    Note, eitehr :param objs: or the arguments :param pattern: and
+    Note, either :param objs: or the arguments :param pattern: and
     :param source_dir: are required to generated the necessary dependencies.
 
     :param name: Name of the resulting library (without leading ``lib``).
@@ -50,7 +51,7 @@ class Lib(object):
         return 'Lib<%s>' % self.name
 
     def build(self, builder=None, logger=None, compiler=None, shared=None,
-              force=False):
+              force=False, include_dirs=None, external_objs=None):
         """
         Build the source objects and create target library.
         """
@@ -96,7 +97,7 @@ class Lib(object):
 
                     # Schedule object compilation on the workqueue
                     obj.build(builder=builder, compiler=compiler, logger=logger,
-                              workqueue=q, force=force)
+                              workqueue=q, force=force, include_dirs=include_dirs)
 
             # Ensure all build tasks have finished
             for obj in dep_graph.nodes:
@@ -104,11 +105,12 @@ class Lib(object):
                     wait_and_check(obj.q_task, logger=logger)
 
         # Link the final library
-        objs = [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
+        objs = [Path(o).resolve() for o in external_objs or []]
+        objs += [(build_dir/obj.name).with_suffix('.o') for obj in self.objs]
         logger.debug('Linking %s (%s objects)' % (self, len(objs)))
         compiler.link(target=target, objs=objs, shared=shared)
 
-    def wrap(self, modname, builder, sources=None):
+    def wrap(self, modname, builder, sources=None, libs=None, lib_dirs=None):
         """
         Wrap the compiled library using ``f90wrap`` and return the loaded module.
 
@@ -126,8 +128,8 @@ class Lib(object):
         wrappers += ['f90wrap_toplevel.f90']  # Include the generic wrapper
         wrappers = [w for w in wrappers if (build_dir/w).exists()]
 
-        libs = [self.name]
-        lib_dirs = [str(build_dir.absolute())]
+        libs = [self.name] + (libs or [])
+        lib_dirs = [str(build_dir.absolute())] + (lib_dirs or [])
         compiler.f2py(modname=modname, source=wrappers,
                       libs=libs, lib_dirs=lib_dirs, cwd=str(build_dir))
 
