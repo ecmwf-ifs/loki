@@ -211,18 +211,13 @@ def test_routine_copy(refpath, reference, builder, simulator):
     y = reference.routine_copy(x=x)
     assert np.all(y == x)
 
-    simulator.restart()
-    for _ in range(2):
-        # Generate the transpiled kernel
-        source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-        max_kernel = max_transpile(source['routine_copy'], refpath, builder)
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_copy'], refpath, builder)
 
-        # Test the transpiled kernel
-        x = np.zeros(1) + 2.
-        y = max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax(ticks=1, x=x)
-        print(y)
-
-    simulator.stop()
+    # Test the transpiled kernel
+    x = np.zeros(1) + 2.
+    y = simulator.call(max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax, ticks=1, x=x)
     assert np.all(y == x)
 
 
@@ -258,6 +253,29 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
     # assert np.all(tensor == [[11., 21., 31., 41.],
     #                          [12., 22., 32., 42.],
     #                          [13., 23., 33., 43.]])
+
+
+@pytest.mark.skip(reason='Working on it')
+def test_routine_moving_average(refpath, reference, builder, simulator):
+
+    # Create random input data
+    n = 32
+    data_in = np.random.rand(n).astype(np.dtype('<f'), order='F')
+
+    # Compute reference solution
+    expected = np.zeros(shape=(n,), order='F', dtype=np.dtype('<f'))
+    expected[0] = (data_in[0] + data_in[1]) / 2.
+    expected[1:-1] = (data_in[:-2] + data_in[1:-1] + data_in[2:]) / 3.
+    expected[-1] = (data_in[-2] + data_in[-1]) / 2.
+
+    # Test the Fortran kernel
+    data_out = np.zeros(shape=(n,), order='F', dtype=('<f'))
+    reference.routine_moving_average(n, data_in, data_out)
+    assert np.all(data_out == expected)
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_moving_average'], refpath, builder)
 
 
 @pytest.mark.skip(reason='Dynamic loop lengths not yet supported')

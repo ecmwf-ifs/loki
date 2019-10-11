@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from pathlib import Path
-from sympy import evaluate, Mul
+from sympy import evaluate
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
@@ -141,8 +141,8 @@ class FortranMaxTransformation(BasicTransformation):
         # then outstreams (alphabetically)
         variables = flatten([(arg, arg.clone(name='%s_in' % arg.name, initial=arg,
                                              type=arg.type.clone(pointer=False, intent='in')))
-                              if arg.type.intent.lower() == 'inout' else arg
-                              for arg in arguments])
+                             if arg.type.intent.lower() == 'inout' else arg
+                             for arg in arguments])
         scalar_variables = [arg for arg in variables
                             if arg.type.intent.lower() == 'in' and arg.is_Scalar]
         in_variables = [arg for arg in variables
@@ -218,11 +218,6 @@ class FortranMaxTransformation(BasicTransformation):
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
         interface = self.generate_iso_c_interface(routine, c_structs)
-
-        # Remove pointer properties
-        #for arg in routine.arguments:
-        #    if arg.type.pointer:
-        #        arg.type.pointer = False
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)

@@ -41,6 +41,21 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
   ! end do
 end subroutine routine_fixed_loop
 
+subroutine routine_moving_average(length, data_in, data_out)
+  use iso_fortran_env, only: real32
+  implicit none
+  integer, intent(in) :: length
+  real(kind=real32), intent(in) :: data_in(length)
+  real(kind=real32), intent(out) :: data_out(length)
+  integer :: i
+
+  data_out(1) = (data_in(1) + data_in(2)) / 2.0
+  do i=2, length-1
+    data_out(i) = (data_in(i-1) + data_in(i) + data_in(i+1)) / 3.0
+  end do
+  data_out(length) = (data_in(length-1) + data_in(length)) / 2.0
+end subroutine routine_moving_average
+
 subroutine routine_shift(length, scalar, vector_in, vector_out)
   implicit none
   ! A simple standard looking routine to test argument declarations

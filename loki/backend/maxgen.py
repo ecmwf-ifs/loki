@@ -3,10 +3,10 @@ from sympy import evaluate
 from sympy.codegen.ast import real, float32
 
 from loki.backend import CCodegen, csymgen
-from loki.expression import indexify, Variable
-from loki.ir import Call, Import, Declaration
-from loki.tools import chunks, flatten
-from loki.types import BaseType, DataType
+from loki.expression import indexify
+from loki.ir import Import, Declaration
+from loki.tools import chunks
+from loki.types import DataType
 from loki.visitors import Visitor, FindNodes, Transformer
 
 
@@ -286,9 +286,9 @@ class MaxjManagerCodegen(object):
 class MaxjCCodegen(CCodegen):
 
     def visit_Call(self, o):
-        #astr = [csymgen(a) for a in o.arguments]
-        #astr = ['*%s' % arg.name if not arg.is_Array and arg.type.pointer else arg.name
-        #        for arg in o.arguments]
+        # astr = [csymgen(a) for a in o.arguments]
+        # astr = ['*%s' % arg.name if not arg.is_Array and arg.type.pointer else arg.name
+        #         for arg in o.arguments]
         astr = [arg.name for arg in o.arguments]
         return '%s%s(%s);' % (self.indent, o.name, ', '.join(astr))
 
