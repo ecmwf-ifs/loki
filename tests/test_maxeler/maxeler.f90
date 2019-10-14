@@ -42,13 +42,13 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
 end subroutine routine_fixed_loop
 
 subroutine routine_moving_average(length, data_in, data_out)
-  use iso_fortran_env, only: real32
+  use iso_fortran_env, only: real64
   implicit none
   integer, intent(in) :: length
-  real(kind=real32), intent(in) :: data_in(length)
-  real(kind=real32), intent(out) :: data_out(length)
+  real(kind=real64), intent(in) :: data_in(length)
+  real(kind=real64), intent(out) :: data_out(length)
   integer :: i
-  real(kind=real32) :: prev, next, divisor
+  real(kind=real64) :: prev, next, divisor
 
   !$loki sca
   do i=1, length

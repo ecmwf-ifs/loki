@@ -56,7 +56,7 @@ class MaxjCodegen(Visitor):
                                               v.name, inits[-1])
             elif v.initial is not None:
                 # ...or assign a given initial value...
-                stream = str(v.initial)
+                stream = v.initial.name
             else:
                 # ...or create an empty instance
                 stream = '%s.newInstance(this)' % inits[-1]
