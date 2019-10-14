@@ -102,7 +102,8 @@ class MaxjCodegen(Visitor):
 
         # Generate declarations for local variables
         local_vars = [v for v in o.variables if v not in o.arguments]
-        spec = ['%s %s;\n' % (v.type.dtype.jtype, v) for v in local_vars]
+        spec = ['\n']
+        spec += ['%s %s;\n' % (v.type.dtype.jtype, v) for v in local_vars]
         spec = self.indent.join(spec)
 
         # Remove any declarations for variables that are not arguments
@@ -197,6 +198,7 @@ class MaxjCodegen(Visitor):
         return o.text
 
     def visit_Loop(self, o):
+        import pdb; pdb.set_trace()
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1

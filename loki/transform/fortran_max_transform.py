@@ -64,15 +64,14 @@ class FortranMaxTransformation(BasicTransformation):
             kernel.arguments = arguments
             kernel.variables = variables
 
-            # Generate maxj kernel that is to be run on the FPGA
+            # Generate kernel manager
+            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / kernel.name))
+            SourceFile.to_file(source=maxjmanagergen(kernel), path=self.maxj_manager_path)
+
+            # Finally, generate MaxJ kernel that is to be run on the FPGA
             maxj_kernel = self.generate_maxj_kernel(kernel)
             self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
-
-            # Generate matching kernel manager
-#            maxj_manager = self.generate_maxj_manager(kernel)
-            self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
-            SourceFile.to_file(source=maxjmanagergen(maxj_kernel), path=self.maxj_manager_path)
 
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
