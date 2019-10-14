@@ -50,18 +50,22 @@ class MaxjCodegen(Visitor):
             inits += [init_templates[i] % (types[i], inits[i], v.dimensions[-(i+1)])]
 
         if is_input:
-            # Determine matching initialization routine
-            if v.type.intent is not None and v.type.intent.lower() in ('in', 'inout'):
-                stream = 'io.%s("%s_in", %s)' % ('input' if v.is_Array else 'scalarInput',
-                                                 v.name, inits[-1])
+            if v.type.intent is not None and v.type.intent.lower() == 'in':
+                # Determine matching initialization routine...
+                stream = 'io.%s("%s", %s)' % ('input' if v.is_Array else 'scalarInput',
+                                              v.name, inits[-1])
+            elif v.initial is not None:
+                # ...or assign a given initial value...
+                stream = str(v.initial)
             else:
+                # ...or create an empty instance
                 stream = '%s.newInstance(this)' % inits[-1]
 
         else:
             # Matching outflow statement
-            if v.type.intent is not None and v.type.intent.lower() in ('out', 'inout'):
-                stream = 'io.{0}utput("{1}_out", {1}, {2})'.format('o' if v.is_Array else 'scalarO',
-                                                                   v.name, inits[-1])
+            if v.type.intent is not None and v.type.intent.lower() in ('inout', 'out'):
+                stream = 'io.{0}utput("{1}", {1}, {2})'.format('o' if v.is_Array else 'scalarO',
+                                                               v.name, inits[-1])
             else:
                 stream = None
 
@@ -125,7 +129,7 @@ class MaxjCodegen(Visitor):
 
         # Insert outflow statements for output variables
         outflow = [self.type_and_stream(v, is_input=False)
-                   for v in o.arguments if v.type.intent.lower() in ('out', 'inout')]
+                   for v in o.arguments if v.type.intent.lower() in ('inout', 'out')]
         outflow = '\n'.join(['%s%s;' % (self.indent, a[1]) for a in outflow])
 
         self._depth -= 1
@@ -237,12 +241,13 @@ class MaxjManagerCodegen(object):
         body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
 
         # Insert in/out streams
-        in_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() in ('in', 'inout')]
-        out_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() in ('out', 'inout')]
+        in_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() == 'in']
+        out_vars = [v for v in o.arguments
+                    if v.is_Array and v.type.intent.lower() in ('inout', 'out')]
         body += ['\n']
-        body += ['kernelBlock.getInput("{0}_in") <== addStreamFromCPU("{0}_in");\n'.format(v.name)
+        body += ['kernelBlock.getInput("{0}") <== addStreamFromCPU("{0}");\n'.format(v.name)
                  for v in in_vars]
-        body += ['addStreamToCPU("{0}_out") <== kernelBlock.getOutput("{0}_out");\n'.format(v.name)
+        body += ['addStreamToCPU("{0}") <== kernelBlock.getOutput("{0}");\n'.format(v.name)
                  for v in out_vars]
 
         # Specify default values for interface parameters
@@ -255,9 +260,9 @@ class MaxjManagerCodegen(object):
         # in_sizes = [', '.join([str(d) for d in v.dimensions]) for v in in_vars]
         # out_sizes = [', '.join([str(d) for d in v.dimensions]) for v in out_vars]
         # body += ['\n']
-        # body += [stream_template.format(v.name + '_in', v.type.dtype.maxjManagertype, s)
+        # body += [stream_template.format(v.name, v.type.dtype.maxjManagertype, s)
         #          for v, s in zip(in_vars, in_sizes)]
-        # body += [stream_template.format(v.name + '_out', v.type.dtype.maxjManagertype, s)
+        # body += [stream_template.format(v.name, v.type.dtype.maxjManagertype, s)
         #          for v, s in zip(out_vars, out_sizes)]
 
         # body += ['\n']

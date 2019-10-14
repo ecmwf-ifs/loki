@@ -42,8 +42,12 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_src = path / source.name
             self.maxj_src.mkdir(exist_ok=True)
 
+            # Apply some common transformations
+            arguments, argument_map = self.transform_arguments(source)
+            body = self.transform_body(source)
+            host_interface = self.generate_host_interface(source, arguments, argument_map)
+
             # Generate Fortran wrapper routine
-            host_interface = self.generate_host_interface(source)
             wrapper = self.generate_iso_c_wrapper_routine(host_interface, c_structs)
             self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
             self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
@@ -53,51 +57,84 @@ class FortranMaxTransformation(BasicTransformation):
             self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
             SourceFile.to_file(source=maxjcgen(c_interface), path=self.c_path)
 
+            # Replicate the kernel to strip the Fortran-specific boilerplate
+            spec = Section(body=[])
+            variables = [a for a in arguments if a not in source.variables] + source.variables
+            kernel = Subroutine(name=source.name, spec=spec, body=body, cache=source._cache)
+            kernel.arguments = arguments
+            kernel.variables = variables
+
             # Generate maxj kernel that is to be run on the FPGA
-            maxj_kernel = self.generate_maxj_kernel(source)
+            maxj_kernel = self.generate_maxj_kernel(kernel)
             self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
 
             # Generate matching kernel manager
-            maxj_manager = self.generate_maxj_manager(source)
+#            maxj_manager = self.generate_maxj_manager(kernel)
             self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / maxj_kernel.name))
-            SourceFile.to_file(source=maxjmanagergen(maxj_manager), path=self.maxj_manager_path)
+            SourceFile.to_file(source=maxjmanagergen(maxj_kernel), path=self.maxj_manager_path)
 
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
 
-    def generate_maxj_manager(self, routine, **kwargs):
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=[])
-        body = as_tuple(Transformer({}).visit(routine.body))
+    def transform_arguments(self, routine):
+        """
+        Copies all arguments and splits up 'inout' arguments into a new 'in'-argument and
+        the original 'inout' argument with the new 'in'-argument as initial value assigned.
+        """
+        arguments = []
+        argument_map = {}
+        for arg in routine.arguments:
+            if arg.type.intent.lower() == 'inout':
+                arg_in = arg.clone(name='%s_in' % arg.name, initial=arg,
+                                   type=arg.type.clone(pointer=False, intent='in'))
+                arguments += [arg_in, arg]
+                argument_map.update({arg_in: arg, arg: arg})
+            else:
+                arguments += [arg]
+                argument_map.update({arg: arg})
 
-        # Force all variables to lower-case, as Java is case-sensitive
+        # In the SLiC interface, scalars are kept in-order apparently, followed by
+        # instreams (alphabetically) and then outstreams (alphabetically)
+        scalar_arguments = [arg for arg in arguments
+                            if arg.type.intent.lower() == 'in' and arg.is_Scalar]
+        in_arguments = [arg for arg in arguments
+                        if arg.type.intent.lower() == 'in' and arg.is_Array]
+        out_arguments = [arg for arg in arguments if arg.type.intent.lower() in ('inout', 'out')]
+        in_arguments.sort(key=lambda a: a.name)
+        out_arguments.sort(key=lambda a: a.name)
+        arguments = scalar_arguments + in_arguments + out_arguments
+
+        return arguments, argument_map
+
+    def transform_body(self, routine):
+        # Replicate the body to strip the Fortran-specific boilerplate
+        body = Transformer({}).visit(routine.body)
+        body = as_tuple(body)
+
+        # Force all variables to lower-case, as Java and C are case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
                 if (v.is_Scalar or v.is_Array) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
-        kernel = Subroutine(name=routine.name, spec=spec, body=body, cache=routine._cache)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+        return body
+
+    def generate_maxj_manager(self, kernel, **kwargs):
 
         self._resolve_omni_size_indexing(kernel, **kwargs)
 
         return kernel
 
-    def generate_maxj_kernel(self, routine, **kwargs):
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=[])
-        body = Transformer({}).visit(routine.body)
-        body = as_tuple(body)
-
-        # Force all variables to lower-case, as Java is case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
-        body = SubstituteExpressions(vmap).visit(body)
-
-        kernel = Subroutine(name=routine.name, spec=spec, body=body, cache=routine._cache)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+    def generate_maxj_kernel(self, kernel, **kwargs):
+        # Assign matching 'in' argument as initial value to 'inout' arguments
+        arguments = []
+        for arg in kernel.arguments:
+            if arg.type.intent.lower() == 'inout':
+                arg_in = next(a for a in kernel.arguments if a.name == '%s_in' % arg.name)
+                arguments += [arg.clone(name=arg.name, initial=arg_in)]
+            else:
+                arguments += [arg]
+        kernel.arguments = arguments
 
         # Force pointer on reference-passed arguments
         for arg in kernel.arguments:
@@ -123,48 +160,39 @@ class FortranMaxTransformation(BasicTransformation):
 
         return kernel
 
-    def generate_host_interface(self, routine, **kwargs):
+    def generate_host_interface(self, routine, variables, variable_map, **kwargs):
         """
         Generate the necessary call for the host interface.
         """
-        # The arguments for the host interface subroutine are the same as for the original kernel
-        # plus some additional ones.
+        # The arguments for the host interface subroutine are the same as for the original
+        # kernel plus some additional ones.
         arguments = routine.arguments
 
         # First, add an argument for ticks
         size_t_type = BaseType('INTEGER', intent='in')  # TODO: make this size_t
         ticks_argument = Variable(name='ticks', type=size_t_type)
         arguments = [ticks_argument] + arguments
+        variables = [ticks_argument] + variables
 
-        # Copy all arguments and split up inout arguments
-        # Apparently, scalars are kept in-order, followed by instreams (alphabetically) and
-        # then outstreams (alphabetically)
-        variables = flatten([(arg, arg.clone(name='%s_in' % arg.name, initial=arg,
-                                             type=arg.type.clone(pointer=False, intent='in')))
-                             if arg.type.intent.lower() == 'inout' else arg
-                             for arg in arguments])
-        scalar_variables = [arg for arg in variables
-                            if arg.type.intent.lower() == 'in' and arg.is_Scalar]
-        in_variables = [arg for arg in variables
-                        if arg.type.intent.lower() == 'in' and arg.is_Array]
-        out_variables = [arg for arg in variables if arg.type.intent.lower() in ('inout', 'out')]
-        in_variables.sort(key=lambda a: a.name)
-        out_variables.sort(key=lambda a: a.name)
-        variables = scalar_variables + in_variables + out_variables
-
-        # The DFE wants to know how big arrays are, so we replace array arguments by
+        # Secondly, the DFE wants to know how big arrays are, so we replace array arguments by
         # pairs of (arg, arg_size)
-        arg_pairs = {a: (a, Variable(name='%s_size' % a.name, type=size_t_type)) if a.is_Array
-                     else a for a in variables}
+        arg_pairs = {a: (a, Variable(name='%s_size' % a.name, type=size_t_type))
+                     if a.is_Array else a for a in arguments}
         arguments = flatten([arg_pairs[a] for a in arguments])
-        var_pairs = {a: (a, Variable(name='%s_byte_size' % a.name, type=size_t_type,
-                                     initial=arg_pairs[a][1]))
-                     if a.is_Array else a for a in variables}
-        variables = flatten([var_pairs[a] for a in variables])
+
+        # For the transformed arguments we can reuse the existing size-arguments
+        var_pairs = {v: (v, arg_pairs[variable_map[v]][1])
+                     if v.is_Array else v for v in variables}
+        call_arguments = flatten([var_pairs[v] for v in variables])
+
+        # Remove initial values from inout-arguments
+        for v in variables:
+            if v.is_Array and v.type.intent == 'inout':
+                v.initial = None
 
         # The entire body is just a call to the SLiC interface
         spec = Transformer().visit(routine.spec)
-        body = (Call(name=routine.name, arguments=variables),)
+        body = (Call(name=routine.name, arguments=call_arguments),)
         kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
         kernel.arguments = arguments
         kernel.variables = variables

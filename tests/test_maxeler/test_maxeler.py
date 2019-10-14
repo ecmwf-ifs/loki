@@ -211,13 +211,20 @@ def test_routine_copy(refpath, reference, builder, simulator):
     y = reference.routine_copy(x=x)
     assert np.all(y == x)
 
-    # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_copy'], refpath, builder)
+    simulator.restart()
+    # TODO: For some reason we have to generate and run the kernel twice in the same instance of
+    # the simulator to actually get any results other than 0. Probably doing something wrong with
+    # the Maxeler language...
+    for _ in range(2):
+        # Generate the transpiled kernel
+        source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+        max_kernel = max_transpile(source['routine_copy'], refpath, builder)
 
-    # Test the transpiled kernel
-    x = np.zeros(1) + 2.
-    y = simulator.call(max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax, ticks=1, x=x)
+        # Test the transpiled kernel
+        x = np.zeros(1) + 2.
+        y = max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax(ticks=1, x=x)
+        print(y)
+    simulator.stop()
     assert np.all(y == x)
 
 
