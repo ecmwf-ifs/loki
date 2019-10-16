@@ -218,7 +218,6 @@ class MaxjCodegen(Visitor):
         return o.text
 
     def visit_Loop(self, o):
-        import pdb; pdb.set_trace()
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1

@@ -262,7 +262,7 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
     #                          [13., 23., 33., 43.]])
 
 
-# @pytest.mark.skip(reason='Working on it')
+@pytest.mark.skip(reason='Working on it')
 def test_routine_moving_average(refpath, reference, builder, simulator):
 
     # Create random input data
