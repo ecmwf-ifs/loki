@@ -6,7 +6,8 @@ from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
 from loki.expression import (Array, FindVariables, InlineCall, Literal, RangeIndex,
                              SubstituteExpressions, Variable)
-from loki.ir import Call, Import, Interface, Intrinsic, Loop, Section, Statement
+from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
+                     Conditional, ConditionalStatement)
 from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.subroutine import Subroutine
@@ -118,12 +119,6 @@ class FortranMaxTransformation(BasicTransformation):
 
         return body
 
-    def generate_maxj_manager(self, kernel, **kwargs):
-
-        self._resolve_omni_size_indexing(kernel, **kwargs)
-
-        return kernel
-
     def generate_maxj_kernel(self, kernel, **kwargs):
         # Assign matching 'in' argument as initial value to 'inout' arguments
         arguments = []
@@ -135,22 +130,107 @@ class FortranMaxTransformation(BasicTransformation):
                 arguments += [arg]
         kernel.arguments = arguments
 
-        # Force pointer on reference-passed arguments
-        for arg in kernel.arguments:
-            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-                arg.type.pointer = True
-
-        # Propagate that reference pointer to all variables
-        arg_map = {a.name: a for a in kernel.arguments}
-        for v in FindVariables(unique=False).visit(kernel.body):
-            if v.name in arg_map:
-                if v.type:
-                    v.type.pointer = arg_map[v.name].type.pointer
-                else:
-                    v._type = arg_map[v.name].type
+#        # Force pointer on reference-passed arguments
+#        for arg in kernel.arguments:
+#            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
+#                arg.type.pointer = True
+#
+#        # Propagate that reference pointer to all variables
+#        arg_map = {a.name: a for a in kernel.arguments}
+#        for v in FindVariables(unique=False).visit(kernel.body):
+#            if v.name in arg_map:
+#                if v.type:
+#                    v.type.pointer = arg_map[v.name].type.pointer
+#                else:
+#                    v._type = arg_map[v.name].type
 
         self._resolve_vector_notation(kernel, **kwargs)
         self._resolve_omni_size_indexing(kernel, **kwargs)
+
+        # Remove dataflow loops
+        loop_map = {}
+        vmap = {}
+        for loop in FindNodes(Loop).visit(kernel.body):
+            if (loop.pragma is not None and loop.pragma.keyword == 'loki' and
+                    'dataflow' in loop.pragma.content):
+                loop_map[loop] = loop.body
+                vmap[loop.variable] = \
+                    loop.variable.clone(dimensions=None,
+                                        initial=InlineCall(name='control.count.simpleCounter',
+                                                           arguments=[Literal(32)]))
+        dataflow_indices = as_tuple(vmap.keys())  # [loop.variable for loop in loop_map.keys()]
+        kernel.body = Transformer(loop_map).visit(kernel.body)
+
+        # Replace conditionals by conditional statements
+        # TODO: This does not handle nested conditionals!
+        cond_map = {}
+        for cnt, cond in enumerate(FindNodes(Conditional).visit(kernel.body)):
+            body = []
+
+            # Extract conditions as separate variables
+            cond_vars = []
+            for i, c in enumerate(cond.conditions):
+                cond_vars += [Variable(name='cond_%d_%d' % (cnt, i))]
+                body += [Statement(target=cond_vars[-1], expr=c)]
+            kernel.variables += cond_vars
+
+            # Build list of dicts with all the statements from all bodies of the conditional
+            stmts = []
+            for cond_body in cond.bodies:
+                body_stmts = OrderedDict()
+                for stmt in FindNodes(Statement).visit(cond_body):
+                    body_stmts[stmt.target] = body_stmts.get(stmt.target, []) + [stmt]
+                stmts += [body_stmts]
+
+            else_stmts = OrderedDict()
+            for stmt in FindNodes(Statement).visit(cond.else_body):
+                else_stmts[stmt.target] = else_stmts.get(stmt.target, []) + [stmt]
+
+            # Collect all the statements grouped by their target
+            targets = set([t for slist in (stmts + [else_stmts]) for t in slist.keys()])
+            target_stmts = {t: [slist.get(t, []) for slist in stmts] for t in targets}
+
+            # Hacky heuristic: We use the first body to hangle us along the order of statements
+            for stmt in FindNodes(Statement).visit(cond.bodies[0]):
+                t = stmt.target
+                cond_stmt = else_stmts[t].pop(0).expr if else_stmts.get(t, []) else t
+                for var, slist in zip(reversed(cond_vars), reversed(target_stmts.get(t, []))):
+                    cond_stmt = ConditionalStatement(target=t, condition=var,
+                                                     expr=slist.pop(0).expr if slist else t,
+                                                     else_expr=cond_stmt)
+                body += [cond_stmt]
+
+            # Add all remaining statements of all targets at the end
+            for t in targets:
+                while else_stmts.get(t, []) or any(target_stmts.get(t, [])):
+                    cond_stmt = else_stmts[t].pop(0).expr if else_stmts.get(t, []) else t
+                    for var, slist in zip(reversed(cond_vars), reversed(target_stmts.get(t, []))):
+                        cond_stmt = ConditionalStatement(target=t, condition=var,
+                                                         expr=slist.pop(0).expr if slist else t,
+                                                         else_expr=cond_stmt)
+                    body += [cond_stmt]
+
+            cond_map[cond] = body
+        kernel.body = Transformer(cond_map).visit(kernel.body)
+
+        # Replace array access by stream inflow
+        # TODO: this only works for vectors so far
+        # TODO: this doesn't work at all!
+        if dataflow_indices:
+            dim = dataflow_indices[0]
+            emap = {}
+            for v in FindVariables(unique=True).visit(kernel.body):
+                if isinstance(v, Array) and v.find(dim):
+                    stream_v = v.clone(dimensions=None, shape=None)
+                    if dim == v.dimensions[0]:
+                        emap[v] = stream_v
+                        vmap[v] = stream_v
+                    else:
+                        new_dim = v.dimensions[0] - dim
+                        emap[v] = InlineCall(name='stream.offset', arguments=[stream_v, new_dim])
+            kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+            kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+            kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(kernel, **kwargs)

@@ -104,6 +104,7 @@ class MaxjCodegen(Visitor):
         local_vars = [v for v in o.variables if v not in o.arguments]
         spec = ['\n']
         spec += ['%s %s;\n' % (v.type.dtype.jtype, v) for v in local_vars]
+        # spec += ['DFEVar %s;\n' % (v) for v in local_vars]
         spec = self.indent.join(spec)
 
         # Remove any declarations for variables that are not arguments
@@ -194,11 +195,29 @@ class MaxjCodegen(Visitor):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
+    def visit_ConditionalStatement(self, o):
+        # Suppress evaluation of expressions to avoid accuracy errors
+        # due to symbolic expression re-writing.
+        with evaluate(False):
+            target = indexify(o.target)
+            condition = indexify(o.condition)
+            expr = indexify(o.expr)
+            else_expr = indexify(o.else_expr)
+
+        type_aliases = {}
+        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
+            type_aliases[real] = float32
+
+        stmt = '%s = %s ? %s : %s;' % (csymgen(target, type_aliases=type_aliases),
+                                       csymgen(condition, type_aliases=type_aliases),
+                                       csymgen(expr, type_aliases=type_aliases),
+                                       csymgen(else_expr, type_aliases=type_aliases))
+        return self.indent + stmt
+
     def visit_Intrinsic(self, o):
         return o.text
 
     def visit_Loop(self, o):
-        import pdb; pdb.set_trace()
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1

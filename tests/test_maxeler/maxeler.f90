@@ -50,7 +50,7 @@ subroutine routine_moving_average(length, data_in, data_out)
   integer :: i
   real(kind=real64) :: prev, next, divisor
 
-  !$loki sca
+  !$loki dataflow
   do i=1, length
     divisor = 1.0
     if (i > 1) then
