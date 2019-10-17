@@ -2,13 +2,18 @@ from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child, walk_ast
 from fparser.two import Fortran2003
 from fparser.two.Fortran2003 import *
-from fparser.common.readfortran import FortranFileReader
+from fparser.common.readfortran import FortranStringReader
 from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
+from sympy.core.numbers import NegativeOne
+from pathlib import Path
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
-from loki.ir import Comment, Declaration, Statement, Loop, Allocation, Deallocation, TypeDef, Import, Intrinsic, Call
+from loki.ir import (
+    Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
+    TypeDef, Import, Intrinsic, Call
+)
 from loki.types import DataType, BaseType, DerivedType
 from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
@@ -62,9 +67,8 @@ class FParser2IR(GenericVisitor):
         Generic dispatch method that tries to generate meta-data from source.
         """
         source = kwargs.pop('source', None)
-        if o.item is not None:
-            file = o.item.reader.file.name
-            source = Source(lines=o.item.span, file=file)
+        if not isinstance(o, str) and o.item is not None:
+            source = Source(lines=o.item.span)
         return super(FParser2IR, self).visit(o, source=source, **kwargs)
 
     def visit_Base(self, o, **kwargs):
@@ -149,6 +153,10 @@ class FParser2IR(GenericVisitor):
         name = o.items[2].tostr()
         symbols = as_tuple(self.visit(s) for s in o.items[4].items)
         return Import(module=name, symbols=symbols)
+
+    def visit_Include_Stmt(self, o, **kwargs):
+        fname = o.items[0].tostr()
+        return Import(module=fname, c_import=True)
 
     def visit_Implicit_Stmt(self, o, **kwargs):
         return Intrinsic(text='IMPLICIT %s' % o.items[0])
@@ -406,9 +414,10 @@ class FParser2IR(GenericVisitor):
         # Extract loop header and get stepping info
         # TODO: Will need to handle labeled ones too at some point
         dostmt = get_child(o, Nonlabel_Do_Stmt)
-        variable, (lower, upper) = self.visit(dostmt)
-        step = None  # TOOD: Need to handle this at some point!
-        bounds = lower, upper, step
+        variable, bounds = self.visit(dostmt)
+        if len(bounds) == 2:
+            # Ensure we always have a step size
+            bounds += (None,)
 
         # Extract and process the loop body
         body_nodes = node_sublist(o.content, Nonlabel_Do_Stmt, End_Do_Stmt)
@@ -422,12 +431,12 @@ class FParser2IR(GenericVisitor):
 
     def visit_If_Construct(self, o, **kwargs):
         if_then = get_child(o, Fortran2003.If_Then_Stmt)
-        conditions = tuple(self.visit(if_then))
+        conditions = as_tuple(self.visit(if_then))
         body_ast = node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         # TODO: Multiple elif bodies..!
-        bodies = tuple(self.visit(body_ast))
-        else_body = tuple(self.visit(else_ast))
+        bodies = as_tuple(self.visit(a) for a in as_tuple(body_ast))
+        else_body = as_tuple(self.visit(a) for a in as_tuple(else_ast))
         return Conditional(conditions=conditions, bodies=bodies,
                            else_body=else_body, inline=if_then is None)
 
@@ -468,11 +477,16 @@ class FParser2IR(GenericVisitor):
         if op == '*':
             return Mul(exprs[0], exprs[1], evaluate=False)
         elif op == '/':
-            return Mul(exprs[0], Pow(exprs[1], -1, evaluate=False), evaluate=False)
+            return Mul(exprs[0], Pow(exprs[1], NegativeOne(), evaluate=False), evaluate=False)
         elif op == '+':
             return Add(exprs[0], exprs[1], evaluate=False)
         elif op == '-':
-            return Add(exprs[0], Mul(-1, exprs[1], evaluate=False), evaluate=False)
+            if len(exprs) > 1:
+                # Binary minus
+                return Add(exprs[0], Mul(NegativeOne(), exprs[1], evaluate=False), evaluate=False)
+            else:
+                # Unary minus
+                return Mul._from_args([NegativeOne(), exprs[0]], is_commutative=False)
         elif op == '**':
             return Pow(exprs[0], exprs[1], evaluate=False)
         elif op.lower() == '.and.':
@@ -520,6 +534,10 @@ class FParser2IR(GenericVisitor):
         e2 = self.visit(o.items[2])
         return self.visit_operation(op=o.items[1], exprs=[e1, e2])
 
+    def visit_Level_2_Unary_Expr(self, o, **kwargs):
+        exprs = [self.visit(o.items[1])]
+        return self.visit_operation(op=o.items[0], exprs=exprs)
+
     visit_Level_4_Expr = visit_Level_2_Expr
 
     def visit_Parenthesis(self, o, **kwargs):
@@ -539,9 +557,16 @@ def parse_fparser_file(filename):
     """
     Generate an internal IR from file via the fparser AST.
     """
-    reader = FortranFileReader(filename, ignore_comments=False)
-    # raw_source = reader.source.read()
+    filepath = Path(filename)
+    with filepath.open('r') as f:
+        fcode = f.read()
+
+    # Remove ``#`` in front of include statements
+    fcode = fcode.replace('#include', 'include')
+
+    reader = FortranStringReader(fcode, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
+
     return f2008_parser(reader)#, raw_source
 
 
