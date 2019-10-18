@@ -257,17 +257,22 @@ class FortranCTransformation(BasicTransformation):
         kernel.variables = routine.variables
 
         # Force pointer on reference-passed arguments
+        arg_map = {}
         for arg in kernel.arguments:
-            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-                arg.type.pointer = True
-        # Propagate that reference pointer to all variables
-        arg_map = {a.name: a for a in kernel.arguments}
-        for v in FindVariables(unique=False).visit(kernel.body):
-            if v.name in arg_map:
-                if v.type:
-                    v.type.pointer = arg_map[v.name].type.pointer
-                else:
-                    v._type = arg_map[v.name].type
+            if not(arg.type.intent.lower() == 'in' and arg.is_Scalar):
+                dtype = arg.type
+                dtype.pointer = True
+                arg_map[arg.name.lower()] = arg.clone(type=dtype)
+        kernel.arguments = [arg_map.get(arg.name.lower(), arg) for arg in kernel.arguments]
+        kernel.variables = [arg_map.get(arg.name.lower(), arg) for arg in kernel.variables]
+
+        vmap = {}
+        for v in FindVariables(unique=True).visit(kernel.body):
+            if v.name.lower() in arg_map:
+                dtype = v.type or arg_map[v.name.lower()].type
+                dtype.pointer = True
+                vmap[v] = v.clone(type=dtype)
+        SubstituteExpressions(vmap).visit(kernel.body)
 
         # Resolve implicit struct mappings through "associates"
         assoc_map = {}
