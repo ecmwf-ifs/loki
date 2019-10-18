@@ -7,7 +7,7 @@ from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, Intrinsic)
-from loki.expression import FindVariables, Array, Scalar, SymbolCache
+from loki.expression import FindVariables, Array, Scalar, SymbolCache, SubstituteExpressions
 from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -72,9 +72,11 @@ class Subroutine(object):
             for v in alloc.variables:
                 if v.is_Array:
                     alloc_map[v.name.lower()] = v.dimensions
+        vmap = {}
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:
-                v._shape = alloc_map[v.name.lower()]
+                vmap[v] = v.clone(shape=alloc_map[v.name.lower()])
+        SubstituteExpressions(vmap).visit(body)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, cache=None):
