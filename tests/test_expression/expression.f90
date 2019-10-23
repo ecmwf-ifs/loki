@@ -69,29 +69,29 @@ subroutine cast_expr(v1, v2, v3, v4, v5)
 end subroutine cast_expr
 
 
-subroutine logical_array(dim, arr, out)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: dim
-  real(kind=jprb), intent(in) :: arr(dim)
-  real(kind=jprb), intent(out) :: out(dim)
-  logical :: mask(dim)
-  integer :: i
-
-  mask(:) = .true.
-  mask(1) = .false.
-  mask(2) = .false.
-
-  do i=1, dim
-    ! Use a logical array and a relational
-    ! containing an array in a single expression
-    if (mask(i) .and. arr(i) > 1.) then
-      out(i) = 3.
-    else
-      out(i) = 1.
-    end if
-  end do
-
-end subroutine logical_array
+!subroutine logical_array(dim, arr, out)
+!  integer, parameter :: jprb = selected_real_kind(13,300)
+!  integer, intent(in) :: dim
+!  real(kind=jprb), intent(in) :: arr(dim)
+!  real(kind=jprb), intent(out) :: out(dim)
+!  logical :: mask(dim)
+!  integer :: i
+!
+!  mask(:) = .true.
+!  mask(1) = .false.
+!  mask(2) = .false.
+!
+!  do i=1, dim
+!    ! Use a logical array and a relational
+!    ! containing an array in a single expression
+!    if (mask(i) .and. arr(i) > 1.) then
+!      out(i) = 3.
+!    else
+!      out(i) = 1.
+!    end if
+!  end do
+!
+!end subroutine logical_array
 
 
 subroutine parenthesis(v1, v2, v3)
@@ -104,22 +104,22 @@ subroutine parenthesis(v1, v2, v3)
 end subroutine parenthesis
 
 
-subroutine commutativity(v1, v2, v3)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  real(kind=jprb), pointer, intent(in) :: v1(:), v2
-  real(kind=jprb), pointer, intent(out) :: v3(:)
-
-  v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
-
-end subroutine commutativity
-
-
-subroutine index_ranges(dim, v1, v2, v3, v4, v5)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: dim
-  real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
-  real(kind=jprb), intent(out) :: v5(1:dim)
-
-  v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
-
-end subroutine index_ranges
+!subroutine commutativity(v1, v2, v3)
+!  integer, parameter :: jprb = selected_real_kind(13,300)
+!  real(kind=jprb), pointer, intent(in) :: v1(:), v2
+!  real(kind=jprb), pointer, intent(out) :: v3(:)
+!
+!  v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
+!
+!end subroutine commutativity
+!
+!
+!subroutine index_ranges(dim, v1, v2, v3, v4, v5)
+!  integer, parameter :: jprb = selected_real_kind(13,300)
+!  integer, intent(in) :: dim
+!  real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
+!  real(kind=jprb), intent(out) :: v5(1:dim)
+!
+!  v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
+!
+!end subroutine index_ranges

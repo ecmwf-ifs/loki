@@ -1,23 +1,131 @@
-from sympy import evaluate
-from sympy.printing import fcode
-from sympy.codegen.fnodes import ArrayConstructor, String
+#from sympy import evaluate
+#from sympy.printing import fcode
+#from sympy.codegen.fnodes import ArrayConstructor, String
 from functools import partial
-from collections import Iterable
+from pymbolic.mapper.stringifier import (StringifyMapper, PREC_UNARY, PREC_LOGICAL_AND,
+                                         PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_PRODUCT,
+                                         PREC_POWER)
 
 from loki.visitors import Visitor
-from loki.tools import chunks, flatten, as_tuple
+from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.types import BaseType
-from loki.expression import indexify
+from loki.expression import indexify, LogicLiteral
 
-__all__ = ['fgen', 'FortranCodegen', 'fsymgen']
+__all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
 
-# TODO: These options should be runtime-configurable
+class FCodeMapper(StringifyMapper):
+    """
+    A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
+    expression to a string adhering to the Fortran standard.
+    """
+
+    COMPARISON_OP_TO_FORTRAN = {
+        "==": r"==",
+        "!=": r"/=",
+        "<=": r"<=",
+        ">=": r">=",
+        "<": r"<",
+        ">": r">",
+    }
+
+    def __init__(self, constant_mapper=repr):
+        super(FCodeMapper, self).__init__(constant_mapper)
+
+    def map_logical_not(self, expr, enclosing_prec):
+        return self.parenthesize_if_needed(".not." + self.rec(expr.child, PREC_UNARY),
+                                           enclosing_prec, PREC_UNARY)
+
+    def map_logical_and(self, expr, enclosing_prec):
+        return self.parenthesize_if_needed(self.join_rec(" .and. ", expr.children, PREC_LOGICAL_AND),
+                                           enclosing_prec, PREC_LOGICAL_AND)
+
+    def map_logical_or(self, expr, enclosing_prec):
+        return self.parenthesize_if_needed(self.join_rec(" .or. ", expr.children, PREC_LOGICAL_OR),
+                                           enclosing_prec, PREC_LOGICAL_OR)
+
+    def map_comparison(self, expr, enclosing_prec, *args, **kwargs):
+        """
+        This translates the C-style notation for comparison operators used internally in Pymbolic
+        to the corresponding Fortran comparison operators.
+        """
+        return self.parenthesize_if_needed(
+            self.format("%s %s %s", self.rec(expr.left, PREC_COMPARISON, *args, **kwargs),
+                        self.COMPARISON_OP_TO_FORTRAN[expr.operator],
+                        self.rec(expr.right, PREC_COMPARISON, *args, **kwargs)),
+            enclosing_prec, PREC_COMPARISON)
+
+    def map_literal(self, expr, enclosing_prec, *args, **kwargs):
+        """
+        This takes special care for logical literals and transforms them to Fortran logical
+        literals, and attaches information about a specific type for all other literals if
+        given any.
+        """
+        if isinstance(expr, LogicLiteral):
+            return '.true.' if expr.value else '.false.'
+        else:
+            result = self(expr.value)
+            if expr._kind:
+                result += '_%s' % expr._kind
+            if not (result.startswith("(") and result.endswith(")")) \
+                    and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
+                return self.parenthesize(result)
+            else:
+                return result
+
+    def map_inline_call(self, *args, **kwargs):
+        return self.map_call_with_kwargs(*args, **kwargs)
+
+    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
+        """
+        Since substraction and unary minus are mapped to multiplication with (-1), we are here
+        looking for such cases and determine the matching operator for the output.
+        """
+        def get_neg_product(expr):
+            from pymbolic.primitives import is_zero, Product
+
+            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+                if len(expr.children) == 2:
+                    # only the minus sign and the other child
+                    return expr.children[1]
+                else:
+                    return Product(expr.children[1:])
+            else:
+                return None
+
+        terms = []
+        is_neg_term = []
+        for ch in expr.children:
+            neg_prod = get_neg_product(ch)
+            is_neg_term.append(neg_prod is not None)
+            if neg_prod is not None:
+                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
+            else:
+                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
+
+        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
+        result += [' %s %s' % ('-' if is_neg else '+', term)
+                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
+
+        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
+
+    def map_parenthesised_add(self, *args, **kwargs):
+        return self.parenthesize(self.map_sum(*args, **kwargs))
+
+    def map_parenthesised_mul(self, expr, *args, **kwargs):
+        return self.parenthesize(self.map_product(*args, **kwargs))
+
+    def map_parenthesised_pow(self, expr, *args, **kwargs):
+        return self.parenthesize(
+            self.format("%s**%s", self.rec(expr.base, PREC_POWER, *args, **kwargs),
+                        self.rec(expr.exponent, PREC_POWER, *args, **kwargs)))
+
+#These options should be runtime-configurable
 
 # Note, the 2003 standard will print :class:`sympy.ArrayConstructor`
 # as ``[...]`` rather than ``(/.../)``, which prevents occasional
 # issues with spacing around line continuations.
-fsymgen = partial(fcode, standard=2003, source_format='free', order='none', contract=False)
+#fsymgen = partial(fcode, standard=2003, source_format='free', order='none', contract=False)
 
 
 class FortranCodegen(Visitor):
@@ -31,6 +139,7 @@ class FortranCodegen(Visitor):
         self.conservative = conservative
         self.chunking = chunking
         self._depth = depth
+        self._fsymgen = FCodeMapper()
 
     @classmethod
     def default_retval(cls):
@@ -158,7 +267,7 @@ class FortranCodegen(Visitor):
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
-        condition = fsymgen(o.condition)
+        condition = self._fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
@@ -180,14 +289,14 @@ class FortranCodegen(Visitor):
             bodies = [self.visit(b) for b in o.bodies]
             else_body = self.visit(o.else_body)
             self._depth -= 1
-            headers = ['IF (%s) THEN' % fsymgen(c) for c in o.conditions]
+            headers = ['IF (%s) THEN' % self._fsymgen(c) for c in o.conditions]
             main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
             return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
-        expr = fsymgen(o.expr)
-        values = ['DEFAULT' if v is None else (fsymgen(v) if isinstance(v, tuple) else '(%s)' % fsymgen(v))
+        expr = self._fsymgen(o.expr)
+        values = ['DEFAULT' if v is None else (self._fsymgen(v) if isinstance(v, tuple) else '(%s)' % fsymgen(v))
                   for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
@@ -198,12 +307,10 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        # Surpress evaluation of expressions to avoid accuracy errors
-        # due to symbolic expression re-writing.
-        with evaluate(False):
-            target = indexify(o.target)
-            expr = indexify(o.expr)
-        stmt = fsymgen(expr, assign_to=target)
+        target = indexify(o.target)
+        expr = indexify(o.expr)
+#        stmt = fsymgen(expr, assign_to=target)
+        stmt = '%s = %s' % (self._fsymgen(target), self._fsymgen(expr))
         if o.ptr:
             # Manually force pointer assignment notation
             # ... Hack me baby, one more time ...
@@ -212,7 +319,7 @@ class FortranCodegen(Visitor):
         return self.indent + stmt + comment
 
     def visit_MaskedStatement(self, o):
-        condition = fsymgen(o.condition)
+        condition = self._fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         default = self.visit(o.default)
@@ -242,7 +349,7 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth chaeck should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([fsymgen(a) for a in args], chunking=3)
+            signature = self.segment([self._fsymgen(a) for a in args], chunking=3)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in args)
@@ -266,7 +373,7 @@ class FortranCodegen(Visitor):
 
     def visit_Scalar(self, o):
         if o.initial is not None:
-            if isinstance(o.initial, Iterable):
+            if is_iterable(o.initial):
                 value = ArrayConstructor(elements=o.initial)
             else:
                 value = o.initial
@@ -274,9 +381,9 @@ class FortranCodegen(Visitor):
             # a rigorous way to do this, but various corner
             # cases around opinter assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, fsymgen(value))
+            return '%s = %s' % (o, self._fsymgen(value))
         else:
-            return fsymgen(o)
+            return self._fsymgen(o)
 
     visit_Array = visit_Scalar
 

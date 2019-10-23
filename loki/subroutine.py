@@ -214,7 +214,7 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        cls._infer_allocatable_shapes(body)
+#        cls._infer_allocatable_shapes(body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast, cache=cache)
 

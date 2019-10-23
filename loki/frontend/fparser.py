@@ -3,8 +3,10 @@ from fparser.two.utils import get_child, walk_ast
 from fparser.two import Fortran2003
 from fparser.two.Fortran2003 import *
 from fparser.common.readfortran import FortranStringReader
-from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
-from sympy.core.numbers import NegativeOne
+#from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
+#from sympy.core.numbers import NegativeOne
+from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
+                                 LogicalAnd, LogicalOr, CallWithKwargs)
 from pathlib import Path
 
 from loki.visitors import GenericVisitor
@@ -51,7 +53,7 @@ class FParser2IR(GenericVisitor):
         self.type_map = type_map
 
         # Use provided symbol cache for variable generation
-        self._cache = cache
+        self._cache = None # cache
 
     def Variable(self, *args, **kwargs):
         """
@@ -134,7 +136,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Component_Attr_Spec_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
-        
+
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
         return self.visit(o.items[1])
 
@@ -266,7 +268,7 @@ class FParser2IR(GenericVisitor):
         args = self.visit(o.items[1])
         kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
+        return InlineCall(function=name, parameters=arguments, kw_parameters=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
@@ -293,10 +295,10 @@ class FParser2IR(GenericVisitor):
         name = o.items[0].tostr()
         args = as_tuple(self.visit(o.items[1]))
         if name.lower() in ['min', 'max', 'exp', 'sqrt', 'abs', 'log',
-                             'selected_real_kind', 'allocated', 'present']:
+                            'selected_real_kind', 'allocated', 'present']:
             kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
             arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-            return InlineCall(name=name, arguments=arguments, kwarguments=kwarguments)
+            return InlineCall(function=name, parameters=arguments, kw_parameters=kwarguments)
         else:
             shape = None
             dtype = None
@@ -464,54 +466,40 @@ class FParser2IR(GenericVisitor):
         """
         Construct expressions from individual operations, suppressing SymPy simplifications.
         """
-
-        def booleanize(expr):
-            """
-            Super-hacky helper function to force boolean array when needed
-            """
-            if isinstance(expr, Array) and not expr.is_Boolean:
-                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
-            else:
-                return expr
-
+        exprs = as_tuple(exprs)
         if op == '*':
-            return Mul(exprs[0], exprs[1], evaluate=False)
+            return Product(exprs)
         elif op == '/':
-            return Mul(exprs[0], Pow(exprs[1], NegativeOne(), evaluate=False), evaluate=False)
+            return Quotient(numerator=exprs[0], denominator=exprs[1])
         elif op == '+':
-            return Add(exprs[0], exprs[1], evaluate=False)
+            return Sum(exprs)
         elif op == '-':
             if len(exprs) > 1:
                 # Binary minus
-                return Add(exprs[0], Mul(NegativeOne(), exprs[1], evaluate=False), evaluate=False)
+                return Sum((exprs[0], Product((-1, exprs[1]))))
             else:
                 # Unary minus
-                return Mul._from_args([NegativeOne(), exprs[0]], is_commutative=False)
+                return Product((-1, exprs[0]))
         elif op == '**':
-            return Pow(exprs[0], exprs[1], evaluate=False)
+            return Power(base=exprs[0], exponent=exprs[1])
         elif op.lower() == '.and.':
-            e1 = booleanize(exprs[0])
-            e2 = booleanize(exprs[1])
-            return And(e1, e2, evaluate=False)
+            return LogicalAnd(exprs)
         elif op.lower() == '.or.':
-            e1 = booleanize(exprs[0])
-            e2 = booleanize(exprs[1])
-            return Or(e1, e2, evaluate=False)
+            return LogicalOr(exprs)
         elif op == '==' or op.lower() == '.eq.':
-            return Equality(exprs[0], exprs[1], evaluate=False)
+            return Comparison(exprs[0], '==', exprs[1])
         elif op == '/=' or op.lower() == '.ne.':
-            return Unequality(exprs[0], exprs[1], evaluate=False)
+            return Comparison(exprs[0], '!=', exprs[1])
         elif op == '>' or op.lower() == '.gt.':
-            return exprs[0] > exprs[1]
+            return Comparison(exprs[0], '>', exprs[1])
         elif op == '<' or op.lower() == '.lt.':
-            return exprs[0] < exprs[1]
+            return Comparison(exprs[0], '<', exprs[1])
         elif op == '>=' or op.lower() == '.ge.':
-            return exprs[0] >= exprs[1]
+            return Comparison(exprs[0], '>=', exprs[1])
         elif op == '<=' or op.lower() == '.le.':
-            return exprs[0] <= exprs[1]
+            return Comparison(exprs[0], '<=', exprs[1])
         elif op.lower() == '.not.':
-            e1 = booleanize(exprs[0])
-            return Not(e1, evaluate=False)
+            return LogicalNot(exprs[0])
         else:
             raise RuntimeError('FParser: Error parsing generic expression')
 
@@ -532,25 +520,24 @@ class FParser2IR(GenericVisitor):
     def visit_Level_2_Expr(self, o, **kwargs):
         e1 = self.visit(o.items[0])
         e2 = self.visit(o.items[2])
-        return self.visit_operation(op=o.items[1], exprs=[e1, e2])
+        return self.visit_operation(op=o.items[1], exprs=(e1, e2))
 
     def visit_Level_2_Unary_Expr(self, o, **kwargs):
-        exprs = [self.visit(o.items[1])]
+        exprs = as_tuple(self.visit(o.items[1]))
         return self.visit_operation(op=o.items[0], exprs=exprs)
 
     visit_Level_4_Expr = visit_Level_2_Expr
 
     def visit_Parenthesis(self, o, **kwargs):
         expression = self.visit(o.items[1])
-        if expression.is_Add:
-            expression = ParenthesisedAdd(*expression.args, evaluate=False)
-        if expression.is_Mul:
-            expression = ParenthesisedMul(*expression.args, evaluate=False)
-        if expression.is_Pow:
-            expression = ParenthesisedPow(*expression.args, evaluate=False)
+        if isinstance(expression, Sum):
+            expression = ParenthesisedAdd(expression.children)
+        if isinstance(expression, Product):
+            expression = ParenthesisedMul(expression.children)
+        if isinstance(expression, Power):
+            expression = ParenthesisedPow(expression.base, expression.exponent)
         return expression
 
-    
 
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):

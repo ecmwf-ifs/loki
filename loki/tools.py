@@ -1,7 +1,6 @@
 import os
 import time
 import pickle
-from collections import Iterable
 from functools import wraps
 
 from loki.logging import log, info, INFO
@@ -34,13 +33,29 @@ def as_tuple(item, type=None, length=None):
     return t
 
 
+def is_iterable(o):
+    """
+    Checks if an item is truly iterable using duck typing.
+
+    This was added because pymbolic.primitives.Expression provide an __iter__ method
+    that throws an exception to avoid being iterable. However, with that it is identified
+    as a collections.Iterable.
+    """
+    try:
+        iter(o)
+    except TypeError:
+        return False
+    else:
+        return True
+
+
 def flatten(l):
     """
     Flatten a hierarchy of nested lists into a plain list.
     """
     newlist = []
     for el in l:
-        if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
+        if is_iterable(el) and not isinstance(el, (str, bytes)):
             for sub in flatten(el):
                 newlist.append(sub)
         else:
