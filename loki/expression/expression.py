@@ -158,41 +158,41 @@ class SubstituteExpressions(Transformer):
     def __init__(self, expr_map):
         super(SubstituteExpressions, self).__init__()
 
-        self.mapper = SubstituteExpressionsMapper(expr_map)
+        self.expr_mapper = SubstituteExpressionsMapper(expr_map)
 
     def visit_Statement(self, o, **kwargs):
-        target = self.mapper(o.target)
-        expr = self.mapper(o.expr)
+        target = self.expr_mapper(o.target)
+        expr = self.expr_mapper(o.expr)
         return o._rebuild(target=target, expr=expr)
 
     def visit_Conditional(self, o, **kwargs):
-        conditions = tuple(self.mapper(e) for e in o.conditions)
+        conditions = tuple(self.expr_mapper(e) for e in o.conditions)
         bodies = self.visit(o.bodies)
         else_body = self.visit(o.else_body)
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_Loop(self, o, **kwargs):
-        variable = self.mapper(o.variable)
-        bounds = tuple(b if b is None else self.mapper(b) for b in o.bounds)
+        variable = self.expr_mapper(o.variable)
+        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds)
         body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 
     def visit_Call(self, o, **kwargs):
-        arguments = tuple(self.mapper(a) for a in o.arguments)
-        kwarguments = tuple((k, self.mapper(v)) for k, v in o.kwarguments)
+        arguments = tuple(self.expr_mapper(a) for a in o.arguments)
+        kwarguments = tuple((k, self.expr_mapper(v)) for k, v in o.kwarguments)
         # TODO: Re-build the call context
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
     def visit_Allocation(self, o, **kwargs):
-        variables = tuple(self.mapper(v) for v in o.variables)
+        variables = tuple(self.expr_mapper(v) for v in o.variables)
         return o._rebuild(variables=variables)
 
     def visit_Declaration(self, o, **kwargs):
         if o.dimensions is not None:
-            dimensions = tuple(self.mapper(d) for d in o.dimensions)
+            dimensions = tuple(self.expr_mapper(d) for d in o.dimensions)
         else:
             dimensions = None
-        variables = tuple(self.mapper(v) for v in o.variables)
+        variables = tuple(self.expr_mapper(v) for v in o.variables)
         return o._rebuild(dimensions=dimensions, variables=variables)
 
     def visit_TypeDef(self, o, **kwargs):

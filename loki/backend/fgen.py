@@ -31,10 +31,6 @@ class FCodeMapper(LokiStringifyMapper):
     def __init__(self, constant_mapper=repr):
         super(FCodeMapper, self).__init__(constant_mapper)
 
-    map_scalar = LokiStringifyMapper.map_variable
-
-    map_array = LokiStringifyMapper.map_variable
-
     def map_logic_literal(self, expr, *args, **kwargs):
         return '.true.' if expr.value else '.false.'
 

@@ -6,7 +6,8 @@
 #from sympy.codegen.fnodes import ArrayConstructor
 #from sympy.printing.codeprinter import CodePrinter
 #from fastcache import clru_cache
-import pymbolic
+import pymbolic.primitives as pmbl
+from pymbolic.mapper.stringifier import StringifyMapper
 from six.moves import intern
 
 from loki.types import DataType
@@ -15,7 +16,8 @@ from loki.types import DataType
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
            'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache', 'LokiStringifyMapper']
 
-class LokiStringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
+
+class LokiStringifyMapper(StringifyMapper):
     """
     A :class:`StringifyMapper` derived class that adds mappings for those expression tree
     types that we added ourselves.
@@ -30,21 +32,22 @@ class LokiStringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
     map_float_literal = map_logic_literal
     map_int_literal = map_logic_literal
 
-    map_scalar = pymbolic.mapper.stringifier.StringifyMapper.map_variable
-    map_array = pymbolic.mapper.stringifier.StringifyMapper.map_variable
-    map_inline_call = pymbolic.mapper.stringifier.StringifyMapper.map_call_with_kwargs
-#    map_parenthesised_add = pymbolic.mapper.stringifier.StringifyMapper.map_sum
-#    map_parenthesised_mul = pymbolic.mapper.stringifier.StringifyMapper.map_product
-#    map_parenthesised_pow = pymbolic.mapper.stringifier.StringifyMapper.map_power
+    map_scalar = StringifyMapper.map_variable
 
-#    def map_scalar(self, *args, **kwargs):
-#        return self.map_variable(*args, **kwargs)
-#
-#    def map_array(self, *args, **kwargs):
-#        return self.map_variable(*args, **kwargs)
-#
-#    def map_inline_call(self, *args, **kwargs):
-#        return self.map_call_with_kwargs(*args, **kwargs)
+    def map_array(self, expr, *args, **kwargs):
+        dims = ''
+        if expr.dimensions:
+            dims = ','.join(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+            dims = '(' + dims + ')'
+        return '%s%s' % (expr.name, dims)
+
+    map_inline_call = StringifyMapper.map_call_with_kwargs
+
+    def map_range_index(self, expr, *args, **kwargs):
+        if expr.step:
+            return '%s:%s:%s' % (expr.lower or '', expr.upper or '', expr.step)
+        else:
+            return '%s:%s' % (expr.lower or '', expr.upper or '')
 
     def map_parenthesised_add(self, *args, **kwargs):
         return self.parenthesize(self.map_sum(*args, **kwargs))
@@ -54,7 +57,6 @@ class LokiStringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
 
     def map_parenthesised_pow(self, *args, **kwargs):
         return self.parenthesize(self.map_power(*args, **kwargs))
-
 
 
 #def _symbol_class(cls, name, parent=None, cache=None):
@@ -169,7 +171,7 @@ class SymbolCache(object):
 #            cache[self.__class__] = weakref.ref(self)
 #
 #
-class Scalar(pymbolic.primitives.Variable):  # (sympy.Symbol, CachedMeta):
+class Scalar(pmbl.Variable):  # (sympy.Symbol, CachedMeta):
 
     is_Scalar = True
     is_Array = False
@@ -299,10 +301,10 @@ class Scalar(pymbolic.primitives.Variable):  # (sympy.Symbol, CachedMeta):
 #        return s.replace('%', '->')
 
 
-class Array(pymbolic.primitives.Variable):  # (sympy.Function, CachedMeta):
+class Array(pmbl.Variable):  # (sympy.Function, CachedMeta):
 
-    is_Scalar = False
-    is_Array = True
+#    is_Scalar = False
+#    is_Array = True
 
 #    # Loki array variable are by default non-commutative to preserve
 #    # term ordering in defensive "parse-unparse" cycles.
@@ -587,7 +589,7 @@ class Variable:  # (sympy.Function):
 #        return newobj
 
 
-class FloatLiteral(pymbolic.primitives.Leaf):  # (sympy.Float):
+class FloatLiteral(pmbl.Leaf):  # (sympy.Float):
 
     def __init__(self, value, **kwargs):
         super(FloatLiteral, self).__init__()
@@ -622,7 +624,7 @@ class FloatLiteral(pymbolic.primitives.Leaf):  # (sympy.Float):
 #        return CodePrinter._print_Float(printer, self)
 #
 #
-class IntLiteral(pymbolic.primitives.Leaf):  # (sympy.Integer):
+class IntLiteral(pmbl.Leaf):  # (sympy.Integer):
 
     def __init__(self, value, **kwargs):
         super(IntLiteral, self).__init__()
@@ -645,7 +647,7 @@ class IntLiteral(pymbolic.primitives.Leaf):  # (sympy.Integer):
         return LokiStringifyMapper()
 
 
-class LogicLiteral(pymbolic.primitives.Leaf):
+class LogicLiteral(pmbl.Leaf):
 
     def __init__(self, value, **kwargs):
         super(LogicLiteral, self).__init__()
@@ -700,14 +702,14 @@ class LiteralList(object):
 #        return ArrayConstructor(elements=[Literal(v) for v in values])
 #
 #
-class InlineCall(pymbolic.primitives.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boolean):
+class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boolean):
     """
     Internal representation of an in-line function call
     """
 
     def __init__(self, function, *args, **kwargs):
-        if not isinstance(function, pymbolic.primitives.Variable):
-            function = pymbolic.primitives.Variable(function)
+        if not isinstance(function, pmbl.Variable):
+            function = pmbl.Variable(function)
 
         super(InlineCall, self).__init__(function, *args, **kwargs)
 
@@ -778,10 +780,7 @@ class Cast:  # (sympy.codegen.ast.FunctionCall):
 #        return '(%s)(%s)' % (dtype.ctype, expr)
 #
 #
-class RangeIndex:  # (sympy.Idx):
-
-    def __init__(self, *args, **kwargs):
-        pass
+class RangeIndex(pmbl.AlgebraicLeaf):  # (sympy.Idx):
 #
 #    is_Symbol = True
 #    is_Function = False
@@ -800,36 +799,62 @@ class RangeIndex:  # (sympy.Idx):
 #        if step is not None:
 #            label = '%s:%s' % (label, step)
 #        return label
-#
+
+    @classmethod
+    def _args2bounds(*args, **kwargs):
+        lower, upper, step = None, None, None
+        if len(args) == 1:
+            upper = args[0]
+        elif len(args) == 2:
+            lower = args[0]
+            upper = args[1]
+        elif len(args) == 3:
+            lower = args[0]
+            upper = args[1]
+            step = args[2]
+
+        lower = kwargs.get('lower', lower)
+        upper = kwargs.get('upper', upper)
+        step = kwargs.get('step', step)
+
+        return lower, upper, step
+
 #    @cacheit
-#    def __new__(cls, *args, **kwargs):
-#        lower, upper, step = None, None, None
-#        if len(args) == 1:
-#            upper = args[0]
-#        elif len(args) == 2:
-#            lower = args[0]
-#            upper = args[1]
-#        elif len(args) == 3:
-#            lower = args[0]
-#            upper = args[1]
-#            step = args[2]
-#
-#        lower = kwargs.get('lower', lower)
-#        upper = kwargs.get('upper', upper)
-#        step = kwargs.get('step', step)
-#
-#        # Short-circuit for direct indices
-#        if upper is not None and lower is None and step is None:
-#            return upper
-#
-#        label = cls._label(lower, upper, step)
-#
-#        obj = sympy.Expr.__new__(cls, label)
-#        obj._lower = lower
-#        obj._upper = upper
-#        obj._step = step
-#
-#        return obj
+    def __new__(cls, *args, **kwargs):
+        lower, upper, step = RangeIndex._args2bounds(*args, **kwargs)
+
+        # Short-circuit for direct indices
+        if upper is not None and lower is None and step is None:
+            return IntLiteral(upper)
+
+        obj = object.__new__(cls) 
+        obj._lower = lower
+        obj._upper = upper
+        obj._step = step
+
+        return obj
+
+    def __init__(self, *args, **kwargs):
+        super(RangeIndex, self).__init__()
+
+        lower, upper, step = RangeIndex._args2bounds(*args, **kwargs)
+        self._lower = lower
+        self._upper = upper
+        self._step = step
+
+    def __getinitargs__(self):
+        if self._step:
+            return (self._lower, self._upper, self._step)
+        elif self._lower:
+            return (self._lower, self._upper)
+        else:
+            return (self._upper,)
+
+    mapper_method = intern('map_range_index')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
 #
 #    @property
 #    def args(self):
@@ -847,15 +872,15 @@ class RangeIndex:  # (sympy.Idx):
 #
 #    def _ccode(self, p):
 #        return ''
-#
-#    @property
-#    def lower(self):
-#        return self._lower
-#
-#    @property
-#    def upper(self):
-#        return self._upper
-#
-#    @property
-#    def step(self):
-#        return self._step
+
+    @property
+    def lower(self):
+        return self._lower
+
+    @property
+    def upper(self):
+        return self._upper
+
+    @property
+    def step(self):
+        return self._step
