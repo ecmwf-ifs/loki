@@ -1,4 +1,4 @@
-from sympy import Expr, evaluate
+from pymbolic.mapper import IdentityMapper
 
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
@@ -67,10 +67,8 @@ class ExpressionFinder(Visitor):
         return set(variables) if self.unique else variables
 
     def visit_Call(self, o, **kwargs):
-        variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments
-                                     if isinstance(a, Expr)))
-        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments
-                                      if isinstance(a, Expr)))
+        variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
+        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments))
         return set(variables) if self.unique else variables
 
     def visit_Allocation(self, o, **kwargs):
@@ -106,6 +104,50 @@ class FindVariables(ExpressionFinder):
     retrieval_function = staticmethod(retrieve_variables)
 
 
+class LokiIdentityMapper(IdentityMapper):
+
+    def __init__(self):
+        super(LokiIdentityMapper, self).__init__()
+
+    map_logic_literal = IdentityMapper.map_constant
+    map_float_literal = IdentityMapper.map_constant
+    map_int_literal = IdentityMapper.map_constant
+    map_scalar = IdentityMapper.map_variable
+    map_array = IdentityMapper.map_variable
+    map_inline_call = IdentityMapper.map_call_with_kwargs
+
+    def map_sum(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    def map_product(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    map_parenthesised_add = map_sum
+    map_parenthesised_mul = map_product
+    map_parenthesised_pow = IdentityMapper.map_power
+
+
+class SubstituteExpressionsMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree) that
+    defines on-the-fly handlers from a given substitution map.
+    """
+
+    def __init__(self, expr_map):
+        super(SubstituteExpressionsMapper, self).__init__()
+
+        self.expr_map = expr_map
+        for expr in self.expr_map.keys():
+            setattr(self, expr.mapper_method, self.map_from_expr_map)
+
+    def map_from_expr_map(self, expr, *args, **kwargs):
+        if expr in self.expr_map:
+            return self.expr_map[expr]
+        else:
+            map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
+            return map_fn(expr, *args, **kwargs)
+
+
 class SubstituteExpressions(Transformer):
     """
     A dedicated visitor to perform expression substitution in all IR nodes.
@@ -116,47 +158,41 @@ class SubstituteExpressions(Transformer):
     def __init__(self, expr_map):
         super(SubstituteExpressions, self).__init__()
 
-        self.expr_map = expr_map
+        self.mapper = SubstituteExpressionsMapper(expr_map)
 
     def visit_Statement(self, o, **kwargs):
-        with evaluate(False):
-            target = o.target.xreplace(self.expr_map)
-            expr = o.expr.xreplace(self.expr_map)
+        target = self.mapper(o.target)
+        expr = self.mapper(o.expr)
         return o._rebuild(target=target, expr=expr)
 
     def visit_Conditional(self, o, **kwargs):
-        with evaluate(False):
-            conditions = tuple(e.xreplace(self.expr_map) for e in o.conditions)
+        conditions = tuple(self.mapper(e) for e in o.conditions)
         bodies = self.visit(o.bodies)
         else_body = self.visit(o.else_body)
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_Loop(self, o, **kwargs):
-        with evaluate(False):
-            variable = o.variable.xreplace(self.expr_map)
-            bounds = tuple(b if b is None else b.xreplace(self.expr_map) for b in o.bounds)
-            body = self.visit(o.body)
+        variable = self.mapper(o.variable)
+        bounds = tuple(b if b is None else self.mapper(b) for b in o.bounds)
+        body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 
     def visit_Call(self, o, **kwargs):
-        with evaluate(False):
-            arguments = tuple(a.xreplace(self.expr_map) for a in o.arguments)
-            kwarguments = tuple((k, v.xreplace(self.expr_map)) for k, v in o.kwarguments)
-            # TODO: Re-build the call context
+        arguments = tuple(self.mapper(a) for a in o.arguments)
+        kwarguments = tuple((k, self.mapper(v)) for k, v in o.kwarguments)
+        # TODO: Re-build the call context
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
     def visit_Allocation(self, o, **kwargs):
-        with evaluate(False):
-            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        variables = tuple(self.mapper(v) for v in o.variables)
         return o._rebuild(variables=variables)
 
     def visit_Declaration(self, o, **kwargs):
-        with evaluate(False):
-            if o.dimensions is not None:
-                dimensions = tuple(d.xreplace(self.expr_map) for d in o.dimensions)
-            else:
-                dimensions = None
-            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        if o.dimensions is not None:
+            dimensions = tuple(self.mapper(d) for d in o.dimensions)
+        else:
+            dimensions = None
+        variables = tuple(self.mapper(v) for v in o.variables)
         return o._rebuild(dimensions=dimensions, variables=variables)
 
     def visit_TypeDef(self, o, **kwargs):

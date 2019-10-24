@@ -112,8 +112,8 @@ end subroutine parenthesis
 !  v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
 !
 !end subroutine commutativity
-!
-!
+
+
 !subroutine index_ranges(dim, v1, v2, v3, v4, v5)
 !  integer, parameter :: jprb = selected_real_kind(13,300)
 !  integer, intent(in) :: dim

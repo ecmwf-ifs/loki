@@ -13,7 +13,48 @@ from loki.types import DataType
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache']
+           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache', 'LokiStringifyMapper']
+
+class LokiStringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
+    """
+    A :class:`StringifyMapper` derived class that adds mappings for those expression tree
+    types that we added ourselves.
+    """
+
+    def __init__(self, constant_mapper=repr):
+        super(LokiStringifyMapper, self).__init__(constant_mapper)
+
+    def map_logic_literal(self, expr, *args, **kwargs):
+        return str(expr.value)
+
+    map_float_literal = map_logic_literal
+    map_int_literal = map_logic_literal
+
+    map_scalar = pymbolic.mapper.stringifier.StringifyMapper.map_variable
+    map_array = pymbolic.mapper.stringifier.StringifyMapper.map_variable
+    map_inline_call = pymbolic.mapper.stringifier.StringifyMapper.map_call_with_kwargs
+#    map_parenthesised_add = pymbolic.mapper.stringifier.StringifyMapper.map_sum
+#    map_parenthesised_mul = pymbolic.mapper.stringifier.StringifyMapper.map_product
+#    map_parenthesised_pow = pymbolic.mapper.stringifier.StringifyMapper.map_power
+
+#    def map_scalar(self, *args, **kwargs):
+#        return self.map_variable(*args, **kwargs)
+#
+#    def map_array(self, *args, **kwargs):
+#        return self.map_variable(*args, **kwargs)
+#
+#    def map_inline_call(self, *args, **kwargs):
+#        return self.map_call_with_kwargs(*args, **kwargs)
+
+    def map_parenthesised_add(self, *args, **kwargs):
+        return self.parenthesize(self.map_sum(*args, **kwargs))
+
+    def map_parenthesised_mul(self, *args, **kwargs):
+        return self.parenthesize(self.map_product(*args, **kwargs))
+
+    def map_parenthesised_pow(self, *args, **kwargs):
+        return self.parenthesize(self.map_power(*args, **kwargs))
+
 
 
 #def _symbol_class(cls, name, parent=None, cache=None):
@@ -178,7 +219,7 @@ class Scalar(pymbolic.primitives.Variable):  # (sympy.Symbol, CachedMeta):
 #        # Pull value from kwargs if it's not None
 #        if key in kwargs and kwargs[key] is not None:
 #            setattr(self, attr, kwargs[key])
-#
+
     def __init__(self, name, type=None, parent=None, initial=None, _source=None):
         super(Scalar, self).__init__(name)
 
@@ -197,7 +238,24 @@ class Scalar(pymbolic.primitives.Variable):  # (sympy.Symbol, CachedMeta):
 #        self.__attr_from_kwargs('_source', kwargs, key='_source')
 #        self.__attr_from_kwargs('initial', kwargs, key='initial')
 #        self.__attr_from_kwargs('_type', kwargs, key='type')
-#
+
+    def __getinitargs__(self):
+        args = [self.name]
+        if self._type:
+            args += [('type', self._type)]
+        if self.parent:
+            args += [('parent', self.parent)]
+        if self.initial:
+            args += [('initial', self.initial)]
+        if self._source:
+            args += [('_source', self._source)]
+        return tuple(args)
+
+    mapper_method = intern('map_scalar')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
 #    def clone(self, **kwargs):
 #        """
 #        Replicate the :class:`Scalar` variable with the provided overrides.
@@ -241,13 +299,10 @@ class Scalar(pymbolic.primitives.Variable):  # (sympy.Symbol, CachedMeta):
 #        return s.replace('%', '->')
 
 
-class Array:  # (sympy.Function, CachedMeta):
+class Array(pymbolic.primitives.Variable):  # (sympy.Function, CachedMeta):
 
     is_Scalar = False
     is_Array = True
-
-    def __init__(self, *args, **kwargs):
-        pass
 
 #    # Loki array variable are by default non-commutative to preserve
 #    # term ordering in defensive "parse-unparse" cycles.
@@ -315,21 +370,49 @@ class Array:  # (sympy.Function, CachedMeta):
 #        # Pull value from kwargs if it's not None
 #        if key in kwargs and kwargs[key] is not None:
 #            setattr(self, attr, kwargs[key])
-#
-#    def __init__(self, *args, **kwargs):
-#        """
-#        Initialisation of non-cached objects attributes
-#        """
-#        # Initialize meta attributes from cache
-#        super(Array, self).__init__(*args, **kwargs)
-#
+
+    def __init__(self, name, type=None, shape=None, dimensions=None, parent=None, initial=None, _source=None):
+        """
+        Initialisation of non-cached objects attributes
+        """
+        # Initialize meta attributes from cache
+        super(Array, self).__init__(name)
+
+        self._type = type
+        self.parent = parent
+        self.initial = initial
+        self._source = _source
+        self._shape = shape
+        self.args = dimensions
+
 #        # Ensure all non-cached attributes exists and override if
 #        # explicitly provided. Is there a nicer way to do this?
 #        self.__attr_from_kwargs('_source', kwargs, key='_source')
 #        self.__attr_from_kwargs('initial', kwargs, key='initial')
 #        self.__attr_from_kwargs('_type', kwargs, key='type')
 #        self.__attr_from_kwargs('_shape', kwargs, key='shape')
-#
+
+    def __getinitargs__(self):
+        args = [self.name]
+        if self._type:
+            args += [('type', self._type)]
+        if self.shape:
+            args += [('shape', self.shape)]
+        if self.args:
+            args += [('dimensions', self.args)]
+        if self.parent:
+            args += [('parent', self.parent)]
+        if self.initial:
+            args += [('initial', self.initial)]
+        if self._source:
+            args += [('_source', self._source)]
+        return tuple(args)
+
+    mapper_method = intern('map_array')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
 #    def clone(self, **kwargs):
 #        """
 #        Replicate the :class:`Array` variable with the provided overrides.
@@ -364,27 +447,27 @@ class Array:  # (sympy.Function, CachedMeta):
 #        else:
 #            return cache.Variable(**kwargs)
 #
-#    @property
-#    def dimensions(self):
-#        """
-#        Symbolic representation of the dimensions or indices.
-#        """
-#        return self.args
-#
-#    @property
-#    def type(self):
-#        """
-#        Internal representation of the declared data type.
-#        """
-#        return self._type
-#
-#    @property
-#    def shape(self):
-#        """
-#        Original allocated shape of the variable as a tuple of dimensions.
-#        """
-#        return self._shape
-#
+    @property
+    def dimensions(self):
+        """
+        Symbolic representation of the dimensions or indices.
+        """
+        return self.args
+
+    @property
+    def type(self):
+        """
+        Internal representation of the declared data type.
+        """
+        return self._type
+
+    @property
+    def shape(self):
+        """
+        Original allocated shape of the variable as a tuple of dimensions.
+        """
+        return self._shape
+
 #    def _sympyrepr(self, printer=None):
 #        """
 #        Define how we would like to be printed in Fortran code. This will
@@ -491,7 +574,7 @@ class Variable:  # (sympy.Function):
         if dimensions is None and (shape is None or len(shape) == 0):
             return Scalar(name=name, parent=parent, type=_type, initial=initial, _source=source)
         else:
-            return Array(name=name, dimensions=dimensions, parent=parent, type=_type)
+            return Array(name=name, shape=shape, dimensions=dimensions, parent=parent, type=_type)
 
 #        # Create a new object from the static constructor with global caching!
 #        if dimensions is None and (shape is None or len(shape) == 0):
@@ -504,27 +587,6 @@ class Variable:  # (sympy.Function):
 #        return newobj
 
 
-#class LokiStringifyMapper(pymbolic.mapper.stringifier.StringifyMapper):
-#
-#    def __init__(self):
-#        super(LokiStringifyMapper, self).__init__()
-#
-#    def map_literal(self, expr, enclosing_prec, *args, **kwargs):
-#        if isinstance(expr, LogicLiteral):
-#            return '.true.' if expr.value else '.false.'
-#        else:
-#            result = self(expr.value)
-#            if not (result.startswith("(") and result.endswith(")")) \
-#                    and ("-" in result or "+" in result) \
-#                    and (enclosing_prec > pymbolic.mapper.stringifier.PREC_SUM):
-#                return self.parenthesize(result)
-#            else:
-#                return result
-#
-#    def map_inline_call(self, *args, **kwargs):
-#        return super(LokiStringifyMapper, self).map_call_with_kwargs(*args, **kwargs)
-
-
 class FloatLiteral(pymbolic.primitives.Leaf):  # (sympy.Float):
 
     def __init__(self, value, **kwargs):
@@ -534,10 +596,18 @@ class FloatLiteral(pymbolic.primitives.Leaf):  # (sympy.Float):
         self._type = kwargs.get('type', None)
         self._kind = kwargs.get('kind', None)
 
-    mapper_method = intern('map_literal')
+    def __getinitargs__(self):
+        args = [self.value]
+        if self._type:
+            args += [('type', self._type)]
+        if self._kind:
+            args += [('kind', self._kind)]
+        return tuple(args)
 
-#    def make_stringifier(self, originating_stringifier=None):
-#        return LokiStringifyMapper()
+    mapper_method = intern('map_float_literal')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 
 #    __slots__ = ['_mpf_', '_prec', '_type', '_kind']
 #
@@ -561,10 +631,18 @@ class IntLiteral(pymbolic.primitives.Leaf):  # (sympy.Integer):
         self._type = kwargs.get('type', None)
         self._kind = kwargs.get('kind', None)
 
-    mapper_method = intern('map_literal')
+    def __getinitargs__(self):
+        args = [self.value]
+        if self._type:
+            args += [('type', self._type)]
+        if self._kind:
+            args += [('kind', self._kind)]
+        return tuple(args)
 
-#    def make_stringifier(self, originating_stringifier=None):
-#        return LokiStringifyMapper()
+    mapper_method = intern('map_int_literal')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 
 
 class LogicLiteral(pymbolic.primitives.Leaf):
@@ -574,10 +652,13 @@ class LogicLiteral(pymbolic.primitives.Leaf):
 
         self.value = value.lower() in ('true', '.true.')
 
-    mapper_method = intern('map_literal')
+    def __getinitargs__(self):
+        return (self.value,)
 
-#    def make_stringifier(self, originating_stringifier=None):
-#        return LokiStringifyMapper()
+    mapper_method = intern('map_logic_literal')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 
 #    __slots__ = ['p', '_type', '_kind']
 
@@ -603,7 +684,7 @@ class Literal(object):  # (sympy.Number):
 #                # Capture strings and ensure they look ok
 #                obj = String('"%s"' % obj)
 
-        # And attach out own meta-data
+        # And attach our own meta-data
 #        if '_type' in obj.__class__.__slots__:
         if hasattr(obj, '_type'):
             obj._type = kwargs.get('type', None)

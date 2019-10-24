@@ -9,7 +9,7 @@ https://github.com/opesci/devito/blob/master/devito/symbolics/search.py
 """
 
 #from .symbol_types import BoolArray
-from pymbolic.mapper.dependency import DependencyMapper
+from pymbolic.mapper import WalkMapper
 
 __all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables']
 
@@ -33,20 +33,45 @@ __all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables']
 #    else:
 #        return expr.is_Symbol
 
+class ExpressionRetriever(WalkMapper):
+
+    def __init__(self, query):
+        super(ExpressionRetriever, self).__init__()
+
+        self.query = query
+        self.exprs = set()
+
+    def post_visit(self, expr, *args, **kwargs):
+        if self.query(expr):
+            self.exprs.add(expr)
+
+    map_scalar = WalkMapper.map_variable
+    map_array = WalkMapper.map_variable
+    map_logic_literal = WalkMapper.map_constant
+    map_float_literal = WalkMapper.map_constant
+    map_int_literal = WalkMapper.map_constant
+    map_inline_call = WalkMapper.map_call_with_kwargs
+    map_parenthesised_add = WalkMapper.map_sum
+    map_parenthesised_mul = WalkMapper.map_product
+    map_parenthesised_pow = WalkMapper.map_power
+
 
 def retrieve_symbols(expr):
-    depmap = DependencyMapper()
-    return depmap(expr)
-#    return expr.find(q_symbol)
+    from pymbolic.primitives import Variable
+    retriever = ExpressionRetriever(lambda e: isinstance(e, Variable))
+    retriever(expr)
+    return retriever.exprs
 
 
 def retrieve_functions(expr):
-    depmap = DependencyMapper()
-    return depmap(expr)
-#    return expr.find(q_function)
+    from pymbolic.primitives import Call
+    retriever = ExpressionRetriever(lambda e: isinstance(e, Call))
+    retriever(expr)
+    return retriever.exprs
 
 
 def retrieve_variables(expr):
-    depmap = DependencyMapper()
-    return depmap(expr)
-#    return expr.find(q_variable)
+    from pymbolic.primitives import Variable
+    retriever = ExpressionRetriever(lambda e: isinstance(e, Variable))
+    retriever(expr)
+    return retriever.exprs

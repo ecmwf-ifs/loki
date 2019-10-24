@@ -9,6 +9,8 @@ nevertheless change code results.
 import pymbolic
 from six.moves import intern
 
+from loki.expression import LokiStringifyMapper
+
 
 class NonCommutativeAdd(pymbolic.primitives.Sum):  #(Add):
     """
@@ -67,6 +69,9 @@ class ParenthesisedAdd(NonCommutativeAdd):
     """
 
     mapper_method = intern("map_parenthesised_add")
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 #    def _sympyrepr(self, printer=None):
 #        return '(%s)' % printer._print_Add(self)
 #
@@ -81,6 +86,9 @@ class ParenthesisedMul(pymbolic.primitives.Product):  # (Mul):
     """
 
     mapper_method = intern("map_parenthesised_mul")
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 #
 #    def _sympyrepr(self, printer=None):
 #        return '(%s)' % printer._print_Mul(self)
@@ -96,6 +104,9 @@ class ParenthesisedPow(pymbolic.primitives.Power):  # (Pow):
     """
 
     mapper_method = intern("map_parenthesised_pow")
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 #
 #    def _sympyrepr(self, printer=None):
 #        return '(%s)' % printer._print_Pow(self)

@@ -2,19 +2,18 @@
 #from sympy.printing import fcode
 #from sympy.codegen.fnodes import ArrayConstructor, String
 from functools import partial
-from pymbolic.mapper.stringifier import (StringifyMapper, PREC_UNARY, PREC_LOGICAL_AND,
-                                         PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_PRODUCT,
-                                         PREC_POWER)
+from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
+                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_POWER)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.types import BaseType
-from loki.expression import indexify, LogicLiteral
+from loki.expression import indexify, LogicLiteral, LokiStringifyMapper
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
 
-class FCodeMapper(StringifyMapper):
+class FCodeMapper(LokiStringifyMapper):
     """
     A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
     expression to a string adhering to the Fortran standard.
@@ -31,6 +30,23 @@ class FCodeMapper(StringifyMapper):
 
     def __init__(self, constant_mapper=repr):
         super(FCodeMapper, self).__init__(constant_mapper)
+
+    map_scalar = LokiStringifyMapper.map_variable
+
+    map_array = LokiStringifyMapper.map_variable
+
+    def map_logic_literal(self, expr, *args, **kwargs):
+        return '.true.' if expr.value else '.false.'
+
+    def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
+        result = '%s_%s' % (self(expr.value), expr._kind) if expr._kind else self(expr.value)
+        if not (result.startswith("(") and result.endswith(")")) \
+                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
+            return self.parenthesize(result)
+        else:
+            return result
+
+    map_int_literal = map_float_literal
 
     def map_logical_not(self, expr, enclosing_prec):
         return self.parenthesize_if_needed(".not." + self.rec(expr.child, PREC_UNARY),
@@ -54,24 +70,6 @@ class FCodeMapper(StringifyMapper):
                         self.COMPARISON_OP_TO_FORTRAN[expr.operator],
                         self.rec(expr.right, PREC_COMPARISON, *args, **kwargs)),
             enclosing_prec, PREC_COMPARISON)
-
-    def map_literal(self, expr, enclosing_prec, *args, **kwargs):
-        """
-        This takes special care for logical literals and transforms them to Fortran logical
-        literals, and attaches information about a specific type for all other literals if
-        given any.
-        """
-        if isinstance(expr, LogicLiteral):
-            return '.true.' if expr.value else '.false.'
-        else:
-            result = self(expr.value)
-            if expr._kind:
-                result += '_%s' % expr._kind
-            if not (result.startswith("(") and result.endswith(")")) \
-                    and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-                return self.parenthesize(result)
-            else:
-                return result
 
     def map_inline_call(self, *args, **kwargs):
         return self.map_call_with_kwargs(*args, **kwargs)
@@ -109,16 +107,17 @@ class FCodeMapper(StringifyMapper):
 
         return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
 
-    def map_parenthesised_add(self, *args, **kwargs):
-        return self.parenthesize(self.map_sum(*args, **kwargs))
-
-    def map_parenthesised_mul(self, expr, *args, **kwargs):
-        return self.parenthesize(self.map_product(*args, **kwargs))
-
-    def map_parenthesised_pow(self, expr, *args, **kwargs):
-        return self.parenthesize(
-            self.format("%s**%s", self.rec(expr.base, PREC_POWER, *args, **kwargs),
-                        self.rec(expr.exponent, PREC_POWER, *args, **kwargs)))
+#    def map_parenthesised_add(self, *args, **kwargs):
+#        return self.parenthesize(self.map_sum(*args, **kwargs))
+#
+#    def map_parenthesised_mul(self, *args, **kwargs):
+#        return self.parenthesize(self.map_product(*args, **kwargs))
+#
+#    def map_parenthesised_pow(self, *args, **kwargs):
+#        return self.parenthesize(self.map_pow(*args, **kwargs))
+#        return self.parenthesize(
+#            self.format("%s**%s", self.rec(expr.base, PREC_POWER, *args, **kwargs),
+#                        self.rec(expr.exponent, PREC_POWER, *args, **kwargs)))
 
 #These options should be runtime-configurable
 
