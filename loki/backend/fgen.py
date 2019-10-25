@@ -8,7 +8,7 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.types import BaseType
-from loki.expression import indexify, LogicLiteral, LokiStringifyMapper
+from loki.expression import LogicLiteral, LokiStringifyMapper
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -302,10 +302,10 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-        target = indexify(o.target)
-        expr = indexify(o.expr)
+#        target = indexify(o.target)
+#        expr = indexify(o.expr)
 #        stmt = fsymgen(expr, assign_to=target)
-        stmt = '%s = %s' % (self._fsymgen(target), self._fsymgen(expr))
+        stmt = '%s = %s' % (self._fsymgen(o.target), self._fsymgen(o.expr))
         if o.ptr:
             # Manually force pointer assignment notation
             # ... Hack me baby, one more time ...

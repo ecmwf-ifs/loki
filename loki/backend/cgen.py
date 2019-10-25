@@ -6,7 +6,7 @@ from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
 from loki.types import DataType, DerivedType
 from loki.ir import Import
-from loki.expression import indexify
+#from loki.expression import indexify
 
 __all__ = ['cgen', 'CCodegen', 'csymgen']
 
@@ -144,7 +144,8 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
-        vstr = [csymgen(indexify(v)) for v in o.variables]
+        #vstr = [csymgen(indexify(v)) for v in o.variables]
+        vstr = [csymgen(v) for v in o.variables]
         vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
         vinit = ['' if v.initial is None else (' = %s' % csymgen(v.initial)) for v in o.variables]
         variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
@@ -185,15 +186,15 @@ class CCodegen(Visitor):
     def visit_Statement(self, o):
         # Surpress evaluation of expressions to avoid accuracy errors
         # due to symbolic expression re-writing.
-        with evaluate(False):
-            target = indexify(o.target)
-            expr = indexify(o.expr)
+#        with evaluate(False):
+#            target = indexify(o.target)
+#            expr = indexify(o.expr)
 
         type_aliases = {}
         if o.target.type and o.target.type.dtype == DataType.FLOAT32:
             type_aliases[real] = float32
 
-        stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
+        stmt = csymgen(o.expr, assign_to=o.target, type_aliases=type_aliases)
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -205,7 +206,8 @@ class CCodegen(Visitor):
         if len(bodies) > 1:
             raise NotImplementedError('Multi-body cnoditionals not yet supported')
 
-        cond = csymgen(indexify(o.conditions[0]))
+#        cond = csymgen(indexify(o.conditions[0]))
+        cond = csymgen(o.conditions[0])
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + else_branch + '%s}\n' % self.indent

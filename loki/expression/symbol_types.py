@@ -14,7 +14,7 @@ from loki.types import DataType
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'indexify', 'SymbolCache', 'LokiStringifyMapper']
+           'LiteralList', 'RangeIndex', 'InlineCall', 'LokiStringifyMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -78,8 +78,7 @@ class LokiStringifyMapper(StringifyMapper):
 #    return newcls
 #
 #
-def indexify(expr, evaluate=True):
-    return expr
+#def indexify(expr, evaluate=True):
 #    mapper = {}
 #    for e in sympy.postorder_traversal(expr):
 #        try:
@@ -96,8 +95,8 @@ def indexify(expr, evaluate=True):
 #_global_meta_cache = {}
 #
 #
-class SymbolCache(object):
-    pass
+#class SymbolCache(object):
+#    pass
 #    """
 #    A specialised cache object for use by subroutine/kernel containers
 #    that provides cached symbols (scalar and array variables), while
@@ -698,9 +697,9 @@ class Literal(object):  # (sympy.Number):
 
 
 class LiteralList(object):
-    pass
-#
-#    def __new__(self, values):
+
+    def __new__(self, values):
+        return pmbl.make_sym_vector(None, values, var_factory=Literal)
 #        return ArrayConstructor(elements=[Literal(v) for v in values])
 
 
@@ -744,8 +743,8 @@ class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boole
 #        return self.arguments
 #
 #
-class Cast:  # (sympy.codegen.ast.FunctionCall):
-    pass
+#class Cast:  # (sympy.codegen.ast.FunctionCall):
+#    pass
 #    """
 #    Internal representation of a data type cast.
 #    """

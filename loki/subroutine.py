@@ -7,7 +7,7 @@ from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, Intrinsic)
-from loki.expression import FindVariables, Array, Scalar, SymbolCache, SubstituteExpressions
+from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -45,7 +45,7 @@ class Subroutine(object):
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
 
         # Symbol caching by default happens per subroutine
-        self._cache = cache or SymbolCache()
+        self._cache = None  # cache or SymbolCache()
 
         self.arguments = None
         self.variables = None
@@ -86,7 +86,7 @@ class Subroutine(object):
         arg_ast = ast.findall('header/arguments/argument')
         args = [arg.attrib['name'].upper() for arg in arg_ast]
 
-        cache = SymbolCache() if cache is None else cache
+        cache = None  # SymbolCache() if cache is None else cache
 
         # Decompose the body into known sections
         ast_body = list(ast.find('body'))
@@ -141,7 +141,7 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        cache = SymbolCache()
+        cache = None  # SymbolCache()
 
         # Generate spec, filter out external declarations and docstring
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
@@ -193,7 +193,7 @@ class Subroutine(object):
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items]
 
-        cache = SymbolCache()
+        cache = None  # SymbolCache()
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = parse_fparser_ast(spec_ast, typedefs=typedefs, cache=cache)
