@@ -218,11 +218,11 @@ class Subroutine(object):
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast, cache=cache)
 
-    def Variable(self, *args, **kwargs):
-        """
-        Instantiate cached variable symbols from local symbol cache.
-        """
-        return self._cache.Variable(*args, **kwargs)
+#    def Variable(self, *args, **kwargs):
+#        """
+#        Instantiate cached variable symbols from local symbol cache.
+#        """
+#        return self._cache.Variable(*args, **kwargs)
 
     def _internalize(self):
         """

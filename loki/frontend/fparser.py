@@ -3,10 +3,8 @@ from fparser.two.utils import get_child, walk_ast
 from fparser.two import Fortran2003
 from fparser.two.Fortran2003 import *
 from fparser.common.readfortran import FortranStringReader
-#from sympy import Add, Mul, Pow, Equality, Unequality, Not, And, Or
-#from sympy.core.numbers import NegativeOne
 from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
-                                 LogicalAnd, LogicalOr, CallWithKwargs)
+                                 LogicalAnd, LogicalOr)
 from pathlib import Path
 
 from loki.visitors import GenericVisitor
@@ -53,7 +51,7 @@ class FParser2IR(GenericVisitor):
         self.type_map = type_map
 
         # Use provided symbol cache for variable generation
-        self._cache = None # cache
+        self._cache = None  # cache
 
     def Variable(self, *args, **kwargs):
         """
@@ -75,7 +73,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Base(self, o, **kwargs):
         """
-        Universal default for ``Base`` FParser-AST nodes 
+        Universal default for ``Base`` FParser-AST nodes
         """
         children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
@@ -85,7 +83,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_BlockBase(self, o, **kwargs):
         """
-        Universal default for ``BlockBase`` FParser-AST nodes 
+        Universal default for ``BlockBase`` FParser-AST nodes
         """
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
@@ -554,7 +552,7 @@ def parse_fparser_file(filename):
     reader = FortranStringReader(fcode, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
-    return f2008_parser(reader)#, raw_source
+    return f2008_parser(reader)  # , raw_source
 
 
 @timeit(log_level=DEBUG)

@@ -2,9 +2,8 @@ import open_fortran_parser
 from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
-from sympy import Mul, Pow, Equality, Unequality, Equivalent, Not, And, Or
-from sympy.core.numbers import NegativeOne
-from sympy.codegen.fnodes import reshape
+from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
+                                 LogicalAnd, LogicalOr)
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
@@ -14,9 +13,8 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, RangeIndex,
-                             InlineCall, LiteralList, Array)
-from loki.expression.operations import NonCommutativeAdd, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList)
+from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached
 from loki.logging import info, DEBUG
@@ -50,7 +48,7 @@ class OFP2IR(GenericVisitor):
         self.typedefs = typedefs
 
         # Store provided symbol cache for variable generation
-        self._cache = cache
+        self._cache = None  # cache
 
     def Variable(self, *args, **kwargs):
         """
@@ -402,10 +400,10 @@ class OFP2IR(GenericVisitor):
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(name=vname, arguments=indices)
+                return InlineCall(vname, *indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                return InlineCall(name=o.attrib['id'], arguments=indices)
+                return InlineCall(o.attrib['id'], *indices)
             else:
                 shape = self.shape_map.get(vname, None) if self.shape_map else None
                 _type = self.type_map.get(vname, None) if self.type_map else None
@@ -517,14 +515,14 @@ class OFP2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
-        def booleanize(expr):
-            """
-            Super-hacky helper function to force boolean array when needed
-            """
-            if isinstance(expr, Array) and not expr.is_Boolean:
-                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
-            else:
-                return expr
+#        def booleanize(expr):
+#            """
+#            Super-hacky helper function to force boolean array when needed
+#            """
+#            if isinstance(expr, Array) and not expr.is_Boolean:
+#                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
+#            else:
+#                return expr
 
         # Left-recurse on the list of operations and expressions
         exprs = deque(exprs)
@@ -532,59 +530,55 @@ class OFP2IR(GenericVisitor):
         for op in ops:
 
             if op == '+':
-                expression = NonCommutativeAdd._from_args([expression, exprs.popleft()], is_commutative=False)
+                expression = Sum((expression, exprs.popleft()))
             elif op == '-':
                 if len(exprs) > 0:
                     # Binary minus
-                    neg = Mul._from_args([NegativeOne(), exprs.popleft()], is_commutative=False)
-                    expression = NonCommutativeAdd._from_args([expression, neg], is_commutative=False)
+                    expression = Sum((expression, Product((-1, exprs.popleft()))))
                 else:
                     # Unary minus
-                    expression = Mul._from_args([NegativeOne(), expression], is_commutative=False)
+                    expression = Product((-1, expression))
             elif op == '*':
-                expression = Mul._from_args([expression, exprs.popleft()], is_commutative=False)
+                expression = Product((expression, exprs.popleft()))
             elif op == '/':
-                div = Pow(exprs.popleft(), NegativeOne(), evaluate=False)
-                expression = Mul._from_args([expression, div], is_commutative=False)
+                expression = Quotient(numerator=expression, denominator=exprs.popleft())
             elif op == '**':
-                expression = Pow(expression, exprs.popleft(), evaluate=False)
+                expression = Power(base=expression, exponent=exprs.popleft())
             elif op == '==' or op == '.eq.':
-                expression = Equality(expression, exprs.popleft(), evaluate=False)
+                expression = Comparison(expression, '==', exprs.popleft())
             elif op == '/=' or op == '.ne.':
-                expression = Unequality(expression, exprs.popleft(), evaluate=False)
+                expression = Comparison(expression, '!=', exprs.popleft())
             elif op == '>' or op == '.gt.':
-                expression = expression > exprs.popleft()
+                expression = Comparison(expression, '>', exprs.popleft())
             elif op == '<' or op == '.lt.':
-                expression = expression < exprs.popleft()
+                expression = Comparison(expression, '<', exprs.popleft())
             elif op == '>=' or op == '.ge.':
-                expression = expression >= exprs.popleft()
+                expression = Comparison(expression, '>=', exprs.popleft())
             elif op == '<=' or op == '.le.':
-                expression = expression <= exprs.popleft()
+                expression = Comparison(expression, '<=', exprs.popleft())
             elif op == '.and.':
-                e2 = booleanize(exprs.popleft())
-                expression = And(booleanize(expression), e2, evaluate=False)
+                expression = LogicalAnd((expression, exprs.popleft()))
             elif op == '.or.':
-                e2 = booleanize(exprs.popleft())
-                expression = Or(booleanize(expression), e2, evaluate=False)
+                expression = LogicalOr((expression, exprs.popleft()))
             elif op == '.not.':
-                expression = Not(booleanize(expression), evaluate=False)
-            elif op == '.eqv.':
-                e2 = booleanize(exprs.popleft())
-                expression = Equivalent(booleanize(expression), e2, evaluate=False)
-            elif op == '.neqv.':
-                e2 = booleanize(exprs.popleft())
-                expression = Not(Equivalent(booleanize(expression), e2, evaluate=False), evaluate=False)
+                expression = LogicalNot(expression)
+#            elif op == '.eqv.':
+#                e2 = booleanize(exprs.popleft())
+#                expression = Equivalent(booleanize(expression), e2, evaluate=False)
+#            elif op == '.neqv.':
+#                e2 = booleanize(exprs.popleft())
+#                expression = Not(Equivalent(booleanize(expression), e2, evaluate=False), evaluate=False)
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 
         if o.find('parenthesized_expr') is not None:
             # Force explicitly parenthesised operations
-            if expression.is_Add:
-                expression = ParenthesisedAdd(*expression.args, evaluate=False)
-            if expression.is_Mul:
-                expression = ParenthesisedMul(*expression.args, evaluate=False)
-            if expression.is_Pow:
-                expression = ParenthesisedPow(*expression.args, evaluate=False)
+            if isinstance(expression, Sum):
+                expression = ParenthesisedAdd(expression.children)
+            if isinstance(expression, Product):
+                expression = ParenthesisedMul(expression.children)
+            if isinstance(expression, Power):
+                expression = ParenthesisedPow(expression.base, expression.exponent)
 
         assert len(exprs) == 0
         return expression

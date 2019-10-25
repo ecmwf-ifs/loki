@@ -1,8 +1,10 @@
-from sympy import symbols, simplify
+#from sympy import symbols, simplify
+import pytest
 
-from loki import (Variable, Scalar, Array, Subroutine, InlineCall, Cast, fsymgen,
+from loki import (Variable, Scalar, Array, Subroutine, InlineCall, Cast, FCodeMapper,
                   BaseType, indexify, SymbolCache)
 
+pytestmark = pytest.mark.skip(reason="Symbolic equivalence no longer given without Sympy")
 
 def test_symbolic_equivalence():
     """
@@ -13,9 +15,9 @@ def test_symbolic_equivalence():
     f = Variable(name='f', dimensions=(x, y))
 
     # Sanity check the SymPy-style class markers
-    assert x.is_Symbol and x.is_Scalar
-    assert y.is_Symbol and y.is_Scalar
-    assert f.is_Function and f.is_Array
+#    assert x.is_Symbol and x.is_Scalar
+#    assert y.is_Symbol and y.is_Scalar
+#    assert f.is_Function and f.is_Array
 
     f_plus_1 = f + 1
     assert f + 1 == 1 + f

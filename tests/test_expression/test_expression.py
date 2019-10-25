@@ -23,7 +23,7 @@ def reference(refpath):
 
 @pytest.fixture(scope='module')
 def frontend():
-    return FP
+    return OFP
 
 
 # @pytest.mark.parametrize, [OFP, OMNI, FP])

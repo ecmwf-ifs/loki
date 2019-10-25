@@ -12,15 +12,15 @@ from six.moves import intern
 from loki.expression import LokiStringifyMapper
 
 
-class NonCommutativeAdd(pymbolic.primitives.Sum):  #(Add):
-    """
-    Special-casing of :class:`sympy.Add` that honours commutativity flags
-    in terms in ``.args``.
-
-    Note, this is required to create a strict defensive mode, where term
-    ordering from parser frontends is honoured rigorously to avoid round-off
-    errors in "parse-unparse" tests.
-    """
+#class NonCommutativeAdd(pymbolic.primitives.Sum):  #(Add):
+#    """
+#    Special-casing of :class:`sympy.Add` that honours commutativity flags
+#    in terms in ``.args``.
+#
+#    Note, this is required to create a strict defensive mode, where term
+#    ordering from parser frontends is honoured rigorously to avoid round-off
+#    errors in "parse-unparse" tests.
+#    """
 
 #    def args_cnc(self, cset=False, warn=True, split_1=True):
 #        """
@@ -62,7 +62,7 @@ class NonCommutativeAdd(pymbolic.primitives.Sum):  #(Add):
 #        return cpart + ncpart
 
 
-class ParenthesisedAdd(NonCommutativeAdd):
+class ParenthesisedAdd(pymbolic.primitives.Sum):
     """
     Specialised version of :class:`Add` that always pretty-prints and
     code-generates with explicit parentheses.

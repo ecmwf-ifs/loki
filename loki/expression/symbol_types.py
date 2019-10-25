@@ -173,8 +173,8 @@ class SymbolCache(object):
 #
 class Scalar(pmbl.Variable):  # (sympy.Symbol, CachedMeta):
 
-    is_Scalar = True
-    is_Array = False
+#    is_Scalar = True
+#    is_Array = False
 
 #    def __new__(cls, *args, **kwargs):
 #        """
@@ -672,12 +672,13 @@ class Literal(object):  # (sympy.Number):
             obj = IntLiteral(value, **kwargs)
         elif isinstance(value, float):
             obj = FloatLiteral(value, **kwargs)
-        elif str(value).lower() in ['.true.', '.false.']:
+        elif str(value).lower() in ['.true.', 'true', '.false.', 'false']:
             # Ensure we capture booleans
             obj = LogicLiteral(value, **kwargs) 
         else:
             # Let Pymbolic figure our what we're dealing with
-            obj = pymbolic.parse(value)
+            from pymbolic import parse
+            obj = parse(value)
 #
 #            # Let sympy figure out what we're dealing with
 #            obj = sympy.sympify(value)
@@ -695,23 +696,25 @@ class Literal(object):  # (sympy.Number):
             obj._kind = kwargs.get('kind', None)
         return obj
 
+
 class LiteralList(object):
     pass
 #
 #    def __new__(self, values):
 #        return ArrayConstructor(elements=[Literal(v) for v in values])
-#
-#
+
+
 class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boolean):
     """
     Internal representation of an in-line function call
     """
 
-    def __init__(self, function, *args, **kwargs):
-        if not isinstance(function, pmbl.Variable):
-            function = pmbl.Variable(function)
+    def __init__(self, function, *parameters, **kw_parameters):
+        function = kw_parameters.pop('function', function)
+        function = pmbl.make_variable(function)
+        parameters = kw_parameters.pop('parameters', parameters)
 
-        super(InlineCall, self).__init__(function, *args, **kwargs)
+        super(InlineCall, self).__init__(function=function, parameters=parameters, kw_parameters=kw_parameters)
 
     mapper_method = intern('map_inline_call')
 
