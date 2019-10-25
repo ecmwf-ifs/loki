@@ -3,8 +3,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from functools import reduce
-import operator
-from sympy import Add, Mul, Pow, Equality, Unequality
+from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
+                                 LogicalAnd, LogicalOr)
 
 
 from loki.frontend.source import Source
@@ -82,7 +82,7 @@ class OMNI2IR(GenericVisitor):
         self.raw_source = raw_source
 
         # Use provided symbol cache for variable generation
-        self._cache = cache
+        self._cache = None  # cache
 
     def Variable(self, *args, **kwargs):
         """
@@ -385,21 +385,22 @@ class OMNI2IR(GenericVisitor):
         args = o.find('arguments') or tuple()
         args = as_tuple(self.visit(a) for a in args)
         # Separate keyrword argument from positional arguments
-        kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
+        # kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
+        kwargs = {a[0]: a[1] for a in args if isinstance(a, tuple)}
         args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            if o.find('name') is not None and o.find('name').text in ['real']:
-                args = o.find('arguments')
-                expr = self.visit(args[0])
-                kind = self.visit(args[1])
-                if isinstance(kind, tuple):
-                    kind = kind[1]  # Yuckk!
-                dtype = BaseType(name=o.find('name').text, kind=kind)
-                return Cast(dtype.name, expression=expr, kind=dtype.kind)
-            else:
-                return InlineCall(name=name, arguments=args, kwarguments=kwargs)
+#            if o.find('name') is not None and o.find('name').text in ['real']:
+#                args = o.find('arguments')
+#                expr = self.visit(args[0])
+#                kind = self.visit(args[1])
+#                if isinstance(kind, tuple):
+#                    kind = kind[1]  # Yuckk!
+#                dtype = BaseType(name=o.find('name').text, kind=kind)
+#                return Cast(dtype.name, expression=expr, kind=dtype.kind)
+#            else:
+            return InlineCall(name, *args, **kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text
@@ -473,73 +474,77 @@ class OMNI2IR(GenericVisitor):
             return name, self.visit(o.getchildren()[0])
 
     def visit_plusExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Add(exprs[0], exprs[1], evaluate=False)
+        return Sum(exprs)
 
     def visit_minusExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Add(exprs[0], Mul(-1, exprs[1], evaluate=False), evaluate=False)
+        return Sum((exprs[0], Product((-1, exprs[1]))))
 
     def visit_mulExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Mul(exprs[0], exprs[1], evaluate=False)
+        return Product(exprs)
 
     def visit_divExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Mul(exprs[0], Pow(exprs[1], -1, evaluate=False), evaluate=False)
+        return Quotient(*exprs)
 
     def visit_FpowerExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Pow(exprs[0], exprs[1], evaluate=False)
+        return Power(base=exprs[0], exponent=exprs[1])
 
     def visit_unaryMinusExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 1
-        return Mul(-1, exprs[0], evaluate=False)
+        return Product((-1, exprs[0]))
 
     def visit_logOrExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.or_, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        return LogicalOr(exprs)
 
     def visit_logAndExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.and_, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        return LogicalAnd(exprs)
 
     def visit_logNotExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 1
-        return operator.invert(exprs[0])
+        return LogicalNot(exprs[0])
 
     def visit_logLTExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.lt, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return Comparison(exprs[0], '<', exprs[1])
 
     def visit_logLEExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.le, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return Comparison(exprs[0], '<=', exprs[1])
 
     def visit_logGTExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.gt, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return Comparison(exprs[0], '>', exprs[1])
 
     def visit_logGEExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
-        return reduce(operator.ge, exprs)
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return Comparison(exprs[0], '>=', exprs[1])
 
     def visit_logEQExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Equality(exprs[0], exprs[1], evaluate=False)
+        return Comparison(exprs[0], '==', exprs[1])
 
     def visit_logNEQExpr(self, o, source=None):
-        exprs = [self.visit(c) for c in o]
+        exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Unequality(exprs[0], exprs[1], evaluate=False)
+        return Comparison(exprs[0], '!=', exprs[1])
 
 
 @timeit(log_level=DEBUG)

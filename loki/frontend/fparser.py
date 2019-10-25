@@ -264,9 +264,9 @@ class FParser2IR(GenericVisitor):
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
         name = self.visit(o.items[0])
         args = self.visit(o.items[1])
-        kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+        kwarguments = {a[0].name: a[1] for a in args if isinstance(a, tuple)}
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return InlineCall(function=name, parameters=arguments, kw_parameters=kwarguments)
+        return InlineCall(name, *arguments, **kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
@@ -294,9 +294,9 @@ class FParser2IR(GenericVisitor):
         args = as_tuple(self.visit(o.items[1]))
         if name.lower() in ['min', 'max', 'exp', 'sqrt', 'abs', 'log',
                             'selected_real_kind', 'allocated', 'present']:
-            kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+            kwarguments = {k: a for k, a in args if isinstance(a, tuple)}
             arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-            return InlineCall(function=name, parameters=arguments, kw_parameters=kwarguments)
+            return InlineCall(name, *arguments, **kwarguments)
         else:
             shape = None
             dtype = None

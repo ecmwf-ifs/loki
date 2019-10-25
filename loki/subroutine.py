@@ -70,7 +70,7 @@ class Subroutine(object):
         alloc_map = {}
         for alloc in FindNodes(Allocation).visit(body):
             for v in alloc.variables:
-                if v.is_Array:
+                if isinstance(v, Array):
                     alloc_map[v.name.lower()] = v.dimensions
         vmap = {}
         for v in FindVariables().visit(body):
@@ -160,7 +160,7 @@ class Subroutine(object):
         shape_map = {}
         for decl in FindNodes(Declaration).visit(spec):
             for v in decl.variables:
-                if v.is_Array:
+                if isinstance(v, Array):
                     shape_map[v.name] = v.shape
 
         # Parse member functions properly
@@ -174,9 +174,9 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = parse_omni_ast(ast.find('body'), cache=cache, typedefs=typedefs,
-                              type_map=type_map, symbol_map=symbol_map,
-                              shape_map=shape_map, raw_source=raw_source)
+        body = as_tuple(parse_omni_ast(ast.find('body'), cache=cache, typedefs=typedefs,
+                                       type_map=type_map, symbol_map=symbol_map,
+                                       shape_map=shape_map, raw_source=raw_source))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
