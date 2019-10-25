@@ -11,7 +11,7 @@ https://github.com/opesci/devito/blob/master/devito/symbolics/search.py
 #from .symbol_types import BoolArray
 from pymbolic.mapper import WalkMapper
 
-__all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables']
+__all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables', 'ExpressionRetriever']
 
 
 #def q_symbol(expr):

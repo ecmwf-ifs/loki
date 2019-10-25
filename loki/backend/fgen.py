@@ -2,6 +2,7 @@
 #from sympy.printing import fcode
 #from sympy.codegen.fnodes import ArrayConstructor, String
 from functools import partial
+from pymbolic.primitives import Expression
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_POWER)
 
@@ -291,8 +292,8 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o):
         expr = self._fsymgen(o.expr)
-        values = ['DEFAULT' if v is None else (self._fsymgen(v) if isinstance(v, tuple) else '(%s)' % fsymgen(v))
-                  for v in o.values]
+        values = ['DEFAULT' if v is None else (self._fsymgen(v) if isinstance(v, tuple)
+                  else '(%s)' % self._fsymgen(v)) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -344,7 +345,8 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth chaeck should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([self._fsymgen(a) for a in args], chunking=3)
+            signature = self.segment([self._fsymgen(a) if isinstance(a, Expression)
+                                      else a for a in args], chunking=3)
             self._depth -= 2
         else:
             signature = ', '.join(str(a) for a in args)

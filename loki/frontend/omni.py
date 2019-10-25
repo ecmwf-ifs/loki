@@ -9,7 +9,7 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Array
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType
@@ -294,7 +294,7 @@ class OMNI2IR(GenericVisitor):
                 typevar = [v for v in parent.type.variables
                            if v.name.lower() == vname.lower()][0]
                 shape = None
-                if typevar.is_Array:
+                if isinstance(typevar, Array):
                     shape = typevar.shape or typevar.dimensions
 
         return Variable(name=vname, type=vtype, parent=parent, shape=shape)

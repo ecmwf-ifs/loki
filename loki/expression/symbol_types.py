@@ -257,35 +257,29 @@ class Scalar(pmbl.Variable):  # (sympy.Symbol, CachedMeta):
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
-#    def clone(self, **kwargs):
-#        """
-#        Replicate the :class:`Scalar` variable with the provided overrides.
-#
-#        Note, if :param dimensions: is provided as ``None``, as
-#        :class:`Scalar` variable will be created.
-#
-#        Alos, it needs a :param cache: to force the correct caching scope.
-#        """
-#        # Add existing meta-info to the clone arguments, only if have
-#        # them. Note, we need to be very careful not to pass eg,
-#        # `type=None` down, as it might invalidate cached info.
-#        if self.name and 'name' not in kwargs:
-#            kwargs['name'] = self.name
-#        if self.parent and 'parent' not in kwargs:
-#            kwargs['parent'] = self.parent
-#        if self.type and 'type' not in kwargs:
-#            kwargs['type'] = self.type
-#        if self.initial and 'initial' not in kwargs:
-#            kwargs['initial'] = self.initial
-#
-#        cache = kwargs.pop('cache', None)
-#        if cache is None and hasattr(self.__class__, '_cache'):
-#            cache = self.__class__._cache()
-#        if cache is None:
-#            return Variable(**kwargs)
-#        else:
-#            return cache.Variable(**kwargs)
-#
+    def clone(self, **kwargs):
+        """
+        Replicate the :class:`Scalar` variable with the provided overrides.
+
+        Note, if :param dimensions: is provided as ``None``, as
+        :class:`Scalar` variable will be created.
+
+        Alos, it needs a :param cache: to force the correct caching scope.
+        """
+        # Add existing meta-info to the clone arguments, only if have
+        # them. Note, we need to be very careful not to pass eg,
+        # `type=None` down, as it might invalidate cached info.
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if self.type and 'type' not in kwargs:
+            kwargs['type'] = self.type
+        if self.initial and 'initial' not in kwargs:
+            kwargs['initial'] = self.initial
+
+        return Variable(**kwargs)
+
     @property
     def type(self):
         """
@@ -414,40 +408,33 @@ class Array(pmbl.Variable):  # (sympy.Function, CachedMeta):
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
-#    def clone(self, **kwargs):
-#        """
-#        Replicate the :class:`Array` variable with the provided overrides.
-#
-#        Note, if :param dimensions: is provided as ``None``, as
-#        :class:`Scalar` variable will be created.
-#
-#        Alos, it needs a :param cache: to force the correct caching scope.
-#        """
-#        # Add existing meta-info to the clone arguments, only if have
-#        # them. Note, we need to be very careful not to pass eg,
-#        # `type=None` down, as it might invalidate cached info.
-#        if self.name and 'name' not in kwargs:
-#            kwargs['name'] = self.basename
-#        if self.dimensions and 'dimensions' not in kwargs:
-#            kwargs['dimensions'] = self.dimensions
-#        if self.parent and 'parent' not in kwargs:
-#            kwargs['parent'] = self.parent
-#        if self.type and 'type' not in kwargs:
-#            kwargs['type'] = self.type
-#        if self.shape and 'shape' not in kwargs:
-#            kwargs['shape'] = self.shape
-#        if self.initial and 'initial' not in kwargs:
-#            kwargs['initial'] = self.initial
-#
-#        cache = kwargs.pop('cache', None)
-#        if cache is None and hasattr(self.__class__, '_cache'):
-#            cache = self.__class__._cache()
-#
-#        if cache is None:
-#            return Variable(**kwargs)
-#        else:
-#            return cache.Variable(**kwargs)
-#
+    def clone(self, **kwargs):
+        """
+        Replicate the :class:`Array` variable with the provided overrides.
+
+        Note, if :param dimensions: is provided as ``None``, as
+        :class:`Scalar` variable will be created.
+
+        Alos, it needs a :param cache: to force the correct caching scope.
+        """
+        # Add existing meta-info to the clone arguments, only if have
+        # them. Note, we need to be very careful not to pass eg,
+        # `type=None` down, as it might invalidate cached info.
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.dimensions and 'dimensions' not in kwargs:
+            kwargs['dimensions'] = self.dimensions
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if self.type and 'type' not in kwargs:
+            kwargs['type'] = self.type
+        if self.shape and 'shape' not in kwargs:
+            kwargs['shape'] = self.shape
+        if self.initial and 'initial' not in kwargs:
+            kwargs['initial'] = self.initial
+
+        return Variable(**kwargs)
+
     @property
     def dimensions(self):
         """
