@@ -104,17 +104,9 @@ class FCodeMapper(LokiStringifyMapper):
 
         return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
 
-#    def map_parenthesised_add(self, *args, **kwargs):
-#        return self.parenthesize(self.map_sum(*args, **kwargs))
-#
-#    def map_parenthesised_mul(self, *args, **kwargs):
-#        return self.parenthesize(self.map_product(*args, **kwargs))
-#
-#    def map_parenthesised_pow(self, *args, **kwargs):
-#        return self.parenthesize(self.map_pow(*args, **kwargs))
-#        return self.parenthesize(
-#            self.format("%s**%s", self.rec(expr.base, PREC_POWER, *args, **kwargs),
-#                        self.rec(expr.exponent, PREC_POWER, *args, **kwargs)))
+    def map_literal_list(self, expr, *args, **kwargs):
+        return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
+
 
 #These options should be runtime-configurable
 
