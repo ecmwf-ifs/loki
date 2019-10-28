@@ -75,6 +75,12 @@ class ExpressionFinder(Visitor):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.variables))
         return set(variables) if self.unique else variables
 
+    def visit_Declaration(self, o, **kwargs):
+        variables = as_tuple(flatten(self.retrieve(v) for v in o.variables))
+        if o.dimensions is not None:
+            variables += as_tuple(flatten(self.retrieve(d) for d in o.dimensions))
+        return set(variables) if self.unique else variables
+
 
 class FindSymbols(ExpressionFinder):
     """

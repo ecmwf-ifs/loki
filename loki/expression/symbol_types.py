@@ -54,10 +54,12 @@ class LokiStringifyMapper(StringifyMapper):
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
     def map_range_index(self, expr, *args, **kwargs):
+        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
+        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
         if expr.step:
-            return '%s:%s:%s' % (expr.lower or '', expr.upper or '', expr.step)
+            return '%s:%s:%s' % (lower, upper, self.rec(expr.step, *args, **kwargs))
         else:
-            return '%s:%s' % (expr.lower or '', expr.upper or '')
+            return '%s:%s' % (lower, upper)
 
     def map_parenthesised_add(self, *args, **kwargs):
         return self.parenthesize(self.map_sum(*args, **kwargs))

@@ -13,7 +13,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList)
+from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Array)
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached
@@ -415,7 +415,7 @@ class OFP2IR(GenericVisitor):
                         typevar = [v for v in parent.type.variables
                                    if v.name.lower() == vname.lower()][0]
                         _type = typevar.type
-                        if typevar.is_Array:
+                        if isinstance(typevar, Array):
                             shape = typevar.shape
 
                 var = self.Variable(name=vname, dimensions=indices, parent=parent,

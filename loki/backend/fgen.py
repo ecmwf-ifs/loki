@@ -1,15 +1,11 @@
-#from sympy import evaluate
-#from sympy.printing import fcode
-#from sympy.codegen.fnodes import ArrayConstructor, String
-from functools import partial
 from pymbolic.primitives import Expression
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_POWER)
+                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.types import BaseType
-from loki.expression import LogicLiteral, LokiStringifyMapper
+from loki.expression import LokiStringifyMapper
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -270,7 +266,7 @@ class FortranCodegen(Visitor):
             self._depth = 0  # Surpress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
-            cond = fsymgen(o.conditions[0])
+            cond = self._fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
         else:
             self._depth += 1

@@ -63,7 +63,7 @@ class Subroutine(object):
         self.is_function = is_function
 
     @classmethod
-    def _infer_allocatable_shapes(cls, body):
+    def _infer_allocatable_shapes(cls, spec, body):
         """
         Infer variable symbol shapes from allocations of ``allocatable`` arrays.
         """
@@ -76,7 +76,11 @@ class Subroutine(object):
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:
                 vmap[v] = v.clone(shape=alloc_map[v.name.lower()])
-        SubstituteExpressions(vmap).visit(body)
+        smap = {}
+        for v in FindVariables().visit(spec):
+            if v.name.lower() in alloc_map:
+                smap[v] = v.clone(shape=alloc_map[v.name.lower()])
+        return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, cache=None):
@@ -116,7 +120,7 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        cls._infer_allocatable_shapes(body)
+        spec, body = cls._infer_allocatable_shapes(spec, body)
 
         # Parse "member" subroutines recursively
         members = None
@@ -181,7 +185,7 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        cls._infer_allocatable_shapes(body)
+        spec, body = cls._infer_allocatable_shapes(spec, body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
                    members=members, ast=ast, cache=cache)
@@ -214,7 +218,7 @@ class Subroutine(object):
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        cls._infer_allocatable_shapes(body)
+        spec, body = cls._infer_allocatable_shapes(spec, body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast, cache=cache)
 

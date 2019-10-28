@@ -39,14 +39,21 @@ class ExpressionRetriever(WalkMapper):
         super(ExpressionRetriever, self).__init__()
 
         self.query = query
-        self.exprs = set()
+        self.exprs = list() 
 
     def post_visit(self, expr, *args, **kwargs):
         if self.query(expr):
-            self.exprs.add(expr)
+            self.exprs.append(expr)
 
     map_scalar = WalkMapper.map_variable
-    map_array = WalkMapper.map_variable
+
+    def map_array(self, expr, *args, **kwargs):
+        self.visit(expr)
+        if expr.dimensions:
+            for d in expr.dimensions:
+                self.rec(d, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
     map_logic_literal = WalkMapper.map_constant
     map_float_literal = WalkMapper.map_constant
     map_int_literal = WalkMapper.map_constant
@@ -54,6 +61,16 @@ class ExpressionRetriever(WalkMapper):
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
     map_parenthesised_pow = WalkMapper.map_power
+
+    def map_range_index(self, expr, *args, **kwargs):
+        self.visit(expr)
+        if expr.lower:
+            self.rec(expr.lower, *args, **kwargs)
+        if expr.upper:
+            self.rec(expr.upper, *args, **kwargs)
+        if expr.step:
+            self.rec(expr.step, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
 
 
 def retrieve_symbols(expr):

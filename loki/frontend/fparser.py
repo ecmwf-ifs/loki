@@ -99,8 +99,8 @@ class FParser2IR(GenericVisitor):
         # at this low level!
         vname = o.tostr()
         dimensions = kwargs.get('dimensions', None)
-        # Careful! Mind the many ways in whic this can get called with
-        # outside inforamtion (either in kwargs or maps stored on self).
+        # Careful! Mind the many ways in which this can get called with
+        # outside information (either in kwargs or maps stored on self).
         shape = kwargs.get('shape', None)
         if shape is None:
             shape = self.shape_map.get(vname, None) if self.shape_map else None
@@ -309,6 +309,8 @@ class FParser2IR(GenericVisitor):
                     dtype = typevar.type
                     if typevar.is_Array:
                         shape = typevar.shape
+            if shape is None:
+                shape = self.shape_map.get(name, None) if self.shape_map else None
 
             return Variable(name=name, dimensions=args, parent=parent, shape=shape, type=dtype)
 
