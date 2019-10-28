@@ -32,14 +32,24 @@ class LokiStringifyMapper(StringifyMapper):
     map_float_literal = map_logic_literal
     map_int_literal = map_logic_literal
 
-    map_scalar = StringifyMapper.map_variable
+    def map_scalar(self, expr, *args, **kwargs):
+        parent = ''
+        if expr.parent:
+            parent = self.rec(expr.parent, *args, **kwargs) + '%'
+        return parent + expr.name
 
     def map_array(self, expr, *args, **kwargs):
         dims = ''
         if expr.dimensions:
             dims = ','.join(self.rec(d, *args, **kwargs) for d in expr.dimensions)
             dims = '(' + dims + ')'
-        return '%s%s' % (expr.name, dims)
+        parent = ''
+        if expr.parent:
+            parent = self.rec(expr.parent, *args, **kwargs) + '%'
+        initial = ''
+        if expr.initial:
+            ' = %s' % self.rec(expr.initial, *args, **kwargs)
+        return parent + expr.name + dims + initial
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
@@ -57,6 +67,9 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_parenthesised_pow(self, *args, **kwargs):
         return self.parenthesize(self.map_power(*args, **kwargs))
+
+    def map_literal_list(self, expr, *args, **kwargs):
+        return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
 
 #def _symbol_class(cls, name, parent=None, cache=None):
@@ -562,7 +575,8 @@ class Variable:  # (sympy.Function):
         if dimensions is None and (shape is None or len(shape) == 0):
             return Scalar(name=name, parent=parent, type=_type, initial=initial, _source=source)
         else:
-            return Array(name=name, shape=shape, dimensions=dimensions, parent=parent, type=_type)
+            return Array(name=name, shape=shape, dimensions=dimensions, parent=parent, type=_type,
+                         initial=initial, _source=source)
 
 #        # Create a new object from the static constructor with global caching!
 #        if dimensions is None and (shape is None or len(shape) == 0):
@@ -683,11 +697,22 @@ class Literal(object):  # (sympy.Number):
         return obj
 
 
-class LiteralList(object):
+class LiteralList(pmbl.AlgebraicLeaf):
 
-    def __new__(self, values):
-        return pmbl.make_sym_vector(None, values, var_factory=Literal)
+    def __init__(self, values):
+        super(LiteralList, self).__init__()
+
+        self.elements = values
+
+    mapper_method = intern('map_literal_list')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
 #        return ArrayConstructor(elements=[Literal(v) for v in values])
+
+    def __getinitargs__(self):
+        return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
+
 
 
 class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boolean):

@@ -53,14 +53,14 @@ class FParser2IR(GenericVisitor):
         # Use provided symbol cache for variable generation
         self._cache = None  # cache
 
-    def Variable(self, *args, **kwargs):
-        """
-        Instantiate cached variable symbols from local symbol cache.
-        """
-        if self._cache is None:
-            return Variable(*args, **kwargs)
-        else:
-            return self._cache.Variable(*args, **kwargs)
+#    def Variable(self, *args, **kwargs):
+#        """
+#        Instantiate cached variable symbols from local symbol cache.
+#        """
+#        if self._cache is None:
+#            return Variable(*args, **kwargs)
+#        else:
+#            return self._cache.Variable(*args, **kwargs)
 
     def visit(self, o, **kwargs):
         """
@@ -118,7 +118,7 @@ class FParser2IR(GenericVisitor):
                 if typevar.is_Array:
                     shape = typevar.shape
 
-        return self.Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
+        return Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         return Literal(value=int(o.items[0]), kind=o.items[1])
@@ -180,8 +180,8 @@ class FParser2IR(GenericVisitor):
         # We know that this is a declaration, so the ``dimensions``
         # here also define the shape of the variable symbol within the
         # currently cached context.
-        return self.Variable(name=vname, type=dtype, dimensions=dimensions,
-                             shape=dimensions, initial=initial)
+        return Variable(name=vname, type=dtype, dimensions=dimensions,
+                        shape=dimensions, initial=initial)
 
     def visit_Component_Decl(self, o, **kwargs):
         dtype = kwargs.get('dtype', None)
@@ -282,7 +282,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Ref(self, o, **kwargs):
         pname = o.items[0].tostr()
-        v = self.Variable(name=pname)
+        v = Variable(name=pname)
         for i in o.items[1:-1]:
             # Careful not to propagate type or dims here
             v = self.visit(i, parent=v)
@@ -310,7 +310,7 @@ class FParser2IR(GenericVisitor):
                     if typevar.is_Array:
                         shape = typevar.shape
 
-            return self.Variable(name=name, dimensions=args, parent=parent, shape=shape, type=dtype)
+            return Variable(name=name, dimensions=args, parent=parent, shape=shape, type=dtype)
 
     def visit_Array_Section(self, o, **kwargs):
         dimensions = as_tuple(self.visit(o.items[1]))
