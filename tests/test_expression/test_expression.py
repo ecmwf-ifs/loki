@@ -161,8 +161,10 @@ def test_logical_array(refpath, reference, frontend):
     assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
     # Test the generated identity
+    out = np.zeros(6)
     test = generate_identity(refpath, 'logical_array', frontend=frontend)
     function = getattr(test, 'logical_array_%s' % frontend)
+    function(6, [0., 2., -1., 3., 0., 2.], out)
     assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
 
