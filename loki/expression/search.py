@@ -92,3 +92,10 @@ def retrieve_variables(expr):
     retriever = ExpressionRetriever(lambda e: isinstance(e, Variable))
     retriever(expr)
     return retriever.exprs
+
+
+def retrieve_inline_calls(expr):
+    from loki.expression.symbol_types import InlineCall
+    retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
+    retriever(expr)
+    return retriever.exprs

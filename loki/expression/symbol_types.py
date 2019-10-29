@@ -716,7 +716,6 @@ class LiteralList(pmbl.AlgebraicLeaf):
         return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
 
 
-
 class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boolean):
     """
     Internal representation of an in-line function call
@@ -724,7 +723,7 @@ class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boole
 
     def __init__(self, function, parameters=None, kw_parameters=None):
         function = pmbl.make_variable(function)
-        parameters = parameters or []
+        parameters = parameters or tuple() 
         kw_parameters = kw_parameters or {}
 
         super(InlineCall, self).__init__(function, parameters, kw_parameters)
@@ -733,6 +732,10 @@ class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boole
 
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
+
+    @property
+    def name(self):
+        return self.function.name
 #    __slots__ = ['name', 'arguments', 'kwarguments']
 #
 #    defaults = {'arguments': (), 'kwarguments': ()}

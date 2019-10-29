@@ -33,16 +33,20 @@ class CCodeMapper(LokiStringifyMapper):
             return result
 
     def map_scalar(self, expr, *args, **kwargs):
+        # TODO: Properly resolve pointers to the parent to replace '->' by '.'
+        parent = self.rec(expr.parent, *args, **kwargs) + '->' if expr.parent else ''
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
-        if expr.type.pointer:
-            return '*%s' % expr.name
-        else:
-            return str(expr.name)
+        ptr = '*' if expr.type.pointer else ''
+        return '%s%s%s' % (ptr, parent, expr.name)
 
     def map_array(self, expr, *args, **kwargs):
+        parent = '(' + self.rec(expr.parent, *args, **kwargs) + ').' if expr.parent else ''
         dims = ['[%s]' % self.rec(d, *args, **kwargs) for d in expr.dimensions]
         dims = ''.join(dims)
-        return '%s%s' % (expr.name, dims)
+        return '%s%s%s' % (parent, expr.name, dims)
+
+    def map_range_index(self, expr, *args, **kwargs):
+        return self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
 
     def map_sum(self, expr, enclosing_prec, *args, **kwargs):
         """
@@ -76,38 +80,6 @@ class CCodeMapper(LokiStringifyMapper):
                    for is_neg, term in zip(is_neg_term[1:], terms[1:])]
 
         return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
-
-#class CExpressionPrinter(C99CodePrinter):
-#    """
-#    Custom CodePrinter extension for forcing our specific flavour
-#    of C expression printing.
-#    """
-#
-#    def _print_Indexed(self, expr):
-#        """
-#        Print an Indexed as a C-like multidimensional array.
-#
-#        Examples
-#        --------
-#        V[x,y,z] -> V[x][y][z]
-#        """
-#        output = self._print(expr.base.label)
-#        output += ''.join('[' + self._print(x).replace(' ', '') + ']' for x in expr.indices)
-#
-#        return output
-#
-#    def _print_Pointer(self, expr):
-#        s = str(expr.symbol)
-#        return '*%s' % s
-#
-#
-#def csymgen(expr, assign_to=None, **kwargs):
-#    settings = {
-#        'order': 'none',
-#        'contract': False,
-#    }
-#    settings.update(**kwargs)
-#    return CExpressionPrinter(settings).doprint(expr, assign_to)
 
 
 class CCodegen(Visitor):
@@ -251,17 +223,6 @@ class CCodegen(Visitor):
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o):
-        # Surpress evaluation of expressions to avoid accuracy errors
-        # due to symbolic expression re-writing.
-#        with evaluate(False):
-#            target = indexify(o.target)
-#            expr = indexify(o.expr)
-
-#        type_aliases = {}
-#        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
-#            type_aliases[real] = float32
-
-        # stmt = csymgen(o.expr, assign_to=o.target, type_aliases=type_aliases)
         stmt = '%s = %s;' % (self._csymgen(o.target), self._csymgen(o.expr))
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
@@ -272,9 +233,8 @@ class CCodegen(Visitor):
         else_body = self.visit(o.else_body)
         self._depth -= 1
         if len(bodies) > 1:
-            raise NotImplementedError('Multi-body cnoditionals not yet supported')
+            raise NotImplementedError('Multi-body conditionals not yet supported')
 
-#        cond = csymgen(indexify(o.conditions[0]))
         cond = self._csymgen(o.conditions[0])
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''

@@ -3,9 +3,10 @@ from pymbolic.mapper import IdentityMapper
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.symbol_types import Array
-from loki.expression.search import retrieve_symbols, retrieve_functions, retrieve_variables
+from loki.expression.search import (retrieve_symbols, retrieve_functions, retrieve_variables,
+                                    retrieve_inline_calls)
 
-__all__ = ['FindSymbols', 'FindFunctions', 'FindVariables',
+__all__ = ['FindSymbols', 'FindFunctions', 'FindVariables', 'FindInlineCalls',
            'SubstituteExpressions', 'ExpressionFinder']
 
 
@@ -128,6 +129,15 @@ class FindVariables(ExpressionFinder):
     See :class:`ExpressionFinder`
     """
     retrieval_function = staticmethod(retrieve_variables)
+
+
+class FindInlineCalls(ExpressionFinder):
+    """
+    A visitor to collect all :class:`loki.InlineCall`  symbols used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(retrieve_inline_calls)
 
 
 class LokiIdentityMapper(IdentityMapper):
