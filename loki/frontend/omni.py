@@ -399,7 +399,7 @@ class OMNI2IR(GenericVisitor):
 #                dtype = BaseType(name=o.find('name').text, kind=kind)
 #                return Cast(dtype.name, expression=expr, kind=dtype.kind)
 #            else:
-            return InlineCall(name, *args, **kwargs)
+            return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text

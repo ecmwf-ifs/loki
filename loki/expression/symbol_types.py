@@ -722,12 +722,12 @@ class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boole
     Internal representation of an in-line function call
     """
 
-    def __init__(self, function, *parameters, **kw_parameters):
-        function = kw_parameters.pop('function', function)
+    def __init__(self, function, parameters=None, kw_parameters=None):
         function = pmbl.make_variable(function)
-        parameters = kw_parameters.pop('parameters', parameters)
+        parameters = parameters or []
+        kw_parameters = kw_parameters or {}
 
-        super(InlineCall, self).__init__(function=function, parameters=parameters, kw_parameters=kw_parameters)
+        super(InlineCall, self).__init__(function, parameters, kw_parameters)
 
     mapper_method = intern('map_inline_call')
 

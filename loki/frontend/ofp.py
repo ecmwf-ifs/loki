@@ -400,10 +400,10 @@ class OFP2IR(GenericVisitor):
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(vname, *indices)
+                return InlineCall(vname, parameters=indices)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                return InlineCall(o.attrib['id'], *indices)
+                return InlineCall(o.attrib['id'], parameters=indices)
             else:
                 shape = self.shape_map.get(vname, None) if self.shape_map else None
                 _type = self.type_map.get(vname, None) if self.type_map else None

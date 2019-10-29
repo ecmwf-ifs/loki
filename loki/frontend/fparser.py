@@ -266,7 +266,7 @@ class FParser2IR(GenericVisitor):
         args = self.visit(o.items[1])
         kwarguments = {a[0].name: a[1] for a in args if isinstance(a, tuple)}
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return InlineCall(name, *arguments, **kwarguments)
+        return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
@@ -296,7 +296,7 @@ class FParser2IR(GenericVisitor):
                             'selected_real_kind', 'allocated', 'present']:
             kwarguments = {k: a for k, a in args if isinstance(a, tuple)}
             arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-            return InlineCall(name, *arguments, **kwarguments)
+            return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
         else:
             shape = None
             dtype = None
