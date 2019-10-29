@@ -265,7 +265,8 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
     assert all(v.shape is not None for v in variables if isinstance(v, Array))
 
     # Verify shape info from imported derived type is propagated
-    vmap = {v.name: v for v in variables}
+    # vmap = {v.name: v for v in variables}
+    vmap = {'%s%s' % (v.parent.name + '%' if v.parent else '', v.name): v for v in variables}
     assert fsymgen(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
     assert fsymgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
@@ -319,7 +320,8 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert all(v.type is not None for v in variables)
 
     # Verify imported derived type info explicitly
-    vmap = {v.name: v for v in variables}
+    # vmap = {v.name: v for v in variables}
+    vmap = {'%s%s' % (v.parent.name + '%' if v.parent else '', v.name): v for v in variables}
     assert vmap['item%scalar'].type.dtype == DataType.FLOAT64
     assert vmap['item%vector'].type.dtype == DataType.FLOAT64
     assert vmap['item%matrix'].type.dtype == DataType.FLOAT64

@@ -45,7 +45,7 @@ class ExpressionFinder(Visitor):
         - ``dimension`` (for :class:`Array`)
         """
         def dict_key(var):
-            return (var.name, var.parent.name if var.parent else None,
+            return (var.name, var.parent.name if hasattr(var, 'parent') and var.parent else None,
                     var.dimensions if isinstance(var, Array) else None)
 
         if self.unique:
