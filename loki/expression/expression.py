@@ -2,6 +2,7 @@ from pymbolic.mapper import IdentityMapper
 
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
+from loki.expression.symbol_types import Array
 from loki.expression.search import retrieve_symbols, retrieve_functions, retrieve_variables
 
 __all__ = ['FindSymbols', 'FindFunctions', 'FindVariables',
@@ -34,6 +35,25 @@ class ExpressionFinder(Visitor):
         if retrieve is not None:
             type(self).retrieval_function = staticmethod(retrieve)
 
+    def find_uniques(self, variables):
+        """
+        Reduces the number of matched sub-expressions to a set of unique sub-expressions,
+        if self.unique is ``True``.
+        Currently, two sub-expressions are considered NOT to be unique if they have equal
+        - ``name``
+        - ``parent`` (or ``None``)
+        - ``dimension`` (for :class:`Array`)
+        """
+        def dict_key(var):
+            return (var.name, var.parent.name if var.parent else None,
+                    var.dimensions if isinstance(var, Array) else None)
+
+        if self.unique:
+            var_dict = {dict_key(var): var for var in variables}
+            return set(var_dict.values())
+        else:
+            return variables
+
     def retrieve(self, expr):
         """
         Internal retrieval function used on expressions.
@@ -44,42 +64,42 @@ class ExpressionFinder(Visitor):
 
     def visit_tuple(self, o):
         variables = as_tuple(flatten(self.visit(c) for c in o))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     visit_list = visit_tuple
 
     def visit_Statement(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.target))
         variables += as_tuple(self.retrieve(o.expr))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Conditional(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(c) for c in o.conditions))
         variables += as_tuple(flatten(self.visit(c) for c in o.bodies))
         variables += as_tuple(self.visit(o.else_body))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Loop(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.variable))
         variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Call(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
         variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Allocation(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.variables))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Declaration(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(v) for v in o.variables))
         if o.dimensions is not None:
             variables += as_tuple(flatten(self.retrieve(d) for d in o.dimensions))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
 
 class FindSymbols(ExpressionFinder):

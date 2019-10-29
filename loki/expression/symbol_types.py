@@ -263,8 +263,8 @@ class Scalar(pmbl.Variable):  # (sympy.Symbol, CachedMeta):
             args += [('parent', self.parent)]
         if self.initial:
             args += [('initial', self.initial)]
-        if self._source:
-            args += [('_source', self._source)]
+#        if self._source:
+#            args += [('_source', self._source)]
         return tuple(args)
 
     mapper_method = intern('map_scalar')
