@@ -32,6 +32,9 @@ class LokiStringifyMapper(StringifyMapper):
     map_float_literal = map_logic_literal
     map_int_literal = map_logic_literal
 
+    def map_string_literal(self, expr, *args, **kwargs):
+        return "'%s'" % expr.value
+
     def map_scalar(self, expr, *args, **kwargs):
         parent = ''
         if expr.parent:
@@ -667,33 +670,59 @@ class LogicLiteral(pmbl.Leaf):
 #    __slots__ = ['p', '_type', '_kind']
 
 
+class StringLiteral(pmbl.Leaf):
+
+    def __init__(self, value, **kwargs):
+        super(StringLiteral, self).__init__()
+
+        if value[0] == value[-1] and value[0] in '"\'':
+            value = value[1:-1]
+
+        self.value = value
+
+    def __getinitargs__(self):
+        return (self.value,)
+
+    mapper_method = intern('map_string_literal')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+
 class Literal(object):  # (sympy.Number):
 
-    def __new__(cls, value, **kwargs):
+    @classmethod
+    def _from_literal(cls, value, **kwargs):
         if isinstance(value, int):
             obj = IntLiteral(value, **kwargs)
         elif isinstance(value, float):
             obj = FloatLiteral(value, **kwargs)
+        elif isinstance(value, str) and len(value) >= 2 and value[0] == value[-1] \
+                and value[0] in '"\'':
+            obj = StringLiteral(value, **kwargs)
         elif str(value).lower() in ['.true.', 'true', '.false.', 'false']:
             # Ensure we capture booleans
             obj = LogicLiteral(value, **kwargs) 
         else:
+            raise TypeError('Unknown literal: %s' % value)
+
+        return obj
+
+    def __new__(cls, value, **kwargs):
+        try:
+            obj = cls._from_literal(value, **kwargs)
+        except TypeError:
             # Let Pymbolic figure our what we're dealing with
             from pymbolic import parse
             obj = parse(value)
-#
-#            # Let sympy figure out what we're dealing with
-#            obj = sympy.sympify(value)
-#
-#            if isinstance(obj, str):
-#                # Capture strings and ensure they look ok
-#                obj = String('"%s"' % obj)
+
+            # Make sure we catch elementary literals
+            if not isinstance(obj, pmbl.Expression):
+                obj = cls._from_literal(obj, **kwargs)
 
         # And attach our own meta-data
-#        if '_type' in obj.__class__.__slots__:
         if hasattr(obj, '_type'):
             obj._type = kwargs.get('type', None)
-#        if '_kind' in obj.__class__.__slots__:
         if hasattr(obj, '_kind'):
             obj._kind = kwargs.get('kind', None)
         return obj

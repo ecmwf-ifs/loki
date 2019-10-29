@@ -12,6 +12,7 @@ class DataType(IntEnum):
     INT32 = 2
     FLOAT32 = 3
     FLOAT64 = 4
+    CHARACTER = 5
 
     @classmethod
     def from_type_kind(cls, type, kind):
@@ -34,6 +35,8 @@ class DataType(IntEnum):
             ('real', 'jprb'): cls.FLOAT64,
             ('real', 'selected_real_kind(13,300)'): cls.FLOAT64,
             ('real', 'selected_real_kind(13, 300)'): cls.FLOAT64,
+
+            ('character', None): cls.CHARACTER,
         }
         type = type if type is None else str(type).lower()
         kind = kind if kind is None else str(kind).lower()
@@ -54,6 +57,7 @@ class DataType(IntEnum):
         map = {
             self.BOOL: 'int', self.INT32: 'int',
             self.FLOAT32: 'float', self.FLOAT64: 'double',
+            self.CHARACTER: 'char'
         }
         return map.get(self, None)
 
@@ -67,13 +71,14 @@ class DataType(IntEnum):
             self.INT32: BaseType('integer', kind='c_int'),
             self.FLOAT32: BaseType('real', kind='c_float'),
             self.FLOAT64: BaseType('real', kind='c_double'),
+            self.CHARACTER: BaseType('character', kind='c_char')
         }
         return map.get(self, None)
 
     @property
     def ftype(self):
         """
-        String representing the C equivalent of this data type.
+        String representing the Fortran aequivalent of this data type.
         """
         raise NotImplementedError()
 

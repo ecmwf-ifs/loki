@@ -122,6 +122,9 @@ class FParser2IR(GenericVisitor):
 
         return Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
 
+    def visit_Char_Literal_Constant(self, o, **kwargs):
+        return Literal(value=str(o.items[0]), kind=o.items[1]) 
+
     def visit_Int_Literal_Constant(self, o, **kwargs):
         return Literal(value=int(o.items[0]), kind=o.items[1])
 
@@ -161,7 +164,12 @@ class FParser2IR(GenericVisitor):
         return Import(module=fname, c_import=True)
 
     def visit_Implicit_Stmt(self, o, **kwargs):
-        return Intrinsic(text='IMPLICIT %s' % o.items[0])
+        return Intrinsic(text='IMPLICIT %s' % o.items[0],
+                         source=kwargs.get('source', None))
+
+    def visit_Print_Stmt(self, o, **kwargs):
+        return Intrinsic(text='PRINT %s' % (', '.join(str(i) for i in o.items)),
+                         source=kwargs.get('source', None))
 
     def visit_Comment(self, o, **kwargs):
         return Comment(text=o.tostr())

@@ -1,11 +1,12 @@
-from pymbolic.primitives import Expression
+from pymbolic.primitives import Expression, Sum
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
-from loki.types import BaseType
+from loki.types import BaseType, DataType
 from loki.expression import LokiStringifyMapper
+from loki.expression.symbol_types import StringLiteral, Scalar
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -104,14 +105,6 @@ class FCodeMapper(LokiStringifyMapper):
         return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
 
 
-#These options should be runtime-configurable
-
-# Note, the 2003 standard will print :class:`sympy.ArrayConstructor`
-# as ``[...]`` rather than ``(/.../)``, which prevents occasional
-# issues with spacing around line continuations.
-#fsymgen = partial(fcode, standard=2003, source_format='free', order='none', contract=False)
-
-
 class FortranCodegen(Visitor):
     """
     Tree visitor to generate standardized Fortran code from IR.
@@ -150,7 +143,7 @@ class FortranCodegen(Visitor):
         return self.indent + '! <%s>' % o.__class__.__name__
 
     def visit_Intrinsic(self, o):
-        return o.text
+        return str(o.text)
 
     def visit_tuple(self, o):
         return '\n'.join([self.visit(i) for i in o])

@@ -32,6 +32,9 @@ class CCodeMapper(LokiStringifyMapper):
         else:
             return result
 
+    def map_string_literal(self, expr, *args, **kwargs):
+        return '"%s"' % expr.value
+
     def map_scalar(self, expr, *args, **kwargs):
         # TODO: Properly resolve pointers to the parent to replace '->' by '.'
         parent = self.rec(expr.parent, *args, **kwargs) + '->' if expr.parent else ''

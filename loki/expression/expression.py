@@ -148,6 +148,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
+    map_string_literal = IdentityMapper.map_constant
     map_scalar = IdentityMapper.map_variable
     map_array = IdentityMapper.map_variable
     map_inline_call = IdentityMapper.map_call_with_kwargs

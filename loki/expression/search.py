@@ -57,6 +57,7 @@ class ExpressionRetriever(WalkMapper):
     map_logic_literal = WalkMapper.map_constant
     map_float_literal = WalkMapper.map_constant
     map_int_literal = WalkMapper.map_constant
+    map_string_literal = WalkMapper.map_constant
     map_inline_call = WalkMapper.map_call_with_kwargs
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product

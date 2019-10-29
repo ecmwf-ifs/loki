@@ -358,6 +358,9 @@ class OFP2IR(GenericVisitor):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
         return Import(module=o.attrib['name'], symbols=symbols, source=source)
 
+    def visit_print(self, o, source=None):
+        return Intrinsic(text=source.string, source=source)
+
     def visit_directive(self, o, source=None):
         if '#include' in o.attrib['text']:
             # Straight pipe-through node for header includes (#include ...)

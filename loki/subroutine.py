@@ -195,7 +195,7 @@ class Subroutine(object):
         routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
         name = name or routine_stmt.get_name().string
         dummy_arg_list = routine_stmt.items[2]
-        args = [arg.string for arg in dummy_arg_list.items]
+        args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         cache = None  # SymbolCache()
 

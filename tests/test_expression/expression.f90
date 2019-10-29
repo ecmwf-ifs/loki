@@ -123,3 +123,11 @@ subroutine index_ranges(dim, v1, v2, v3, v4, v5)
   v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
 
 end subroutine index_ranges
+
+
+subroutine strings()
+
+  print *, 'Hello world!'
+  print *, "42!"
+
+end subroutine strings

@@ -245,3 +245,19 @@ def test_index_ranges(refpath, reference, frontend):
     assert str(vmap_body['v2']) == 'v2(1:dim)'
     assert str(vmap_body['v3']) == 'v3(0:4:2)'
     assert str(vmap_body['v5']) == 'v5(:)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_strings(refpath, reference, frontend):
+    """
+    character(len=64), intent(inout) :: str1
+    character(len=8) :: str2
+
+    str2 = " world!"
+    str1 = str1 // str2
+    """
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'strings', frontend=frontend)
+    _ = getattr(test, 'strings_%s' % frontend)
+    assert True
