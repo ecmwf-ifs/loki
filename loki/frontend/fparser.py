@@ -110,12 +110,14 @@ class FParser2IR(GenericVisitor):
         parent = kwargs.get('parent', None)
 
         # If a parent variable is given, try to infer type and shape
-        if parent is not None and parent.type is not None:
-            if isinstance(parent.type, DerivedType) and parent.type.variables is not None:
-                typevar = [v for v in parent.type.variables
+        if parent is not None and self.type_map is not None:
+            parent_type = self.type_map.get(parent.name, None)
+            if (parent_type is not None and isinstance(parent_type, DerivedType) \
+                    and parent_type.variables is not None):
+                typevar = [v for v in parent_type.variables
                            if v.name.lower() == vname.lower()][0]
                 dtype = typevar.type
-                if typevar.is_Array:
+                if isinstance(typevar, Array):
                     shape = typevar.shape
 
         return Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
@@ -302,15 +304,20 @@ class FParser2IR(GenericVisitor):
             dtype = None
             parent = kwargs.get('parent', None)
 
-            if parent is not None and parent.type is not None:
-                if isinstance(parent.type, DerivedType) and parent.type.variables is not None:
-                    typevar = [v for v in parent.type.variables
+            if parent is not None and self.type_map is not None:
+                parent_type = self.type_map.get(parent.name, None)
+                if (parent_type is not None and isinstance(parent_type, DerivedType) \
+                        and parent_type.variables is not None):
+                    typevar = [v for v in parent_type.variables
                                if v.name.lower() == name.lower()][0]
                     dtype = typevar.type
-                    if typevar.is_Array:
+                    if isinstance(typevar, Array):
                         shape = typevar.shape
+
             if shape is None:
                 shape = self.shape_map.get(name, None) if self.shape_map else None
+            if dtype is None:
+                dtype = self.type_map.get(name, None) if self.type_map else None
 
             return Variable(name=name, dimensions=args, parent=parent, shape=shape, type=dtype)
 

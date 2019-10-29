@@ -212,7 +212,8 @@ class Subroutine(object):
                               if isinstance(v, Array)})
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
-        body = parse_fparser_ast(body_ast, shape_map=shape_map, type_map=type_map, cache=cache)
+        body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map, type_map=type_map,
+                                 cache=cache)
         # body = Section(body=body)
 
         # Big, but necessary hack:
