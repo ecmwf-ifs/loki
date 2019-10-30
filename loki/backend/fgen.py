@@ -104,6 +104,12 @@ class FCodeMapper(LokiStringifyMapper):
     def map_literal_list(self, expr, *args, **kwargs):
         return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
 
+    def map_foreign(self, expr, *args, **kwargs):
+        try:
+            return super().map_foreign(expr, *args, **kwargs)
+        except ValueError:
+            return '! Not supported: %s\n' % str(expr)
+
 
 class FortranCodegen(Visitor):
     """

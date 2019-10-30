@@ -127,3 +127,50 @@ def test_array_indexing_nested(refpath, reference, frontend):
     assert (item.another_item.matrix == np.array([[1., 2., 3.],
                                                   [1., 2., 3.],
                                                   [1., 2., 3.]])).all()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_derived_type_caller(refpath, reference, frontend):
+    """
+    item%vector = item%vector + item%scalar
+    item%matrix = item%matrix + item%scalar
+    item%red_herring = 42.
+    """
+    from loki import FindNodes, Call, SourceFile, fgen, compile_and_load, SubstituteExpressions
+    # Test the reference solution
+    item = reference.explicit()
+    item.scalar = 2.
+    item.vector[:] = 5.
+    item.matrix[:, :] = 4.
+    item.red_herring = -1.
+    reference.derived_type_caller(item)
+    assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
+
+#    # Generate identity
+#    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, 'derived_type_caller', frontend))
+#    source = SourceFile.from_file(refpath, frontend=frontend)
+#
+#    module = [m for m in source.modules if m.name == 'derived_types'][0]
+#    module.name += '_%s_%s' % ('derived_type_caller', frontend)
+#    for routine in source.subroutines:
+#        routine.name += '_%s' % frontend
+#
+#    routine = source['derived_type_caller_%s' % frontend]
+#    call = FindNodes(Call).visit(routine.body)[0]
+#    call.name += '_%s' % frontend
+#
+#    source.write(source=fgen(module), filename=testname)
+#    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+#    test = getattr(pymod, testname.stem)
+
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='derived_type_caller', frontend=frontend)
+
+    # Test the generated identity
+    item = test.explicit()
+    item.scalar = 2.
+    item.vector[:] = 5.
+    item.matrix[:, :] = 4.
+    item.red_herring = -1.
+    getattr(test, 'derived_type_caller_%s' % frontend)(item)
+    assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.

@@ -92,5 +92,13 @@ contains
 
   end subroutine array_indexing_nested
 
+  subroutine derived_type_caller(item)
+    ! simple call to another routine specifying a derived type as argument
+    type(explicit), intent(inout) :: item
+
+    item%red_herring = 42.
+    call simple_loops(item)
+
+  end subroutine derived_type_caller
 
 end module derived_types

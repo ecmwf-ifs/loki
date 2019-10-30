@@ -3,11 +3,11 @@ import toml
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
-from sympy import evaluate
+#from sympy import evaluate
 
 from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
-                  info, as_tuple, Loop,
+                  info, as_tuple, Loop, Variable,
                   Array, Call, Pragma, BaseType,
                   DerivedType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
@@ -72,7 +72,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.basename.lower() for v in variables
+                arg_member_vars = set(v.name.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables
                                     if v.name.lower() in arg_member_vars]
@@ -101,7 +101,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
-                            new_arg = type_var.clone(dimensions=new_dims, parent=deepcopy(d_arg))
+                            new_arg = type_var.clone(dimensions=new_dims, parent=d_arg)  # deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -136,9 +136,9 @@ class DerivedArgsTransformation(AbstractTransformation):
                                     kind=type_var.type.kind,
                                     intent=arg.type.intent)
                 new_name = '%s_%s' % (arg.name, type_var.name)
-                new_var = routine.Variable(name=new_name, type=new_type,
-                                           dimensions=as_tuple(type_var.shape),
-                                           shape=as_tuple(type_var.shape))
+                new_var = Variable(name=new_name, type=new_type,
+                                   dimensions=as_tuple(type_var.shape),
+                                   shape=as_tuple(type_var.shape))
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
