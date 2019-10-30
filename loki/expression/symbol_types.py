@@ -849,7 +849,7 @@ class RangeIndex(pmbl.AlgebraicLeaf):  # (sympy.Idx):
 #        return label
 
     @classmethod
-    def _args2bounds(*args, **kwargs):
+    def _args2bounds(cls, *args, **kwargs):
         lower, upper, step = None, None, None
         if len(args) == 1:
             upper = args[0]
