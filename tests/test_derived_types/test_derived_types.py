@@ -130,6 +130,39 @@ def test_array_indexing_nested(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_deferred_array(refpath, reference, frontend):
+    """
+    item2%vector(:) = 666.
+
+    do i=1, 3
+       item2%matrix(:, i) = vals(i)
+    end do
+
+    ----
+
+    item%vector = item%vector + item2(:)%vector
+    item%matrix = item%matrix + item2(:)%matrix
+    """
+    # Test the reference solution
+    item = reference.deferred()
+    reference.alloc_deferred(item)
+    reference.deferred_array(item)
+    assert (item.vector == 4 * 666.).all()
+    assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    reference.free_deferred(item)
+
+    # Test the generated identity
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='deferred_array', frontend=frontend)
+    item = test.deferred()
+    reference.alloc_deferred(item)
+    getattr(test, 'deferred_array_%s' % frontend)(item)
+    assert (item.vector == 4 * 666.).all()
+    assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    reference.free_deferred(item)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_derived_type_caller(refpath, reference, frontend):
     """
     item%vector = item%vector + item%scalar

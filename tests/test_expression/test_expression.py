@@ -261,3 +261,20 @@ def test_strings(refpath, reference, frontend):
     test = generate_identity(refpath, 'strings', frontend=frontend)
     _ = getattr(test, 'strings_%s' % frontend)
     assert True
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_very_long_statement(refpath, reference, frontend):
+    """
+    Some long statement with line breaks.
+    """
+    # Test the reference solution
+    scalar = 1
+    result = reference.very_long_statement(scalar)
+    assert result == 5
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'very_long_statement', frontend=frontend)
+    function = getattr(test, 'very_long_statement_%s' % frontend)
+    result = function(scalar)
+    assert result == 5

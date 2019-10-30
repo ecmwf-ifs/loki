@@ -131,3 +131,14 @@ subroutine strings()
   print *, "42!"
 
 end subroutine strings
+
+
+subroutine very_long_statement(scalar, res)
+  integer, intent(in) :: scalar
+  integer, intent(out) :: res
+
+  res = 5 * scalar + scalar - scalar + scalar - scalar + (scalar - scalar &
+        + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
+        - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
+
+end subroutine very_long_statement
