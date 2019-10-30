@@ -158,7 +158,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         # Note: The ``type=None`` prevents this clone from overwriting the type
         # we just derived above, as it would otherwise use whaterever type we
         # had derived previously (ie. the pointer type from the struct definition.)
-        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, type=None)
+        vmap = {v: v.clone(name='%s_%s' % (v.parent.name, v.name), parent=None, type=None)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
