@@ -1,4 +1,5 @@
-from pymbolic.primitives import Expression, Sum
+from textwrap import wrap
+from pymbolic.primitives import Expression, Sum, is_zero, Product
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
 
@@ -73,33 +74,27 @@ class FCodeMapper(LokiStringifyMapper):
         Since substraction and unary minus are mapped to multiplication with (-1), we are here
         looking for such cases and determine the matching operator for the output.
         """
-        def get_neg_product(expr):
-            from pymbolic.primitives import is_zero, Product
-
+        def get_op_prec_expr(expr):
             if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
-                    return expr.children[1]
+                    return '-', PREC_PRODUCT, expr.children[1]
                 else:
-                    return Product(expr.children[1:])
+                    return '-', PREC_PRODUCT, Product(expr.children[1:])
             else:
-                return None
+                return '+', PREC_SUM, expr
 
         terms = []
-        is_neg_term = []
         for ch in expr.children:
-            neg_prod = get_neg_product(ch)
-            is_neg_term.append(neg_prod is not None)
-            if neg_prod is not None:
-                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
-            else:
-                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
+            op, prec, expr = get_op_prec_expr(ch)
+            terms += [op, self.rec(expr, prec, *args, **kwargs)] 
 
-        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
-        result += [' %s %s' % ('-' if is_neg else '+', term)
-                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
+        # Remove leading '+'
+        if terms[0] == '-':
+            terms[1] = '%s%s' % (terms[0], terms[1])
+        terms = terms[1:]
 
-        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
+        return self.parenthesize_if_needed(self.join(' ', terms), enclosing_prec, PREC_SUM)
 
     def map_literal_list(self, expr, *args, **kwargs):
         return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
@@ -131,6 +126,14 @@ class FortranCodegen(Visitor):
     @property
     def indent(self):
         return '  ' * self._depth
+
+    @property
+    def fsymgen(self):
+        return self._fsymgen
+
+    def chunk(self, arg):
+        return ('&\n%s &' % self.indent).join(wrap(arg, width=60, drop_whitespace=False,
+                                                   break_long_words=False))
 
     def segment(self, arguments, chunking=None):
         chunking = chunking or self.chunking
@@ -250,7 +253,7 @@ class FortranCodegen(Visitor):
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
-        condition = self._fsymgen(o.condition)
+        condition = self.fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
@@ -265,22 +268,22 @@ class FortranCodegen(Visitor):
             self._depth = 0  # Surpress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
-            cond = self._fsymgen(o.conditions[0])
+            cond = self.fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
         else:
             self._depth += 1
             bodies = [self.visit(b) for b in o.bodies]
             else_body = self.visit(o.else_body)
             self._depth -= 1
-            headers = ['IF (%s) THEN' % self._fsymgen(c) for c in o.conditions]
+            headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
             main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
             return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
-        expr = self._fsymgen(o.expr)
-        values = ['DEFAULT' if v is None else (self._fsymgen(v) if isinstance(v, tuple)
-                  else '(%s)' % self._fsymgen(v)) for v in o.values]
+        expr = self.fsymgen(o.expr)
+        values = ['DEFAULT' if v is None else (self.fsymgen(v) if isinstance(v, tuple)
+                  else '(%s)' % self.fsymgen(v)) for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
@@ -293,16 +296,16 @@ class FortranCodegen(Visitor):
 #        target = indexify(o.target)
 #        expr = indexify(o.expr)
 #        stmt = fsymgen(expr, assign_to=target)
-        stmt = '%s = %s' % (self._fsymgen(o.target), self._fsymgen(o.expr))
+        stmt = '%s = %s' % (self.fsymgen(o.target), self.fsymgen(o.expr))
         if o.ptr:
             # Manually force pointer assignment notation
             # ... Hack me baby, one more time ...
             stmt = stmt.replace(' = ', ' => ')
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        return self.indent + stmt + comment
+        return self.indent + self.chunk(stmt) + comment
 
     def visit_MaskedStatement(self, o):
-        condition = self._fsymgen(o.condition)
+        condition = self.fsymgen(o.condition)
         self._depth += 1
         body = self.visit(o.body)
         default = self.visit(o.default)
@@ -332,7 +335,7 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth chaeck should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([self._fsymgen(a) if isinstance(a, Expression)
+            signature = self.segment([self.fsymgen(a) if isinstance(a, Expression)
                                       else a for a in args], chunking=3)
             self._depth -= 2
         else:
@@ -365,9 +368,9 @@ class FortranCodegen(Visitor):
             # a rigorous way to do this, but various corner
             # cases around opinter assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self._fsymgen(value))
+            return '%s = %s' % (o, self.fsymgen(value))
         else:
-            return self._fsymgen(o)
+            return self.fsymgen(o)
 
     visit_Array = visit_Scalar
 
