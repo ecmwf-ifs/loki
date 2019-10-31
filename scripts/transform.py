@@ -269,8 +269,6 @@ class SCATransformation(AbstractTransformation):
         fsymgen = FCodeMapper()
         vmap = {}
         for v in variables:
-            if v.name == 'z_tmp1':
-                import pdb; pdb.set_trace()
             old_shape = shape_map[v.name]
             new_shape = as_tuple(s for s in old_shape if fsymgen(s).upper() not in size_expressions)
             new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
@@ -286,13 +284,10 @@ class SCATransformation(AbstractTransformation):
         # Apply substitution map to replacements to capture nesting
         mapper = SubstituteExpressionsMapper(vmap)
         vmap2 = {k: mapper(v) for k, v in vmap.items()}
-#            vmap2 = {k: v.xreplace(vmap) for k, v in vmap.items()}
 
         routine.body = SubstituteExpressions(vmap2).visit(routine.body)
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
-
-        import pdb; pdb.set_trace()
 
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
@@ -536,7 +531,7 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
-                        if v.is_Array and len(v.dimensions) == 1]
+                        if isinstance(v, Array) and len(v.dimensions) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
     for call in FindNodes(Call).visit(routine.body):
