@@ -415,8 +415,9 @@ class FortranCTransformation(BasicTransformation):
                     callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
                                             kw_parameters=c.kw_parameters)
 
-        # TODO: Capture nesting by applying map to itself before applying to the kernel
-        callmap = {k: SubstituteExpressionsMapper(callmap)(v) for k, v in callmap.items()}
-        callmap = {k: SubstituteExpressionsMapper(callmap)(v) for k, v in callmap.items()}
-#        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
+        # Capture nesting by applying map to itself before applying to the kernel
+        for _ in range(2):
+            mapper = SubstituteExpressionsMapper(callmap)
+            callmap = {k: mapper(v) for k, v in callmap.items()}
+
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
