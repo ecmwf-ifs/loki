@@ -1,11 +1,3 @@
-#import sympy
-#import weakref
-#from sympy.core.cache import cacheit, SYMPY_CACHE_SIZE
-#from sympy.logic.boolalg import Boolean
-#from sympy.codegen.ast import String, Pointer, none
-#from sympy.codegen.fnodes import ArrayConstructor
-#from sympy.printing.codeprinter import CodePrinter
-#from fastcache import clru_cache
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.stringifier import StringifyMapper
 from six.moves import intern

@@ -515,6 +515,10 @@ class FParser2IR(GenericVisitor):
             return Comparison(exprs[0], '<=', exprs[1])
         elif op.lower() == '.not.':
             return LogicalNot(exprs[0])
+        elif op.lower() == '.eqv.':
+            return LogicalOr((LogicalAnd(exprs), LogicalNot(LogicalOr(exprs))))
+        elif op.lower() == '.neqv.':
+            return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
         else:
             raise RuntimeError('FParser: Error parsing generic expression')
 
@@ -542,6 +546,7 @@ class FParser2IR(GenericVisitor):
         return self.visit_operation(op=o.items[0], exprs=exprs)
 
     visit_Level_4_Expr = visit_Level_2_Expr
+    visit_Level_5_Expr = visit_Level_2_Expr
 
     def visit_Parenthesis(self, o, **kwargs):
         expression = self.visit(o.items[1])

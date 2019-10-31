@@ -43,17 +43,20 @@ class FCodeMapper(LokiStringifyMapper):
 
     map_int_literal = map_float_literal
 
-    def map_logical_not(self, expr, enclosing_prec):
-        return self.parenthesize_if_needed(".not." + self.rec(expr.child, PREC_UNARY),
-                                           enclosing_prec, PREC_UNARY)
+    def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            ".not." + self.rec(expr.child, PREC_UNARY, *args, **kwargs),
+            enclosing_prec, PREC_UNARY)
 
-    def map_logical_and(self, expr, enclosing_prec):
-        return self.parenthesize_if_needed(self.join_rec(" .and. ", expr.children, PREC_LOGICAL_AND),
-                                           enclosing_prec, PREC_LOGICAL_AND)
+    def map_logical_and(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            self.join_rec(" .and. ", expr.children, PREC_LOGICAL_AND, *args, **kwargs),
+            enclosing_prec, PREC_LOGICAL_AND)
 
-    def map_logical_or(self, expr, enclosing_prec):
-        return self.parenthesize_if_needed(self.join_rec(" .or. ", expr.children, PREC_LOGICAL_OR),
-                                           enclosing_prec, PREC_LOGICAL_OR)
+    def map_logical_or(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            self.join_rec(" .or. ", expr.children, PREC_LOGICAL_OR, *args, **kwargs),
+            enclosing_prec, PREC_LOGICAL_OR)
 
     def map_comparison(self, expr, enclosing_prec, *args, **kwargs):
         """

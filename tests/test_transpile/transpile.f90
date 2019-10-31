@@ -171,3 +171,15 @@ subroutine transpile_loop_indices(n, idx, mask1, mask2, mask3)
   mask3(n) = 3.0
 
 end subroutine transpile_loop_indices
+
+
+subroutine transpile_logical_statements(v1, v2, v_xor, v_xnor, v_nand, v_neqv)
+  logical, intent(in) :: v1, v2
+  logical, intent(out) :: v_xor, v_nand, v_xnor, v_neqv
+  
+  v_xor = (v1 .and. .not. v2) .or. (.not. v1 .and. v2)
+  v_xnor = v1 .eqv. v2
+  v_nand = .not. (v1 .and. v2)
+  v_neqv = v1 .neqv. v2
+
+end subroutine transpile_logical_statements

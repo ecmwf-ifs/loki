@@ -565,12 +565,12 @@ class OFP2IR(GenericVisitor):
                 expression = LogicalOr((expression, exprs.popleft()))
             elif op == '.not.':
                 expression = LogicalNot(expression)
-#            elif op == '.eqv.':
-#                e2 = booleanize(exprs.popleft())
-#                expression = Equivalent(booleanize(expression), e2, evaluate=False)
-#            elif op == '.neqv.':
-#                e2 = booleanize(exprs.popleft())
-#                expression = Not(Equivalent(booleanize(expression), e2, evaluate=False), evaluate=False)
+            elif op == '.eqv.':
+                e = (expression, exprs.popleft())
+                expression = LogicalOr((LogicalAnd(e), LogicalNot(LogicalOr(e))))
+            elif op == '.neqv.':
+                e = (expression, exprs.popleft())
+                expression = LogicalAnd((LogicalNot(LogicalAnd(e)), LogicalOr(e)))
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 

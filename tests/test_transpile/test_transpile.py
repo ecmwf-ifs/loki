@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import SourceFile, Module, OMNI, FortranCTransformation
+from loki import SourceFile, Module, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib, clean, compile_and_load
 from conftest import generate_identity
 
@@ -317,3 +317,32 @@ def test_transpile_loop_indices(refpath, reference, builder):
     assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
     assert np.all(mask3[:-1] == 0.)
     assert mask3[-1] == 3.
+
+
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_logical_statements(refpath, reference, builder, frontend):
+    """
+    A simple test routine to test logical statements
+    """
+
+    # Test the reference solution
+    for v1 in range(2):
+        for v2 in range(2):
+            v_xor, v_xnor, v_nand, v_neqv = reference.transpile_logical_statements(v1, v2)
+            assert v_xor == (v1 and not v2) or (not v1 and v2)
+            assert v_xnor == (v1 and v2) or not (v1 or v2)
+            assert v_nand == (not (v1 and v2))
+            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+
+    # Generate the C kernel
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_logical_statements'], refpath, builder)
+    function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
+
+    for v1 in range(2):
+        for v2 in range(2):
+            v_xor, v_xnor, v_nand, v_neqv = function(v1, v2)
+            assert v_xor == (v1 and not v2) or (not v1 and v2)
+            assert v_xnor == (v1 and v2) or not (v1 or v2)
+            assert v_nand == (not (v1 and v2))
+            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))

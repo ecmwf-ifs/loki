@@ -545,6 +545,16 @@ class OMNI2IR(GenericVisitor):
         assert len(exprs) == 2
         return Comparison(exprs[0], '!=', exprs[1])
 
+    def visit_logEQVExpr(self, o, source=None):
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return LogicalOr((LogicalAnd(exprs), LogicalNot(LogicalOr(exprs))))
+
+    def visit_logNEQVExpr(self, o, source=None):
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
+
 
 @timeit(log_level=DEBUG)
 def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,

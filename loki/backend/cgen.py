@@ -1,4 +1,5 @@
-from pymbolic.mapper.stringifier import PREC_SUM, PREC_PRODUCT
+from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
+                                         PREC_LOGICAL_AND)
 
 from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
@@ -39,7 +40,7 @@ class CCodeMapper(LokiStringifyMapper):
         # TODO: Properly resolve pointers to the parent to replace '->' by '.'
         parent = self.rec(expr.parent, *args, **kwargs) + '->' if expr.parent else ''
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
-        ptr = '*' if expr.type.pointer else ''
+        ptr = '*' if expr.type and expr.type.pointer else ''
         return '%s%s%s' % (ptr, parent, expr.name)
 
     def map_array(self, expr, *args, **kwargs):
@@ -47,6 +48,21 @@ class CCodeMapper(LokiStringifyMapper):
         dims = ['[%s]' % self.rec(d, *args, **kwargs) for d in expr.dimensions]
         dims = ''.join(dims)
         return '%s%s%s' % (parent, expr.name, dims)
+
+    def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            "!" + self.rec(expr.child, PREC_UNARY, *args, **kwargs),
+            enclosing_prec, PREC_UNARY)
+
+    def map_logical_or(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            self.join_rec(" || ", expr.children, PREC_LOGICAL_OR, *args, **kwargs),
+            enclosing_prec, PREC_LOGICAL_OR)
+
+    def map_logical_and(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            self.join_rec(" && ", expr.children, PREC_LOGICAL_AND, *args, **kwargs),
+            enclosing_prec, PREC_LOGICAL_AND)
 
     def map_range_index(self, expr, *args, **kwargs):
         return self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
@@ -154,7 +170,7 @@ class CCodegen(Visitor):
             if isinstance(a, Array):
                 dtype = self.visit(a.type)
                 # str(d).lower() is a bad hack to ensure caps-alignment
-                outer_dims = ''.join('[%s]' % str(d.upper).lower() for d in a.dimensions[1:])
+                outer_dims = ''.join('[%s]' % self._csymgen(d).lower() for d in a.dimensions[1:])
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 
