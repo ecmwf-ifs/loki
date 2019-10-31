@@ -1,5 +1,5 @@
 from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
-                                         PREC_LOGICAL_AND)
+                                         PREC_LOGICAL_AND, PREC_NONE)
 
 from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
@@ -15,8 +15,11 @@ class CCodeMapper(LokiStringifyMapper):
     def __init__(self, constant_mapper=repr):
         super(CCodeMapper, self).__init__(constant_mapper)
 
+    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
+        return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
+
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = ('(%s) %s' % (DataType.from_type_kind('real', expr._kind), self(expr.value))
+        result = ('(%s) %s' % (DataType.from_type_kind('real', expr._kind).ctype, self(expr.value))
                   if expr._kind else self(expr.value))
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
@@ -25,7 +28,7 @@ class CCodeMapper(LokiStringifyMapper):
             return result
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = ('(%s) %s' % (DataType.from_type_kind('integer', expr._kind), self(expr.value))
+        result = ('(%s) %s' % (DataType.from_type_kind('integer', expr._kind).ctype, self(expr.value))
                   if expr._kind else self(expr.value))
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
@@ -99,6 +102,12 @@ class CCodeMapper(LokiStringifyMapper):
                    for is_neg, term in zip(is_neg_term[1:], terms[1:])]
 
         return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
+
+    def map_power(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize_if_needed(
+            self.format('pow(%s, %s)', self.rec(expr.base, PREC_NONE, *args, **kwargs),
+                        self.rec(expr.exponent, PREC_NONE, *args, **kwargs)),
+            enclosing_prec, PREC_NONE)
 
 
 class CCodegen(Visitor):

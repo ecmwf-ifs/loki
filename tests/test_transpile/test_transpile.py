@@ -103,7 +103,7 @@ def test_transpile_arguments(refpath, reference, builder):
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
-    assert a == 2 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
+    assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
@@ -119,7 +119,7 @@ def test_transpile_arguments(refpath, reference, builder):
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
-    assert a == 2 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
+    assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
 
 def test_transpile_derived_type(refpath, reference, builder):
@@ -328,11 +328,13 @@ def test_transpile_logical_statements(refpath, reference, builder, frontend):
     # Test the reference solution
     for v1 in range(2):
         for v2 in range(2):
-            v_xor, v_xnor, v_nand, v_neqv = reference.transpile_logical_statements(v1, v2)
+            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
+            v_xor, v_xnor, v_nand, v_neqv = reference.transpile_logical_statements(v1, v2, v_val)
             assert v_xor == (v1 and not v2) or (not v1 and v2)
             assert v_xnor == (v1 and v2) or not (v1 or v2)
             assert v_nand == (not (v1 and v2))
             assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+            assert v_val[0] and not v_val[1]
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
@@ -341,8 +343,10 @@ def test_transpile_logical_statements(refpath, reference, builder, frontend):
 
     for v1 in range(2):
         for v2 in range(2):
-            v_xor, v_xnor, v_nand, v_neqv = function(v1, v2)
+            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
+            v_xor, v_xnor, v_nand, v_neqv = function(v1, v2, v_val)
             assert v_xor == (v1 and not v2) or (not v1 and v2)
             assert v_xnor == (v1 and v2) or not (v1 or v2)
             assert v_nand == (not (v1 and v2))
             assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+            assert v_val[0] and not v_val[1]
