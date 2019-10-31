@@ -7,7 +7,7 @@ from loki.expression.search import (retrieve_symbols, retrieve_functions, retrie
                                     retrieve_inline_calls)
 
 __all__ = ['FindSymbols', 'FindFunctions', 'FindVariables', 'FindInlineCalls',
-           'SubstituteExpressions', 'ExpressionFinder']
+           'SubstituteExpressions', 'ExpressionFinder', 'SubstituteExpressionsMapper']
 
 
 class ExpressionFinder(Visitor):

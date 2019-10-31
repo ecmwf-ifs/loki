@@ -11,8 +11,8 @@ from loki import (SourceFile, Transformer,
                   Array, Call, Pragma, BaseType,
                   DerivedType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
-                  FortranCTransformation,
-                  Frontend, OMNI, OFP, fgen)
+                  FortranCTransformation, FCodeMapper,
+                  Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper)
 
 from raps_deps import RapsDependencyFile, Dependency, Rule
 from scheduler import TaskScheduler
@@ -256,22 +256,25 @@ class SCATransformation(AbstractTransformation):
         # The reason for this is that shapes of all variable instances are linked
         # via caching, meaning we can easily void the shape of an unprocessed variable.
         variables = list(routine.variables)
-        variables += list(FindVariables().visit(routine.body))
+        variables += list(FindVariables(unique=False).visit(routine.body))
 
         # We also include the member routines in the replacement process, as they share
         # declarations and thus a variable cache.
         for m in as_tuple(routine.members):
-            variables += list(FindVariables().visit(m.body))
+            variables += list(FindVariables(unique=False).visit(m.body))
         variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
         shape_map = {v.name: v.shape for v in variables}
 
         # Now generate a mapping of old to new variable symbols
+        fsymgen = FCodeMapper()
         vmap = {}
         for v in variables:
+            if v.name == 'z_tmp1':
+                import pdb; pdb.set_trace()
             old_shape = shape_map[v.name]
-            new_shape = as_tuple(s for s in old_shape if str(s).upper() not in size_expressions)
+            new_shape = as_tuple(s for s in old_shape if fsymgen(s).upper() not in size_expressions)
             new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
-                                if str(s).upper() not in size_expressions)
+                                if fsymgen(s).upper() not in size_expressions)
             new_dims = None if len(new_dims) == 0 else new_dims
             if len(old_shape) != len(new_shape):
                 vmap[v] = v.clone(dimensions=new_dims, shape=new_shape)
@@ -281,12 +284,16 @@ class SCATransformation(AbstractTransformation):
         routine.variables = [vmap.get(v, v) for v in routine.variables]
 
         # Apply substitution map to replacements to capture nesting
-        with evaluate(False):
-            vmap2 = {k: v.xreplace(vmap) for k, v in vmap.items()}
+        mapper = SubstituteExpressionsMapper(vmap)
+        vmap2 = {k: mapper(v) for k, v in vmap.items()}
+#            vmap2 = {k: v.xreplace(vmap) for k, v in vmap.items()}
 
         routine.body = SubstituteExpressions(vmap2).visit(routine.body)
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
+
+        import pdb; pdb.set_trace()
+
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """
@@ -322,7 +329,7 @@ class SCATransformation(AbstractTransformation):
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        new_dims = tuple(caller.Variable(name=target.variable)
+                        new_dims = tuple(Variable(name=target.variable)
                                          if str(tdim).upper() in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -351,7 +358,7 @@ class SCATransformation(AbstractTransformation):
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=caller.Variable(name=target.variable),
+                    loop = Loop(variable=Variable(name=target.variable),
                                 bounds=(dim_lower, dim_upper, None),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -364,7 +371,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = BaseType(name='INTEGER', kind='JPIM')
-            caller.variables += [caller.Variable(name=target.variable, type=dtype)]
+            caller.variables += [Variable(name=target.variable, type=dtype)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
@@ -655,7 +662,7 @@ class InferArgShapeTransformation(AbstractTransformation):
                 # And finally propagate this to the variable instances
                 vname_map = {k.name.lower(): v for k, v in vmap.items()}
                 vmap_body = {}
-                for v in FindVariables().visit(routine.body):
+                for v in FindVariables(unique=False).visit(routine.body):
                     if v.name.lower() in vname_map:
                         new_shape = vname_map[v.name.lower()].shape
                         vmap_body[v] = v.clone(shape=new_shape)
