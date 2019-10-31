@@ -9,7 +9,8 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
-                             Literal, Array, SubstituteExpressions, FindInlineCalls)
+                             Literal, Array, SubstituteExpressions, FindInlineCalls,
+                             SubstituteExpressionsMapper)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -415,8 +416,7 @@ class FortranCTransformation(BasicTransformation):
                                             kw_parameters=c.kw_parameters)
 
         # TODO: Capture nesting by applying map to itself before applying to the kernel
-#        callmap = {k: SubstituteExpressions(callmap).visit(v) for k, v in callmap.items()}
+        callmap = {k: SubstituteExpressionsMapper(callmap)(v) for k, v in callmap.items()}
+        callmap = {k: SubstituteExpressionsMapper(callmap)(v) for k, v in callmap.items()}
 #        callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
