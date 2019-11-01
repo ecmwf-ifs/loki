@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child, walk_ast
 from fparser.two import Fortran2003
@@ -12,7 +13,7 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, Call
+    TypeDef, Import, Intrinsic, Call, Scope
 )
 from loki.types import DataType, BaseType, DerivedType
 from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast
@@ -560,6 +561,21 @@ class FParser2IR(GenericVisitor):
         if isinstance(expression, Power):
             expression = ParenthesisedPow(expression.base, expression.exponent)
         return expression
+
+    def visit_Associate_Construct(self, o, **kwargs):
+        children = tuple(self.visit(c, **kwargs) for c in o.content)
+        children = tuple(c for c in children if c is not None)
+        # Search for the ASSOCIATE statement and add all following items as its body
+        assoc_index = [isinstance(ch, Scope) for ch in children].index(True)
+        children[assoc_index].body = children[assoc_index + 1:]
+        return children[:assoc_index + 1]
+
+    def visit_Associate_Stmt(self, o, **kwargs):
+        associations = OrderedDict()
+        for assoc in o.items[1].items:
+            var = self.visit(assoc.items[2])
+            associations[var] = self.visit(assoc.items[0])
+        return Scope(associations=associations)
 
 
 @timeit(log_level=DEBUG)

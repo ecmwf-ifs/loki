@@ -169,7 +169,6 @@ def test_derived_type_caller(refpath, reference, frontend):
     item%matrix = item%matrix + item%scalar
     item%red_herring = 42.
     """
-    from loki import FindNodes, Call, SourceFile, fgen, compile_and_load, SubstituteExpressions
     # Test the reference solution
     item = reference.explicit()
     item.scalar = 2.
@@ -178,23 +177,6 @@ def test_derived_type_caller(refpath, reference, frontend):
     item.red_herring = -1.
     reference.derived_type_caller(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
-
-#    # Generate identity
-#    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, 'derived_type_caller', frontend))
-#    source = SourceFile.from_file(refpath, frontend=frontend)
-#
-#    module = [m for m in source.modules if m.name == 'derived_types'][0]
-#    module.name += '_%s_%s' % ('derived_type_caller', frontend)
-#    for routine in source.subroutines:
-#        routine.name += '_%s' % frontend
-#
-#    routine = source['derived_type_caller_%s' % frontend]
-#    call = FindNodes(Call).visit(routine.body)[0]
-#    call.name += '_%s' % frontend
-#
-#    source.write(source=fgen(module), filename=testname)
-#    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
-#    test = getattr(pymod, testname.stem)
 
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='derived_type_caller', frontend=frontend)
@@ -207,3 +189,30 @@ def test_derived_type_caller(refpath, reference, frontend):
     item.red_herring = -1.
     getattr(test, 'derived_type_caller_%s' % frontend)(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_associates(refpath, reference, frontend):
+    """
+    associate(vector=>item%vector)
+    item%vector(2) = vector(1)
+    vector(3) = item%vector(1) + vector(2)
+    """
+    # Test the reference solution
+    item = reference.explicit()
+    item.scalar = 0.
+    item.vector[0] = 5.
+    item.vector[1:2] = 0.
+    reference.associates(item)
+    assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='associates', frontend=frontend)
+
+    # Test the generated identity
+    item = reference.explicit()
+    item.scalar = 0.
+    item.vector[0] = 5.
+    item.vector[1:2] = 0.
+    getattr(test, 'associates_%s' % frontend)(item)
+    assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()

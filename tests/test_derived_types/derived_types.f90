@@ -136,4 +136,20 @@ contains
 
   end subroutine derived_type_caller
 
+  subroutine associates(item)
+    ! Use associate to access and modify other items
+    type(explicit), intent(inout) :: item
+
+    item%scalar = 17.0
+
+    associate(vector=>item%vector)
+
+    item%vector(2) = vector(1)
+    vector(3) = item%vector(1) + vector(2)
+    vector(1) = 1.
+
+    end associate
+
+  end subroutine associates
+
 end module derived_types
