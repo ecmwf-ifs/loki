@@ -171,8 +171,6 @@ class FortranCTransformation(BasicTransformation):
                 # Pass by reference for array types
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             shape = arg.shape if isinstance(arg, Array) else None
-#            var = intf_routine.Variable(name=arg.name, dimensions=dimensions,
-#                                        shape=shape, type=ctype)
             var = Variable(name=arg.name, dimensions=dimensions, shape=shape, type=ctype)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
@@ -281,7 +279,6 @@ class FortranCTransformation(BasicTransformation):
             for v in FindVariables(unique=False).visit(kernel.body):
                 if v.name in invert_assoc:
                     vmap[v] = invert_assoc[v.name]
-#                    vmap[v] = v.clone(parent=invert_assoc[v.name].parent)
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
