@@ -98,6 +98,21 @@ end subroutine transpile_derived_type
 ! end subroutine transpile_derived_type_array
 
 
+subroutine transpile_associates(a_struct)
+  use transpile_type, only: my_struct
+  implicit none
+  type(my_struct), intent(inout) :: a_struct
+
+  associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+   & a_struct_c=>a_struct%c)
+  a_struct%a = a_struct_a + 4.
+  a_struct_b = a_struct%b + 5.
+  a_struct_c = a_struct_a + a_struct%b + a_struct_c
+  end associate
+
+end subroutine transpile_associates 
+
+
 subroutine transpile_module_variables(a, b, c)
   use iso_fortran_env, only: real32, real64
   use transpile_type, only: param1, param2, param3

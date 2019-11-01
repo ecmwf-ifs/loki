@@ -163,6 +163,50 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.c == 12.
 
 
+def test_transpile_associates(refpath, reference, builder):
+    """
+    Tests associate statements 
+
+    associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+    & a_struct_c=>a_struct%c)
+    a_struct%a = a_struct_a + 4.
+    a_struct_b = a_struct%b + 5.
+    a_struct_c = a_struct_a + a_struct%b + a_struct_c
+    end associate
+    """
+
+    # Test the reference solution
+    a_struct = reference.transpile_type.my_struct()
+    a_struct.a = 4
+    a_struct.b = 5.
+    a_struct.c = 6.
+    reference.transpile_associates(a_struct)
+    assert a_struct.a == 8
+    assert a_struct.b == 10.
+    assert a_struct.c == 24.
+
+    # Translate the header module to expose parameters
+    typepath = refpath.parent/'transpile_type.f90'
+    typemod = SourceFile.from_file(typepath)['transpile_type']
+    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+                                  typedefs=typemod.typedefs)
+    c_kernel = c_transpile(source['transpile_associates'], refpath, builder,
+                           objects=[Obj(source_path='transpile_type.f90')],
+                           wrap=['transpile_type.f90'], header_modules=[typemod])
+
+    a_struct = reference.transpile_type.my_struct()
+    a_struct.a = 4
+    a_struct.b = 5.
+    a_struct.c = 6.
+    function = c_kernel.transpile_associates_fc_mod.transpile_associates_fc
+    function(a_struct)
+    assert a_struct.a == 8
+    assert a_struct.b == 10.
+    assert a_struct.c == 24.
+
+
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
 def test_transpile_derived_type_array(refpath, reference, builder):
     """

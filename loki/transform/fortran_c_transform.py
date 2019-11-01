@@ -277,10 +277,11 @@ class FortranCTransformation(BasicTransformation):
         assoc_map = {}
         vmap = {}
         for assoc in FindNodes(Scope).visit(kernel.body):
-            invert_assoc = {v: k for k, v in assoc.associations.items()}
+            invert_assoc = {v.name: k for k, v in assoc.associations.items()}
             for v in FindVariables(unique=False).visit(kernel.body):
-                if v in invert_assoc:
-                    vmap[v] = v.clone(parent=invert_assoc[v].parent)
+                if v.name in invert_assoc:
+                    vmap[v] = invert_assoc[v.name]
+#                    vmap[v] = v.clone(parent=invert_assoc[v.name].parent)
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
