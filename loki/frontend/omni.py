@@ -71,7 +71,7 @@ def parse_omni_file(filename, xmods=None):
 class OMNI2IR(GenericVisitor):
 
     def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                 raw_source=None, cache=None):
+                 raw_source=None):
         super(OMNI2IR, self).__init__()
 
         self.typedefs = typedefs
@@ -79,18 +79,6 @@ class OMNI2IR(GenericVisitor):
         self.symbol_map = symbol_map
         self.shape_map = shape_map
         self.raw_source = raw_source
-
-        # Use provided symbol cache for variable generation
-        self._cache = None  # cache
-
-#    def Variable(self, *args, **kwargs):
-#        """
-#        Instantiate cached variable symbols from local symbol cache.
-#        """
-#        if self._cache is None:
-#            return Variable(*args, **kwargs)
-#        else:
-#            return self._cache.Variable(*args, **kwargs)
 
     def lookup_method(self, instance):
         """
@@ -164,20 +152,10 @@ class OMNI2IR(GenericVisitor):
         return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
-        # TODO: THIS IS A MASSIVE HACK!
-        # Since we create derived type definitions from pre-processed OMNI-AST,
-        # we need to prevent accidental variable aliasing between the definitions
-        # in the type and the routine. For this, we basically stash the cache here
-        # and re-instate it once we have all type variables.
-#        previous_cache = self._cache
-#        self._cache = SymbolCache()
-
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
         decls = as_tuple(Declaration(variables=(v, ), type=v.type)
                          for v in derived.variables)
-
-#        self._cache = previous_cache
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
@@ -205,14 +183,6 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
         variables = []
 
-        # TODO: THIS IS A MASSIVE HACK!
-        # Since we create derived type definitions from pre-processed OMNI-AST,
-        # we need to prevent accidental variable aliasing between the definitions
-        # in the type and the routine. For this, we basically stash the cache here
-        # and re-instate it once we have all type variables.
-#        previous_cache = self._cache
-#        self._cache = SymbolCache()
-
         for s in o.find('symbols'):
             vname = s.find('name').text
             t = s.attrib['type']
@@ -226,7 +196,6 @@ class OMNI2IR(GenericVisitor):
             variables += [Variable(name=vname, dimensions=dimensions,
                                    shape=dimensions, type=vtype)]
 
-#        self._cache = previous_cache
         return DerivedType(name=name, variables=as_tuple(variables))
 
     def visit_associateStatement(self, o, source=None):
@@ -561,13 +530,13 @@ class OMNI2IR(GenericVisitor):
 
 @timeit(log_level=DEBUG)
 def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                   raw_source=None, cache=None):
+                   raw_source=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
     ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 shape_map=shape_map, raw_source=raw_source, cache=cache).visit(ast)
+                 shape_map=shape_map, raw_source=raw_source).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

@@ -249,7 +249,7 @@ class FortranCTransformation(BasicTransformation):
                 if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body, cache=routine._cache)
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
 

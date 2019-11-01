@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from fparser.two.parser import ParserFactory
-from fparser.two.utils import get_child, walk_ast
+from fparser.two.utils import get_child
 from fparser.two import Fortran2003
 from fparser.two.Fortran2003 import *
 from fparser.common.readfortran import FortranStringReader
@@ -18,7 +18,7 @@ from loki.ir import (
 from loki.types import DataType, BaseType, DerivedType
 from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
-from loki.logging import info, error, DEBUG
+from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
@@ -45,23 +45,11 @@ def node_sublist(nodelist, starttype, endtype):
 
 class FParser2IR(GenericVisitor):
 
-    def __init__(self, typedefs=None, shape_map=None, type_map=None, cache=None):
+    def __init__(self, typedefs=None, shape_map=None, type_map=None):
         super(FParser2IR, self).__init__()
         self.typedefs = typedefs
         self.shape_map = shape_map
         self.type_map = type_map
-
-        # Use provided symbol cache for variable generation
-        self._cache = None  # cache
-
-#    def Variable(self, *args, **kwargs):
-#        """
-#        Instantiate cached variable symbols from local symbol cache.
-#        """
-#        if self._cache is None:
-#            return Variable(*args, **kwargs)
-#        else:
-#            return self._cache.Variable(*args, **kwargs)
 
     def visit(self, o, **kwargs):
         """
@@ -124,7 +112,7 @@ class FParser2IR(GenericVisitor):
         return Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return Literal(value=str(o.items[0]), kind=o.items[1]) 
+        return Literal(value=str(o.items[0]), kind=o.items[1])
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         return Literal(value=int(o.items[0]), kind=o.items[1])
@@ -176,6 +164,7 @@ class FParser2IR(GenericVisitor):
         return Comment(text=o.tostr())
 
     def visit_Entity_Decl(self, o, **kwargs):
+        # TODO: This comment is obsolete...
         # Don't recurse here, as the node is a ``Name`` and will
         # generate a pre-cached ``Variable`` object otherwise!
         vname = o.items[0].tostr()
@@ -597,13 +586,13 @@ def parse_fparser_file(filename):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, typedefs=None, shape_map=None, type_map=None, cache=None):
+def parse_fparser_ast(ast, typedefs=None, shape_map=None, type_map=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    ir = FParser2IR(typedefs=typedefs, shape_map=shape_map, type_map=type_map, cache=cache).visit(ast)
+    ir = FParser2IR(typedefs=typedefs, shape_map=shape_map, type_map=type_map).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

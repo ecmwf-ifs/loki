@@ -39,25 +39,13 @@ def parse_ofp_file(filename):
 class OFP2IR(GenericVisitor):
 
     def __init__(self, raw_source, shape_map=None, type_map=None,
-                 typedefs=None, cache=None):
+                 typedefs=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
         self.shape_map = shape_map
         self.type_map = type_map
         self.typedefs = typedefs
-
-        # Store provided symbol cache for variable generation
-        self._cache = None  # cache
-
-#    def Variable(self, *args, **kwargs):
-#        """
-#        Instantiate cached variable symbols from local symbol cache.
-#        """
-#        if self._cache is None:
-#            return Variable(*args, **kwargs)
-#        else:
-#            return self._cache.Variable(*args, **kwargs)
 
     def lookup_method(self, instance):
         """
@@ -524,15 +512,6 @@ class OFP2IR(GenericVisitor):
         exprs = [self.visit(c) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
-#        def booleanize(expr):
-#            """
-#            Super-hacky helper function to force boolean array when needed
-#            """
-#            if isinstance(expr, Array) and not expr.is_Boolean:
-#                return expr.clone(type=BaseType(name='logical'), cache=self._cache)
-#            else:
-#                return expr
-
         # Left-recurse on the list of operations and expressions
         exprs = deque(exprs)
         expression = exprs.popleft()
@@ -598,13 +577,13 @@ class OFP2IR(GenericVisitor):
 
 @timeit(log_level=DEBUG)
 def parse_ofp_ast(ast, pp_info=None, raw_source=None, shape_map=None,
-                  type_map=None, typedefs=None, cache=None):
+                  type_map=None, typedefs=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
     ir = OFP2IR(shape_map=shape_map, type_map=type_map, typedefs=typedefs,
-                raw_source=raw_source, cache=cache).visit(ast)
+                raw_source=raw_source).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist.items():

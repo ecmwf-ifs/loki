@@ -105,6 +105,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
+                        # TODO: There's no cache anymore, maybe this can be changed?
                         # TODO: This is hacky, but necessary, as the variables
                         # from caller and callee don't cache, so we
                         # need to compare their string representation.
@@ -259,7 +260,7 @@ class SCATransformation(AbstractTransformation):
         variables += list(FindVariables(unique=False).visit(routine.body))
 
         # We also include the member routines in the replacement process, as they share
-        # declarations and thus a variable cache.
+        # declarations.
         for m in as_tuple(routine.members):
             variables += list(FindVariables(unique=False).visit(m.body))
         variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
@@ -329,7 +330,7 @@ class SCATransformation(AbstractTransformation):
                                          for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
-                        argmap[val] = val.clone(dimensions=new_dims, cache=caller)
+                        argmap[val] = val.clone(dimensions=new_dims)
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]
