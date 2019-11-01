@@ -1,5 +1,5 @@
 from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
-                                         PREC_LOGICAL_AND, PREC_NONE)
+                                         PREC_LOGICAL_AND, PREC_NONE, PREC_CALL)
 
 from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
@@ -38,6 +38,14 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_string_literal(self, expr, *args, **kwargs):
         return '"%s"' % expr.value
+
+    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
+        dtype = DataType.from_type_kind(expr.name, expr.kind).ctype
+        expression = self.parenthesize_if_needed(
+            self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
+            PREC_CALL, PREC_NONE)
+        return self.parenthesize_if_needed(self.format('(%s) %s', dtype, expression),
+                                           enclosing_prec, PREC_CALL)
 
     def map_scalar(self, expr, *args, **kwargs):
         # TODO: Properly resolve pointers to the parent to replace '->' by '.'

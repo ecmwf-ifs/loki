@@ -69,9 +69,6 @@ class FCodeMapper(LokiStringifyMapper):
                         self.rec(expr.right, PREC_COMPARISON, *args, **kwargs)),
             enclosing_prec, PREC_COMPARISON)
 
-    def map_inline_call(self, *args, **kwargs):
-        return self.map_call_with_kwargs(*args, **kwargs)
-
     def map_sum(self, expr, enclosing_prec, *args, **kwargs):
         """
         Since substraction and unary minus are mapped to multiplication with (-1), we are here
@@ -296,9 +293,6 @@ class FortranCodegen(Visitor):
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o):
-#        target = indexify(o.target)
-#        expr = indexify(o.expr)
-#        stmt = fsymgen(expr, assign_to=target)
         stmt = '%s = %s' % (self.fsymgen(o.target), self.fsymgen(o.expr))
         if o.ptr:
             # Manually force pointer assignment notation

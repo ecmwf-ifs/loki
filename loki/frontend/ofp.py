@@ -13,7 +13,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Array)
+from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Array, Cast)
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached
@@ -398,12 +398,14 @@ class OFP2IR(GenericVisitor):
 
     def visit_name(self, o, source=None):
 
-        def generate_variable(vname, indices, parent, source):
+        def generate_variable(vname, indices, kwargs, parent, source):
             if vname.upper() == 'RESHAPE':
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(vname, parameters=indices)
+                return InlineCall(vname, parameters=indices, kw_parameters=kwargs)
+            elif vname.upper() in ['REAL', 'INT']:
+                return Cast(vname, expression=indices[0], kind=kwargs.get('kind', None))
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(o.attrib['id'], parameters=indices)
@@ -430,6 +432,10 @@ class OFP2IR(GenericVisitor):
         _children = deque(self.visit(c) for c in o.getchildren())
         _children = deque(c for c in _children if c is not None)
 
+        # Hack: find kwargs for Casts
+        kwargs = list([self.visit(i) for i in o.findall('subscripts/argument')])
+        kwargs = {k: v for k, v in kwargs}
+
         # Now we nest variables, dimensions and sub-variables by
         # walking through our queue of nested symbols
         variable = None
@@ -441,7 +447,7 @@ class OFP2IR(GenericVisitor):
                 indices = None
 
             item = _children.popleft()
-            variable = generate_variable(vname=item, indices=indices,
+            variable = generate_variable(vname=item, indices=indices, kwargs=kwargs,
                                          parent=variable, source=source)
         return variable
 

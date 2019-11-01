@@ -1,3 +1,4 @@
+from pymbolic.primitives import Expression
 from pymbolic.mapper import IdentityMapper
 
 from loki.visitors import Visitor, Transformer
@@ -152,6 +153,15 @@ class LokiIdentityMapper(IdentityMapper):
     map_scalar = IdentityMapper.map_variable
     map_array = IdentityMapper.map_variable
     map_inline_call = IdentityMapper.map_call_with_kwargs
+
+    def map_cast(self, expr, *args, **kwargs):
+        if isinstance(expr.kind, Expression):
+            kind = self.rec(expr.kind, *args, **kwargs)
+        else:
+            kind = expr.kind
+        return expr.__class__(self.rec(expr.function, *args, **kwargs),
+                              tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
+                              kind=kind)
 
     def map_sum(self, expr, *args, **kwargs):
         return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))

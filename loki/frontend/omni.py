@@ -9,7 +9,7 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Array
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Array, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.types import BaseType, DerivedType, DataType
@@ -390,16 +390,19 @@ class OMNI2IR(GenericVisitor):
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-#            if o.find('name') is not None and o.find('name').text in ['real']:
-#                args = o.find('arguments')
-#                expr = self.visit(args[0])
-#                kind = self.visit(args[1])
-#                if isinstance(kind, tuple):
-#                    kind = kind[1]  # Yuckk!
-#                dtype = BaseType(name=o.find('name').text, kind=kind)
-#                return Cast(dtype.name, expression=expr, kind=dtype.kind)
-#            else:
-            return InlineCall(name, parameters=args, kw_parameters=kwargs)
+            if o.find('name') is not None and o.find('name').text in ['real', 'int']:
+                args = o.find('arguments')
+                expr = self.visit(args[0])
+                if len(args) > 1:
+                    kind = self.visit(args[1])
+                    if isinstance(kind, tuple):
+                        kind = kind[1]  # Yuckk!
+                else:
+                    kind = None
+                dtype = BaseType(name=o.find('name').text, kind=kind)
+                return Cast(dtype.name, expression=expr, kind=dtype.kind)
+            else:
+                return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
         return o.text

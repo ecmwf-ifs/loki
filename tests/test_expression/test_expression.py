@@ -3,7 +3,8 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Variable
+from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Variable,
+                  InlineCall, Cast)
 from conftest import generate_identity
 
 
@@ -93,12 +94,14 @@ def test_literal_expr(refpath, reference, frontend):
     v2 = 1.0
     v3 = 2.3
     v4 = 2.4_jprb
+    v5 = real(7, kind=jprb)
+    v6 = int(3.5)
     """
     from loki import SourceFile, FindNodes, Statement
 
     # Test the reference solution
-    v1, v2, v3, v4 = reference.literal_expr()
-    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    v1, v2, v3, v4, v5, v6 = reference.literal_expr()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     # Fortran will default this to single precision
     # so we need to give a significant range of error
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
@@ -106,8 +109,8 @@ def test_literal_expr(refpath, reference, frontend):
     # Test the generated identity
     test = generate_identity(refpath, 'literal_expr', frontend=frontend)
     function = getattr(test, 'literal_expr_%s' % frontend)
-    v1, v2, v3, v4 = function()
-    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    v1, v2, v3, v4, v5, v6 = function()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
 
     # In addition to value testing, let's make sure
@@ -120,6 +123,9 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[2].expr, FloatLiteral)
     assert isinstance(stmts[3].expr, FloatLiteral)
     assert stmts[3].expr._kind == 'jprb'
+    assert isinstance(stmts[4].expr, Cast)
+    assert stmts[4].expr.kind.name in ['selected_real_kind', 'jprb']
+    assert isinstance(stmts[5].expr, Cast)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

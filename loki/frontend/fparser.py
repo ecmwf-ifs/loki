@@ -15,7 +15,7 @@ from loki.ir import (
     TypeDef, Import, Intrinsic, Call
 )
 from loki.types import DataType, BaseType, DerivedType
-from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList
+from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.logging import info, error, DEBUG
 from loki.tools import timeit, as_tuple, flatten
@@ -276,7 +276,10 @@ class FParser2IR(GenericVisitor):
         args = self.visit(o.items[1])
         kwarguments = {a[0].name: a[1] for a in args if isinstance(a, tuple)}
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
+        if name.upper() in ('REAL', 'INT'):
+            return Cast(name, arguments[0], kind=kwarguments.get('kind', None))
+        else:
+            return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)

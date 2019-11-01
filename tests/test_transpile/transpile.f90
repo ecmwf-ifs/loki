@@ -49,7 +49,7 @@ subroutine transpile_arguments(n, array, array_io, a, b, c, a_io, b_io, c_io)
   c = 4.1_real64
 
   a_io = a_io + 2
-  b_io = b_io + 3.2
+  b_io = b_io + real(3.2, kind=real32)
   c_io = c_io + 4.1
 
 end subroutine transpile_arguments

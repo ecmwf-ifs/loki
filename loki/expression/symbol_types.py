@@ -1,12 +1,13 @@
 import pymbolic.primitives as pmbl
-from pymbolic.mapper.stringifier import StringifyMapper
+from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 from six.moves import intern
 
 from loki.types import DataType
+from loki.tools import as_tuple
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'LokiStringifyMapper']
+           'LiteralList', 'RangeIndex', 'InlineCall', 'LokiStringifyMapper', 'Cast']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -33,20 +34,32 @@ class LokiStringifyMapper(StringifyMapper):
             parent = self.rec(expr.parent, *args, **kwargs) + '%'
         return parent + expr.name
 
-    def map_array(self, expr, *args, **kwargs):
+    def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims = ''
         if expr.dimensions:
-            dims = ','.join(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+            dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions)
             dims = '(' + dims + ')'
         parent = ''
         if expr.parent:
-            parent = self.rec(expr.parent, *args, **kwargs) + '%'
+            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
         initial = ''
         if expr.initial:
-            ' = %s' % self.rec(expr.initial, *args, **kwargs)
+            ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
         return parent + expr.name + dims + initial
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
+
+    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
+        name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
+        expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
+        if expr.kind:
+            if isinstance(expr.kind, pmbl.Expression):
+                kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
+            else:
+                kind = ', kind=' + str(expr.kind)
+        else:
+            kind = ''
+        return self.format('%s(%s%s)', name, expression, kind)
 
     def map_range_index(self, expr, *args, **kwargs):
         lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
@@ -779,13 +792,26 @@ class InlineCall(pmbl.CallWithKwargs):  # (sympy.codegen.ast.FunctionCall, Boole
 #    @property
 #    def children(self):
 #        return self.arguments
-#
-#
-#class Cast:  # (sympy.codegen.ast.FunctionCall):
-#    pass
-#    """
-#    Internal representation of a data type cast.
-#    """
+
+
+class Cast(pmbl.Call):  # (sympy.codegen.ast.FunctionCall):
+    """
+    Internal representation of a data type cast.
+    """
+
+    def __init__(self, name, expression, kind=None):
+        super(Cast, self).__init__(pmbl.make_variable(name), as_tuple(expression))
+        self.kind = kind
+
+    mapper_method = intern('map_cast')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+    @property
+    def name(self):
+        return self.function.name
+
 #    __slots__ = ['name', 'expression', 'kind']
 #
 #    defaults = {'kind': sympy.codegen.ast.none}
