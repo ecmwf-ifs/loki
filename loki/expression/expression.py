@@ -4,17 +4,16 @@ from pymbolic.mapper import IdentityMapper
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.symbol_types import Array
-from loki.expression.search import (retrieve_symbols, retrieve_functions, retrieve_variables,
-                                    retrieve_inline_calls)
+from loki.expression.search import retrieve_expressions, retrieve_variables, retrieve_inline_calls
 
-__all__ = ['FindSymbols', 'FindFunctions', 'FindVariables', 'FindInlineCalls',
+__all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls',
            'SubstituteExpressions', 'ExpressionFinder', 'SubstituteExpressionsMapper']
 
 
 class ExpressionFinder(Visitor):
     """
     Base class visitor to collect specific sub-expressions,
-    eg. functions or symbls, from all nodes in an IR tree.
+    eg. functions or symbols, from all nodes in an IR tree.
 
     :param retrieve: Custom retrieval function that yields all wanted
                      sub-expressions from an expression.
@@ -41,10 +40,10 @@ class ExpressionFinder(Visitor):
         """
         Reduces the number of matched sub-expressions to a set of unique sub-expressions,
         if self.unique is ``True``.
-        Currently, two sub-expressions are considered NOT to be unique if they have equal
+        Currently, two sub-expressions are considered NOT to be unique if they have the same
         - ``name``
-        - ``parent`` (or ``None``)
-        - ``dimension`` (for :class:`Array`)
+        - ``parent.name`` (or ``None``)
+        - ``dimensions`` (for :class:`Array`)
         """
         def dict_key(var):
             return (var.name, var.parent.name if hasattr(var, 'parent') and var.parent else None,
@@ -104,28 +103,19 @@ class ExpressionFinder(Visitor):
         return self.find_uniques(variables)
 
 
-class FindSymbols(ExpressionFinder):
+class FindExpressions(ExpressionFinder):
     """
-    A visitor to collect all :class:`sympy.Symbol` symbols in an IR tree.
+    A visitor to collect all symbols (i.e., :class:`pymbolic.primitives.Expression`) in an IR tree.
 
     See :class:`ExpressionFinder`
     """
-    retrieval_function = staticmethod(retrieve_symbols)
-
-
-class FindFunctions(ExpressionFinder):
-    """
-    A visitor to collect all :class:`sympy.Function` symbols in an IR tree.
-
-    See :class:`ExpressionFinder`
-    """
-    retrieval_function = staticmethod(retrieve_functions)
+    retrieval_function = staticmethod(retrieve_expressions)
 
 
 class FindVariables(ExpressionFinder):
     """
-    A visitor to collect all variables (:class:`loki.Scalar` and
-    :class:`loki.Array`) symbols used in an IR tree.
+    A visitor to collect all variables (:class:`pymbolic.primitives.Variable`, which includes
+    :class:`loki.Scalar` and :class:`loki.Array`) symbols used in an IR tree.
 
     See :class:`ExpressionFinder`
     """
@@ -134,7 +124,7 @@ class FindVariables(ExpressionFinder):
 
 class FindInlineCalls(ExpressionFinder):
     """
-    A visitor to collect all :class:`loki.InlineCall`  symbols used in an IR tree.
+    A visitor to collect all :class:`loki.InlineCall` symbols used in an IR tree.
 
     See :class:`ExpressionFinder`
     """
@@ -142,6 +132,9 @@ class FindInlineCalls(ExpressionFinder):
 
 
 class LokiIdentityMapper(IdentityMapper):
+    """
+    A visitor which creates a copy of the expression tree.
+    """
 
     def __init__(self):
         super(LokiIdentityMapper, self).__init__()
@@ -178,6 +171,9 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     """
     A Pymbolic expression mapper (i.e., a visitor for the expression tree) that
     defines on-the-fly handlers from a given substitution map.
+
+    It returns a copy of the expression tree with expressions substituted according
+    to the given `expr_map`.
     """
 
     def __init__(self, expr_map):

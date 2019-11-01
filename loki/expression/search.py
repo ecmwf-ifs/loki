@@ -1,17 +1,13 @@
 """
-Expression search utilities that use SymPy's ``find` mechanism to
+Expression search utilities that use Pymbolic's mapping mechanism to
 retrieve different types of symbols and functions using query
 definitions.
-
-Note, that SymPy's ``find` method might not be the fastest and can
-be improved upon as demonstrated here:
-https://github.com/opesci/devito/blob/master/devito/symbolics/search.py
 """
 
 from pymbolic.mapper import WalkMapper
 from pymbolic.primitives import Expression
 
-__all__ = ['retrieve_symbols', 'retrieve_functions', 'retrieve_variables', 'ExpressionRetriever']
+__all__ = ['retrieve_expressions', 'retrieve_variables', 'ExpressionRetriever']
 
 
 class ExpressionRetriever(WalkMapper):
@@ -64,16 +60,9 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
 
-def retrieve_symbols(expr):
-    from pymbolic.primitives import Expression 
+def retrieve_expressions(expr):
+    from pymbolic.primitives import Expression
     retriever = ExpressionRetriever(lambda e: isinstance(e, Expression))
-    retriever(expr)
-    return retriever.exprs
-
-
-def retrieve_functions(expr):
-    from pymbolic.primitives import Call
-    retriever = ExpressionRetriever(lambda e: isinstance(e, Call))
     retriever(expr)
     return retriever.exprs
 
