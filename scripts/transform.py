@@ -3,7 +3,6 @@ import toml
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
-#from sympy import evaluate
 
 from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
@@ -289,7 +288,6 @@ class SCATransformation(AbstractTransformation):
         routine.body = SubstituteExpressions(vmap2).visit(routine.body)
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
-
 
     def hoist_dimension_from_call(self, caller, target, wrap=True):
         """

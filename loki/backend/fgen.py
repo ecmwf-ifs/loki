@@ -1,13 +1,12 @@
 from textwrap import wrap
-from pymbolic.primitives import Expression, Sum, is_zero, Product
+from pymbolic.primitives import Expression, is_zero, Product
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
-from loki.types import BaseType, DataType
+from loki.types import BaseType
 from loki.expression import LokiStringifyMapper
-from loki.expression.symbol_types import StringLiteral, Scalar
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -87,7 +86,7 @@ class FCodeMapper(LokiStringifyMapper):
         terms = []
         for ch in expr.children:
             op, prec, expr = get_op_prec_expr(ch)
-            terms += [op, self.rec(expr, prec, *args, **kwargs)] 
+            terms += [op, self.rec(expr, prec, *args, **kwargs)]
 
         # Remove leading '+'
         if terms[0] == '-':
@@ -264,8 +263,7 @@ class FortranCodegen(Visitor):
     def visit_Conditional(self, o):
         if o.inline:
             assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
-            indent_depth = self._depth
-            self._depth = 0  # Surpress indentation
+            self._depth, indent_depth = 0, self._depth  # Suppress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
             cond = self.fsymgen(o.conditions[0])
@@ -323,7 +321,7 @@ class FortranCodegen(Visitor):
 
     def visit_Call(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple(String('%s=%s' % (k, v)) for k, v in o.kwarguments)
+            kwargs = tuple(str('%s=%s' % (k, v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments

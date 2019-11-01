@@ -103,10 +103,6 @@ def inline_comments(ir):
         # Note, we need to re-create the statement node
         # so that Transformers don't throw away the changes.
         if pair[0]._source and pair[1]._source:
-        #     if pair[1]._source.lines[0] > pair[0]._source.lines[1]:
-        #         continue
-        # mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-        # mapper[pair[1]] = None  # Mark for deletion
             if pair[1]._source.lines[0] == pair[0]._source.lines[1]:
                 mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
                 mapper[pair[1]] = None  # Mark for deletion

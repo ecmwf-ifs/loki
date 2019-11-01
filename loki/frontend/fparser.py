@@ -472,7 +472,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_operation(self, op, exprs):
         """
-        Construct expressions from individual operations, suppressing SymPy simplifications.
+        Construct expressions from individual operations.
         """
         exprs = as_tuple(exprs)
         if op == '*':

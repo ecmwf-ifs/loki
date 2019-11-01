@@ -37,9 +37,9 @@ def is_iterable(o):
     """
     Checks if an item is truly iterable using duck typing.
 
-    This was added because pymbolic.primitives.Expression provide an __iter__ method
-    that throws an exception to avoid being iterable. However, with that it is identified
-    as a collections.Iterable.
+    This was added because :class:`pymbolic.primitives.Expression` provide an ``__iter__`` method
+    that throws an exception to avoid being iterable. However, with that method defined it is
+    identified as a :class:`collections.Iterable` and thus this is a much more reliable test.
     """
     try:
         iter(o)

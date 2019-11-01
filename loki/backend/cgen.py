@@ -219,7 +219,6 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
-        #vstr = [csymgen(indexify(v)) for v in o.variables]
         vstr = [self._csymgen(v) for v in o.variables]
         vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
         vinit = ['' if v.initial is None else (' = %s' % self._csymgen(v.initial)) for v in o.variables]
