@@ -1,13 +1,16 @@
 from functools import reduce
-from sympy import evaluate
-from sympy.codegen.ast import real, float32
 
-from loki.backend import CCodegen, csymgen
-from loki.expression import indexify
+from loki.backend import CCodegen, CCodeMapper
+from loki.expression.symbol_types import Array
 from loki.ir import Import, Declaration
 from loki.tools import chunks
-from loki.types import DataType
 from loki.visitors import Visitor, FindNodes, Transformer
+
+
+class MaxjCodeMapper(CCodeMapper):
+
+    def __init__(self, constant_mapper=repr):
+        super(MaxjCodeMapper, self).__init__(constant_mapper)
 
 
 class MaxjCodegen(Visitor):
@@ -20,6 +23,7 @@ class MaxjCodegen(Visitor):
         self.linewidth = linewidth
         self.chunking = chunking
         self._depth = depth
+        self._maxjsymgen = MaxjCodeMapper()
 
     @property
     def indent(self):
@@ -37,7 +41,7 @@ class MaxjCodegen(Visitor):
         and the matching initialization function or output stream.
         """
         base_type = self.visit(v.type)
-        L = len(v.dimensions) if v.is_Array else 0
+        L = len(v.dimensions) if isinstance(v, Array) else 0
 
         # Build nested parameterized type
         types = ['DFEVar'] + ['DFEVector<%s>'] * L
@@ -52,7 +56,7 @@ class MaxjCodegen(Visitor):
         if is_input:
             if v.type.intent is not None and v.type.intent.lower() == 'in':
                 # Determine matching initialization routine...
-                stream = 'io.%s("%s", %s)' % ('input' if v.is_Array else 'scalarInput',
+                stream = 'io.%s("%s", %s)' % ('input' if isinstance(v, Array) else 'scalarInput',
                                               v.name, inits[-1])
             elif v.initial is not None:
                 # ...or assign a given initial value...
@@ -64,8 +68,8 @@ class MaxjCodegen(Visitor):
         else:
             # Matching outflow statement
             if v.type.intent is not None and v.type.intent.lower() in ('inout', 'out'):
-                stream = 'io.{0}utput("{1}", {1}, {2})'.format('o' if v.is_Array else 'scalarO',
-                                                               v.name, inits[-1])
+                stream = 'io.{0}utput("{1}", {1}, {2})'.format(
+                    'o' if isinstance(v, Array) else 'scalarO', v.name, inits[-1])
             else:
                 stream = None
 
@@ -177,41 +181,18 @@ class MaxjCodegen(Visitor):
         return '\n'.join(comments)
 
     def visit_Statement(self, o):
-        # Suppress evaluation of expressions to avoid accuracy errors
-        # due to symbolic expression re-writing.
-        with evaluate(False):
-            target = indexify(o.target)
-            expr = indexify(o.expr)
-
-        type_aliases = {}
-        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
-            type_aliases[real] = float32
-
-        if o.target.is_Array:
-            stmt = '%s <== %s;\n' % (csymgen(target, type_aliases=type_aliases),
-                                     csymgen(expr, type_aliases=type_aliases))
+        if isinstance(o.target, Array):
+            stmt = '%s <== %s;\n' % (self._maxjsymgen(o.target),
+                                     self._maxjsymgen(o.expr))
         else:
-            stmt = csymgen(expr, assign_to=target, type_aliases=type_aliases)
+            stmt = '%s = %s;\n' % (self._maxjsymgen(o.target),
+                                   self._maxjsymgen(o.expr))
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 
     def visit_ConditionalStatement(self, o):
-        # Suppress evaluation of expressions to avoid accuracy errors
-        # due to symbolic expression re-writing.
-        with evaluate(False):
-            target = indexify(o.target)
-            condition = indexify(o.condition)
-            expr = indexify(o.expr)
-            else_expr = indexify(o.else_expr)
-
-        type_aliases = {}
-        if o.target.type and o.target.type.dtype == DataType.FLOAT32:
-            type_aliases[real] = float32
-
-        stmt = '%s = %s ? %s : %s;' % (csymgen(target, type_aliases=type_aliases),
-                                       csymgen(condition, type_aliases=type_aliases),
-                                       csymgen(expr, type_aliases=type_aliases),
-                                       csymgen(else_expr, type_aliases=type_aliases))
+        stmt = '%s = %s ? %s : %s;' % (self._maxjsymgen(o.target), self._maxjsymgen(o.condition),
+                                       self._maxjsymgen(o.expr), self._maxjsymgen(o.else_expr))
         return self.indent + stmt
 
     def visit_Intrinsic(self, o):
@@ -262,9 +243,10 @@ class MaxjManagerCodegen(object):
         body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
 
         # Insert in/out streams
-        in_vars = [v for v in o.arguments if v.is_Array and v.type.intent.lower() == 'in']
+        in_vars = [v for v in o.arguments
+                   if isinstance(v, Array) and v.type.intent.lower() == 'in']
         out_vars = [v for v in o.arguments
-                    if v.is_Array and v.type.intent.lower() in ('inout', 'out')]
+                    if isinstance(v, Array) and v.type.intent.lower() in ('inout', 'out')]
         body += ['\n']
         body += ['kernelBlock.getInput("{0}") <== addStreamFromCPU("{0}");\n'.format(v.name)
                  for v in in_vars]

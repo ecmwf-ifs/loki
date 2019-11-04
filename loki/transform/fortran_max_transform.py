@@ -5,7 +5,7 @@ from sympy import evaluate
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
 from loki.expression import (Array, FindVariables, InlineCall, Literal, RangeIndex,
-                             SubstituteExpressions, Variable)
+                             SubstituteExpressions, Variable, Scalar)
 from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
                      Conditional, ConditionalStatement)
 from loki.module import Module
@@ -61,7 +61,7 @@ class FortranMaxTransformation(BasicTransformation):
             # Replicate the kernel to strip the Fortran-specific boilerplate
             spec = Section(body=[])
             variables = [a for a in arguments if a not in source.variables] + source.variables
-            kernel = Subroutine(name=source.name, spec=spec, body=body, cache=source._cache)
+            kernel = Subroutine(name=source.name, spec=spec, body=body)
             kernel.arguments = arguments
             kernel.variables = variables
 
@@ -107,9 +107,9 @@ class FortranMaxTransformation(BasicTransformation):
         # In the SLiC interface, scalars are kept in-order apparently, followed by
         # instreams (alphabetically) and then outstreams (alphabetically)
         scalar_arguments = [arg for arg in arguments
-                            if arg.type.intent.lower() == 'in' and arg.is_Scalar]
+                            if arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)]
         in_arguments = [arg for arg in arguments
-                        if arg.type.intent.lower() == 'in' and arg.is_Array]
+                        if arg.type.intent.lower() == 'in' and isinstance(arg, Array)]
         out_arguments = [arg for arg in arguments if arg.type.intent.lower() in ('inout', 'out')]
         in_arguments.sort(key=lambda a: a.name)
         out_arguments.sort(key=lambda a: a.name)
@@ -124,7 +124,7 @@ class FortranMaxTransformation(BasicTransformation):
 
         # Force all variables to lower-case, as Java and C are case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
+                if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
         return body
@@ -161,7 +161,7 @@ class FortranMaxTransformation(BasicTransformation):
         loop_map = {}
         vmap = {}
         for loop in FindNodes(Loop).visit(kernel.body):
-            if (loop.pragma is not None and loop.pragma.keyword == 'loki' and
+            if (loop.pragma is not None and loop.pragma.keyword == 'loki' and \
                     'dataflow' in loop.pragma.content):
                 loop_map[loop] = loop.body
                 vmap[loop.variable] = \
@@ -266,17 +266,17 @@ class FortranMaxTransformation(BasicTransformation):
         # Secondly, the DFE wants to know how big arrays are, so we replace array arguments by
         # pairs of (arg, arg_size)
         arg_pairs = {a: (a, Variable(name='%s_size' % a.name, type=size_t_type))
-                     if a.is_Array else a for a in arguments}
+                     if isinstance(a, Array) else a for a in arguments}
         arguments = flatten([arg_pairs[a] for a in arguments])
 
         # For the transformed arguments we can reuse the existing size-arguments
         var_pairs = {v: (v, arg_pairs[variable_map[v]][1])
-                     if v.is_Array else v for v in variables}
+                     if isinstance(v, Array) else v for v in variables}
         call_arguments = flatten([var_pairs[v] for v in variables])
 
         # Remove initial values from inout-arguments
         for v in variables:
-            if v.is_Array and v.type.intent == 'inout':
+            if isinstance(v, Array) and v.type.intent == 'inout':
                 v.initial = None
 
         # The entire body is just a call to the SLiC interface
@@ -294,7 +294,7 @@ class FortranMaxTransformation(BasicTransformation):
 
         # Force pointer on reference-passed arguments
         for arg in routine.arguments:
-            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
+            if not (arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 arg.type.pointer = True
 
         # Remove imports and other declarations
@@ -322,12 +322,11 @@ class FortranMaxTransformation(BasicTransformation):
             else:
                 ctype = arg.type.dtype.isoctype
                 # Only scalar, intent(in) arguments are pass by value
-                ctype.value = arg.is_Scalar and arg.type.intent.lower() == 'in'
+                ctype.value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 # Pass by reference for array types
-            dimensions = arg.dimensions if arg.is_Array else None
-            shape = arg.shape if arg.is_Array else None
-            var = intf_routine.Variable(name=arg.name, dimensions=dimensions,
-                                        shape=shape, type=ctype)
+            dimensions = arg.dimensions if isinstance(arg, Array) else None
+            shape = arg.shape if isinstance(arg, Array) else None
+            var = Variable(name=arg.name, dimensions=dimensions, shape=shape, type=ctype)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
