@@ -166,8 +166,8 @@ class FortranMaxTransformation(BasicTransformation):
                 loop_map[loop] = loop.body
                 vmap[loop.variable] = \
                     loop.variable.clone(dimensions=None,
-                                        initial=InlineCall(name='control.count.simpleCounter',
-                                                           arguments=[Literal(32)]))
+                                        initial=InlineCall('control.count.simpleCounter',
+                                                           parameters=(Literal(32),)))
         dataflow_indices = as_tuple(vmap.keys())  # [loop.variable for loop in loop_map.keys()]
         kernel.body = Transformer(loop_map).visit(kernel.body)
 
@@ -179,8 +179,9 @@ class FortranMaxTransformation(BasicTransformation):
 
             # Extract conditions as separate variables
             cond_vars = []
+            cond_type = BaseType('logical')
             for i, c in enumerate(cond.conditions):
-                cond_vars += [Variable(name='cond_%d_%d' % (cnt, i))]
+                cond_vars += [Variable(name='cond_%d_%d' % (cnt, i), type=cond_type)]
                 body += [Statement(target=cond_vars[-1], expr=c)]
             kernel.variables += cond_vars
 
@@ -226,21 +227,21 @@ class FortranMaxTransformation(BasicTransformation):
         # Replace array access by stream inflow
         # TODO: this only works for vectors so far
         # TODO: this doesn't work at all!
-        if dataflow_indices:
-            dim = dataflow_indices[0]
-            emap = {}
-            for v in FindVariables(unique=True).visit(kernel.body):
-                if isinstance(v, Array) and v.find(dim):
-                    stream_v = v.clone(dimensions=None, shape=None)
-                    if dim == v.dimensions[0]:
-                        emap[v] = stream_v
-                        vmap[v] = stream_v
-                    else:
-                        new_dim = v.dimensions[0] - dim
-                        emap[v] = InlineCall(name='stream.offset', arguments=[stream_v, new_dim])
-            kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-            kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
-            kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+#        if dataflow_indices:
+#            dim = dataflow_indices[0]
+#            emap = {}
+#            for v in FindVariables(unique=True).visit(kernel.body):
+#                if isinstance(v, Array) and v.find(dim):
+#                    stream_v = v.clone(dimensions=None, shape=None)
+#                    if dim == v.dimensions[0]:
+#                        emap[v] = stream_v
+#                        vmap[v] = stream_v
+#                    else:
+#                        new_dim = v.dimensions[0] - dim
+#                        emap[v] = InlineCall('stream.offset', parameters=(stream_v, new_dim))
+#            kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+#            kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+#            kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(kernel, **kwargs)
