@@ -6,6 +6,7 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.expression import LokiStringifyMapper
+from loki.types import DataType
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -25,7 +26,7 @@ class FCodeMapper(LokiStringifyMapper):
         ">": r">",
     }
 
-    def __init__(self, constant_mapper=repr):
+    def __init__(self, constant_mapper=None):
         super(FCodeMapper, self).__init__(constant_mapper)
 
     def map_logic_literal(self, expr, *args, **kwargs):
@@ -327,7 +328,7 @@ class FortranCodegen(Visitor):
         if len(args) > self.chunking:
             self._depth += 2
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
-            # line limit. The linewidth chaeck should be made smarter to
+            # line limit. The linewidth check should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
             signature = self.segment([self.fsymgen(a) if isinstance(a, Expression)
                                       else a for a in args], chunking=3)
@@ -353,23 +354,25 @@ class FortranCodegen(Visitor):
         return str(o.expr)
 
     def visit_Scalar(self, o):
-        if o.initial is not None:
-            if is_iterable(o.initial):
-                value = ArrayConstructor(elements=o.initial)
-            else:
-                value = o.initial
+        if o.type.initial is not None:
             # TODO: This is super-hacky! We need to find
             # a rigorous way to do this, but various corner
-            # cases around opinter assignments break the
+            # cases around pointer assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self.fsymgen(value))
+            return '%s = %s' % (o, self.fsymgen(o.type.initial))
         else:
             return self.fsymgen(o)
 
     visit_Array = visit_Scalar
 
-    def visit_BaseType(self, o):
-        tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name
+    def visit_SymbolType(self, o):
+        if o.dtype == DataType.DERIVED_TYPE:
+            tname = 'TYPE(%s)' % o.name
+        else:
+            type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
+                        DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
+                        DataType.COMPLEX: 'COMPLEX'}
+            tname = type_map[o.dtype]
         return '%s%s%s%s%s%s%s%s%s%s' % (
             tname,
             '(KIND=%s)' % o.kind if o.kind else '',

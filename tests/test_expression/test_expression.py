@@ -200,8 +200,8 @@ def test_parenthesis(refpath, reference, frontend):
     # Now perform a simple substitutions on the expression
     # and make sure we are still parenthesising as we should!
     from loki import SubstituteExpressions, FindVariables
-    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0] 
-    v4 = Variable(name='v4')
+    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
+    v4 = v2.clone(name='v4') 
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
     # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'

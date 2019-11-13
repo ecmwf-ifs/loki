@@ -1,3 +1,4 @@
+import weakref
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 from six.moves import intern
@@ -15,7 +16,7 @@ class LokiStringifyMapper(StringifyMapper):
     expression tree that we added ourselves.
     """
 
-    def __init__(self, constant_mapper=repr):
+    def __init__(self, constant_mapper=None):
         super(LokiStringifyMapper, self).__init__(constant_mapper)
 
     def map_logic_literal(self, expr, *args, **kwargs):
@@ -28,23 +29,23 @@ class LokiStringifyMapper(StringifyMapper):
         return "'%s'" % expr.value
 
     def map_scalar(self, expr, *args, **kwargs):
-        parent = ''
-        if expr.parent:
+        if expr.type and expr.type.parent:
             parent = self.rec(expr.parent, *args, **kwargs) + '%'
-        return parent + expr.name
+            return self.format('%s%s', parent, expr.name)
+        else:
+            return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = ''
-        if expr.dimensions:
-            dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions)
+        dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
+        if dims:
             dims = '(' + dims + ')'
-        parent = ''
-        if expr.parent:
-            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
-        initial = ''
-        if expr.initial:
-            ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-        return parent + expr.name + dims + initial
+        parent, initial = '', ''
+        if expr.type:
+            if expr.type.parent:
+                parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
+            if expr.type.initial:
+                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+        return self.format('%s%s%s%s', parent, expr.name, dims, initial)
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
@@ -85,26 +86,43 @@ class Scalar(pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
-    It can have an associated type or a parent (when member of a struct/derived type).
+    It is always associated with a given scope (typically a class:``Subroutine``)
+    where the corresponding `symbol_table` is found with its type.
+
+    Warning: Providing a type overwrites the corresponding entry in the symbol table.
+    This is due to the assumption that we might have encountered a variable name before
+    knowing about its declaration and thus treat the latest given type information as
+    the one that is most up-to-date.
     """
 
-    def __init__(self, name, type=None, parent=None, initial=None, _source=None):
+    def __init__(self, name, scope, type=None, _source=None):
         super(Scalar, self).__init__(name)
 
-        self._type = type
-        self.parent = parent
-        self.initial = initial
+        self._scope = weakref.ref(scope)
+        if type is not None:
+            self.type = type
         self._source = _source
 
+    @property
+    def scope(self):
+        """
+        The object corresponding to the symbols scope.
+        """
+        return self._scope()
+
+    @property
+    def type(self):
+        """
+        Internal representation of the declared data type.
+        """
+        return self.scope.symbol_table[self.name]
+
+    @type.setter
+    def type(self, value):
+        self.scope.symbol_table[self.name] = value
+
     def __getinitargs__(self):
-        args = [self.name]
-        if self._type:
-            args += [('type', self._type)]
-        if self.parent:
-            args += [('parent', self.parent)]
-        if self.initial:
-            args += [('initial', self.initial)]
-        return tuple(args)
+        return tuple([self.name, ('scope', self.scope)])
 
     mapper_method = intern('map_scalar')
 
@@ -118,55 +136,83 @@ class Scalar(pmbl.Variable):
         # Add existing meta-info to the clone arguments, only if we have them.
         if self.name and 'name' not in kwargs:
             kwargs['name'] = self.name
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
+        if self.scope and 'scope' not in kwargs:
+            kwargs['scope'] = self.scope
         if self.type and 'type' not in kwargs:
             kwargs['type'] = self.type
-        if self.initial and 'initial' not in kwargs:
-            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
-
-    @property
-    def type(self):
-        """
-        Internal representation of the declared data type.
-        """
-        return self._type
 
 
 class Array(pmbl.Variable):
     """
     Expression node for array variables.
 
-    It usually has an associated shape (i.e., the size of the array) but can be instantiated
-    without (e.g., when shape is later deferred from an allocate statement) and possibly some
-    dimensions (which can be a :class:`RangeIndex` or an expression or a :class:`Literal` or
-    a :class:`Scalar`).
+    It can have associated dimensions (i.e., the indexing/slicing when accessing entries),
+    which can be a :class:`RangeIndex` or an expression or a :class:`Literal` or
+    a :class:`Scalar`
+
+    Shape, data type and parent information are part of the type.
+
+    Warning: Providing a type overwrites the corresponding entry in the symbol table.
+    This is due to the assumption that we might have encountered a variable name before
+    knowing about its declaration and thus treat the latest given type information as
+    the one that is most up-to-date.
     """
 
-    def __init__(self, name, type=None, shape=None, dimensions=None, parent=None, initial=None, _source=None):
+    def __init__(self, name, scope, type=None, dimensions=None, _source=None):
         super(Array, self).__init__(name)
 
-        self._type = type
-        self.parent = parent
-        self.initial = initial
+        self._scope = weakref.ref(scope)
+        if type is not None:
+            self.type = type
+        self.dimensions = dimensions
         self._source = _source
-        self._shape = shape
-        self.args = dimensions
+
+    @property
+    def scope(self):
+        """
+        The object corresponding to the symbols scope.
+        """
+        return self._scope()
+
+    @property
+    def type(self):
+        """
+        Internal representation of the declared data type.
+        """
+        return self.scope.symbol_table[self.name]
+
+    @type.setter
+    def type(self, value):
+        self.scope.symbol_table[self.name] = value
+
+    @property
+    def dimensions(self):
+        """
+        Symbolic representation of the dimensions or indices.
+        """
+        return self._dimensions
+
+    @dimensions.setter
+    def dimensions(self, value):
+        self._dimensions = value 
+
+    @property
+    def shape(self):
+        """
+        Original allocated shape of the variable as a tuple of dimensions.
+        """
+        return self.type.shape
+
+    @shape.setter
+    def shape(self, value):
+        self.type.shape = value
 
     def __getinitargs__(self):
-        args = [self.name]
-        if self._type:
-            args += [('type', self._type)]
-        if self.shape:
-            args += [('shape', self.shape)]
-        if self.args:
-            args += [('dimensions', self.args)]
-        if self.parent:
-            args += [('parent', self.parent)]
-        if self.initial:
-            args += [('initial', self.initial)]
+        args = [self.name, ('scope', self.scope)]
+        if self.dimensions:
+            args += [('dimensions', self.dimensions)]
         return tuple(args)
 
     mapper_method = intern('map_array')
@@ -184,48 +230,28 @@ class Array(pmbl.Variable):
         # Add existing meta-info to the clone arguments, only if we have them.
         if self.name and 'name' not in kwargs:
             kwargs['name'] = self.name
+        if self.scope and 'scope' not in kwargs:
+            kwargs['scope'] = self.scope
         if self.dimensions and 'dimensions' not in kwargs:
             kwargs['dimensions'] = self.dimensions
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
         if self.type and 'type' not in kwargs:
             kwargs['type'] = self.type
-        if self.shape and 'shape' not in kwargs:
-            kwargs['shape'] = self.shape
-        if self.initial and 'initial' not in kwargs:
-            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
 
-    @property
-    def dimensions(self):
-        """
-        Symbolic representation of the dimensions or indices.
-        """
-        return self.args
 
-    @property
-    def type(self):
-        """
-        Internal representation of the declared data type.
-        """
-        return self._type
-
-    @property
-    def shape(self):
-        """
-        Original allocated shape of the variable as a tuple of dimensions.
-        """
-        return self._shape
-
-
-class Variable:
+class Variable(object):
     """
     A symbolic object representing either a :class:`Scalar` or a :class:`Array`
     variable in arithmetic expressions.
 
     Note, that this is only a convenience constructor that always returns either
     a :class:`Scalar` or :class:`Array` variable object.
+
+    Warning: Providing a type overwrites the corresponding entry in the symbol table.
+    This is due to the assumption that we might have encountered a variable name before
+    knowing about its declaration and thus treat the latest given type information as
+    the one that is most up-to-date.
     """
 
     def __new__(cls, *args, **kwargs):
@@ -233,18 +259,16 @@ class Variable:
         1st-level variables creation with name injection via the object class
         """
         name = kwargs.pop('name')
+        scope = kwargs.pop('scope')
         dimensions = kwargs.pop('dimensions', None)
-        parent = kwargs.pop('parent', None)
         _type = kwargs.get('type', None)
-        shape = kwargs.get('shape', None)
-        initial = kwargs.get('initial', None)
+        shape = _type.shape if _type is not None else None
         source = kwargs.get('source', None)
 
         if dimensions is None and (shape is None or len(shape) == 0):
-            return Scalar(name=name, parent=parent, type=_type, initial=initial, _source=source)
+            return Scalar(name=name, type=_type, scope=scope, _source=source)
         else:
-            return Array(name=name, shape=shape, dimensions=dimensions, parent=parent, type=_type,
-                         initial=initial, _source=source)
+            return Array(name=name, dimensions=dimensions, type=_type, scope=scope, _source=source)
 
 
 class FloatLiteral(pmbl.Leaf):

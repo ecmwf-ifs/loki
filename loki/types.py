@@ -2,6 +2,9 @@ from enum import IntEnum
 from loki.tools import flatten
 
 
+__all__ = ['DataType', 'SymbolType', 'SymbolTable']
+
+
 class DataType(IntEnum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
@@ -121,3 +124,15 @@ class SymbolType(object):
             else:
                 args += [(k, v)]
         return tuple(args)
+
+
+class SymbolTable(dict):
+    """
+    Lookup table for the type of symbols within a scope.
+    """
+
+    def __init__(self, scope, **kwargs):
+        super(SymbolTable, self).__init__(**kwargs)
+
+        self.scope = scope
+

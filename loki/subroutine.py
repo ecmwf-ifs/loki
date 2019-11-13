@@ -10,6 +10,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, Call,
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
+from loki.types import SymbolTable
 
 
 __all__ = ['Subroutine']
@@ -37,7 +38,8 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
+                 members=None, ast=None, typedefs=None, bind=None, is_function=False,
+                 symbol_table=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -45,6 +47,7 @@ class Subroutine(object):
         self.arguments = None
         self.variables = None
         self._decl_map = None
+        self.symbol_table = symbol_table if symbol_table is not None else SymbolTable(self)
 
         self.docstring = docstring
         self.spec = spec
@@ -183,11 +186,14 @@ class Subroutine(object):
     def from_fparser(cls, ast, name=None, typedefs=None):
         routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
         name = name or routine_stmt.get_name().string
+
+        obj = cls(name)
+
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = parse_fparser_ast(spec_ast, typedefs=typedefs)
+        spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
         spec = Section(body=spec)
 
         # Derive type and shape maps to propagate through the subroutine body
@@ -200,7 +206,7 @@ class Subroutine(object):
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map,
-                                 type_map=type_map)
+                                 type_map=type_map, scope=obj)
         # body = Section(body=body)
 
         # Big, but necessary hack:
@@ -208,7 +214,9 @@ class Subroutine(object):
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast)
+        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
+                     symbol_table=obj.symbol_table)
+        return obj
 
     def _internalize(self):
         """

@@ -19,6 +19,7 @@ from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, Li
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
+from loki.types import DataType, SymbolType
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
 
@@ -44,11 +45,12 @@ def node_sublist(nodelist, starttype, endtype):
 
 class FParser2IR(GenericVisitor):
 
-    def __init__(self, typedefs=None, shape_map=None, type_map=None):
+    def __init__(self, typedefs=None, shape_map=None, type_map=None, scope=None):
         super(FParser2IR, self).__init__()
         self.typedefs = typedefs
         self.shape_map = shape_map
         self.type_map = type_map
+        self.scope = scope
 
     def visit(self, o, **kwargs):
         """
@@ -83,32 +85,51 @@ class FParser2IR(GenericVisitor):
     def visit_Name(self, o, **kwargs):
         # This one is evil, as it is used flat in expressions,
         # forcing us to generate ``Variable`` objects, and in
-        # declarations, where nonde of the metadata is available
+        # declarations, where none of the metadata is available
         # at this low level!
-        vname = o.tostr()
+        vname = o.tostr().lower()
         dimensions = kwargs.get('dimensions', None)
         # Careful! Mind the many ways in which this can get called with
         # outside information (either in kwargs or maps stored on self).
-        shape = kwargs.get('shape', None)
-        if shape is None:
-            shape = self.shape_map.get(vname, None) if self.shape_map else None
         dtype = kwargs.get('dtype', None)
-        if dtype is None:
-            dtype = self.type_map.get(vname, None) if self.type_map else None
+        if dtype is None and self.scope is not None:
+            dtype = self.scope.symbol_table.get(vname, None)
+        if dtype is None and self.type_map is not None:
+            dtype = self.type_map.get(vname, None)
+
         parent = kwargs.get('parent', None)
+        if parent is None and dtype is not None:
+            parent = dtype.parent
 
-        # If a parent variable is given, try to infer type and shape
-        if parent is not None and self.type_map is not None:
-            parent_type = self.type_map.get(parent.name, None)
-            if (parent_type is not None and isinstance(parent_type, DerivedType) \
-                    and parent_type.variables is not None):
-                typevar = [v for v in parent_type.variables
-                           if v.name.lower() == vname.lower()][0]
-                dtype = typevar.type
-                if isinstance(typevar, Array):
-                    shape = typevar.shape
+        shape = kwargs.get('shape', None)
+        if shape is None and dtype is not None:
+            shape = dtype.shape
+        if shape is None and self.shape_map is not None:
+            shape = self.shape_map.get(vname, None)
 
-        return Variable(name=vname, dimensions=dimensions, shape=shape, type=dtype, parent=parent)
+        initial = kwargs.get('initial', None)
+        _source = kwargs.get('source', None)
+
+        # If a parent variable is given, try to infer type
+        if parent is not None and dtype is None:
+            if parent.type is None and self.type_map is not None:
+                parent.type = self.type_map.get(parent.name, None)
+            if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+                if parent.type.variables is not None:
+                    typevar = [v for v in parent.type.variables if v.name == vname][0]
+                    dtype = typevar.type
+
+        # Update dtype with provided values
+        if dtype is not None:
+            if parent is not None:
+                dtype.parent = parent
+            if shape is not None:
+                dtype.shape = shape
+            if initial is not None:
+                dtype.initial = initial
+
+        return Variable(name=vname, dimensions=dimensions, type=dtype, scope=self.scope,
+                        initial=initial, _source=_source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
         return Literal(value=str(o.items[0]), kind=o.items[1])
@@ -120,7 +141,7 @@ class FParser2IR(GenericVisitor):
         return Literal(value=float(o.items[0]), kind=o.items[1])
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
-        return Literal(value=o.items[0], type=DataType.BOOL)
+        return Literal(value=o.items[0], type=DataType.LOGICAL)
 
     def visit_Attr_Spec_List(self, o, **kwargs):
         return as_tuple(self.visit(i) for i in o.items)
@@ -163,24 +184,21 @@ class FParser2IR(GenericVisitor):
         return Comment(text=o.tostr())
 
     def visit_Entity_Decl(self, o, **kwargs):
-        # TODO: This comment is obsolete...
-        # Don't recurse here, as the node is a ``Name`` and will
-        # generate a pre-cached ``Variable`` object otherwise!
-        vname = o.items[0].tostr()
-        dtype = kwargs.get('dtype', None)
-
         dims = get_child(o, Explicit_Shape_Spec_List)
         dims = get_child(o, Assumed_Shape_Spec_List) if dims is None else dims
-        dimensions = self.visit(dims) if dims is not None else kwargs.get('dimensions', None)
+        if dims is not None:
+            kwargs['dimensions'] = self.visit(dims)
 
         init = get_child(o, Initialization)
-        initial = self.visit(init) if init is not None else None
+        if init is not None:
+            kwargs['initial'] = self.visit(init)
 
         # We know that this is a declaration, so the ``dimensions``
         # here also define the shape of the variable symbol within the
         # currently cached context.
-        return Variable(name=vname, type=dtype, dimensions=dimensions,
-                        shape=dimensions, initial=initial)
+        kwargs['shape'] = kwargs.get('dimensions', None)
+
+        return self.visit(o.items[0], **kwargs)
 
     def visit_Component_Decl(self, o, **kwargs):
         dtype = kwargs.get('dtype', None)
@@ -300,26 +318,10 @@ class FParser2IR(GenericVisitor):
             arguments = as_tuple(a for a in args if not isinstance(a, tuple))
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
         else:
-            shape = None
-            dtype = None
-            parent = kwargs.get('parent', None)
-
-            if parent is not None and self.type_map is not None:
-                parent_type = self.type_map.get(parent.name, None)
-                if (parent_type is not None and isinstance(parent_type, DerivedType) \
-                        and parent_type.variables is not None):
-                    typevar = [v for v in parent_type.variables
-                               if v.name.lower() == name.lower()][0]
-                    dtype = typevar.type
-                    if isinstance(typevar, Array):
-                        shape = typevar.shape
-
-            if shape is None:
-                shape = self.shape_map.get(name, None) if self.shape_map else None
-            if dtype is None:
-                dtype = self.type_map.get(name, None) if self.type_map else None
-
-            return Variable(name=name, dimensions=args, parent=parent, shape=shape, type=dtype)
+            # This is an array access and the arguments define the dimension.
+            kwargs['dimensions'] = args
+            # Recurse down to visit_Name
+            return self.visit(o.items[0], **kwargs)
 
     def visit_Array_Section(self, o, **kwargs):
         dimensions = as_tuple(self.visit(o.items[1]))
@@ -350,9 +352,9 @@ class FParser2IR(GenericVisitor):
         basetype_ast = get_child(o, Intrinsic_Type_Spec)
         if basetype_ast is not None:
             dtype, kind = self.visit(basetype_ast)
-            dtype = BaseType(dtype, kind=kind, intent=intent,
-                             parameter='parameter' in attrs, optional='optional' in attrs,
-                             allocatable='allocatable' in attrs, pointer='pointer' in attrs)
+            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
+                               parameter='parameter' in attrs, optional='optional' in attrs,
+                               allocatable='allocatable' in attrs, pointer='pointer' in attrs)
 
         derived_type_ast = get_child(o, Declaration_Type_Spec)
         if derived_type_ast is not None:
@@ -585,13 +587,13 @@ def parse_fparser_file(filename):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, typedefs=None, shape_map=None, type_map=None):
+def parse_fparser_ast(ast, typedefs=None, shape_map=None, type_map=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    ir = FParser2IR(typedefs=typedefs, shape_map=shape_map, type_map=type_map).visit(ast)
+    ir = FParser2IR(typedefs=typedefs, shape_map=shape_map, type_map=type_map, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)
