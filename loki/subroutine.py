@@ -8,7 +8,6 @@ from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, Intrinsic)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
-from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
 

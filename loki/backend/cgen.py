@@ -3,7 +3,6 @@ from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PRE
 
 from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
-from loki.types import DataType, DerivedType
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
 

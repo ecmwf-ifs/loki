@@ -7,7 +7,6 @@ from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
                      TypeDef, Statement, Scope, Loop)
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.types import BaseType, DerivedType
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
                              Literal, Array, SubstituteExpressions, FindInlineCalls,
                              SubstituteExpressionsMapper)

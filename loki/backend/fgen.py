@@ -5,7 +5,6 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
-from loki.types import BaseType
 from loki.expression import LokiStringifyMapper
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']

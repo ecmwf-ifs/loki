@@ -15,7 +15,6 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Array, Cast)
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
-from loki.types import BaseType, DerivedType
 from loki.tools import as_tuple, timeit, disk_cached
 from loki.logging import info, DEBUG
 

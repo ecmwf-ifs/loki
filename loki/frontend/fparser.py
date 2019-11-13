@@ -15,7 +15,6 @@ from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, Call, Scope
 )
-from loki.types import DataType, BaseType, DerivedType
 from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.logging import DEBUG
