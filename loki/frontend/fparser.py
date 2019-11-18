@@ -161,7 +161,9 @@ class FParser2IR(GenericVisitor):
 
     def visit_Use_Stmt(self, o, **kwargs):
         name = o.items[2].tostr()
-        symbols = as_tuple(self.visit(s, **kwargs) for s in o.items[4].items)
+        # TODO: This is probably not good
+        # symbols = as_tuple(self.visit(s, **kwargs) for s in o.items[4].items)
+        symbols = as_tuple(s.tostr() for s in o.items[4].items)
         return Import(module=name, symbols=symbols)
 
     def visit_Include_Stmt(self, o, **kwargs):
@@ -292,9 +294,9 @@ class FParser2IR(GenericVisitor):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
 
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
-        name = self.visit(o.items[0])
-        args = self.visit(o.items[1])
-        kwarguments = {a[0].name: a[1] for a in args if isinstance(a, tuple)}
+        name = self.visit(o.items[0], **kwargs)
+        args = self.visit(o.items[1], **kwargs)
+        kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
         if name.upper() in ('REAL', 'INT'):
             return Cast(name, arguments[0], kind=kwarguments.get('kind', None))
@@ -312,6 +314,11 @@ class FParser2IR(GenericVisitor):
 
     def visit_Actual_Arg_Spec_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
+
+    def visit_Actual_Arg_Spec(self, o, **kwargs):
+        key = o.items[0].tostr()
+        value = self.visit(o.items[1], **kwargs)
+        return (key, value)
 
     def visit_Data_Ref(self, o, **kwargs):
         pname = o.items[0].tostr().lower()
@@ -385,7 +392,7 @@ class FParser2IR(GenericVisitor):
                 import pdb; pdb.set_trace()
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
-                    variables = self.typedefs[typename].variables
+                    variables = {v.name: v for v in self.typedefs[typename].variables}
                 else:
                     variables = None
                 dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
