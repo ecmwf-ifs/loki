@@ -142,11 +142,18 @@ contains
 
     item%scalar = 17.0
 
+    associate(vector2=>item%matrix(:,1))
+
+        vector2(:) = 3.
+        item%matrix(:,3) = vector2(:)
+
+    end associate
+
     associate(vector=>item%vector)
 
-    item%vector(2) = vector(1)
-    vector(3) = item%vector(1) + vector(2)
-    vector(1) = 1.
+        item%vector(2) = vector(1)
+        vector(3) = item%vector(1) + vector(2)
+        vector(1) = 1.
 
     end associate
 

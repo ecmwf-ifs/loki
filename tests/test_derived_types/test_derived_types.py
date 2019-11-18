@@ -203,8 +203,10 @@ def test_associates(refpath, reference, frontend):
     item.scalar = 0.
     item.vector[0] = 5.
     item.vector[1:2] = 0.
+    item.matrix = 0.
     reference.associates(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+    assert (item.matrix[:, 0::2] == 3.).all()
 
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='associates', frontend=frontend)

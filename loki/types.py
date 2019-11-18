@@ -1,8 +1,9 @@
+import weakref
 from enum import IntEnum
 from loki.tools import flatten
 
 
-__all__ = ['DataType', 'SymbolType', 'SymbolTable']
+__all__ = ['DataType', 'SymbolType', 'TypeTable']
 
 
 class DataType(IntEnum):
@@ -112,6 +113,9 @@ class SymbolType(object):
             elif isinstance(v, bool):
                 if v:
                     parameters += [str(k)]
+            elif k == 'parent' and v is not None:
+                parameters += ['parent=%s(%s)' % ('Type' if isinstance(v, SymbolType)
+                                                  else 'Variable', v.name)]
             else:
                 parameters += ['%s=%s' % (k, str(v))]
         return '<Type %s>' % ', '.join(parameters)
@@ -125,14 +129,86 @@ class SymbolType(object):
                 args += [(k, v)]
         return tuple(args)
 
+    def clone(self, **kwargs):
+        args = {k: v for k, v in self.__dict__.items()}
+        args.update(kwargs)
+        dtype = args.pop('dtype')
+        return self.__class__(dtype, **args)
 
-class SymbolTable(dict):
+
+class TypeTable(dict):
     """
-    Lookup table for the type of symbols within a scope.
+    Lookup table for types that essentially behaves like a class:``dict``.
+
+    Used to store types for symbols or derived types within a scope.
+    For derived types, no separate entries for the declared variables within a type
+    are added. Instead, lookup methods (such as ``get``, ``__getitem__``, ``lookup`` etc.)
+    disect the name and take care of chasing the information chain automagically.
+
+    :param parent: class:``TypeTable`` instance of the parent scope to allow
+                   for recursive lookups.
     """
 
-    def __init__(self, scope, **kwargs):
-        super(SymbolTable, self).__init__(**kwargs)
+    def __init__(self, parent=None, **kwargs):
+        super(TypeTable, self).__init__(**kwargs)
+        self._parent = weakref.ref(parent) if parent is not None else None
 
-        self.scope = scope
+    @property
+    def parent(self):
+        return self._parent() if self._parent is not None else None
 
+    @staticmethod
+    def split_name(name):
+        name = name.partition('(')[0]  # Remove any dimension parameters
+        return name #.split('%')
+
+    def _lookup(self, name, recursive):
+        """
+        Recursively look for a symbol in the table.
+        """
+        value = super(TypeTable, self).get(name, None)
+        if value is None and recursive and self.parent is not None:
+            return self.parent._lookup(name, recursive)
+        else:
+            return value
+
+    def lookup(self, name, recursive=True):
+        """
+        Lookup a symbol in the type table and return the type or `None` if not found.
+
+        :param name: Name of the type or symbol.
+        :param recursive: If no entry by that name is found, try to find it in the
+                          table of the parent scope.
+        """
+        name_parts = self.split_name(name)
+        value = self._lookup(name_parts, recursive)
+#        value = self._lookup(name_parts[0], recursive)
+#        for ch in name_parts[1:]:
+#            if value is not None:
+#                value = value.variables.get(ch, None)
+#                # For derived types, the type definition has an OrderedDict of declared types. But for
+#                # instances of variables of that derived type, the variables list is actually a list
+#                # of variable instances and thus the type is obtained from their type property.
+#                if value is not None and not isinstance(value, SymbolType):
+#                    value = value.type
+        return value
+
+    def __getitem__(self, key):
+        value = self.lookup(key, recursive=False)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+    def get(self, key, default=None):
+        value = self.lookup(key, recursive=False)
+        return value if value is not None else default
+
+    def __setitem__(self, key, value):
+        name_parts = self.split_name(key)
+        super(TypeTable, self).__setitem__(name_parts, value)
+#        if len(name_parts) <= 1:
+#            super(TypeTable, self).__setitem__(name_parts[0], value)
+#        else:
+#            import pdb; pdb.set_trace()
+#            parent = self.lookup('%'.join(name_parts[0:-1]), recursive=False)
+#            parent.variables[name_parts[-1]] = value

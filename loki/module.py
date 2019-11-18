@@ -1,3 +1,5 @@
+import weakref
+
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
 
@@ -9,6 +11,7 @@ from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
+from loki.types import TypeTable
 
 
 __all__ = ['Module']
@@ -22,13 +25,29 @@ class Module(object):
     :param ast: OFP parser node for this module
     :param raw_source: Raw source string, broken into lines(!), as it
                        appeared in the parsed source file.
+    :param symbols: Instance of class:``TypeTable`` used to cache type information
+                    for all symbols defined within this module's scope.
+    :param types: Instance of class:``TypeTable`` used to cache type information
+                  for all (derived) types defined within this module's scope.
+    :param parent: Optional enclosing scope, to which a weakref can be held for symbol lookup.
     """
 
-    def __init__(self, name=None, spec=None, routines=None,
-                 ast=None, raw_source=None):
+    def __init__(self, name=None, spec=None, routines=None, ast=None,
+                 raw_source=None, symbols=None, types=None, parent=None):
         self.name = name or ast.attrib['name']
         self.spec = spec
         self.routines = routines
+        self._parent = weakref.ref(parent) if parent is not None else None
+
+        self.symbols = symbols
+        if self.symbols is None:
+            parent = self.parent.symbols if self.parent is not None else None
+            self.symbols = TypeTable(parent)
+
+        self.types = types
+        if self.types is None:
+            parent = self.parent.types if self.parent is not None else None
+            self.types = TypeTable(parent)
 
         self._ast = ast
         self._raw_source = raw_source
@@ -77,22 +96,26 @@ class Module(object):
         return cls(name=name, spec=spec, routines=routines, ast=ast)
 
     @classmethod
-    def from_fparser(cls, ast, name=None):
+    def from_fparser(cls, ast, name=None, parent=None):
         name = name or ast.content[0].items[1].tostr()
+        obj = cls(name, parent=None)
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast)
+            spec = parse_fparser_ast(spec_ast, scope=obj)
             spec = Section(body=spec)
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
         if routines_ast is not None:
-            routines = [Subroutine.from_fparser(ast=s) for s in routines_ast.content
+            routines = [Subroutine.from_fparser(ast=s, parent=obj)
+                        for s in routines_ast.content
                         if isinstance(s, Fortran2003.Subroutine_Subprogram)]
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast)
+        obj.__init__(name=name, spec=spec, routines=routines, ast=ast,
+                     symbols=obj.symbols, types=obj.types, parent=parent)
+        return obj
 
     @classmethod
     def _process_pragmas(self, spec):
@@ -129,6 +152,13 @@ class Module(object):
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
         """
         return self.routines
+
+    @property
+    def parent(self):
+        """
+        Access the enclosing parent.
+        """
+        return self._parent() if self._parent is not None else None
 
     def __getitem__(self, name):
         subroutine_map = {s.name.lower(): s for s in self.subroutines}

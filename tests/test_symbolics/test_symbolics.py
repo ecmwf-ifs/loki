@@ -1,7 +1,7 @@
 #from sympy import symbols, simplify
 import pytest
 
-from loki import Variable, Scalar, Array, Subroutine, InlineCall, FCodeMapper, BaseType
+from loki import Variable, Scalar, Array, Subroutine, InlineCall, FCodeMapper
 
 pytestmark = pytest.mark.skip(reason="Symbolic equivalence no longer given without Sympy")
 

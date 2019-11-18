@@ -6,7 +6,7 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.expression import LokiStringifyMapper
-from loki.types import DataType
+from loki.types import DataType, SymbolType
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -217,11 +217,21 @@ class FortranCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
-        variables = self.segment([self.visit(v) for v in o.variables])
         if o.dimensions is None:
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
+        # If variables are instances of SymbolType, we have a derived type definition here
+        if isinstance(o.variables[0], SymbolType):
+            variables = []
+            for v in o.variables:
+                shape = ','.join(self.fsymgen(d) for d in v.shape or [])
+                if shape:
+                    shape = '(' + shape + ')'
+                variables += ['%s%s' % (v.name, shape)]
+            variables = self.segment(variables)
+        else:
+            variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o):
@@ -354,12 +364,12 @@ class FortranCodegen(Visitor):
         return str(o.expr)
 
     def visit_Scalar(self, o):
-        if o.type.initial is not None:
+        if o.initial is not None:
             # TODO: This is super-hacky! We need to find
             # a rigorous way to do this, but various corner
             # cases around pointer assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self.fsymgen(o.type.initial))
+            return '%s = %s' % (o, self.fsymgen(o.initial))
         else:
             return self.fsymgen(o)
 

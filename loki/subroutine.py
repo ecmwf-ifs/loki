@@ -1,3 +1,4 @@
+import weakref
 from collections import OrderedDict
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
@@ -10,7 +11,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, Call,
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
-from loki.types import SymbolTable
+from loki.types import TypeTable
 
 
 __all__ = ['Subroutine']
@@ -35,11 +36,16 @@ class Subroutine(object):
                        appeared in the parsed source file.
     :param typedefs: Optional list of external definitions for derived
                      types that allows more detaild type information.
+    :param symbols: Instance of class:``TypeTable`` used to cache type information
+                    for all symbols defined within this module's scope.
+    :param types: Instance of class:``TypeTable`` used to cache type information
+                  for all (derived) types defined within this module's scope.
+    :param parent: Optional enclosing scope, to which a weakref can be held for symbol lookup.
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
                  members=None, ast=None, typedefs=None, bind=None, is_function=False,
-                 symbol_table=None):
+                 symbols=None, types=None, parent=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -47,7 +53,17 @@ class Subroutine(object):
         self.arguments = None
         self.variables = None
         self._decl_map = None
-        self.symbol_table = symbol_table if symbol_table is not None else SymbolTable(self)
+        self._parent = weakref.ref(parent) if parent is not None else None
+
+        self.symbols = symbols
+        if self.symbols is None:
+            parent = self.parent.symbols if self.parent is not None else None
+            self.symbols = TypeTable(parent)
+
+        self.types = types
+        if self.types is None:
+            parent = self.parent.types if self.parent is not None else None
+            self.types = TypeTable(parent)
 
         self.docstring = docstring
         self.spec = spec
@@ -183,11 +199,11 @@ class Subroutine(object):
                    members=members, ast=ast)
 
     @classmethod
-    def from_fparser(cls, ast, name=None, typedefs=None):
+    def from_fparser(cls, ast, name=None, typedefs=None, parent=None):
         routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
         name = name or routine_stmt.get_name().string
 
-        obj = cls(name)
+        obj = cls(name, parent=parent)
 
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
@@ -215,7 +231,7 @@ class Subroutine(object):
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
-                     symbol_table=obj.symbol_table)
+                     symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
     def _internalize(self):
@@ -350,3 +366,10 @@ class Subroutine(object):
 
         return InterfaceBlock(name=self.name, imports=imports,
                               arguments=arguments, declarations=declarations)
+
+    @property
+    def parent(self):
+        """
+        Access the enclosing scope.
+        """
+        return self._parent() if self._parent is not None else None

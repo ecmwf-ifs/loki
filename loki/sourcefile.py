@@ -15,6 +15,7 @@ from loki.frontend import OMNI, OFP, FP, blacklist
 from loki.frontend.omni import preprocess_omni, parse_omni_file
 from loki.frontend.ofp import parse_ofp_file
 from loki.frontend.fparser import parse_fparser_file
+from loki.types import TypeTable
 
 
 __all__ = ['SourceFile']
@@ -28,13 +29,19 @@ class SourceFile(object):
     :param routines: Subroutines (functions) contained in this source
     :param modules: Fortran modules contained in this source
     :param ast: Optional parser-AST of the original source file
+    :param symbols: Instance of class:``TypeTable`` used to cache type information
+                    for all symbols defined within this module's scope.
+    :param types: Instance of class:``TypeTable`` used to cache type information
+                  for all (derived) types defined within this module's scope.
     """
 
-    def __init__(self, filename, routines=None, modules=None, ast=None):
+    def __init__(self, filename, routines=None, modules=None, ast=None, symbols=None, types=None):
         self.path = Path(filename)
         self.routines = routines
         self.modules = modules
         self._ast = ast
+        self.symbols = symbols if symbols is not None else TypeTable(None)
+        self.types = types if types is not None else TypeTable(None)
 
     @classmethod
     def from_file(cls, filename, preprocess=False, typedefs=None,
@@ -112,18 +119,21 @@ class SourceFile(object):
     @classmethod
     def from_fparser(cls, filename, typedefs=None):
         file_path = Path(filename)
+        obj = cls(filename)
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_file(filename=str(file_path))
 
         routine_asts = [r for r in ast.content if isinstance(r, Fortran2003.Subroutine_Subprogram)]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs) for r in routine_asts]
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj) for r in routine_asts]
 
         # TODO: Do modules!
         module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
-        modules = [Module.from_fparser(ast=r) for r in module_asts]
+        modules = [Module.from_fparser(ast=r, parent=obj) for r in module_asts]
 
-        return cls(filename, routines=routines, modules=modules, ast=ast)
+        obj.__init__(filename, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
+                     types=obj.types)
+        return obj
 
     @classmethod
     def preprocess(cls, file_path, pp_path, info_path, kinds=None):

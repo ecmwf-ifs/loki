@@ -1,9 +1,11 @@
 import weakref
+from collections import OrderedDict
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 from six.moves import intern
 
 from loki.tools import as_tuple
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
@@ -29,23 +31,29 @@ class LokiStringifyMapper(StringifyMapper):
         return "'%s'" % expr.value
 
     def map_scalar(self, expr, *args, **kwargs):
-        if expr.type and expr.type.parent:
-            parent = self.rec(expr.parent, *args, **kwargs) + '%'
-            return self.format('%s%s', parent, expr.name)
-        else:
-            return expr.name
+        return expr.name
+#        if expr.type and expr.type.parent:
+#            parent = self.rec(expr.type.parent, *args, **kwargs) + '%'
+#            return self.format('%s%s', parent, expr.name)
+#        else:
+#            return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
         if dims:
             dims = '(' + dims + ')'
-        parent, initial = '', ''
-        if expr.type:
-            if expr.type.parent:
-                parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
-            if expr.type.initial:
-                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-        return self.format('%s%s%s%s', parent, expr.name, dims, initial)
+        if expr.type and expr.type.initial:
+            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+        else:
+            initial = ''
+        return self.format('%s%s%s', expr.name, dims, initial)
+#        parent, initial = '', ''
+#        if expr.type:
+#            if expr.type.parent:
+#                parent = self.rec(expr.type.parent, PREC_NONE, *args, **kwargs) + '%'
+#            if expr.type.initial:
+#                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+#        return self.format('%s%s%s%s', parent, expr.name, dims, initial)
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
@@ -95,12 +103,13 @@ class Scalar(pmbl.Variable):
     the one that is most up-to-date.
     """
 
-    def __init__(self, name, scope, type=None, _source=None):
+    def __init__(self, name, scope, type=None, initial=None, _source=None):
         super(Scalar, self).__init__(name)
 
         self._scope = weakref.ref(scope)
         if type is not None:
             self.type = type
+        self.initial = initial
         self._source = _source
 
     @property
@@ -111,15 +120,23 @@ class Scalar(pmbl.Variable):
         return self._scope()
 
     @property
+    def basename(self):
+        """
+        The symbol name without the qualifier from the parent.
+        """
+        idx = self.name.rfind('%')
+        return self.name[idx+1:]
+
+    @property
     def type(self):
         """
         Internal representation of the declared data type.
         """
-        return self.scope.symbol_table[self.name]
+        return self.scope.symbols[self.name]
 
     @type.setter
     def type(self, value):
-        self.scope.symbol_table[self.name] = value
+        self.scope.symbols[self.name] = value
 
     def __getinitargs__(self):
         return tuple([self.name, ('scope', self.scope)])
@@ -160,13 +177,14 @@ class Array(pmbl.Variable):
     the one that is most up-to-date.
     """
 
-    def __init__(self, name, scope, type=None, dimensions=None, _source=None):
+    def __init__(self, name, scope, type=None, dimensions=None, initial=None, _source=None):
         super(Array, self).__init__(name)
 
         self._scope = weakref.ref(scope)
         if type is not None:
             self.type = type
         self.dimensions = dimensions
+        self.initial = initial
         self._source = _source
 
     @property
@@ -177,15 +195,23 @@ class Array(pmbl.Variable):
         return self._scope()
 
     @property
+    def basename(self):
+        """
+        The symbol name without the qualifier from the parent.
+        """
+        idx = self.name.rfind('%')
+        return self.name[idx+1:]
+
+    @property
     def type(self):
         """
         Internal representation of the declared data type.
         """
-        return self.scope.symbol_table[self.name]
+        return self.scope.symbols[self.name]
 
     @type.setter
     def type(self, value):
-        self.scope.symbol_table[self.name] = value
+        self.scope.symbols[self.name] = value
 
     @property
     def dimensions(self):
@@ -196,7 +222,7 @@ class Array(pmbl.Variable):
 
     @dimensions.setter
     def dimensions(self, value):
-        self._dimensions = value 
+        self._dimensions = value
 
     @property
     def shape(self):
@@ -261,14 +287,39 @@ class Variable(object):
         name = kwargs.pop('name')
         scope = kwargs.pop('scope')
         dimensions = kwargs.pop('dimensions', None)
-        _type = kwargs.get('type', None)
-        shape = _type.shape if _type is not None else None
+        initial = kwargs.pop('initial', None)
+        _type = kwargs.get('type', scope.symbols.lookup(name, recursive=False))
         source = kwargs.get('source', None)
 
+        shape = _type.shape if _type is not None else None
+
         if dimensions is None and (shape is None or len(shape) == 0):
-            return Scalar(name=name, type=_type, scope=scope, _source=source)
+            obj = Scalar(name=name, type=_type, scope=scope, initial=initial, _source=source)
         else:
-            return Array(name=name, dimensions=dimensions, type=_type, scope=scope, _source=source)
+            obj = Array(name=name, dimensions=dimensions, type=_type, scope=scope,
+                        initial=initial, _source=source)
+
+        obj = cls.instantiate_derived_type_variables(obj)
+        return obj
+
+    @classmethod
+    def instantiate_derived_type_variables(cls, obj):
+        """
+        If the type provided is a derived type and its list of variables is a list of
+        class:``SymbolType``, we are creating a variable from type definition.
+        For the actual instantiation of a variable with that type, we need to create a dedicated
+        copy of that type and replace its parent by this object and its list of variables (which
+        is an OrderedDict of SymbolTypes) by a list of Variable instances.
+        """
+        if obj.type is not None and obj.type.dtype == DataType.DERIVED_TYPE:
+            if obj.type.variables and isinstance(next(iter(obj.type.variables.values())), SymbolType):
+                variables = obj.type.variables
+                obj.type = obj.type.clone(variables=OrderedDict())
+                for vname, vtype in variables.items():
+                    new_vtype = vtype.clone(parent=obj)
+                    new_vname = '%s%%%s' % (obj.name, vname)
+                    obj.type.variables[vname] = Variable(name=new_vname, scope=obj.scope, type=new_vtype)
+        return obj
 
 
 class FloatLiteral(pmbl.Leaf):
