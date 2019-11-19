@@ -94,7 +94,7 @@ class SymbolType(object):
                 self.__setattr__(k, v)
 
     def __setattr__(self, name, value):
-        if value is None:
+        if value is None and name in dir(self):
             delattr(self, name)
         else:
             object.__setattr__(self, name, value)

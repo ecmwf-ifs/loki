@@ -147,11 +147,13 @@ class Subroutine(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None):
+    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None,
+                  parent=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+        obj = cls(name=name, parent=parent)
 
         # Get the names of dummy variables from the type_map
         fhash = ast.find('name').attrib['type']
@@ -161,7 +163,7 @@ class Subroutine(object):
 
         # Generate spec, filter out external declarations and docstring
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source)
+                              symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or d.variables[0].name == name}
         spec = Section(body=Transformer(mapper).visit(spec))
@@ -184,7 +186,8 @@ class Subroutine(object):
         members = None
         if contains is not None:
             members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
-                                            symbol_map=symbol_map, raw_source=raw_source)
+                                            symbol_map=symbol_map, raw_source=raw_source,
+                                            parent=parent)
                        for s in contains]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
@@ -192,15 +195,16 @@ class Subroutine(object):
         # Convert the core kernel to IR
         body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
                                        type_map=type_map, symbol_map=symbol_map,
-                                       shape_map=shape_map, raw_source=raw_source))
+                                       shape_map=shape_map, raw_source=raw_source, scope=obj))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                   members=members, ast=ast)
+        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body,
+                     members=members, ast=ast, parent=parent, symbols=obj.symbols, types=obj.types)
+        return obj
 
     @classmethod
     def from_fparser(cls, ast, name=None, typedefs=None, parent=None):

@@ -14,6 +14,7 @@ from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deal
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['preprocess_omni', 'parse_omni_file', 'parse_omni_ast']
@@ -69,8 +70,17 @@ def parse_omni_file(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
+    _omni_types = {
+        'Fint': 'INTEGER',
+        'Freal': 'REAL',
+        'Flogical': 'LOGICAL',
+        'Fcharacter': 'CHARACTER',
+        'int': 'INTEGER',
+        'real': 'REAL',
+    }
+
     def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                 raw_source=None):
+                 raw_source=None, scope=None):
         super(OMNI2IR, self).__init__()
 
         self.typedefs = typedefs
@@ -78,6 +88,7 @@ class OMNI2IR(GenericVisitor):
         self.symbol_map = symbol_map
         self.shape_map = shape_map
         self.raw_source = raw_source
+        self.scope = scope
 
     def lookup_method(self, instance):
         """
@@ -141,13 +152,15 @@ class OMNI2IR(GenericVisitor):
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
-            t = name.attrib['type']
-            _type = BaseType(name=BaseType._omni_types.get(t, t))
+            t = self._omni_types[name.attrib['type']]
+            _type = SymbolType(DataType.from_fortran_type(t))
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
+        if _type is not None:
+            _type.shape = dimensions
         variable = Variable(name=name.text, dimensions=dimensions, type=_type,
-                            shape=dimensions, initial=value)
+                            initial=value, scope=self.scope, source=source)
         return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -162,9 +175,9 @@ class OMNI2IR(GenericVisitor):
         if ref in self.type_map:
             _type = self.visit(self.type_map[ref])
         else:
-            name = BaseType._omni_types.get(ref, ref)
+            typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-            _type = BaseType(name, kind=kind)
+            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -283,7 +296,7 @@ class OMNI2IR(GenericVisitor):
                                         parameter=vtype.parameter, target=vtype.target,
                                         contiguous=vtype.contiguous)
         else:
-            vtype = BaseType(name=BaseType._omni_types.get(t, t))
+            vtype = SymbolType(DataType.from_fortran_type(self._omni_types[t]))
 
         if lookahead:
             return vname, vtype, None
@@ -291,7 +304,7 @@ class OMNI2IR(GenericVisitor):
         shape = None
         if self.shape_map is not None:
             shape = self.shape_map.get(vname, None)
-        return Variable(name=vname, type=vtype, shape=shape)
+        return Variable(name=vname, type=vtype, shape=shape, scope=self.scope, source=source)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
@@ -307,8 +320,11 @@ class OMNI2IR(GenericVisitor):
                            if v.name.lower() == vname.lower()][0]
                 shape = typevar.shape or typevar.dimensions
 
-        return Variable(name=vname, dimensions=dimensions,
-                        shape=shape, type=vtype, parent=parent)
+        if vtype is not None:
+            vtype.shape = shape
+
+        return Variable(name=vname, scope=self.scope, dimensions=dimensions,
+                        type=vtype, parent=parent, source=source)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -326,7 +342,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
-        return Literal(value=o.text, type=DataType.BOOL)
+        return Literal(value=o.text, type=DataType.LOGICAL)
 
     def visit_FcharacterConstant(self, o, source=None):
         return Literal(value='"%s"' % o.text)
@@ -367,13 +383,11 @@ class OMNI2IR(GenericVisitor):
                         kind = kind[1]  # Yuckk!
                 else:
                     kind = None
-                dtype = BaseType(name=o.find('name').text, kind=kind)
-                return Cast(dtype.name, expression=expr, kind=dtype.kind)
+                return Cast(o.find('name').text, expression=expr, kind=kind)
             else:
                 return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
-        return o.text
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
@@ -529,13 +543,13 @@ class OMNI2IR(GenericVisitor):
 
 @timeit(log_level=DEBUG)
 def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                   raw_source=None):
+                   raw_source=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
     ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 shape_map=shape_map, raw_source=raw_source).visit(ast)
+                 shape_map=shape_map, raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

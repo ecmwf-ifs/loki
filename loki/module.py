@@ -75,15 +75,17 @@ class Module(object):
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, parent=None):
         name = name or ast.attrib['name']
 
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
 
+        obj = cls(name=name, ast=ast, raw_source=raw_source, parent=parent)
+
         # Generate spec, filter out external declarations and insert `implicit none`
         spec = parse_omni_ast(ast.find('declarations'), type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source)
+                              symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         spec = Section(body=spec)
 
         # TODO: Parse member functions properly
@@ -92,10 +94,12 @@ class Module(object):
         if contains is not None:
             routines = [Subroutine.from_omni(ast=s, typetable=typetable,
                                              symbol_map=symbol_map,
-                                             raw_source=raw_source)
+                                             raw_source=raw_source, parent=obj)
                         for s in contains]
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast)
+        obj.__init__(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source,
+                     parent=parent, symbols=obj.symbols, types=obj.types)
+        return obj
 
     @classmethod
     def from_fparser(cls, ast, name=None, parent=None):
