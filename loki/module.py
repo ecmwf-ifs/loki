@@ -53,24 +53,26 @@ class Module(object):
         self._raw_source = raw_source
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None):
+    def from_ofp(cls, ast, raw_source, name=None, parent=None):
         # Process module-level type specifications
         name = name or ast.attrib['name']
+        obj = cls(name=name, ast=ast, raw_source=raw_source, parent=parent)
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse_ofp_ast(spec_ast, raw_source=raw_source)
+        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, scope=obj)
 
         # TODO: Add routine parsing
         routine_asts = ast.findall('members/subroutine')
-        routines = tuple(Subroutine.from_ofp(ast, raw_source)
+        routines = tuple(Subroutine.from_ofp(ast, raw_source, parent=obj)
                          for ast in routine_asts)
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
 
-        return cls(name=name, spec=spec, routines=routines,
-                   ast=ast, raw_source=raw_source)
+        obj.__init__(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source,
+                     parent=parent, symbols=obj.symbols, types=obj.types)
+        return obj
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None):
@@ -98,7 +100,7 @@ class Module(object):
     @classmethod
     def from_fparser(cls, ast, name=None, parent=None):
         name = name or ast.content[0].items[1].tostr()
-        obj = cls(name, parent=None)
+        obj = cls(name, ast=ast, parent=parent)
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []

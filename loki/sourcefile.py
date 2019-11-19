@@ -87,6 +87,7 @@ class SourceFile(object):
     def from_ofp(cls, filename, preprocess=False, typedefs=None):
         file_path = Path(filename)
         info_path = file_path.with_suffix('.pp.info')
+        obj = cls(filename)
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the OFP, as it will otherwise drop certain
@@ -109,12 +110,15 @@ class SourceFile(object):
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
 
-        routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source,
-                                        typedefs=typedefs, pp_info=pp_info)
+        routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
+                                        parent=obj, pp_info=pp_info)
                     for r in ast.findall('file/subroutine')]
-        modules = [Module.from_ofp(ast=m, raw_source=raw_source)
+        modules = [Module.from_ofp(ast=m, raw_source=raw_source, parent=obj)
                    for m in ast.findall('file/module')]
-        return cls(filename, routines=routines, modules=modules, ast=ast)
+
+        obj.__init__(filename, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
+                     types=obj.types)
+        return obj
 
     @classmethod
     def from_fparser(cls, filename, typedefs=None):

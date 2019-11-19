@@ -31,29 +31,28 @@ class LokiStringifyMapper(StringifyMapper):
         return "'%s'" % expr.value
 
     def map_scalar(self, expr, *args, **kwargs):
-        return expr.name
-#        if expr.type and expr.type.parent:
-#            parent = self.rec(expr.type.parent, *args, **kwargs) + '%'
-#            return self.format('%s%s', parent, expr.name)
-#        else:
-#            return expr.name
+        if expr.type and expr.type.parent:
+            parent = self.rec(expr.type.parent, *args, **kwargs) + '%'
+            return self.format('%s%s', parent, expr.basename)
+        else:
+            return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
         if dims:
             dims = '(' + dims + ')'
-        if expr.type and expr.type.initial:
-            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-        else:
-            initial = ''
-        return self.format('%s%s%s', expr.name, dims, initial)
-#        parent, initial = '', ''
-#        if expr.type:
-#            if expr.type.parent:
-#                parent = self.rec(expr.type.parent, PREC_NONE, *args, **kwargs) + '%'
-#            if expr.type.initial:
-#                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-#        return self.format('%s%s%s%s', parent, expr.name, dims, initial)
+#        if expr.type and expr.type.initial:
+#            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+#        else:
+#            initial = ''
+#        return self.format('%s%s%s', expr.name, dims, initial)
+        parent, initial = '', ''
+        if expr.type:
+            if expr.type.parent:
+                parent = self.rec(expr.type.parent, PREC_NONE, *args, **kwargs) + '%'
+            if expr.type.initial:
+                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+        return self.format('%s%s%s%s', parent, expr.basename, dims, initial)
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 

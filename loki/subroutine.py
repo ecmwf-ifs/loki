@@ -97,8 +97,9 @@ class Subroutine(object):
         return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
         name = name or ast.attrib['name']
+        obj = cls(name=name, ast=ast, typedefs=typedefs, parent=parent)
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
@@ -112,8 +113,9 @@ class Subroutine(object):
         ast_body = ast_body[idx_spec+1:]
 
         # Create a IRs for the docstring and the declaration spec
-        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source)
-        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source)
+        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=obj)
+        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source,
+                             scope=obj)
 
         # Derive type and shape maps to propagate through the subroutine body
         type_map = {}
@@ -125,7 +127,7 @@ class Subroutine(object):
 
         # Generate the subroutine body with all shape and type info
         body = parse_ofp_ast(ast_body, pp_info=pp_info, shape_map=shape_map, type_map=type_map,
-                             raw_source=raw_source)
+                             raw_source=raw_source, scope=obj)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -135,12 +137,14 @@ class Subroutine(object):
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source,
-                                           typedefs=typedefs, pp_info=pp_info)
+            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
+                                           pp_info=pp_info, scope=obj)
                        for s in ast.findall('members/subroutine')]
 
-        return cls(name=name, args=args, docstring=docs, spec=spec, body=body,
-                   members=members, ast=ast, typedefs=typedefs)
+        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
+                     members=members, ast=ast, typedefs=typedefs, symbols=obj.symbols,
+                     types=obj.types, parent=parent)
+        return obj
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None):
