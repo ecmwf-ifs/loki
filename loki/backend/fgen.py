@@ -349,7 +349,7 @@ class FortranCodegen(Visitor):
 
     def visit_Allocation(self, o):
         source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
-        variables = ','.join(v.name if isinstance(v, str) else str(v)
+        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
                              for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 

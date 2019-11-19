@@ -253,20 +253,23 @@ class OFP2IR(GenericVisitor):
                     # We have an intrinsic Fortran type
                     if t.attrib['type'] == 'intrinsic':
                         _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
-                                           parent=parent_type, pointer='POINTER' in attrs,
+                                           pointer='POINTER' in attrs,
+                                           #parent=parent_type, pointer='POINTER' in attrs,
                                            allocatable='ALLOCATABLE' in attrs, source=t_source)
                     else:
                         # This is a derived type. Let's see if we know it already
                         _type = self.scope.types.lookup(typename, recursive=True)
                         if _type is not None:
-                            _type = _type.clone(parent=parent_type, kind=kind,
+                            #_type = _type.clone(parent=parent_type, kind=kind,
+                            _type = _type.clone(kind=kind,
                                                 pointer='POINTER' in attrs,
                                                 allocatable='ALLOCATABLE' in attrs,
                                                 source=t_source)
                         else:
                             import pdb; pdb.set_trace()
                             _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
-                                               parent=parent_type, kind=kind,
+                                               #parent=parent_type, kind=kind,
+                                               kind=kind,
                                                pointer='POINTER' in attrs,
                                                allocatable='ALLOCATABLE' in attrs,
                                                variables=OrderedDict(), source=t_source)
@@ -446,12 +449,9 @@ class OFP2IR(GenericVisitor):
                     vname = '%s%%%s' % (parent.name, vname)
 
                 _type = self.scope.symbols.lookup(vname, recursive=True)
-                # Create local type as parent might have dimension information
-                if _type is not None and _type.parent != parent:
-                    _type = _type.clone(parent=parent)
 
                 # If the (possibly external) struct definitions exists
-                # derive the shape and real type from it.:
+                # derive the type from it.
                 if _type is None and parent is not None and parent.type is not None:
                     if parent.type.dtype == DataType.DERIVED_TYPE:
                         _type = parent.type.variables.get(basename)
@@ -488,6 +488,8 @@ class OFP2IR(GenericVisitor):
 
     def visit_variable(self, o, source=None, **kwargs):
         _type = kwargs.get('type', None)
+        if _type and _type.parent is not None:
+            import pdb; pdb.set_trace()
         if 'id' not in o.attrib and 'name' not in o.attrib:
             return None
         name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']

@@ -31,8 +31,8 @@ class LokiStringifyMapper(StringifyMapper):
         return "'%s'" % expr.value
 
     def map_scalar(self, expr, *args, **kwargs):
-        if expr.type and expr.type.parent:
-            parent = self.rec(expr.type.parent, *args, **kwargs) + '%'
+        if expr.parent is not None:
+            parent = self.rec(expr.parent, *args, **kwargs) + '%'
             return self.format('%s%s', parent, expr.basename)
         else:
             return expr.name
@@ -47,11 +47,10 @@ class LokiStringifyMapper(StringifyMapper):
 #            initial = ''
 #        return self.format('%s%s%s', expr.name, dims, initial)
         parent, initial = '', ''
-        if expr.type:
-            if expr.type.parent:
-                parent = self.rec(expr.type.parent, PREC_NONE, *args, **kwargs) + '%'
-            if expr.type.initial:
-                initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
+        if expr.parent is not None:
+            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
+        if expr.type is not None and expr.type.initial is not None:
+            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
         return self.format('%s%s%s%s', parent, expr.basename, dims, initial)
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
@@ -100,16 +99,23 @@ class Scalar(pmbl.Variable):
     This is due to the assumption that we might have encountered a variable name before
     knowing about its declaration and thus treat the latest given type information as
     the one that is most up-to-date.
+
+    Note that a Variable instance and a type can have a parent, with the parent of a Variable
+    always being a Variable and the parent of a type always being a type. Conceptually, it should
+    always hold `variable.parent.type == variable.type.parent.type`. This is due to the fact that
+    a variables parent can be an Array of derived types and as such has a `dimensions` parameter,
+    thus requires a different parent than at the time of declaration.
     """
 
-    def __init__(self, name, scope, type=None, initial=None, _source=None):
+    def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
         super(Scalar, self).__init__(name)
 
         self._scope = weakref.ref(scope)
         if type is not None:
             self.type = type
+        self.parent = parent
         self.initial = initial
-        self._source = _source
+        self.source = source
 
     @property
     def scope(self):
@@ -156,6 +162,8 @@ class Scalar(pmbl.Variable):
             kwargs['scope'] = self.scope
         if self.type and 'type' not in kwargs:
             kwargs['type'] = self.type
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
 
         return Variable(**kwargs)
 
@@ -174,17 +182,25 @@ class Array(pmbl.Variable):
     This is due to the assumption that we might have encountered a variable name before
     knowing about its declaration and thus treat the latest given type information as
     the one that is most up-to-date.
+
+    Note that a Variable instance and a type can have a parent, with the parent of a Variable
+    always being a Variable and the parent of a type always being a type. Conceptually, it should
+    always hold `variable.parent.type == variable.type.parent.type`. This is due to the fact that
+    a variables parent can be an Array of derived types and as such has a `dimensions` parameter,
+    thus requires a different parent than at the time of declaration.
     """
 
-    def __init__(self, name, scope, type=None, dimensions=None, initial=None, _source=None):
+    def __init__(self, name, scope, type=None, parent=None, dimensions=None,
+                 initial=None, source=None):
         super(Array, self).__init__(name)
 
         self._scope = weakref.ref(scope)
         if type is not None:
             self.type = type
+        self.parent = parent
         self.dimensions = dimensions
         self.initial = initial
-        self._source = _source
+        self.source = source
 
     @property
     def scope(self):
@@ -261,6 +277,8 @@ class Array(pmbl.Variable):
             kwargs['dimensions'] = self.dimensions
         if self.type and 'type' not in kwargs:
             kwargs['type'] = self.type
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
 
         return Variable(**kwargs)
 
@@ -288,24 +306,26 @@ class Variable(object):
         dimensions = kwargs.pop('dimensions', None)
         initial = kwargs.pop('initial', None)
         _type = kwargs.get('type', scope.symbols.lookup(name, recursive=False))
+        parent = kwargs.pop('parent', None)
         source = kwargs.get('source', None)
 
         shape = _type.shape if _type is not None else None
 
         if dimensions is None and (shape is None or len(shape) == 0):
-            obj = Scalar(name=name, type=_type, scope=scope, initial=initial, _source=source)
+            obj = Scalar(name=name, type=_type, scope=scope, parent=parent,
+                         initial=initial, source=source)
         else:
-            obj = Array(name=name, dimensions=dimensions, type=_type, scope=scope,
-                        initial=initial, _source=source)
+            obj = Array(name=name, dimensions=dimensions, type=_type, scope=scope, parent=parent,
+                        initial=initial, source=source)
 
-        obj = cls.instantiate_derived_type_variables(obj)
+#        obj = cls.instantiate_derived_type_variables(obj)
         return obj
 
     @classmethod
     def instantiate_derived_type_variables(cls, obj):
         """
-        If the type provided is a derived type and its list of variables is a list of
-        class:``SymbolType``, we are creating a variable from type definition.
+        If the type of obj is a derived type then its list of variables is a list of
+        class:``SymbolType`` and we are creating a variable from type definition.
         For the actual instantiation of a variable with that type, we need to create a dedicated
         copy of that type and replace its parent by this object and its list of variables (which
         is an OrderedDict of SymbolTypes) by a list of Variable instances.
