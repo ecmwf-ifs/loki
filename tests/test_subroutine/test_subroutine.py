@@ -74,16 +74,16 @@ def test_routine_simple_caching(refpath, reference, header_path, frontend):
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
         or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
-    assert routine.arguments[2].type.name.lower() == 'real'
-    assert routine.arguments[3].type.name.lower() == 'real'
+    assert routine.arguments[2].type.dtype == DataType.REAL
+    assert routine.arguments[3].type.dtype == DataType.REAL
 
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_simple_caching']
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'] \
         or routine_args == ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)']
     # Ensure that the types in the second routine have been picked up
-    assert routine.arguments[2].type.name.lower() == 'integer'
-    assert routine.arguments[3].type.name.lower() == 'integer'
+    assert routine.arguments[2].type.dtype == DataType.INTEGER
+    assert routine.arguments[3].type.dtype == DataType.INTEGER
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -265,8 +265,7 @@ def test_routine_shape_propagation(refpath, reference, header_path, header_mod, 
     assert all(v.shape is not None for v in variables if isinstance(v, Array))
 
     # Verify shape info from imported derived type is propagated
-    # vmap = {v.name: v for v in variables}
-    vmap = {'%s%s' % (v.parent.name + '%' if v.parent else '', v.name): v for v in variables}
+    vmap = {v.name: v for v in variables}
     assert fsymgen(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
     assert fsymgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
@@ -288,11 +287,14 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     routine = source['routine_simple']
 
     # Check types on the internalized variable and argument lists
-    assert routine.arguments[0].type.dtype == DataType.INT32
-    assert routine.arguments[1].type.dtype == DataType.INT32
-    assert routine.arguments[2].type.dtype == DataType.FLOAT64
-    assert routine.arguments[3].type.dtype == DataType.FLOAT64
-    assert routine.arguments[4].type.dtype == DataType.FLOAT64
+    assert routine.arguments[0].type.dtype == DataType.INTEGER
+    assert routine.arguments[1].type.dtype == DataType.INTEGER
+    assert routine.arguments[2].type.dtype == DataType.REAL
+    assert routine.arguments[2].type.kind in ('jprb',)
+    assert routine.arguments[3].type.dtype == DataType.REAL
+    assert routine.arguments[3].type.kind in ('jprb',)
+    assert routine.arguments[4].type.dtype == DataType.REAL
+    assert routine.arguments[4].type.kind in ('jprb',)
 
     # Verify that all variable instances have type information
     variables = FindVariables().visit(routine.body)
@@ -300,10 +302,13 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
                if isinstance(v, Scalar) or isinstance(v, Array))
 
     vmap = {v.name: v for v in variables}
-    assert vmap['x'].type.dtype == DataType.INT32
-    assert vmap['scalar'].type.dtype == DataType.FLOAT64
-    assert vmap['vector'].type.dtype == DataType.FLOAT64
-    assert vmap['matrix'].type.dtype == DataType.FLOAT64
+    assert vmap['x'].type.dtype == DataType.INTEGER
+    assert vmap['scalar'].type.dtype == DataType.REAL
+    assert vmap['scalar'].type.kind in ('jprb',)
+    assert vmap['vector'].type.dtype == DataType.REAL
+    assert vmap['vector'].type.kind in ('jprb',)
+    assert vmap['matrix'].type.dtype == DataType.REAL
+    assert vmap['matrix'].type.kind in ('jprb',)
 
     # Parse kernel routine and provide external typedefs
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
@@ -320,11 +325,13 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert all(v.type is not None for v in variables)
 
     # Verify imported derived type info explicitly
-    # vmap = {v.name: v for v in variables}
-    vmap = {'%s%s' % (v.parent.name + '%' if v.parent else '', v.name): v for v in variables}
-    assert vmap['item%scalar'].type.dtype == DataType.FLOAT64
-    assert vmap['item%vector'].type.dtype == DataType.FLOAT64
-    assert vmap['item%matrix'].type.dtype == DataType.FLOAT64
+    vmap = {v.name: v for v in variables}
+    assert vmap['item%scalar'].type.dtype == DataType.REAL
+    assert vmap['item%scalar'].type.kind in ('jprb',)
+    assert vmap['item%vector'].type.dtype == DataType.REAL
+    assert vmap['item%vector'].type.kind in ('jprb',)
+    assert vmap['item%matrix'].type.dtype == DataType.REAL
+    assert vmap['item%matrix'].type.kind in ('jprb',)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

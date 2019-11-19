@@ -332,15 +332,17 @@ class OFP2IR(GenericVisitor):
                         _type = _type.clone(kind=kind, intent=intent, allocatable=allocatable,
                                             pointer=pointer, optional=optional, shape=dimensions,
                                             parameter=parameter, target=target, source=source)
-                    if _type is None and self.typedefs is not None:
-                        if typename.lower() in self.typedefs:
-                            import pdb; pdb.set_trace()
-                            struct_type = self.typedefs[typename.lower()]
-                            _type = DerivedType(name=typename, variables=struct_type.variables,
-                                                kind=kind, intent=intent,
-                                                allocatable=allocatable, pointer=pointer,
-                                                optional=optional, parameter=parameter,
-                                                target=target, source=source)
+                    if _type is None:
+                        if self.typedefs is not None and typename.lower() in self.typedefs:
+                            variables = self.typedefs[typename.lower()].variables
+                            variables = OrderedDict([(v.name, v) for v in variables])
+                        else:
+                            variables = OrderedDict()
+                        _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                                           variables=variables, kind=kind, intent=intent,
+                                           allocatable=allocatable, pointer=pointer,
+                                           optional=optional, parameter=parameter,
+                                           target=target, source=source)
 
                 variables = [self.visit(v, type=_type, dimensions=dimensions)
                              for v in o.findall('variables/variable')]
@@ -450,13 +452,11 @@ class OFP2IR(GenericVisitor):
 
                 _type = self.scope.symbols.lookup(vname, recursive=True)
 
-                # If the (possibly external) struct definitions exists
-                # derive the type from it.
+                # If the (possibly external) struct definitions exist
+                # try to derive the type from it.
                 if _type is None and parent is not None and parent.type is not None:
                     if parent.type.dtype == DataType.DERIVED_TYPE:
                         _type = parent.type.variables.get(basename)
-                        if not isinstance(_type, SymbolType):
-                            _type = _type.type
 
                 var = Variable(name=vname, dimensions=indices, parent=parent,
                                type=_type, scope=self.scope, source=source)
@@ -487,9 +487,6 @@ class OFP2IR(GenericVisitor):
         return variable
 
     def visit_variable(self, o, source=None, **kwargs):
-        _type = kwargs.get('type', None)
-        if _type and _type.parent is not None:
-            import pdb; pdb.set_trace()
         if 'id' not in o.attrib and 'name' not in o.attrib:
             return None
         name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
@@ -498,6 +495,9 @@ class OFP2IR(GenericVisitor):
             dimensions = tuple(d for d in dimensions if d is not None)
         else:
             dimensions = kwargs.get('dimensions', None)
+        _type = kwargs.get('type', None)
+        if _type is not None:
+            _type = _type.clone(shape=dimensions)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
         return Variable(name=name, scope=self.scope, dimensions=dimensions,
                         type=_type, initial=initial, source=source)
