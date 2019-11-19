@@ -98,7 +98,8 @@ class FParser2IR(GenericVisitor):
         initial = kwargs.get('initial', None)
         _source = kwargs.get('source', None)
 
-        if parent is None and dtype is not None:
+        if parent is None and dtype is not None and dtype.parent is not None:
+            import pdb; pdb.set_trace()
             parent = dtype.parent
         if parent is not None:
             basename = vname
@@ -110,11 +111,6 @@ class FParser2IR(GenericVisitor):
 #        if dtype is None and self.type_map is not None:
 #            dtype = self.type_map.get(vname, None)
 
-        if shape is None and dtype is not None:
-            shape = dtype.shape
-#        if shape is None and self.shape_map is not None:
-#            shape = self.shape_map.get(vname, None)
-
         # If a parent variable is given, try to infer type from the
         # derived type definition
         if parent is not None and dtype is None:
@@ -124,8 +120,17 @@ class FParser2IR(GenericVisitor):
                 if parent.type.variables is not None:
                     dtype = parent.type.variables[basename]
 
+        if shape is None and dtype is not None:
+            shape = dtype.shape
+
+        if shape is not None and dtype is not None and dtype.shape is None:
+            dtype = dtype.clone(shape=shape)
+#        if shape is None and self.shape_map is not None:
+#            shape = self.shape_map.get(vname, None)
+
+
         return Variable(name=vname, dimensions=dimensions, type=dtype, scope=self.scope,
-                        initial=initial, _source=_source)
+                        parent=parent, initial=initial, _source=_source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
         return Literal(value=str(o.items[0]), kind=o.items[1])
@@ -389,7 +394,6 @@ class FParser2IR(GenericVisitor):
                                     pointer='pointer' in attrs, optional='optional' in attrs,
                                     parameter='parameter' in attrs, target='target' in attrs)
             else:
-                import pdb; pdb.set_trace()
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
                     variables = {v.name: v for v in self.typedefs[typename].variables}
@@ -455,7 +459,6 @@ class FParser2IR(GenericVisitor):
             typename = derived_type_ast.items[1].tostr().lower()
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
-                import pdb; pdb.set_trace()
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
                     variables = self.typedefs[typename].variables
