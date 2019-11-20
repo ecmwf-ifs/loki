@@ -439,4 +439,7 @@ class TypeDef(Node):
 
     @property
     def variables(self):
-        return tuple(flatten([decl.variables for decl in self.declarations]))
+        v = OrderedDict()
+        for decl in self.declarations:
+            v.update(decl.variables)
+        return v

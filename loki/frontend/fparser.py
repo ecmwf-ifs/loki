@@ -120,9 +120,6 @@ class FParser2IR(GenericVisitor):
                 if parent.type.variables is not None:
                     dtype = parent.type.variables[basename]
 
-        if shape is None and dtype is not None:
-            shape = dtype.shape
-
         if shape is not None and dtype is not None and dtype.shape is None:
             dtype = dtype.clone(shape=shape)
 #        if shape is None and self.shape_map is not None:
@@ -281,7 +278,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         dtype = o.items[0]
-        kind = o.items[1].items[1].tostr() if o.items[1] is not None else None
+        kind = get_child(o, Kind_Selector)
+        if kind is not None:
+            kind = self.visit(kind.items[1], **kwargs)
+        # TODO: Length_Selector for CHARACTER
         return dtype, kind
 
     def visit_Intrinsic_Name(self, o, **kwargs):
@@ -395,7 +395,7 @@ class FParser2IR(GenericVisitor):
             else:
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
-                    variables = {v.name: v for v in self.typedefs[typename].variables}
+                    variables = self.typedefs[typename].variables
                 else:
                     variables = None
                 dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,

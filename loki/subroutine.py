@@ -120,10 +120,10 @@ class Subroutine(object):
         # Derive type and shape maps to propagate through the subroutine body
         type_map = {}
         shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            type_map.update({v.name: v.type for v in decl.variables})
-            shape_map.update({v.name: v.shape for v in decl.variables
-                              if isinstance(v, Array)})
+#        for decl in FindNodes(Declaration).visit(spec):
+#            type_map.update({v.name: v.type for v in decl.variables})
+#            shape_map.update({v.name: v.shape for v in decl.variables
+#                              if isinstance(v, Array)})
 
         # Generate the subroutine body with all shape and type info
         body = parse_ofp_ast(ast_body, pp_info=pp_info, shape_map=shape_map, type_map=type_map,
@@ -176,10 +176,10 @@ class Subroutine(object):
 
         # Get the declared shapes of local variables and arguments
         shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            for v in decl.variables:
-                if isinstance(v, Array):
-                    shape_map[v.name] = v.shape
+#        for decl in FindNodes(Declaration).visit(spec):
+#            for v in decl.variables:
+#                if isinstance(v, Array):
+#                    shape_map[v.name] = v.shape
 
         # Parse member functions properly
         contains = ast.find('body/FcontainsStatement')

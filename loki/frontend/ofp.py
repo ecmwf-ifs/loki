@@ -249,7 +249,9 @@ class OFP2IR(GenericVisitor):
                                  for a in attr[0].findall('attribute/component-attr-spec')]
                     typename = t.attrib['name']
                     t_source = extract_source(t.attrib, self._raw_source)
-                    kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
+                    kind = t.find('kind')
+                    if kind is not None:
+                        kind = self.visit(kind)
                     # We have an intrinsic Fortran type
                     if t.attrib['type'] == 'intrinsic':
                         _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
@@ -308,7 +310,9 @@ class OFP2IR(GenericVisitor):
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
                 typename = o.find('type').attrib['name']
-                kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
+                kind = o.find('type/kind')
+                if kind is not None:
+                    kind = self.visit(kind)
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
                 pointer = o.find('attribute-pointer') is not None
@@ -334,7 +338,6 @@ class OFP2IR(GenericVisitor):
                     if _type is None:
                         if self.typedefs is not None and typename.lower() in self.typedefs:
                             variables = self.typedefs[typename.lower()].variables
-                            variables = OrderedDict([(v.name, v) for v in variables])
                         else:
                             variables = OrderedDict()
                         _type = SymbolType(DataType.DERIVED_TYPE, name=typename,

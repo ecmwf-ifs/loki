@@ -139,14 +139,14 @@ class OMNI2IR(GenericVisitor):
             # Hacky..: Override derived type meta-info with provided ``typedefs``.
             # This is needed to get the Loki-specific (pragma-driven) dimensions on
             # derived-type components, that are otherwise deferred.
-            if _type is not None and self.typedefs is not None:
-                typedef = self.typedefs.get(_type.name.lower(), None)
-                if typedef is not None:
-                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
-                                        intent=_type.intent, allocatable=_type.allocatable,
-                                        pointer=_type.pointer, optional=_type.optional,
-                                        parameter=_type.parameter, target=_type.target,
-                                        contiguous=_type.contiguous)
+#            if _type is not None and self.typedefs is not None:
+#                typedef = self.typedefs.get(_type.name.lower(), None)
+#                if typedef is not None:
+#                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
+#                                        intent=_type.intent, allocatable=_type.allocatable,
+#                                        pointer=_type.pointer, optional=_type.optional,
+#                                        parameter=_type.parameter, target=_type.target,
+#                                        contiguous=_type.contiguous)
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
@@ -269,17 +269,21 @@ class OMNI2IR(GenericVisitor):
 
         vtype = None
         if parent is not None:
-            # If we have a parent with a type, use that
-            if parent.type.dtype == DataType.DERIVED_TYPE:
-                vtype = parent.type.variables.get(vname, vtype)
+            basename = vname
             vname = '%s%%%s' % (parent.name, vname)
+
+        vtype = self.scope.symbols.lookup(vname, recursive=True)
+
+        # If we have a parent with a type, use that
+        if vtype is None and parent is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+            vtype = parent.type.variables.get(basename, vtype)
         if vtype is None and t in self.type_map:
             vtype = self.visit(self.type_map[t])
         if vtype is None:
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        if shape is not None:
+        if shape is not None and vtype is not None and vtype.shape is None:
             # We need to create a clone of that type as other instances of that
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
@@ -297,28 +301,29 @@ class OMNI2IR(GenericVisitor):
         t = o.attrib['type']
 
         source = kwargs.get('source', None)
-        shape = kwargs.get('shape', None)
         dimensions = kwargs.get('dimensions', None)
 
-        vtype = None
-        if t in self.type_map:
+        vtype = self.scope.symbols.lookup(vname, recursive=True)
+
+        if vtype is None and t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
             # Inject derived-type definition override :(
-            if vtype is not None and self.typedefs is not None:
-                typedef = self.typedefs.get(vtype.name.lower(), None)
-                if typedef is not None:
-                    import pdb; pdb.set_trace()
-                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
-                                        intent=vtype.intent, allocatable=vtype.allocatable,
-                                        pointer=vtype.pointer, optional=vtype.optional,
-                                        parameter=vtype.parameter, target=vtype.target,
-                                        contiguous=vtype.contiguous)
+#            if vtype is not None and self.typedefs is not None:
+#                typedef = self.typedefs.get(vtype.name.lower(), None)
+#                if typedef is not None:
+#                    import pdb; pdb.set_trace()
+#                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
+#                                        intent=vtype.intent, allocatable=vtype.allocatable,
+#                                        pointer=vtype.pointer, optional=vtype.optional,
+#                                        parameter=vtype.parameter, target=vtype.target,
+#                                        contiguous=vtype.contiguous)
         if vtype is None:
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        if shape is not None:
+        shape = kwargs.get('shape', None)
+        if shape is not None and vtype is not None and vtype.shape is None:
             # We need to create a clone of that type as other instances of that
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
