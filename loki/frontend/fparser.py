@@ -98,9 +98,6 @@ class FParser2IR(GenericVisitor):
         initial = kwargs.get('initial', None)
         _source = kwargs.get('source', None)
 
-        if parent is None and dtype is not None and dtype.parent is not None:
-            import pdb; pdb.set_trace()
-            parent = dtype.parent
         if parent is not None:
             basename = vname
             vname = '%s%%%s' % (parent.name, vname)
@@ -108,23 +105,16 @@ class FParser2IR(GenericVisitor):
         # Try to find the symbol in the symbol tables
         if dtype is None and self.scope is not None:
             dtype = self.scope.symbols.lookup(vname, recursive=True)
-#        if dtype is None and self.type_map is not None:
-#            dtype = self.type_map.get(vname, None)
 
         # If a parent variable is given, try to infer type from the
         # derived type definition
         if parent is not None and dtype is None:
-#            if parent.type is None and self.type_map is not None:
-#                parent.type = self.type_map.get(parent.name, None)
             if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
                 if parent.type.variables is not None:
                     dtype = parent.type.variables[basename]
 
-        if shape is not None and dtype is not None and dtype.shape is None:
+        if shape is not None and dtype is not None and dtype.shape != shape:
             dtype = dtype.clone(shape=shape)
-#        if shape is None and self.shape_map is not None:
-#            shape = self.shape_map.get(vname, None)
-
 
         return Variable(name=vname, dimensions=dimensions, type=dtype, scope=self.scope,
                         parent=parent, initial=initial, _source=_source)
@@ -255,7 +245,9 @@ class FParser2IR(GenericVisitor):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
 
     def visit_Allocation(self, o, **kwargs):
-        kwargs['dimensions'] = self.visit(o.items[1])
+        dimensions = self.visit(o.items[1])
+        kwargs['dimensions'] = dimensions
+        kwargs['shape'] = dimensions
         return self.visit(o.items[0], **kwargs)
 
     def visit_Allocate_Shape_Spec(self, o, **kwargs):

@@ -76,8 +76,8 @@ class Subroutine(object):
         self.bind = bind
         self.is_function = is_function
 
-    @classmethod
-    def _infer_allocatable_shapes(cls, spec, body):
+    @staticmethod
+    def _infer_allocatable_shapes(spec, body):
         """
         Infer variable symbol shapes from allocations of ``allocatable`` arrays.
         """
@@ -89,11 +89,13 @@ class Subroutine(object):
         vmap = {}
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:
-                vmap[v] = v.clone(shape=alloc_map[v.name.lower()])
+                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
+                vmap[v] = v.clone(type=vtype)
         smap = {}
         for v in FindVariables().visit(spec):
             if v.name.lower() in alloc_map:
-                smap[v] = v.clone(shape=alloc_map[v.name.lower()])
+                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
+                smap[v] = v.clone(type=vtype)
         return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
 
     @classmethod

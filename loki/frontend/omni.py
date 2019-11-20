@@ -283,7 +283,7 @@ class OMNI2IR(GenericVisitor):
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        if shape is not None and vtype is not None and vtype.shape is None:
+        if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
@@ -302,6 +302,7 @@ class OMNI2IR(GenericVisitor):
 
         source = kwargs.get('source', None)
         dimensions = kwargs.get('dimensions', None)
+        shape = kwargs.get('shape', None)
 
         vtype = self.scope.symbols.lookup(vname, recursive=True)
 
@@ -322,8 +323,7 @@ class OMNI2IR(GenericVisitor):
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        shape = kwargs.get('shape', None)
-        if shape is not None and vtype is not None and vtype.shape is None:
+        if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
