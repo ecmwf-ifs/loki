@@ -222,16 +222,16 @@ class FortranCodegen(Visitor):
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
         # If variables are instances of SymbolType, we have a derived type definition here
-        if isinstance(o.variables[0], SymbolType):
+        if isinstance(next(iter(o.variables.values())), SymbolType):
             variables = []
-            for v in o.variables:
+            for k, v in o.variables.items():
                 shape = ','.join(self.fsymgen(d) for d in v.shape or [])
                 if shape:
                     shape = '(' + shape + ')'
-                variables += ['%s%s' % (v.name, shape)]
+                variables += ['%s%s' % (k, shape)]
             variables = self.segment(variables)
         else:
-            variables = self.segment([self.visit(v) for v in o.variables])
+            variables = self.segment([self.visit(v) for v in o.variables.values()])
         return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o):

@@ -211,7 +211,6 @@ class FParser2IR(GenericVisitor):
         # We have to create a copy of the declared type to allow including name,
         # shapes and dimensions
         dtype = kwargs['dtype'].clone()
-        dtype.name = name
         dtype.parent = kwargs.get('parent', None)
 
         dims = get_child(o, Explicit_Shape_Spec_List)
@@ -226,7 +225,7 @@ class FParser2IR(GenericVisitor):
             dtype.dimensions = dims
             dtype.shape = dims
 
-        return dtype 
+        return name, dtype
 
     def visit_Entity_Decl_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in as_tuple(o.items))
@@ -409,8 +408,9 @@ class FParser2IR(GenericVisitor):
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
         variables = self.visit(o.items[2], **kwargs)
+        variables = OrderedDict([(k, v) for k, v in variables.items()])
 
-        return Declaration(variables=flatten(variables), type=dtype, dimensions=dimensions)
+        return Declaration(variables=variables, type=dtype, dimensions=dimensions)
 
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Derived_Type_Stmt).items[1].tostr().lower()
@@ -472,8 +472,10 @@ class FParser2IR(GenericVisitor):
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
         variables = self.visit(o.items[2], **kwargs)
+        variables = OrderedDict([(v.name, v) for v in variables])
         # TODO: Deal with our Loki-specific dimension annotations
-        return Declaration(variables=flatten(variables), type=dtype, dimensions=dimensions)
+
+        return Declaration(variables=variables, type=dtype, dimensions=dimensions)
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
         # Extract loop header and get stepping info

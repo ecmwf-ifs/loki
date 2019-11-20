@@ -11,7 +11,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, Call,
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
-from loki.types import TypeTable
+from loki.types import SymbolType, TypeTable
 
 
 __all__ = ['Subroutine']
@@ -165,7 +165,7 @@ class Subroutine(object):
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-                  if d._source.file != file or d.variables[0].name == name}
+                  if d._source.file != file or next(iter(d.variables)) == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
@@ -253,17 +253,17 @@ class Subroutine(object):
 
         for decl in FindNodes(Declaration).visit(self.ir):
             # Record all variables independently
-            self.variables += list(decl.variables)
+            self.variables += [v for v in decl.variables.values() if not isinstance(v, SymbolType)]
 
             # Insert argument variable at the position of the dummy
-            for v in decl.variables:
-                if v.name.lower() in self._dummies:
+            for k, v in decl.variables.items():
+                if not isinstance(v, SymbolType) and v.name.lower() in self._dummies:
                     idx = self._dummies.index(v.name.lower())
                     self.arguments[idx] = v
 
             # Stash declaration and mark for removal
-            for v in decl.variables:
-                self._decl_map[v] = decl
+            for k, v in decl.variables.items():
+                self._decl_map[v] = (k, decl)
             dmap[decl] = None
 
         # Remove declarations from the IR
@@ -284,10 +284,11 @@ class Subroutine(object):
                 continue
 
             if v in self._decl_map:
-                d = self._decl_map[v].clone()
-                d.variables = as_tuple(v)
+                k, d = self._decl_map[v]
+                d = d.clone()
+                d.variables = OrderedDict([(k, v)])
             else:
-                d = Declaration(variables=[v], type=v.type)
+                d = Declaration(variables=OrderedDict([(v.name, v)]), type=v.type)
 
             # Dimension declarations are done on variables
             d.dimensions = None

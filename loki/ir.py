@@ -288,7 +288,9 @@ class Declaration(Node):
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
-        self.variables = as_tuple(variables)
+        if not isinstance(variables, OrderedDict):
+            import pdb; pdb.set_trace()
+        self.variables = variables
         self.dimensions = dimensions
         self.type = type
 

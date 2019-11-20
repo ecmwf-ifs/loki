@@ -275,7 +275,7 @@ class OFP2IR(GenericVisitor):
                                                variables=OrderedDict(), source=t_source)
 
                     # Derive variables for this declaration entry
-                    variables = []
+                    variables = OrderedDict() 
                     for v in comps.findall('component'):
                         if len(v.attrib) == 0:
                             continue
@@ -294,10 +294,9 @@ class OFP2IR(GenericVisitor):
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
 
-                        variables += [_type.clone(name=v.attrib['name'], shape=dimensions,
-                                                  source=v_source)]
+                        variables[v.attrib['name']] = _type.clone(shape=dimensions, source=v_source)
 
-                    parent_type.variables.update({v.name: v for v in variables})
+                    parent_type.variables.update(variables)
                     declarations += [Declaration(variables=variables, type=_type, source=t_source)]
 
                 # Make that derived type known in the types table
@@ -346,9 +345,9 @@ class OFP2IR(GenericVisitor):
 
                 variables = [self.visit(v, type=_type, dimensions=dimensions)
                              for v in o.findall('variables/variable')]
-                variables = [v for v in variables if v is not None]
-                return Declaration(variables=variables, type=_type,
-                                   dimensions=dimensions, source=source)
+                variables = OrderedDict([(v.name, v) for v in variables if v is not None])
+                return Declaration(variables=variables, type=_type, dimensions=dimensions,
+                                   source=source)
         elif o.attrib['type'] == 'implicit':
             return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':

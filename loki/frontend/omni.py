@@ -161,13 +161,14 @@ class OMNI2IR(GenericVisitor):
             _type.shape = dimensions
         variable = Variable(name=name.text, dimensions=dimensions, type=_type,
                             initial=value, scope=self.scope, source=source)
-        return Declaration(variables=as_tuple(variable), type=_type, source=source)
+        return Declaration(variables=OrderedDict([(name.text, variable)]),
+                           type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
         derived = self.visit(self.type_map[name.attrib['type']])
-        decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                         for v in derived.variables)
+        decls = as_tuple(Declaration(variables=OrderedDict([(k, v)]), type=v)
+                         for k, v in derived.variables.items())
         return TypeDef(name=name.text, declarations=decls)
 
     def visit_FbasicType(self, o, source=None):
@@ -193,28 +194,30 @@ class OMNI2IR(GenericVisitor):
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
-        variables = []
+
+        parent_type = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict())
 
         for s in o.find('symbols'):
             vname = s.find('name').text
             t = s.attrib['type']
-            dimensions = None
             if t in self.type_map:
                 vtype = self.visit(self.type_map[t])
+                dimensions = None
                 if len(self.type_map[t]) > 0:
                     dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
+                vtype = vtype.clone(parent=parent_type, shape=dimensions)
             else:
-                vtype = BaseType(name=BaseType._omni_types.get(t, t))
-            variables += [Variable(name=vname, dimensions=dimensions,
-                                   shape=dimensions, type=vtype)]
+                typename = self._omni_types.get(t, t)
+                vtype = SymbolType(DataType.from_fortran_type(typename), parent=parent_type)
+            parent_type.variables[vname] = vtype
 
-        return DerivedType(name=name, variables=as_tuple(variables))
+        return parent_type
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text)
+            associations[var] = Variable(name=i.find('name').text, scope=self.scope)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -255,34 +258,49 @@ class OMNI2IR(GenericVisitor):
         return Conditional(conditions=as_tuple(conditions),
                            bodies=(bodies, ), else_body=else_body)
 
-    def visit_FmemberRef(self, o, lookahead=False, source=None):
+    def visit_FmemberRef(self, o, **kwargs):
         vname = o.attrib['member']
         t = o.attrib['type']
-        if t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-        else:
-            vtype = BaseType(name=BaseType._omni_types.get(t, t))
         parent = self.visit(o.find('varRef'))
 
-        if lookahead:
+        source = kwargs.get('source', None)
+        shape = kwargs.get('shape', None)
+        dimensions = kwargs.get('dimensions', None)
+
+        vtype = None
+        if parent is not None:
+            # If we have a parent with a type, use that
+            if parent.type.dtype == DataType.DERIVED_TYPE:
+                vtype = parent.type.variables.get(vname, vtype)
+            vname = '%s%%%s' % (parent.name, vname)
+        if vtype is None and t in self.type_map:
+            vtype = self.visit(self.type_map[t])
+        if vtype is None:
+            typename = self._omni_types.get(t, t)
+            vtype = SymbolType(DataType.from_fortran_type(typename))
+
+        if shape is not None:
+            # We need to create a clone of that type as other instances of that
+            # derived type might have a different allocation size
+            vtype = vtype.clone(shape=shape)
+
+        if kwargs.get('lookahead', False):
+            import pdb; pdb.set_trace()
             # Hack: Return components of Variable symbol to allow deferred creation
             return vname, vtype, parent
 
-        shape = None
-        if parent is not None:
-            # If we have a parent with a type, get the shape info from it
-            if isinstance(parent.type, DerivedType):
-                typevar = [v for v in parent.type.variables
-                           if v.name.lower() == vname.lower()][0]
-                shape = None
-                if isinstance(typevar, Array):
-                    shape = typevar.shape or typevar.dimensions
+        return Variable(name=vname, type=vtype, parent=parent, scope=self.scope,
+                        dimensions=dimensions, source=source)
 
-        return Variable(name=vname, type=vtype, parent=parent, shape=shape)
-
-    def visit_Var(self, o, lookahead=False, source=None):
+    def visit_Var(self, o, **kwargs):
         vname = o.text
         t = o.attrib['type']
+
+        source = kwargs.get('source', None)
+        shape = kwargs.get('shape', None)
+        dimensions = kwargs.get('dimensions', None)
+
+        vtype = None
         if t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
@@ -290,41 +308,50 @@ class OMNI2IR(GenericVisitor):
             if vtype is not None and self.typedefs is not None:
                 typedef = self.typedefs.get(vtype.name.lower(), None)
                 if typedef is not None:
+                    import pdb; pdb.set_trace()
                     vtype = DerivedType(name=typedef.name, variables=typedef.variables,
                                         intent=vtype.intent, allocatable=vtype.allocatable,
                                         pointer=vtype.pointer, optional=vtype.optional,
                                         parameter=vtype.parameter, target=vtype.target,
                                         contiguous=vtype.contiguous)
-        else:
-            vtype = SymbolType(DataType.from_fortran_type(self._omni_types[t]))
+        if vtype is None:
+            typename = self._omni_types.get(t, t)
+            vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        if lookahead:
-            return vname, vtype, None
+        if shape is not None:
+            # We need to create a clone of that type as other instances of that
+            # derived type might have a different allocation size
+            vtype = vtype.clone(shape=shape)
 
-        shape = None
-        if self.shape_map is not None:
-            shape = self.shape_map.get(vname, None)
-        return Variable(name=vname, type=vtype, shape=shape, scope=self.scope, source=source)
+        if kwargs.get('lookahead', False):
+            import pdb; pdb.set_trace()
+            # Hack: Return components of Variable symbol to allow deferred creation
+            return vname, vtype, parent
+
+        return Variable(name=vname, type=vtype, scope=self.scope,
+                        dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
         # explicitly before constructing our symbolic variable.
-        vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
         dimensions = as_tuple(self.visit(i) for i in o[1:])
-        shape = self.shape_map.get(vname, None)
+        return self.visit(o.find('varRef'), dimensions=dimensions)
+#        vname, vtype, parent = self.visit(o.find('varRef'), dimensions=dimensions)
 
-        if parent is not None:
-            # If we have a parent with a type, get the shape info from it
-            if isinstance(parent.type, DerivedType):
-                typevar = [v for v in parent.type.variables
-                           if v.name.lower() == vname.lower()][0]
-                shape = typevar.shape or typevar.dimensions
+#        shape = self.shape_map.get(vname, None)
+#
+#        if parent is not None:
+#            # If we have a parent with a type, get the shape info from it
+#            if isinstance(parent.type, DerivedType):
+#                typevar = [v for v in parent.type.variables
+#                           if v.name.lower() == vname.lower()][0]
+#                shape = typevar.shape or typevar.dimensions
+#
+#        if vtype is not None:
+#            vtype.shape = shape
 
-        if vtype is not None:
-            vtype.shape = shape
-
-        return Variable(name=vname, scope=self.scope, dimensions=dimensions,
-                        type=vtype, parent=parent, source=source)
+#        return Variable(name=vname, scope=self.scope, dimensions=dimensions,
+#                        type=vtype, parent=parent, source=source)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -396,11 +423,14 @@ class OMNI2IR(GenericVisitor):
         if o.find('allocOpt') is not None:
             data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
-            vname, vtype, parent = self.visit(a[0], lookahead=True)
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
-            variables += [Variable(name=vname, dimensions=dimensions,
-                                   type=vtype, parent=parent)]
+            variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
+#            vname, vtype, parent = self.visit(a[0], shape=dimensions)
+#            if parent is not None:
+#                vname = '%s%%%s' % (parent.name, vname)
+#            variables += [Variable(name=vname, dimensions=dimensions, scope=self.scope,
+#                                   type=vtype, parent=parent, source=source)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
