@@ -223,10 +223,10 @@ class Subroutine(object):
         # Derive type and shape maps to propagate through the subroutine body
         type_map = {}
         shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            type_map.update({v.name: v.type for v in decl.variables})
-            shape_map.update({v.name: v.shape for v in decl.variables
-                              if isinstance(v, Array)})
+#        for decl in FindNodes(Declaration).visit(spec):
+#            type_map.update({v.name: v.type for v in decl.variables})
+#            shape_map.update({v.name: v.shape for v in decl.variables
+#                              if isinstance(v, Array)})
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map,

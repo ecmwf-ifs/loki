@@ -407,20 +407,21 @@ class FParser2IR(GenericVisitor):
         # (and provide them with the type and dimension information)
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
-        variables = self.visit(o.items[2], **kwargs)
-        variables = OrderedDict([(k, v) for k, v in variables.items()])
+        variables = flatten(self.visit(o.items[2], **kwargs))
+        variables = OrderedDict([(v.name, v) for v in variables])
 
         return Declaration(variables=variables, type=dtype, dimensions=dimensions)
 
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Derived_Type_Stmt).items[1].tostr().lower()
         # Create the parent type with all the information we have so far
-        dtype = SymbolType(DataType.DERIVED_TYPE, name=name, source=kwargs.get('source', None))
+        dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict(),
+                           source=kwargs.get('source', None))
         declarations = self.visit(get_child(o, Component_Part), parent=dtype)
         # Update the parent type with the children from the declarations
         # and insert it into the types table
-        dtype.variables = OrderedDict((v.name, v) for decl in declarations for v in decl.variables
-                                      if v.parent == dtype)
+        for decl in declarations:
+            dtype.variables.update(decl.variables)
         self.scope.types[name] = dtype
         return TypeDef(name=name, declarations=declarations)
 
@@ -471,8 +472,9 @@ class FParser2IR(GenericVisitor):
 
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
-        variables = self.visit(o.items[2], **kwargs)
-        variables = OrderedDict([(v.name, v) for v in variables])
+        variables = flatten(self.visit(o.items[2], **kwargs))
+        variables = [(k, v) for k, v in zip(variables[::2], variables[1::2])]
+        variables = OrderedDict(variables)
         # TODO: Deal with our Loki-specific dimension annotations
 
         return Declaration(variables=variables, type=dtype, dimensions=dimensions)
