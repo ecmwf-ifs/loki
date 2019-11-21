@@ -98,7 +98,7 @@ class ExpressionFinder(Visitor):
         return self.find_uniques(variables)
 
     def visit_Declaration(self, o, **kwargs):
-        variables = as_tuple(flatten(self.retrieve(v) for v in o.variables.values()))
+        variables = as_tuple(flatten(self.retrieve(v) for v in o.variables))
         if o.dimensions is not None:
             variables += as_tuple(flatten(self.retrieve(d) for d in o.dimensions))
         return self.find_uniques(variables)
@@ -236,7 +236,7 @@ class SubstituteExpressions(Transformer):
             dimensions = tuple(self.expr_mapper(d) for d in o.dimensions)
         else:
             dimensions = None
-        variables = OrderedDict([(k, self.expr_mapper(v)) for k, v in o.variables.items()])
+        variables = tuple(self.expr_mapper(v) for v in o.variables)
         return o._rebuild(dimensions=dimensions, variables=variables)
 
     def visit_TypeDef(self, o, **kwargs):

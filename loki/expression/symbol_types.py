@@ -24,7 +24,12 @@ class LokiStringifyMapper(StringifyMapper):
     def map_logic_literal(self, expr, *args, **kwargs):
         return str(expr.value)
 
-    map_float_literal = map_logic_literal
+    def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
+        if expr.kind is not None:
+            return '%s_%s' % (str(expr.value), self.rec(expr.kind, PREC_CALL, *args, **kwargs))
+        else:
+            return str(expr.value)
+
     map_int_literal = map_logic_literal
 
     def map_string_literal(self, expr, *args, **kwargs):
@@ -32,8 +37,8 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_scalar(self, expr, *args, **kwargs):
         if expr.parent is not None:
-            parent = self.rec(expr.parent, *args, **kwargs) + '%'
-            return self.format('%s%s', parent, expr.basename)
+            parent = self.rec(expr.parent, *args, **kwargs)
+            return self.format('%s%%%s', parent, expr.basename)
         else:
             return expr.name
 
@@ -41,11 +46,6 @@ class LokiStringifyMapper(StringifyMapper):
         dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
         if dims:
             dims = '(' + dims + ')'
-#        if expr.type and expr.type.initial:
-#            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-#        else:
-#            initial = ''
-#        return self.format('%s%s%s', expr.name, dims, initial)
         parent, initial = '', ''
         if expr.parent is not None:
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
@@ -111,7 +111,12 @@ class Scalar(pmbl.Variable):
         super(Scalar, self).__init__(name)
 
         self._scope = weakref.ref(scope)
-        if type is not None:
+        if type is None:
+            # Insert the deferred type in the type table only if it does not exist
+            # yet (necessary for deferred type definitions, e.g., derived types in header or
+            # parameters from other modules)
+            self.scope.symbols.setdefault(self.name, SymbolType(DataType.DEFERRED))
+        else:
             self.type = type
         self.parent = parent
         self.initial = initial
@@ -194,20 +199,25 @@ class Array(pmbl.Variable):
                  initial=None, source=None):
         super(Array, self).__init__(name)
 
-        self._scope = weakref.ref(scope)
-        if type is not None:
+#        self._scope = weakref.ref(scope)
+        self.scope = scope
+        if type is None:
+            # Insert the defered type in the type table only if it does not exist
+            # yet (necessary for deferred type definitions)
+            self.scope.symbols.setdefault(self.name, SymbolType(DataType.DEFERRED))
+        else:
             self.type = type
         self.parent = parent
         self.dimensions = dimensions
         self.initial = initial
         self.source = source
 
-    @property
-    def scope(self):
-        """
-        The object corresponding to the symbols scope.
-        """
-        return self._scope()
+#    @property
+#    def scope(self):
+#        """
+#        The object corresponding to the symbols scope.
+#        """
+#        return self._scope()
 
     @property
     def basename(self):
@@ -318,26 +328,27 @@ class Variable(object):
             obj = Array(name=name, dimensions=dimensions, type=_type, scope=scope, parent=parent,
                         initial=initial, source=source)
 
-#        obj = cls.instantiate_derived_type_variables(obj)
+        obj = cls.instantiate_derived_type_variables(obj)
         return obj
 
     @classmethod
     def instantiate_derived_type_variables(cls, obj):
         """
-        If the type of obj is a derived type then its list of variables is a list of
-        class:``SymbolType`` and we are creating a variable from type definition.
+        If the type of obj is a derived type then its list of variables is possibly from
+        the declarations inside a TypeDef and as such, the variables are referring to a
+        different scope. Thus, we must re-create these variables in the correct scope.
         For the actual instantiation of a variable with that type, we need to create a dedicated
         copy of that type and replace its parent by this object and its list of variables (which
         is an OrderedDict of SymbolTypes) by a list of Variable instances.
         """
         if obj.type is not None and obj.type.dtype == DataType.DERIVED_TYPE:
-            if obj.type.variables and isinstance(next(iter(obj.type.variables.values())), SymbolType):
+            if obj.type.variables and next(iter(obj.type.variables.values())).scope != obj.scope:
                 variables = obj.type.variables
                 obj.type = obj.type.clone(variables=OrderedDict())
-                for vname, vtype in variables.items():
-                    new_vtype = vtype.clone(parent=obj)
-                    new_vname = '%s%%%s' % (obj.name, vname)
-                    obj.type.variables[vname] = Variable(name=new_vname, scope=obj.scope, type=new_vtype)
+                for k, v in variables.items():
+                    vtype = v.type.clone(parent=obj)
+                    vname = '%s%%%s' % (obj.name, v.basename)
+                    obj.type.variables[k] = Variable(name=vname, scope=obj.scope, type=vtype)
         return obj
 
 
@@ -353,15 +364,12 @@ class FloatLiteral(pmbl.Leaf):
         super(FloatLiteral, self).__init__()
 
         self.value = value
-        self._type = kwargs.get('type', None)
-        self._kind = kwargs.get('kind', None)
+        self.kind = kwargs.get('kind', None)
 
     def __getinitargs__(self):
         args = [self.value]
-        if self._type:
-            args += [('type', self._type)]
-        if self._kind:
-            args += [('kind', self._kind)]
+        if self.kind:
+            args += [('kind', self.kind)]
         return tuple(args)
 
     mapper_method = intern('map_float_literal')
@@ -382,15 +390,12 @@ class IntLiteral(pmbl.Leaf):
         super(IntLiteral, self).__init__()
 
         self.value = value
-        self._type = kwargs.get('type', None)
-        self._kind = kwargs.get('kind', None)
+        self.kind = kwargs.get('kind', None)
 
     def __getinitargs__(self):
         args = [self.value]
-        if self._type:
-            args += [('type', self._type)]
-        if self._kind:
-            args += [('kind', self._kind)]
+        if self.kind:
+            args += [('kind', self.kind)]
         return tuple(args)
 
     mapper_method = intern('map_int_literal')
@@ -449,27 +454,30 @@ class Literal(object):
     or :class:`LogicLiteral`.
     """
 
-    @classmethod
-    def _from_literal(cls, value, **kwargs):
-        if isinstance(value, int):
-            obj = IntLiteral(value, **kwargs)
-        elif isinstance(value, float):
-            obj = FloatLiteral(value, **kwargs)
-        elif isinstance(value, str) and len(value) >= 2 and value[0] == value[-1] \
-                and value[0] in '"\'':
-            obj = StringLiteral(value, **kwargs)
-        elif str(value).lower() in ['.true.', 'true', '.false.', 'false']:
-            # Ensure we capture booleans
-            obj = LogicLiteral(value, **kwargs)
-        else:
-            raise TypeError('Unknown literal: %s' % value)
+    @staticmethod
+    def _from_literal(value, **kwargs):
 
-        return obj
+        cls_map = {DataType.INTEGER: IntLiteral, DataType.REAL: FloatLiteral,
+                   DataType.LOGICAL: LogicLiteral, DataType.CHARACTER: StringLiteral}
+
+        _type = kwargs.get('type', None)
+        if _type is None:
+            if isinstance(value, int):
+                _type = DataType.INTEGER
+            elif isinstance(value, float):
+                _type = DataType.REAL
+            elif isinstance(value, str):
+                if str(value).lower() in ('.true.', 'true', '.false.', 'false'):
+                    _type = DataType.LOGICAL
+                else:
+                    _type = DataType.CHARACTER
+
+        return cls_map[_type](value, **kwargs)
 
     def __new__(cls, value, **kwargs):
         try:
             obj = cls._from_literal(value, **kwargs)
-        except TypeError:
+        except KeyError:
             # Let Pymbolic figure our what we're dealing with
             from pymbolic import parse
             obj = parse(value)
@@ -479,10 +487,8 @@ class Literal(object):
                 obj = cls._from_literal(obj, **kwargs)
 
         # And attach our own meta-data
-        if hasattr(obj, '_type'):
-            obj._type = kwargs.get('type', None)
-        if hasattr(obj, '_kind'):
-            obj._kind = kwargs.get('kind', None)
+        if hasattr(obj, 'kind'):
+            obj.kind = kwargs.get('kind', None)
         return obj
 
 
@@ -575,7 +581,7 @@ class RangeIndex(pmbl.AlgebraicLeaf):
 
         # Short-circuit for direct indices
         if upper is not None and lower is None and step is None:
-            return IntLiteral(upper)
+            return upper if isinstance(upper, pmbl.Expression) else Literal(upper)
 
         obj = object.__new__(cls)
         obj._lower = lower

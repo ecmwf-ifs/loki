@@ -5,21 +5,40 @@ from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
+from loki.types import DataType, SymbolType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
 
+def c_intrinsic_type(_type):
+    if _type.dtype == DataType.LOGICAL:
+        return 'int'
+    elif _type.dtype == DataType.INTEGER:
+        return 'int'
+    elif _type.dtype == DataType.REAL:
+        if _type.kind in ('real32',):
+            return 'float'
+        else:
+            return 'double'
+    else:
+        raise ValueError(str(_type))
+
+
 class CCodeMapper(LokiStringifyMapper):
 
-    def __init__(self, constant_mapper=repr):
+    def __init__(self, constant_mapper=None):
         super(CCodeMapper, self).__init__(constant_mapper)
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = ('(%s) %s' % (DataType.from_type_kind('real', expr._kind).ctype, self(expr.value))
-                  if expr._kind else self(expr.value))
+        if expr.kind is not None:
+            _type = SymbolType(DataType.REAL, kind=expr.kind)
+            result = '(%s) %s' % (c_intrinsic_type(_type),
+                                  self.rec(expr.value, enclosing_prec, *args, **kwargs))
+        else:
+            result = self.rec(expr.value, enclosing_prec, *args, **kwargs)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
@@ -27,8 +46,12 @@ class CCodeMapper(LokiStringifyMapper):
             return result
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = ('(%s) %s' % (DataType.from_type_kind('integer', expr._kind).ctype, self(expr.value))
-                  if expr._kind else self(expr.value))
+        if expr.kind is not None:
+            _type = SymbolType(DataType.INTEGER, kind=expr.kind)
+            result = '(%s) %s' % (c_intrinsic_type(_type),
+                                  self.rec(expr.value, enclosing_prec, *args, **kwargs))
+        else:
+            result = self.rec(expr.value, enclosing_prec, *args, **kwargs)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
@@ -39,12 +62,12 @@ class CCodeMapper(LokiStringifyMapper):
         return '"%s"' % expr.value
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        dtype = DataType.from_type_kind(expr.name, expr.kind).ctype
+        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
-        return self.parenthesize_if_needed(self.format('(%s) %s', dtype, expression),
-                                           enclosing_prec, PREC_CALL)
+        return self.parenthesize_if_needed(
+            self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_scalar(self, expr, *args, **kwargs):
         # TODO: Properly resolve pointers to the parent to replace '->' by '.'
@@ -167,7 +190,7 @@ class CCodegen(Visitor):
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
                 aptr += ['* restrict v_']
-            elif isinstance(a.type, DerivedType):
+            elif a.type.dtype == DataType.DERIVED_TYPE:
                 aptr += ['*']
             elif a.type.pointer:
                 aptr += ['*']
@@ -217,18 +240,20 @@ class CCodegen(Visitor):
 
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        type = self.visit(o.type)
-        vstr = [self._csymgen(v) for v in o.variables]
-        vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
-        vinit = ['' if v.initial is None else (' = %s' % self._csymgen(v.initial)) for v in o.variables]
+        _type = self.visit(o.type)
+        vstr = self.segment([self._csymgen(v) for v in o.variables])
+        vptr = [('*' if v.type.pointer or v.type.allocatable else '')
+                for v in o.variables.values()]
+        vinit = ['' if v.initial is None else (' = %s' % self._csymgen(v.initial))
+                 for v in o.variables.values()]
         variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
-        return self.indent + '%s %s;' % (type, variables) + comment
+        return self.indent + '%s %s;' % (_type, variables) + comment
 
-    def visit_BaseType(self, o):
-        return o.dtype.ctype
-
-    def visit_DerivedType(self, o):
-        return 'struct %s' % o.name
+    def visit_SymbolType(self, o):
+        if o.dtype == DataType.DERIVED_TYPE:
+            return 'struct %s' % o.name
+        else:
+            return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o):
         self._depth += 1

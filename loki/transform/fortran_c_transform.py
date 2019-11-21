@@ -12,6 +12,7 @@ from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Sc
                              SubstituteExpressionsMapper)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['FortranCTransformation']
@@ -49,7 +50,7 @@ class FortranCTransformation(BasicTransformation):
 
         elif isinstance(source, Subroutine):
             for arg in source.arguments:
-                if isinstance(arg.type, DerivedType):
+                if arg.type.dtype == DataType.DERIVED_TYPE:
                     c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
 
             # Generate Fortran wrapper module
@@ -65,20 +66,53 @@ class FortranCTransformation(BasicTransformation):
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
 
-    def c_struct_typedef(self, derived):
+    @staticmethod
+    def c_struct_typedef(derived):
         """
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         decls = []
-        for v in derived.variables:
-            ctype = v.type.dtype.isoctype
-            vnew = v.clone(name=v.name.lower())
-            decls += [Declaration(variables=(vnew, ), type=ctype)]
-            typename = '%s_c' % derived.name
+        for k, v in derived.variables.items():
+            ctype = v.clone(kind=FortranCTransformation.iso_c_intrinsic_kind(v))
+            decls += [Declaration(variables=OrderedDict([(k.lower(), ctype)]), type=ctype)]
+        typename = '%s_c' % derived.name
         return TypeDef(name=typename, bind_c=True, declarations=decls)
 
+    @staticmethod
+    def iso_c_intrinsic_kind(_type):
+        if _type.dtype == DataType.INTEGER:
+            return 'c_int'
+        elif _type.dtype == DataType.REAL:
+            kind = str(_type.kind)
+            if kind in ('real32', 'c_float'):
+                return 'c_float'
+            elif kind in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+                return 'c_double'
+            else:
+                return None
+        else:
+            return None
+
+    @staticmethod
+    def c_intrinsic_kind(_type):
+        if _type.dtype == DataType.INTEGER:
+            return 'int'
+        elif _type.dtype == DataType.REAL:
+            kind = str(_type.kind)
+            if kind in ('real32', 'c_float'):
+                return 'float'
+            elif kind in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+                return 'double'
+            else:
+                return None
+        else:
+            return None
+
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
-        interface = self.generate_iso_c_interface(routine, c_structs)
+        # Create initial object to have a scope
+        wrapper = Subroutine(name='%s_fc' % routine.name)
+
+        interface = self.generate_iso_c_interface(routine, c_structs, wrapper)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
@@ -92,9 +126,10 @@ class FortranCTransformation(BasicTransformation):
         casts_in = []
         casts_out = []
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
-                cvar = Variable(name='%s_c' % arg.name, type=ctype)
+            if arg.type.dtype == DataType.DERIVED_TYPE:
+                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None,
+                                   name=c_structs[arg.type.name.lower()].name)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Statement(target=cvar, expr=cast_in)]
 
@@ -106,7 +141,8 @@ class FortranCTransformation(BasicTransformation):
         wrapper_body = casts_in
         wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
-        wrapper = Subroutine(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body)
+        wrapper.__init__(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,
+                         symbols=wrapper.symbols, types=wrapper.types)
 
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]
@@ -127,26 +163,34 @@ class FortranCTransformation(BasicTransformation):
         # Add module-based derived type/struct definitions
         spec += list(c_structs.values())
 
+        obj = Module(name='%s_fc' % module.name)
+
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
         for decl in FindNodes(Declaration).visit(module.spec):
-            for v in decl.variables:
-                if v.type.dtype is None or v.type.pointer or v.type.allocatable:
+            for v in decl.variables.values():
+                if v.type.dtype == DataType.DERIVED_TYPE or v.type.pointer or v.type.allocatable:
                     continue
-                isoctype = v.type.dtype.isoctype
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
+                getter = Subroutine(name=gettername, parent=obj)
+
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
+                isoctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
-                getterbody = [Statement(target=Variable(name=gettername), expr=v)]
-                getter = Subroutine(name=gettername, bind=gettername, spec=getterspec,
-                                    body=getterbody, is_function=True)
-                getter.variables = as_tuple(Variable(name=gettername, type=isoctype))
+                getterbody = [Statement(target=Variable(name=gettername, scope=getter), expr=v)]
+
+                getter.__init__(name=gettername, bind=gettername, spec=getterspec,
+                                body=getterbody, is_function=True, parent=obj,
+                                symbols=getter.symbols, types=getter.types)
+                getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
 
-        return Module(name='%s_fc' % module.name, spec=spec, routines=wrappers)
+        obj.__init__(name=obj.name, spec=spec, routines=wrappers, types=obj.types,
+                     symbols=obj.symbols)
+        return obj
 
-    def generate_iso_c_interface(self, routine, c_structs):
+    def generate_iso_c_interface(self, routine, c_structs, parent):
         """
         Generate the ISO-C subroutine interface
         """
@@ -156,21 +200,22 @@ class FortranCTransformation(BasicTransformation):
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_spec.body += as_tuple(c_structs.values())
-        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
+        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(), parent=parent,
                                   body=None, bind='%s_c' % routine.name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
+            if arg.type.dtype == DataType.DERIVED_TYPE:
+                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None, shape=arg.type.shape,
+                                   name=c_structs[arg.type.name.lower()].name)
             else:
-                ctype = arg.type.dtype.isoctype
                 # Only scalar, intent(in) arguments are pass by value
-                ctype.value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 # Pass by reference for array types
+                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
+                ctype = SymbolType(arg.type.dtype, value=value,
+                                   kind=self.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
-            shape = arg.shape if isinstance(arg, Array) else None
-            var = Variable(name=arg.name, dimensions=dimensions, shape=shape, type=ctype)
+            var = Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_routine)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
@@ -185,26 +230,31 @@ class FortranCTransformation(BasicTransformation):
         spec = []
         for decl in FindNodes(Declaration).visit(module.spec):
             assert len(decl.variables) == 1
-            v = decl.variables[0]
+            v = next(iter(decl.variables.values()))
             # Bail if not a basic type
-            if v.type.dtype is None:
+            if v.type.dtype == DataType.DERIVED_TYPE:
                 continue
             tmpl_function = '%s %s__get__%s();' % (
-                v.type.dtype.ctype, module.name.lower(), v.name.lower())
+                self.c_intrinsic_kind(v.type), module.name.lower(), v.name.lower())
             spec += [Intrinsic(text=tmpl_function)]
 
         # Re-create type definitions with range indices (``:``) replaced by pointers
         for td in FindNodes(TypeDef).visit(module.spec):
-            vmap = {}
+            declarations = []
             for decl in td.declarations:
-                for v in decl.variables:
+                variables = OrderedDict()
+                for k, v in decl.variables.items():
                     # Note that we force lower-case on all struct variables
-                    if isinstance(v, Array):
-                        new_dims = as_tuple(d for d in v.dimensions if not isinstance(d, RangeIndex))
-                        vmap[v] = v.clone(name=v.name.lower(), dimensions=new_dims)
+                    if v.shape is not None:
+                        new_dims = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
+                        variables[k.lower()] = v.clone(shape=new_dims)
                     else:
-                        vmap[v] = v.clone(name=v.name.lower())
-            spec += [SubstituteExpressions(vmap).visit(td)]
+                        variables[k.lower()] = v.clone()
+                declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
+                                             type=decl.type, comment=decl.comment,
+                                             pragma=decl.pragma)]
+            td.declarations = declarations
+            spec += [td]
 
         # Re-generate header module without subroutines
         return Module(name='%s_c' % module.name, spec=spec)
@@ -226,7 +276,8 @@ class FortranCTransformation(BasicTransformation):
 
                 # For imported modulevariables, create a declaration and call the getter
                 module = header_map[imp.module]
-                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
+                mod_vars = flatten(d.variables.values()
+                                   for d in FindNodes(Declaration).visit(module.spec))
                 mod_vars = {v.name.lower(): v for v in mod_vars}
 
                 for s in imp.symbols:

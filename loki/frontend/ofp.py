@@ -219,7 +219,6 @@ class OFP2IR(GenericVisitor):
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
                 derived_name = o.find('end-type-stmt').attrib['id']
-                declarations = []
 
                 # Process any associated comments or pragams
                 comments = [self.visit(c) for c in o.findall('comment')]
@@ -227,6 +226,8 @@ class OFP2IR(GenericVisitor):
                 comments = [c for c in comments if not isinstance(c, Pragma)]
 
                 # Create the parent type...
+                typedef = TypeDef(name=derived_name, parent=self.scope, declarations=[],
+                                  pragmas=pragmas, comments=comments, source=source)
                 parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
                                          variables=OrderedDict(), source=source)
 
@@ -295,17 +296,20 @@ class OFP2IR(GenericVisitor):
                         dimensions = as_tuple(d for d in dimensions if d is not None)
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
+                        v_type = _type.clone(shape=dimensions, source=v_source)
+                        v_name = v.attrib['name']
 
-                        variables[v.attrib['name']] = _type.clone(shape=dimensions, source=v_source)
+                        variables[v_name] = Variable(name=v_name, type=v_type,
+                                                     dimensions=dimensions, scope=typedef)
 
                     parent_type.variables.update(variables)
-                    declarations += [Declaration(variables=variables, type=_type, source=t_source)]
+                    typedef.declarations += [Declaration(variables=variables, type=_type,
+                                                         source=t_source)]
 
                 # Make that derived type known in the types table
                 self.scope.types[derived_name] = parent_type
 
-                return TypeDef(name=derived_name, declarations=declarations,
-                               pragmas=pragmas, comments=comments, source=source)
+                return typedef 
             else:
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
@@ -510,13 +514,16 @@ class OFP2IR(GenericVisitor):
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
-        type = o.attrib['type'] if 'type' in o.attrib else None
+        _type = o.attrib['type'] if 'type' in o.attrib else None
         kind_param = o.find('kind-param')
         kind = kind_param.attrib['kind'] if kind_param is not None else None
-        # Cast to the right type if given
         value = int(value) if type == 'int' else value
         value = float(value) if type == 'real' else value
-        return Literal(value=value, kind=kind, type=type, source=source)
+        if _type is not None:
+            tmap = {'int': DataType.INTEGER, 'real': DataType.REAL}
+            _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
+        # Cast to the right type if given
+        return Literal(value=value, kind=kind, type=_type, source=source)
 
     def visit_subscripts(self, o, source=None):
         return tuple(self.visit(c)for c in o.getchildren()

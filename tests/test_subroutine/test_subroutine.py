@@ -281,8 +281,6 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     # typedefs, we need to extend compile_and_load to use multiple
     # source files/paths, so that the header can be compiled alongside
     # the subroutine in the same f90wrap execution.
-    from loki import FCodeMapper
-    fsymgen = FCodeMapper()
 
     # Parse simple kernel routine to check plain array arguments
     source = SourceFile.from_file(refpath, frontend=frontend)
@@ -292,11 +290,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert routine.arguments[0].type.dtype == DataType.INTEGER
     assert routine.arguments[1].type.dtype == DataType.INTEGER
     assert routine.arguments[2].type.dtype == DataType.REAL
-    assert fsymgen(routine.arguments[2].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert routine.arguments[2].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert routine.arguments[3].type.dtype == DataType.REAL
-    assert fsymgen(routine.arguments[3].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert routine.arguments[3].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert routine.arguments[4].type.dtype == DataType.REAL
-    assert fsymgen(routine.arguments[4].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert routine.arguments[4].type.kind in ('jprb', 'selected_real_kind(13, 300)')
 
     # Verify that all variable instances have type information
     variables = FindVariables().visit(routine.body)
@@ -306,11 +304,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     vmap = {v.name: v for v in variables}
     assert vmap['x'].type.dtype == DataType.INTEGER
     assert vmap['scalar'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['scalar'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['vector'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['vector'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['matrix'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['matrix'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
 
     # Parse kernel routine and provide external typedefs
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
@@ -329,11 +327,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     # Verify imported derived type info explicitly
     vmap = {v.name: v for v in variables}
     assert vmap['item%scalar'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['item%scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['item%scalar'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['item%vector'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['item%vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['item%vector'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['item%matrix'].type.dtype == DataType.REAL
-    assert fsymgen(vmap['item%matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
+    assert vmap['item%matrix'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

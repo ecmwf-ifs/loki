@@ -17,11 +17,14 @@ class DataType(IntEnum):
     - `CHARACTER`
     - `COMPLEX`
     - `DERIVED_TYPE`
+    and, to mark symbols without a known type, `DEFERRED` (e.g., for members of an externally
+    defined derived type on use).
 
     For convenience, string representations of FORTRAN and C99 types can be
     heuristically converted.
     """
 
+    DEFERRED = -1
     LOGICAL = 1
     INTEGER = 2
     REAL = 3

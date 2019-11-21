@@ -1,7 +1,7 @@
 from textwrap import wrap
 from pymbolic.primitives import Expression, is_zero, Product
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
+                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_CALL)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
@@ -33,7 +33,10 @@ class FCodeMapper(LokiStringifyMapper):
         return '.true.' if expr.value else '.false.'
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = '%s_%s' % (self(expr.value), expr._kind) if expr._kind else self(expr.value)
+        if expr.kind is not None:
+            return '%s_%s' % (str(expr.value), str(expr.kind)) # self.rec(expr.kind, PREC_CALL, *args, **kwargs))
+        else:
+            result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
@@ -102,6 +105,7 @@ class FCodeMapper(LokiStringifyMapper):
         try:
             return super().map_foreign(expr, *args, **kwargs)
         except ValueError:
+            import pdb; pdb.set_trace()
             return '! Not supported: %s\n' % str(expr)
 
 
@@ -221,17 +225,7 @@ class FortranCodegen(Visitor):
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
-        # If variables are instances of SymbolType, we have a derived type definition here
-        if isinstance(next(iter(o.variables.values())), SymbolType):
-            variables = []
-            for k, v in o.variables.items():
-                shape = ','.join(self.fsymgen(d) for d in v.shape or [])
-                if shape:
-                    shape = '(' + shape + ')'
-                variables += ['%s%s' % (k, shape)]
-            variables = self.segment(variables)
-        else:
-            variables = self.segment([self.visit(v) for v in o.variables.values()])
+        variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o):

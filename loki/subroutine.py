@@ -255,17 +255,17 @@ class Subroutine(object):
 
         for decl in FindNodes(Declaration).visit(self.ir):
             # Record all variables independently
-            self.variables += [v for v in decl.variables.values() if not isinstance(v, SymbolType)]
+            self.variables += list(decl.variables) 
 
             # Insert argument variable at the position of the dummy
-            for k, v in decl.variables.items():
-                if not isinstance(v, SymbolType) and v.name.lower() in self._dummies:
+            for v in decl.variables:
+                if v.name.lower() in self._dummies:
                     idx = self._dummies.index(v.name.lower())
                     self.arguments[idx] = v
 
             # Stash declaration and mark for removal
-            for k, v in decl.variables.items():
-                self._decl_map[v] = (k, decl)
+            for v in decl.variables:
+                self._decl_map[v] = decl
             dmap[decl] = None
 
         # Remove declarations from the IR
@@ -286,11 +286,10 @@ class Subroutine(object):
                 continue
 
             if v in self._decl_map:
-                k, d = self._decl_map[v]
-                d = d.clone()
-                d.variables = OrderedDict([(k, v)])
+                d = self._decl_map[v].clone()
+                d.variables = as_tuple(v) 
             else:
-                d = Declaration(variables=OrderedDict([(v.name, v)]), type=v.type)
+                d = Declaration(variables=[v], type=v.type)
 
             # Dimension declarations are done on variables
             d.dimensions = None

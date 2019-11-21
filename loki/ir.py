@@ -3,6 +3,7 @@ from itertools import chain
 import inspect
 
 from loki.tools import flatten, as_tuple
+from loki.types import TypeTable
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
@@ -288,8 +289,6 @@ class Declaration(Node):
                  comment=None, pragma=None, source=None):
         super(Declaration, self).__init__(source=source)
 
-        if not isinstance(variables, OrderedDict):
-            import pdb; pdb.set_trace()
         self.variables = variables
         self.dimensions = dimensions
         self.type = type
@@ -424,11 +423,16 @@ class CallContext(Node):
 class TypeDef(Node):
     """
     Internal representation of derived type definition
+
+    Similar to class:`Sourcefile`, class:`Module`,  and class:`Subroutine`, it forms its
+    own scope for symbols and types. This is required to instantiate class:`Variable` in
+    declarations without having them show up in the enclosing scope.
     """
 
     _traversable = ['declarations']
 
-    def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None):
+    def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None,
+                 parent=None, symbols=None, types=None):
         super(TypeDef, self).__init__(source=source)
 
         self.name = name
@@ -437,9 +441,10 @@ class TypeDef(Node):
         self.pragmas = pragmas
         self.bind_c = bind_c
 
+        self.parent = parent
+        self.symbols = symbols if symbols is not None else TypeTable()
+        self.types = types if types is not None else TypeTable()
+
     @property
     def variables(self):
-        v = OrderedDict()
-        for decl in self.declarations:
-            v.update(decl.variables)
-        return v
+        return tuple(flatten([decl.variables for decl in self.declarations]))

@@ -96,14 +96,15 @@ class FParser2IR(GenericVisitor):
         parent = kwargs.get('parent', None)
         shape = kwargs.get('shape', None)
         initial = kwargs.get('initial', None)
-        _source = kwargs.get('source', None)
+        scope = kwargs.get('scope', self.scope)
+        source = kwargs.get('source', None)
 
         if parent is not None:
             basename = vname
             vname = '%s%%%s' % (parent.name, vname)
 
         # Try to find the symbol in the symbol tables
-        if dtype is None and self.scope is not None:
+        if dtype is None and scope is not None:
             dtype = self.scope.symbols.lookup(vname, recursive=True)
 
         # If a parent variable is given, try to infer type from the
@@ -116,17 +117,33 @@ class FParser2IR(GenericVisitor):
         if shape is not None and dtype is not None and dtype.shape != shape:
             dtype = dtype.clone(shape=shape)
 
-        return Variable(name=vname, dimensions=dimensions, type=dtype, scope=self.scope,
-                        parent=parent, initial=initial, _source=_source)
+        return Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope,
+                        parent=parent, initial=initial, source=source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return Literal(value=str(o.items[0]), kind=o.items[1])
+        return Literal(value=str(o.items[0]), type=DataType.CHARACTER)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
-        return Literal(value=int(o.items[0]), kind=o.items[1])
+        kind = o.items[1] if o.items[1] is not None else None
+#        kind = None
+#        if o.items[1] is not None:
+#            dtype = self.scope.symbols.lookup(o.items[1])
+#            if dtype is not None:
+#                kind = Variable(name=o.items[1], type=dtype, scope=self.scope)
+#            else:
+#                kind = o.items[1]
+        return Literal(value=int(o.items[0]), type=DataType.INTEGER, kind=kind)
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
-        return Literal(value=float(o.items[0]), kind=o.items[1])
+        kind = o.items[1] if o.items[1] is not None else None
+#        kind = None
+#        if o.items[1] is not None:
+#            dtype = self.scope.symbols.lookup(o.items[1])
+#            if dtype is not None:
+#                kind = Variable(name=o.items[1], type=dtype, scope=self.scope)
+#            else:
+#                kind = o.items[1]
+        return Literal(value=float(o.items[0]), type=DataType.REAL, kind=kind)
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
         return Literal(value=o.items[0], type=DataType.LOGICAL)
@@ -197,22 +214,28 @@ class FParser2IR(GenericVisitor):
 
         # We have to create a copy of the declared type to allow including name,
         # shapes and dimensions
-        dtype = kwargs['dtype'].clone()
-        dtype.parent = kwargs.get('parent', None)
+#        dtype = kwargs['dtype'].clone()
+#        dtype.parent = kwargs.get('parent', None)
 
         dims = get_child(o, Explicit_Shape_Spec_List)
         dims = get_child(o, Assumed_Shape_Spec_List) if dims is None else dims
         dims = get_child(o, Deferred_Shape_Spec_List) if dims is None else dims
         if dims is not None:
             dims = self.visit(dims)
+            # We know that this is a declaration, so the ``dimensions``
+            # here also define the shape of the variable symbol within the
+            # currently cached context.
+            kwargs['dimensions'] = dims
+            kwargs['shape'] = dims
 
             # We know that this is a declaration, so the ``dimensions``
             # here also define the shape of the variable symbol within the
             # currently cached context.
-            dtype.dimensions = dims
-            dtype.shape = dims
+#            dtype.dimensions = dims
+#            dtype.shape = dims
 
-        return name, dtype
+#        return name, dtype
+        return self.visit(o.items[0], **kwargs)
 
     def visit_Entity_Decl_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in as_tuple(o.items))
@@ -272,7 +295,7 @@ class FParser2IR(GenericVisitor):
         dtype = o.items[0]
         kind = get_child(o, Kind_Selector)
         if kind is not None:
-            kind = self.visit(kind.items[1], **kwargs)
+            kind = kind.items[1].tostr()
         # TODO: Length_Selector for CHARACTER
         return dtype, kind
 
@@ -290,13 +313,20 @@ class FParser2IR(GenericVisitor):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
 
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
-        name = self.visit(o.items[0], **kwargs)
-        args = self.visit(o.items[1], **kwargs)
-        kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-        arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        # Do not recurse here to avoid treating function names as variables
+        name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
         if name.upper() in ('REAL', 'INT'):
-            return Cast(name, arguments[0], kind=kwarguments.get('kind', None))
+            expr = self.visit(o.items[1].items[0])
+            # Do not recurse here to avoid treating kind names as variables
+            if len(o.items[1].items) > 1 and o.items[1].items[1].items[0].tostr() == 'kind':
+                kind = o.items[1].items[1].items[1].tostr()
+            else:
+                kind = None
+            return Cast(name, expr, kind=kind)
         else:
+            args = self.visit(o.items[1], **kwargs)
+            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
@@ -387,7 +417,8 @@ class FParser2IR(GenericVisitor):
             else:
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
-                    variables = self.typedefs[typename].variables
+                    variables = OrderedDict([(v.basename, v)
+                                             for v in self.typedefs[typename].variables])
                 else:
                     variables = None
                 dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
@@ -400,76 +431,79 @@ class FParser2IR(GenericVisitor):
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
         variables = flatten(self.visit(o.items[2], **kwargs))
-        variables = OrderedDict([(v.name, v) for v in variables])
 
         return Declaration(variables=variables, type=dtype, dimensions=dimensions)
 
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Derived_Type_Stmt).items[1].tostr().lower()
         # Create the parent type with all the information we have so far
+        typedef = TypeDef(name=name, declarations=[], parent=self.scope)
         dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict(),
                            source=kwargs.get('source', None))
-        declarations = self.visit(get_child(o, Component_Part), parent=dtype)
-        # Update the parent type with the children from the declarations
-        # and insert it into the types table
-        for decl in declarations:
-            dtype.variables.update(decl.variables)
+        # Create declarations and update the parent type with the children from the declarations
+        typedef.declarations += self.visit(get_child(o, Component_Part), scope=typedef)
+        for decl in typedef.declarations:
+            dtype.variables.update([(v.basename, v) for v in decl.variables])
+        # Make type known in its scope's types table
         self.scope.types[name] = dtype
-        return TypeDef(name=name, declarations=declarations)
+        return typedef
 
     def visit_Component_Part(self, o, **kwargs):
         return as_tuple(self.visit(a, **kwargs) for a in o.content)
 
-    def visit_Data_Component_Def_Stmt(self, o, **kwargs):
-        """
-        Declaration of members of a derived type (i.e., part of the definition of the derived type.
-        """
-        # First, determine type attributes
-        attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
-        # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
-        dimensions = [a for a in attrs if isinstance(a, tuple)]
-        dimensions = None if len(dimensions) == 0 else dimensions[0]
-        attrs = tuple(str(a).lower().strip() for a in attrs if isinstance(a, str))
-        intent = None
-        if 'intent(in)' in attrs:
-            intent = 'in'
-        elif 'intent(inout)' in attrs:
-            intent = 'inout'
-        elif 'intent(out)' in attrs:
-            intent = 'out'
+    # Declaration of members of a derived type (i.e., part of the definition of the derived type.
+    visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
 
-        # Next, figure out the type we're declaring
-        dtype = None
-        basetype_ast = get_child(o, Intrinsic_Type_Spec)
-        if basetype_ast is not None:
-            dtype, kind = self.visit(basetype_ast)
-            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
-                               parameter='parameter' in attrs, optional='optional' in attrs,
-                               allocatable='allocatable' in attrs, pointer='pointer' in attrs)
-
-        derived_type_ast = get_child(o, Declaration_Type_Spec)
-        if derived_type_ast is not None:
-            typename = derived_type_ast.items[1].tostr().lower()
-            dtype = self.scope.types.lookup(typename, recursive=True)
-            if dtype is None:
-                # TODO: Insert variable information from stored TypeDef!
-                if self.typedefs is not None and typename in self.typedefs:
-                    variables = self.typedefs[typename].variables
-                else:
-                    variables = None
-                dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
-                                   intent=intent, allocatable='allocatable' in attrs,
-                                   pointer='pointer' in attrs, optional='optional' in attrs,
-                                   parameter='parameter' in attrs, target='target' in attrs)
-
-        kwargs['dimensions'] = dimensions
-        kwargs['dtype'] = dtype
-        variables = flatten(self.visit(o.items[2], **kwargs))
-        variables = [(k, v) for k, v in zip(variables[::2], variables[1::2])]
-        variables = OrderedDict(variables)
-        # TODO: Deal with our Loki-specific dimension annotations
-
-        return Declaration(variables=variables, type=dtype, dimensions=dimensions)
+#    def visit_Data_Component_Def_Stmt(self, o, **kwargs):
+#        """
+#        Declaration of members of a derived type (i.e., part of the definition of the derived type.
+#        """
+#        # First, determine type attributes
+#        attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
+#        # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
+#        dimensions = [a for a in attrs if isinstance(a, tuple)]
+#        dimensions = None if len(dimensions) == 0 else dimensions[0]
+#        attrs = tuple(str(a).lower().strip() for a in attrs if isinstance(a, str))
+#        intent = None
+#        if 'intent(in)' in attrs:
+#            intent = 'in'
+#        elif 'intent(inout)' in attrs:
+#            intent = 'inout'
+#        elif 'intent(out)' in attrs:
+#            intent = 'out'
+#
+#        # Next, figure out the type we're declaring
+#        dtype = None
+#        basetype_ast = get_child(o, Intrinsic_Type_Spec)
+#        if basetype_ast is not None:
+#            dtype, kind = self.visit(basetype_ast)
+#            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
+#                               parameter='parameter' in attrs, optional='optional' in attrs,
+#                               allocatable='allocatable' in attrs, pointer='pointer' in attrs)
+#
+#        derived_type_ast = get_child(o, Declaration_Type_Spec)
+#        if derived_type_ast is not None:
+#            typename = derived_type_ast.items[1].tostr().lower()
+#            dtype = self.scope.types.lookup(typename, recursive=True)
+#            if dtype is None:
+#                # TODO: Insert variable information from stored TypeDef!
+#                if self.typedefs is not None and typename in self.typedefs:
+#                    variables = self.typedefs[typename].variables
+#                else:
+#                    variables = None
+#                dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
+#                                   intent=intent, allocatable='allocatable' in attrs,
+#                                   pointer='pointer' in attrs, optional='optional' in attrs,
+#                                   parameter='parameter' in attrs, target='target' in attrs)
+#
+#        kwargs['dimensions'] = dimensions
+#        kwargs['dtype'] = dtype
+#        variables = flatten(self.visit(o.items[2], **kwargs))
+#        variables = [(k, v) for k, v in zip(variables[::2], variables[1::2])]
+#        variables = OrderedDict(variables)
+#        # TODO: Deal with our Loki-specific dimension annotations
+#
+#        return Declaration(variables=variables, type=dtype, dimensions=dimensions)
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
         # Extract loop header and get stepping info
@@ -614,7 +648,8 @@ class FParser2IR(GenericVisitor):
         associations = OrderedDict()
         for assoc in o.items[1].items:
             var = self.visit(assoc.items[2], **kwargs)
-            dtype = var.type.clone(name=None, parent=None, shape=var.dimensions)
+            shape = var.dimensions if isinstance(var, Array) else None
+            dtype = var.type.clone(name=None, parent=None, shape=shape)
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
         return Scope(associations=associations)
 
