@@ -219,10 +219,9 @@ def test_commutativity(refpath, reference, frontend):
     routine = source['commutativity']
     stmt = list(routine.body)[0]
 
-    # TODO: One of 1 and v2 needs to be an array, as our scalars are
-    # not yet non-commutative.
     # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
-    assert fgen(stmt) == 'v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)'
+    assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
+                          'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

@@ -13,7 +13,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast
+from loki.expression import Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
 from loki.tools import as_tuple, timeit, disk_cached
 from loki.logging import info, DEBUG
@@ -250,35 +250,30 @@ class OFP2IR(GenericVisitor):
                                  for a in attr[0].findall('attribute/component-attr-spec')]
                     typename = t.attrib['name']
                     t_source = extract_source(t.attrib, self._raw_source)
-                    kind = t.find('kind')
+                    kind = t.find('kind/name')
                     if kind is not None:
-                        kind = self.visit(kind)
+                        kind = kind.attrib['id']
                     # We have an intrinsic Fortran type
                     if t.attrib['type'] == 'intrinsic':
                         _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
                                            pointer='POINTER' in attrs,
-                                           #parent=parent_type, pointer='POINTER' in attrs,
                                            allocatable='ALLOCATABLE' in attrs, source=t_source)
                     else:
                         # This is a derived type. Let's see if we know it already
                         _type = self.scope.types.lookup(typename, recursive=True)
                         if _type is not None:
-                            #_type = _type.clone(parent=parent_type, kind=kind,
-                            _type = _type.clone(kind=kind,
-                                                pointer='POINTER' in attrs,
+                            _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
                                                 allocatable='ALLOCATABLE' in attrs,
                                                 source=t_source)
                         else:
                             import pdb; pdb.set_trace()
                             _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
-                                               #parent=parent_type, kind=kind,
-                                               kind=kind,
-                                               pointer='POINTER' in attrs,
+                                               kind=kind, pointer='POINTER' in attrs,
                                                allocatable='ALLOCATABLE' in attrs,
                                                variables=OrderedDict(), source=t_source)
 
                     # Derive variables for this declaration entry
-                    variables = OrderedDict() 
+                    variables = []
                     for v in comps.findall('component'):
                         if len(v.attrib) == 0:
                             continue
@@ -299,24 +294,24 @@ class OFP2IR(GenericVisitor):
                         v_type = _type.clone(shape=dimensions, source=v_source)
                         v_name = v.attrib['name']
 
-                        variables[v_name] = Variable(name=v_name, type=v_type,
-                                                     dimensions=dimensions, scope=typedef)
+                        variables += [Variable(name=v_name, type=v_type, dimensions=dimensions,
+                                               scope=typedef)]
 
-                    parent_type.variables.update(variables)
+                    parent_type.variables.update([(v.basename, v) for v in variables])
                     typedef.declarations += [Declaration(variables=variables, type=_type,
                                                          source=t_source)]
 
                 # Make that derived type known in the types table
                 self.scope.types[derived_name] = parent_type
 
-                return typedef 
+                return typedef
             else:
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
                 typename = o.find('type').attrib['name']
-                kind = o.find('type/kind')
+                kind = o.find('type/kind/name')
                 if kind is not None:
-                    kind = self.visit(kind)
+                    kind = kind.attrib['id']
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
                 pointer = o.find('attribute-pointer') is not None
@@ -341,7 +336,8 @@ class OFP2IR(GenericVisitor):
                                             parameter=parameter, target=target, source=source)
                     if _type is None:
                         if self.typedefs is not None and typename.lower() in self.typedefs:
-                            variables = self.typedefs[typename.lower()].variables
+                            variables = OrderedDict([(v.basename, v) for v
+                                                     in self.typedefs[typename.lower()].variables])
                         else:
                             variables = OrderedDict()
                         _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
@@ -352,7 +348,7 @@ class OFP2IR(GenericVisitor):
 
                 variables = [self.visit(v, type=_type, dimensions=dimensions)
                              for v in o.findall('variables/variable')]
-                variables = OrderedDict([(v.name, v) for v in variables if v is not None])
+                variables = [v for v in variables if v is not None]
                 return Declaration(variables=variables, type=_type, dimensions=dimensions,
                                    source=source)
         elif o.attrib['type'] == 'implicit':
@@ -381,7 +377,8 @@ class OFP2IR(GenericVisitor):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
-            _type = var.type.clone(name=None, parent=None, shape=var.dimensions)
+            shape = var.dimensions if isinstance(var, Array) else None
+            _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
             associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope,
                                          source=source)
@@ -445,7 +442,7 @@ class OFP2IR(GenericVisitor):
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(vname, parameters=indices, kw_parameters=kwargs)
+                return InlineCall(vname, parameters=indices)
             elif vname.upper() in ['REAL', 'INT']:
                 return Cast(vname, expression=indices[0], kind=kwargs.get('kind', None))
             elif indices is not None and len(indices) == 0:
@@ -474,8 +471,8 @@ class OFP2IR(GenericVisitor):
         _children = deque(c for c in _children if c is not None)
 
         # Hack: find kwargs for Casts
-        kwargs = list([self.visit(i) for i in o.findall('subscripts/argument')])
-        kwargs = {k: v for k, v in kwargs}
+        kwargs = {i.attrib['name']: i.find('name').attrib['id']
+                  for i in o.findall('subscripts/argument')}
 
         # Now we nest variables, dimensions and sub-variables by
         # walking through our queue of nested symbols
@@ -520,7 +517,8 @@ class OFP2IR(GenericVisitor):
         value = int(value) if type == 'int' else value
         value = float(value) if type == 'real' else value
         if _type is not None:
-            tmap = {'int': DataType.INTEGER, 'real': DataType.REAL}
+            tmap = {'bool': DataType.LOGICAL, 'int': DataType.INTEGER,
+                    'real': DataType.REAL, 'char': DataType.CHARACTER}
             _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
         # Cast to the right type if given
         return Literal(value=value, kind=kind, type=_type, source=source)

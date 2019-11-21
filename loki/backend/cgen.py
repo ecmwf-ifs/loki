@@ -35,10 +35,9 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolType(DataType.REAL, kind=expr.kind)
-            result = '(%s) %s' % (c_intrinsic_type(_type),
-                                  self.rec(expr.value, enclosing_prec, *args, **kwargs))
+            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
-            result = self.rec(expr.value, enclosing_prec, *args, **kwargs)
+            result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
@@ -48,10 +47,9 @@ class CCodeMapper(LokiStringifyMapper):
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolType(DataType.INTEGER, kind=expr.kind)
-            result = '(%s) %s' % (c_intrinsic_type(_type),
-                                  self.rec(expr.value, enclosing_prec, *args, **kwargs))
+            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
-            result = self.rec(expr.value, enclosing_prec, *args, **kwargs)
+            result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
