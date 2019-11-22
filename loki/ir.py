@@ -432,7 +432,7 @@ class TypeDef(Node):
     _traversable = ['declarations']
 
     def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None,
-                 parent=None, symbols=None, types=None):
+                 symbols=None, types=None):
         super(TypeDef, self).__init__(source=source)
 
         self.name = name
@@ -441,10 +441,21 @@ class TypeDef(Node):
         self.pragmas = pragmas
         self.bind_c = bind_c
 
-        self.parent = parent
         self.symbols = symbols if symbols is not None else TypeTable()
         self.types = types if types is not None else TypeTable()
 
     @property
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
+
+    def _rebuild(self, *args, **kwargs):
+        # This is super hacky, but some of the visitor traversals for omni throw away the
+        # declarations...
+        obj = super(TypeDef, self)._rebuild(*args, **kwargs)
+        if kwargs.get('symbols') is None:
+            obj.symbols = self.symbols.copy()
+        if kwargs.get('types') is None:
+            obj.types = self.types.copy()
+        if kwargs.get('declarations') is None:
+            obj.declarations = as_tuple(decl for decl in self.declarations)
+        return obj

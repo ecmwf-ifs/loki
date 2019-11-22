@@ -132,6 +132,14 @@ class OMNI2IR(GenericVisitor):
 
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
+
+        # Hack: For some £$%^ reason, OMNI inserts the function name as a varDecl...
+        if hasattr(self.scope, 'name') and self.scope.name == name.text:
+            return None
+
+#        if name.text == 'item':
+#            import pdb; pdb.set_trace()
+
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
@@ -161,15 +169,15 @@ class OMNI2IR(GenericVisitor):
             _type.shape = dimensions
         variable = Variable(name=name.text, dimensions=dimensions, type=_type,
                             initial=value, scope=self.scope, source=source)
-        return Declaration(variables=OrderedDict([(name.text, variable)]),
-                           type=_type, source=source)
+        return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        derived = self.visit(self.type_map[name.attrib['type']])
-        decls = as_tuple(Declaration(variables=OrderedDict([(k, v)]), type=v)
-                         for k, v in derived.variables.items())
-        return TypeDef(name=name.text, declarations=decls)
+        typedef = TypeDef(name=name.text, declarations=[])
+        _type = self.visit(self.type_map[name.attrib['type']], scope=typedef)
+        typedef.declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
+                                        for v in _type.variables.values())
+        return typedef
 
     def visit_FbasicType(self, o, source=None):
         ref = o.attrib.get('ref', None)
@@ -190,27 +198,46 @@ class OMNI2IR(GenericVisitor):
         _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
         return _type
 
-    def visit_FstructType(self, o, source=None):
+    def visit_FstructType(self, o, scope=None, source=None):
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
+
+        # Check if we know that type already
+        parent_type = self.scope.types.lookup(name, recursive=True)
+        if parent_type is not None:
+            return parent_type.clone()
 
         parent_type = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict())
 
         for s in o.find('symbols'):
             vname = s.find('name').text
+            dimensions = None
+
             t = s.attrib['type']
             if t in self.type_map:
-                vtype = self.visit(self.type_map[t])
-                dimensions = None
                 if len(self.type_map[t]) > 0:
                     dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
-                vtype = vtype.clone(parent=parent_type, shape=dimensions)
+                vtype = self.visit(self.type_map[t])
+                if isinstance(vtype, TypeDef):
+                    import pdb; pdb.set_trace()
+                    tdef = vtype
+                    vtype = self.scope.types.lookup(tdef.name, recursive=True)
+                    if vtype is not None:
+                        vtype = vtype.clone(shape=dimensions)
+                    else:
+                        vtype = SymbolType(DataType.DERIVED_TYPE, name=tdef.name,
+                                           variables=tdef.variables)
             else:
                 typename = self._omni_types.get(t, t)
-                vtype = SymbolType(DataType.from_fortran_type(typename), parent=parent_type)
-            parent_type.variables[vname] = vtype
+                vtype = SymbolType(DataType.from_fortran_type(typename))
 
+            v = Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope,
+                         source=source)
+            parent_type.variables[vname] = v
+
+        # Store that type
+        self.scope.types[name] = parent_type
         return parent_type
 
     def visit_associateStatement(self, o, source=None):
