@@ -437,7 +437,7 @@ class FParser2IR(GenericVisitor):
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Derived_Type_Stmt).items[1].tostr().lower()
         # Create the parent type with all the information we have so far
-        typedef = TypeDef(name=name, declarations=[], parent=self.scope)
+        typedef = TypeDef(name=name, declarations=[])
         dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict(),
                            source=kwargs.get('source', None))
         # Create declarations and update the parent type with the children from the declarations

@@ -226,7 +226,7 @@ class OFP2IR(GenericVisitor):
                 comments = [c for c in comments if not isinstance(c, Pragma)]
 
                 # Create the parent type...
-                typedef = TypeDef(name=derived_name, parent=self.scope, declarations=[],
+                typedef = TypeDef(name=derived_name, declarations=[],
                                   pragmas=pragmas, comments=comments, source=source)
                 parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
                                          variables=OrderedDict(), source=source)

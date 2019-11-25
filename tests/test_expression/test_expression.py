@@ -124,7 +124,7 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[3].expr, FloatLiteral)
     assert stmts[3].expr.kind in ['jprb']
     assert isinstance(stmts[4].expr, Cast)
-    assert str(stmts[4].expr.kind) in ['selected_real_kind', 'jprb']
+    assert str(stmts[4].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[5].expr, Cast)
 
 
