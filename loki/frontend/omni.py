@@ -199,6 +199,10 @@ class OMNI2IR(GenericVisitor):
         return _type
 
     def visit_FstructType(self, o, scope=None, source=None):
+        # We have encountered a derived type but we don't know in which capacity:
+        # could be the type of a variable that is declared in the spec of a routine,
+        # or the definition of the type in a module.
+
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
@@ -208,36 +212,39 @@ class OMNI2IR(GenericVisitor):
         if parent_type is not None:
             return parent_type.clone()
 
+        # Check if the type was defined externally
+        if self.typedefs is not None and name in self.typedefs:
+            variables = OrderedDict([(v.name, v) for v in self.typedefs[name].variables])
+            return SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables)
+
+        # Otherwise: We are in a typedef and need to create a new type...
+        scope = scope or self.scope
         parent_type = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict())
 
+        # ...and build the list of its members
+        variables = []
         for s in o.find('symbols'):
             vname = s.find('name').text
             dimensions = None
 
             t = s.attrib['type']
             if t in self.type_map:
-                if len(self.type_map[t]) > 0:
-                    dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
                 vtype = self.visit(self.type_map[t])
-                if isinstance(vtype, TypeDef):
-                    import pdb; pdb.set_trace()
-                    tdef = vtype
-                    vtype = self.scope.types.lookup(tdef.name, recursive=True)
-                    if vtype is not None:
-                        vtype = vtype.clone(shape=dimensions)
-                    else:
-                        vtype = SymbolType(DataType.DERIVED_TYPE, name=tdef.name,
-                                           variables=tdef.variables)
+                dims = self.type_map[t].findall('indexRange')
+                if dims:
+                    dimensions = as_tuple(self.visit(d) for d in dims)
+                    vtype = vtype.clone(shape=dimensions)
             else:
                 typename = self._omni_types.get(t, t)
                 vtype = SymbolType(DataType.from_fortran_type(typename))
 
-            v = Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope,
-                         source=source)
-            parent_type.variables[vname] = v
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope,
+                                   source=source)]
 
-        # Store that type
+        # Remember that type
+        parent_type.variables.update([(v.basename, v) for v in variables])
         self.scope.types[name] = parent_type
+
         return parent_type
 
     def visit_associateStatement(self, o, source=None):

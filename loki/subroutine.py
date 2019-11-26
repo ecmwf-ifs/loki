@@ -7,7 +7,7 @@ from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
-                     CallContext, Intrinsic)
+                     CallContext, Intrinsic, TypeDef)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -163,8 +163,23 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
+        # Create typedefs for externally defined derived types
+        # This is not pretty but it makes sure we know the types in full when
+        # declaring them inside a function etc.
+        _typedefs = typedefs.copy() if typedefs is not None else {}
+        for t in typetable.findall('FstructType'):
+            if t.attrib['type'] not in symbol_map:
+                continue
+            tname = symbol_map[t.attrib['type']].find('name').text
+            tdef = TypeDef(name=tname, declarations=[])
+            _type = parse_omni_ast(t, typedefs=_typedefs, type_map=type_map,
+                                   symbol_map=symbol_map, raw_source=raw_source, scope=tdef)
+            tdef.declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
+                                         for v in _type.variables.values())
+            _typedefs[tname] = tdef
+
         # Generate spec, filter out external declarations and docstring
-        spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
+        spec = parse_omni_ast(ast.find('declarations'), typedefs=_typedefs, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or next(iter(d.variables)) == name}
@@ -187,7 +202,7 @@ class Subroutine(object):
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
+            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=_typedefs,
                                             symbol_map=symbol_map, raw_source=raw_source,
                                             parent=parent)
                        for s in contains]
@@ -195,7 +210,7 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
+        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=_typedefs,
                                        type_map=type_map, symbol_map=symbol_map,
                                        shape_map=shape_map, raw_source=raw_source, scope=obj))
 

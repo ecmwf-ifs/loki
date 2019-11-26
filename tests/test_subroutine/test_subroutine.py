@@ -290,11 +290,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     assert routine.arguments[0].type.dtype == DataType.INTEGER
     assert routine.arguments[1].type.dtype == DataType.INTEGER
     assert routine.arguments[2].type.dtype == DataType.REAL
-    assert routine.arguments[2].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(routine.arguments[2].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert routine.arguments[3].type.dtype == DataType.REAL
-    assert routine.arguments[3].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(routine.arguments[3].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert routine.arguments[4].type.dtype == DataType.REAL
-    assert routine.arguments[4].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(routine.arguments[4].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
     # Verify that all variable instances have type information
     variables = FindVariables().visit(routine.body)
@@ -304,11 +304,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     vmap = {v.name: v for v in variables}
     assert vmap['x'].type.dtype == DataType.INTEGER
     assert vmap['scalar'].type.dtype == DataType.REAL
-    assert vmap['scalar'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['vector'].type.dtype == DataType.REAL
-    assert vmap['vector'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['matrix'].type.dtype == DataType.REAL
-    assert vmap['matrix'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
     # Parse kernel routine and provide external typedefs
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
@@ -327,11 +327,11 @@ def test_routine_type_propagation(refpath, reference, header_path, header_mod, f
     # Verify imported derived type info explicitly
     vmap = {v.name: v for v in variables}
     assert vmap['item%scalar'].type.dtype == DataType.REAL
-    assert vmap['item%scalar'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['item%scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['item%vector'].type.dtype == DataType.REAL
-    assert vmap['item%vector'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['item%vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
     assert vmap['item%matrix'].type.dtype == DataType.REAL
-    assert vmap['item%matrix'].type.kind in ('jprb', 'selected_real_kind(13, 300)')
+    assert str(vmap['item%matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

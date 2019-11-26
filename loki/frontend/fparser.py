@@ -380,7 +380,8 @@ class FParser2IR(GenericVisitor):
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         """
-        Declaration statement in the spec of a module/routine.
+        Declaration statement in the spec of a module/routine. This function is also called
+        for declarations of members of a derived type.
         """
         # First, pick out parameters, including explicit DIMENSIONs
         attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
