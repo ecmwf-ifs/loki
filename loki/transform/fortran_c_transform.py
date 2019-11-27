@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from itertools import count
 
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
@@ -363,11 +364,11 @@ class FortranCTransformation(BasicTransformation):
                 if not isinstance(v, Array):
                     continue
 
-                for dim, s in zip(v.dimensions, as_tuple(v.shape)):
+                for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
                         vtype = SymbolType(DataType.INTEGER)
-                        ivar = Variable(name='i_%s' % s.upper, type=vtype, scope=kernel)
+                        ivar = Variable(name='i_%s_%s' % (v.basename, i), type=vtype, scope=kernel)
                         shape_index_map[s] = ivar
                         index_range_map[ivar] = s
 
@@ -387,7 +388,10 @@ class FortranCTransformation(BasicTransformation):
                 body = stmt
                 for ivar in vdims:
                     irange = index_range_map[ivar]
-                    bounds = (irange.lower or Literal(1), irange.upper, irange.step)
+                    if isinstance(irange, RangeIndex):
+                        bounds = (irange.lower or Literal(1), irange.upper, irange.step)
+                    else:
+                        bounds = (Literal(1), irange, Literal(1))
                     loop = Loop(variable=ivar, body=body, bounds=bounds)
                     body = loop
 
