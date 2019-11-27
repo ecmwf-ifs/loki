@@ -16,7 +16,7 @@ def c_intrinsic_type(_type):
     elif _type.dtype == DataType.INTEGER:
         return 'int'
     elif _type.dtype == DataType.REAL:
-        if _type.kind in ('real32',):
+        if str(_type.kind) in ['real32']:
             return 'float'
         else:
             return 'double'
@@ -68,17 +68,21 @@ class CCodeMapper(LokiStringifyMapper):
             self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_scalar(self, expr, *args, **kwargs):
-        # TODO: Properly resolve pointers to the parent to replace '->' by '.'
-        parent = self.rec(expr.parent, *args, **kwargs) + '->' if expr.parent else ''
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
-        return '%s%s%s' % (ptr, parent, expr.name)
+        if expr.parent is not None:
+            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            return self.format('%s%s.%s', ptr, parent, expr.basename)
+        else:
+            return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, *args, **kwargs):
-        parent = '(' + self.rec(expr.parent, *args, **kwargs) + ').' if expr.parent else ''
-        dims = ['[%s]' % self.rec(d, *args, **kwargs) for d in expr.dimensions]
-        dims = ''.join(dims)
-        return '%s%s%s' % (parent, expr.name, dims)
+        dims = ''.join(['[%s]' % self.rec(d, *args, **kwargs) for d in expr.dimensions])
+        if expr.parent is not None:
+            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            return self.format('%s.%s%s', parent, expr.basename, dims)
+        else:
+            return self.format('%s%s', expr.basename, dims)
 
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
@@ -239,11 +243,10 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         _type = self.visit(o.type)
-        vstr = self.segment([self._csymgen(v) for v in o.variables])
-        vptr = [('*' if v.type.pointer or v.type.allocatable else '')
-                for v in o.variables.values()]
+        vstr = [self._csymgen(v) for v in o.variables]
+        vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
         vinit = ['' if v.initial is None else (' = %s' % self._csymgen(v.initial))
-                 for v in o.variables.values()]
+                 for v in o.variables]
         variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
         return self.indent + '%s %s;' % (_type, variables) + comment
 

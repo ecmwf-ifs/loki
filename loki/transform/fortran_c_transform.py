@@ -66,17 +66,22 @@ class FortranCTransformation(BasicTransformation):
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
 
-    @staticmethod
-    def c_struct_typedef(derived):
+    @classmethod
+    def c_struct_typedef(cls, derived):
         """
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
-        decls = []
-        for k, v in derived.variables.items():
-            ctype = v.clone(kind=FortranCTransformation.iso_c_intrinsic_kind(v))
-            decls += [Declaration(variables=OrderedDict([(k.lower(), ctype)]), type=ctype)]
         typename = '%s_c' % derived.name
-        return TypeDef(name=typename, bind_c=True, declarations=decls)
+        obj = TypeDef(name=typename, bind_c=True, declarations=[])
+        if isinstance(derived, TypeDef):
+            variables = derived.variables
+        else:
+            variables = derived.variables.values()
+        for v in variables:
+            ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
+            vnew = v.clone(name=v.basename.lower(), scope=obj, type=ctype)
+            obj.declarations += [Declaration(variables=(vnew,), type=ctype)]
+        return obj
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -168,7 +173,7 @@ class FortranCTransformation(BasicTransformation):
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
         for decl in FindNodes(Declaration).visit(module.spec):
-            for v in decl.variables.values():
+            for v in decl.variables:
                 if v.type.dtype == DataType.DERIVED_TYPE or v.type.pointer or v.type.allocatable:
                     continue
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
@@ -230,7 +235,7 @@ class FortranCTransformation(BasicTransformation):
         spec = []
         for decl in FindNodes(Declaration).visit(module.spec):
             assert len(decl.variables) == 1
-            v = next(iter(decl.variables.values()))
+            v = decl.variables[0]
             # Bail if not a basic type
             if v.type.dtype == DataType.DERIVED_TYPE:
                 continue
@@ -242,14 +247,14 @@ class FortranCTransformation(BasicTransformation):
         for td in FindNodes(TypeDef).visit(module.spec):
             declarations = []
             for decl in td.declarations:
-                variables = OrderedDict()
-                for k, v in decl.variables.items():
+                variables = []
+                for v in decl.variables:
                     # Note that we force lower-case on all struct variables
-                    if v.shape is not None:
+                    if isinstance(v, Array):
                         new_dims = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
-                        variables[k.lower()] = v.clone(shape=new_dims)
+                        variables += [v.clone(name=v.name.lower(), shape=new_dims)]
                     else:
-                        variables[k.lower()] = v.clone()
+                        variables += [v.clone(name=v.name.lower())]
                 declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
                                              type=decl.type, comment=decl.comment,
                                              pragma=decl.pragma)]
@@ -276,15 +281,14 @@ class FortranCTransformation(BasicTransformation):
 
                 # For imported modulevariables, create a declaration and call the getter
                 module = header_map[imp.module]
-                mod_vars = flatten(d.variables.values()
-                                   for d in FindNodes(Declaration).visit(module.spec))
+                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
                 mod_vars = {v.name.lower(): v for v in mod_vars}
 
                 for s in imp.symbols:
                     if s.lower() in mod_vars:
                         var = mod_vars[s.lower()]
 
-                        decl = Declaration(variables=[var], type=var.type)
+                        decl = Declaration(variables=(var,), type=var.type)
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
                         vget = Statement(target=var, expr=InlineCall(function=getter))
                         getter_calls += [decl, vget]
@@ -362,8 +366,8 @@ class FortranCTransformation(BasicTransformation):
                 for dim, s in zip(v.dimensions, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
-                        vtype = BaseType(name='integer', kind='4')
-                        ivar = Variable(name='i_%s' % s.upper, type=vtype)
+                        vtype = SymbolType(DataType.INTEGER)
+                        ivar = Variable(name='i_%s' % s.upper, type=vtype, scope=kernel)
                         shape_index_map[s] = ivar
                         index_range_map[ivar] = s
 
