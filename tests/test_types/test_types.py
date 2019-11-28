@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from loki import clean, compile_and_load, OFP, OMNI, FP
+from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
 from conftest import generate_identity
 
 
@@ -16,8 +16,8 @@ def reference(refpath):
     Compile and load the reference solution
     """
     clean(filename=refpath)  # Delete parser cache
-    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
-    return getattr(pymod, refpath.stem)
+#    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
+#    return getattr(pymod, refpath.stem)
 
 
 def test_data_type():
@@ -72,3 +72,21 @@ def test_symbol_type():
 
     delattr(_type, 'foo')
     assert _type.foo is None
+
+
+@pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI segfaults with pragmas in derived types
+def test_pragmas(refpath, reference, frontend):
+    """
+    !$loki dimension(3,3)
+    real(kind=jprb), dimension(:,:), pointer :: matrix
+    !$loki dimension(5,1,5)
+    real(kind=jprb), dimension(:,:,:), pointer :: tensor
+    """
+    from loki import FCodeMapper
+    fsymgen = FCodeMapper()
+
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    pragma_type = source['types'].types['pragma_type']
+
+    assert fsymgen(pragma_type.variables['matrix'].shape) == '(3, 3)'
+    assert fsymgen(pragma_type.variables['tensor'].shape) == '(klon, klat, 2)'

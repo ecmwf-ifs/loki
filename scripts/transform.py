@@ -7,8 +7,8 @@ from pathlib import Path
 from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
                   info, as_tuple, Loop, Variable,
-                  Array, Call, Pragma, BaseType,
-                  DerivedType, Import, RangeIndex,
+                  Array, Call, Pragma, DataType,
+                  SymbolType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation, FCodeMapper,
                   Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper)
@@ -64,7 +64,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         candidates = defaultdict(list)
 
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
+            if arg.type.dtype == DataType.DERIVED_TYPE:
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable
                        for v in arg.type.variables):
@@ -132,13 +132,10 @@ class DerivedArgsTransformation(AbstractTransformation):
             new_vars = []
             for type_var in type_vars:
                 # Create a new variable with a new type mimicking the old one
-                new_type = BaseType(name=type_var.type.name,
-                                    kind=type_var.type.kind,
-                                    intent=arg.type.intent)
+                new_type = type_var.type.clone(intent=arg.type.intent)
                 new_name = '%s_%s' % (arg.name, type_var.name)
-                new_var = Variable(name=new_name, type=new_type,
-                                   dimensions=as_tuple(type_var.shape),
-                                   shape=as_tuple(type_var.shape))
+                new_var = Variable(name=new_name, type=new_type, dimensions=new_type.shape,
+                                   scope=routine)
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
@@ -364,8 +361,8 @@ class SCATransformation(AbstractTransformation):
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
-            dtype = BaseType(name='INTEGER', kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype)]
+            dtype = SymbolType(DataType.INTEGER, kind='JPIM')
+            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):

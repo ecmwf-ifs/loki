@@ -99,12 +99,6 @@ class Scalar(pmbl.Variable):
     This is due to the assumption that we might have encountered a variable name before
     knowing about its declaration and thus treat the latest given type information as
     the one that is most up-to-date.
-
-    Note that a Variable instance and a type can have a parent, with the parent of a Variable
-    always being a Variable and the parent of a type always being a type. Conceptually, it should
-    always hold `variable.parent.type == variable.type.parent.type`. This is due to the fact that
-    a variables parent can be an Array of derived types and as such has a `dimensions` parameter,
-    thus requires a different parent than at the time of declaration.
     """
 
     def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
@@ -116,7 +110,7 @@ class Scalar(pmbl.Variable):
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
-            self.scope.symbols.setdefault(self.name, SymbolType(DataType.DEFERRED))
+            self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
         else:
             self.type = type
         self.parent = parent
@@ -143,11 +137,11 @@ class Scalar(pmbl.Variable):
         """
         Internal representation of the declared data type.
         """
-        return self.scope.symbols[self.name]
+        return self.scope[self.name]
 
     @type.setter
     def type(self, value):
-        self.scope.symbols[self.name] = value
+        self.scope[self.name] = value
 
     def __getinitargs__(self):
         return tuple([self.name, ('scope', self.scope)])
@@ -188,24 +182,18 @@ class Array(pmbl.Variable):
     This is due to the assumption that we might have encountered a variable name before
     knowing about its declaration and thus treat the latest given type information as
     the one that is most up-to-date.
-
-    Note that a Variable instance and a type can have a parent, with the parent of a Variable
-    always being a Variable and the parent of a type always being a type. Conceptually, it should
-    always hold `variable.parent.type == variable.type.parent.type`. This is due to the fact that
-    a variables parent can be an Array of derived types and as such has a `dimensions` parameter,
-    thus requires a different parent than at the time of declaration.
     """
 
     def __init__(self, name, scope, type=None, parent=None, dimensions=None,
                  initial=None, source=None):
         super(Array, self).__init__(name)
 
-        self._scope = weakref.ref(scope)
-#        self.scope = scope
+#        self._scope = weakref.ref(scope)
+        self.scope = scope
         if type is None:
             # Insert the defered type in the type table only if it does not exist
             # yet (necessary for deferred type definitions)
-            self.scope.symbols.setdefault(self.name, SymbolType(DataType.DEFERRED))
+            self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
         else:
             self.type = type
         self.parent = parent
@@ -213,12 +201,12 @@ class Array(pmbl.Variable):
         self.initial = initial
         self.source = source
 
-    @property
-    def scope(self):
-        """
-        The object corresponding to the symbols scope.
-        """
-        return self._scope()
+#    @property
+#    def scope(self):
+#        """
+#        The object corresponding to the symbols scope.
+#        """
+#        return self._scope()
 
     @property
     def basename(self):
@@ -233,11 +221,11 @@ class Array(pmbl.Variable):
         """
         Internal representation of the declared data type.
         """
-        return self.scope.symbols[self.name]
+        return self.scope[self.name]
 
     @type.setter
     def type(self, value):
-        self.scope.symbols[self.name] = value
+        self.scope[self.name] = value
 
     @property
     def dimensions(self):
@@ -316,7 +304,7 @@ class Variable(object):
         scope = kwargs.pop('scope')
         dimensions = kwargs.pop('dimensions', None)
         initial = kwargs.pop('initial', None)
-        _type = kwargs.get('type', scope.symbols.lookup(name, recursive=False))
+        _type = kwargs.get('type', scope.lookup(name, recursive=False))
         parent = kwargs.pop('parent', None)
         source = kwargs.get('source', None)
 

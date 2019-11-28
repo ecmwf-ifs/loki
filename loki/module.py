@@ -11,7 +11,7 @@ from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import TypeTable
+from loki.types import TypeTable, DataType, SymbolType
 
 
 __all__ = ['Module']
@@ -119,6 +119,9 @@ class Module(object):
                         for s in routines_ast.content
                         if isinstance(s, Fortran2003.Subroutine_Subprogram)]
 
+        # Process pragmas to override deferred dimensions
+        cls._process_pragmas(spec)
+
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast,
                      symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
@@ -137,12 +140,17 @@ class Module(object):
                     for v in decl.variables:
                         if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
                             # Found dimension override for variable
-                            dims = pragma._source.string.split('dimension(')[-1]
+                            dims = pragma.content.split('dimension(')[-1]
                             dims = dims.split(')')[0].split(',')
                             dims = [d.strip() for d in dims]
-                            # Override dimensions (hacky: not transformer-safe!)
-                            v._shape = as_tuple(Literal(value=d) if d.isnumeric() else Variable(name=d)
-                                                for d in dims)
+                            shape = []
+                            for d in dims:
+                                if d.isnumeric():
+                                    shape += [Literal(value=int(d), type=DataType.INTEGER)]
+                                else:
+                                    _type = SymbolType(DataType.INTEGER)
+                                    shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
+                            v.type = v.type.clone(shape=as_tuple(shape))
 
     @property
     def typedefs(self):

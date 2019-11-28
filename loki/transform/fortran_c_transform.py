@@ -80,7 +80,7 @@ class FortranCTransformation(BasicTransformation):
             variables = derived.variables.values()
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
-            vnew = v.clone(name=v.basename.lower(), scope=obj, type=ctype)
+            vnew = v.clone(name=v.basename.lower(), scope=obj.symbols, type=ctype)
             obj.declarations += [Declaration(variables=(vnew,), type=ctype)]
         return obj
 
@@ -135,7 +135,7 @@ class FortranCTransformation(BasicTransformation):
             if arg.type.dtype == DataType.DERIVED_TYPE:
                 ctype = SymbolType(DataType.DERIVED_TYPE, variables=None,
                                    name=c_structs[arg.type.name.lower()].name)
-                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper.symbols)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Statement(target=cvar, expr=cast_in)]
 
@@ -184,12 +184,13 @@ class FortranCTransformation(BasicTransformation):
                 isoctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
-                getterbody = [Statement(target=Variable(name=gettername, scope=getter), expr=v)]
+                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)]
 
                 getter.__init__(name=gettername, bind=gettername, spec=getterspec,
                                 body=getterbody, is_function=True, parent=obj,
                                 symbols=getter.symbols, types=getter.types)
-                getter.variables = as_tuple(Variable(name=gettername, type=isoctype, scope=getter))
+                getter.variables = as_tuple(Variable(name=gettername, type=isoctype,
+                                                     scope=getter.symbols))
                 wrappers += [getter]
 
         obj.__init__(name=obj.name, spec=spec, routines=wrappers, types=obj.types,
@@ -221,7 +222,8 @@ class FortranCTransformation(BasicTransformation):
                 ctype = SymbolType(arg.type.dtype, value=value,
                                    kind=self.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
-            var = Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_routine)
+            var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
+                           scope=intf_routine.symbols)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
@@ -364,11 +366,13 @@ class FortranCTransformation(BasicTransformation):
                 if not isinstance(v, Array):
                     continue
 
+                ivar_basename = 'i_%s' % stmt.target.basename
                 for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
                         vtype = SymbolType(DataType.INTEGER)
-                        ivar = Variable(name='i_%s_%s' % (v.basename, i), type=vtype, scope=kernel)
+                        ivar = Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
+                                        scope=kernel.symbols)
                         shape_index_map[s] = ivar
                         index_range_map[ivar] = s
 

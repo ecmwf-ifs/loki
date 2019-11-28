@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from pymbolic.primitives import Expression
 from pymbolic.mapper import IdentityMapper
 

@@ -3,18 +3,18 @@ module derived_types
   integer, parameter :: jprb = selected_real_kind(13,300)
 
   type explicit
-     real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-     real(kind=jprb) :: red_herring
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
   end type explicit
 
   type deferred
-     real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
-     real(kind=jprb), allocatable :: red_herring
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
   end type deferred
 
   type nested
-     real(kind=jprb) :: a_scalar, a_vector(3)
-     type(explicit) :: another_item
+    real(kind=jprb) :: a_scalar, a_vector(3)
+    type(explicit) :: another_item
   end type nested
 
 contains

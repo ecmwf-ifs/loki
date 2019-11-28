@@ -101,7 +101,7 @@ class OFP2IR(GenericVisitor):
         else:
             # We are processing a regular for/do loop with bounds
             vname = o.find('header/index-variable').attrib['name']
-            variable = Variable(name=vname, scope=self.scope)
+            variable = Variable(name=vname, scope=self.scope.symbols)
             lower = self.visit(o.find('header/index-variable/lower-bound'))
             upper = self.visit(o.find('header/index-variable/upper-bound'))
             step = None
@@ -295,7 +295,7 @@ class OFP2IR(GenericVisitor):
                         v_name = v.attrib['name']
 
                         variables += [Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                               scope=typedef)]
+                                               scope=typedef.symbols)]
 
                     parent_type.variables.update([(v.basename, v) for v in variables])
                     typedef.declarations += [Declaration(variables=variables, type=_type,
@@ -380,7 +380,7 @@ class OFP2IR(GenericVisitor):
             shape = var.dimensions if isinstance(var, Array) else None
             _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope,
+            associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
                                          source=source)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
@@ -462,7 +462,7 @@ class OFP2IR(GenericVisitor):
                         _type = parent.type.variables.get(basename)
 
                 var = Variable(name=vname, dimensions=indices, parent=parent,
-                               type=_type, scope=self.scope, source=source)
+                               type=_type, scope=self.scope.symbols, source=source)
                 return var
 
         # Creating compound variables is a bit tricky, so let's first
@@ -502,7 +502,7 @@ class OFP2IR(GenericVisitor):
         if _type is not None:
             _type = _type.clone(shape=dimensions)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        return Variable(name=name, scope=self.scope, dimensions=dimensions,
+        return Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
                         type=_type, initial=initial, source=source)
 
     def visit_part_ref(self, o, source=None):

@@ -168,7 +168,7 @@ class OMNI2IR(GenericVisitor):
         if _type is not None:
             _type.shape = dimensions
         variable = Variable(name=name.text, dimensions=dimensions, type=_type,
-                            initial=value, scope=self.scope, source=source)
+                            initial=value, scope=self.scope.symbols, source=source)
         return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
@@ -208,9 +208,10 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        parent_type = self.scope.types.lookup(name, recursive=True)
-        if parent_type is not None:
-            return parent_type.clone()
+        if hasattr(self.scope, 'types'):
+            parent_type = self.scope.types.lookup(name, recursive=True)
+            if parent_type is not None:
+                return parent_type.clone()
 
         # Check if the type was defined externally
         if self.typedefs is not None and name in self.typedefs:
@@ -238,12 +239,13 @@ class OMNI2IR(GenericVisitor):
                 typename = self._omni_types.get(t, t)
                 vtype = SymbolType(DataType.from_fortran_type(typename))
 
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope,
-                                   source=source)]
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype,
+                                   scope=scope.symbols, source=source)]
 
         # Remember that type
         parent_type.variables.update([(v.basename, v) for v in variables])
-        self.scope.types[name] = parent_type
+        if hasattr(self.scope, 'types'):
+            self.scope.types[name] = parent_type
 
         return parent_type
 
@@ -251,7 +253,7 @@ class OMNI2IR(GenericVisitor):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text, scope=self.scope)
+            associations[var] = Variable(name=i.find('name').text, scope=self.scope.symbols)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -322,12 +324,7 @@ class OMNI2IR(GenericVisitor):
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
 
-        if kwargs.get('lookahead', False):
-            import pdb; pdb.set_trace()
-            # Hack: Return components of Variable symbol to allow deferred creation
-            return vname, vtype, parent
-
-        return Variable(name=vname, type=vtype, parent=parent, scope=self.scope,
+        return Variable(name=vname, type=vtype, parent=parent, scope=self.scope.symbols,
                         dimensions=dimensions, source=source)
 
     def visit_Var(self, o, **kwargs):
@@ -362,12 +359,7 @@ class OMNI2IR(GenericVisitor):
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
 
-        if kwargs.get('lookahead', False):
-            import pdb; pdb.set_trace()
-            # Hack: Return components of Variable symbol to allow deferred creation
-            return vname, vtype, parent
-
-        return Variable(name=vname, type=vtype, scope=self.scope,
+        return Variable(name=vname, type=vtype, scope=self.scope.symbols,
                         dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):
@@ -375,22 +367,6 @@ class OMNI2IR(GenericVisitor):
         # explicitly before constructing our symbolic variable.
         dimensions = as_tuple(self.visit(i) for i in o[1:])
         return self.visit(o.find('varRef'), dimensions=dimensions)
-#        vname, vtype, parent = self.visit(o.find('varRef'), dimensions=dimensions)
-
-#        shape = self.shape_map.get(vname, None)
-#
-#        if parent is not None:
-#            # If we have a parent with a type, get the shape info from it
-#            if isinstance(parent.type, DerivedType):
-#                typevar = [v for v in parent.type.variables
-#                           if v.name.lower() == vname.lower()][0]
-#                shape = typevar.shape or typevar.dimensions
-#
-#        if vtype is not None:
-#            vtype.shape = shape
-
-#        return Variable(name=vname, scope=self.scope, dimensions=dimensions,
-#                        type=vtype, parent=parent, source=source)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])

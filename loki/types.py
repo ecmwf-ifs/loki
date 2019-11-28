@@ -161,9 +161,9 @@ class TypeTable(dict):
         return self._parent() if self._parent is not None else None
 
     @staticmethod
-    def split_name(name):
+    def format_lookup_name(name):
         name = name.partition('(')[0]  # Remove any dimension parameters
-        return name #.split('%')
+        return name
 
     def _lookup(self, name, recursive):
         """
@@ -183,17 +183,8 @@ class TypeTable(dict):
         :param recursive: If no entry by that name is found, try to find it in the
                           table of the parent scope.
         """
-        name_parts = self.split_name(name)
+        name_parts = self.format_lookup_name(name)
         value = self._lookup(name_parts, recursive)
-#        value = self._lookup(name_parts[0], recursive)
-#        for ch in name_parts[1:]:
-#            if value is not None:
-#                value = value.variables.get(ch, None)
-#                # For derived types, the type definition has an OrderedDict of declared types. But for
-#                # instances of variables of that derived type, the variables list is actually a list
-#                # of variable instances and thus the type is obtained from their type property.
-#                if value is not None and not isinstance(value, SymbolType):
-#                    value = value.type
         return value
 
     def __getitem__(self, key):
@@ -207,11 +198,8 @@ class TypeTable(dict):
         return value if value is not None else default
 
     def __setitem__(self, key, value):
-        name_parts = self.split_name(key)
+        name_parts = self.format_lookup_name(key)
         super(TypeTable, self).__setitem__(name_parts, value)
-#        if len(name_parts) <= 1:
-#            super(TypeTable, self).__setitem__(name_parts[0], value)
-#        else:
-#            import pdb; pdb.set_trace()
-#            parent = self.lookup('%'.join(name_parts[0:-1]), recursive=False)
-#            parent.variables[name_parts[-1]] = value
+
+    def __hash__(self):
+        return hash(tuple(self.keys()))

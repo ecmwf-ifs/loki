@@ -105,7 +105,6 @@ class FCodeMapper(LokiStringifyMapper):
         try:
             return super().map_foreign(expr, *args, **kwargs)
         except ValueError:
-            import pdb; pdb.set_trace()
             return '! Not supported: %s\n' % str(expr)
 
 

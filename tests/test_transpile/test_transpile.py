@@ -4,7 +4,6 @@ from pathlib import Path
 
 from loki import SourceFile, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib
-from conftest import generate_identity
 
 
 @pytest.fixture(scope='module')
