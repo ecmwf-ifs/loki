@@ -175,8 +175,9 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         typedef = TypeDef(name=name.text, declarations=[])
         _type = self.visit(self.type_map[name.attrib['type']], scope=typedef)
-        typedef.declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
-                                        for v in _type.variables.values())
+        declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
+                                for v in _type.variables.values())
+        typedef._update(declarations=declarations)
         return typedef
 
     def visit_FbasicType(self, o, source=None):
@@ -208,7 +209,7 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        if hasattr(self.scope, 'types'):
+        if hasattr(scope, 'types'):
             parent_type = self.scope.types.lookup(name, recursive=True)
             if parent_type is not None:
                 return parent_type.clone()
@@ -244,7 +245,7 @@ class OMNI2IR(GenericVisitor):
 
         # Remember that type
         parent_type.variables.update([(v.basename, v) for v in variables])
-        if hasattr(self.scope, 'types'):
+        if hasattr(scope, 'types'):
             self.scope.types[name] = parent_type
 
         return parent_type

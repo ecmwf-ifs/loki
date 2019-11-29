@@ -174,9 +174,10 @@ class Subroutine(object):
             tdef = TypeDef(name=tname, declarations=[])
             _type = parse_omni_ast(t, typedefs=_typedefs, type_map=type_map,
                                    symbol_map=symbol_map, raw_source=raw_source, scope=tdef)
-            tdef.declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
-                                         for v in _type.variables.values())
+            tdef._update(declarations=as_tuple(Declaration(variables=(v, ), type=v.type)
+                                               for v in _type.variables.values()))
             _typedefs[tname] = tdef
+            obj.types[tname] = _type
 
         # Generate spec, filter out external declarations and docstring
         spec = parse_omni_ast(ast.find('declarations'), typedefs=_typedefs, type_map=type_map,
