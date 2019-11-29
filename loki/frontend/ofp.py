@@ -15,7 +15,7 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array
 from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
-from loki.tools import as_tuple, timeit, disk_cached
+from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType
 
@@ -75,7 +75,7 @@ class OFP2IR(GenericVisitor):
         return super(OFP2IR, self).visit(o, source=source, **kwargs)
 
     def visit_tuple(self, o, source=None):
-        return tuple(self.visit(c) for c in o)
+        return as_tuple(flatten(self.visit(c) for c in o))
 
     visit_list = visit_tuple
 

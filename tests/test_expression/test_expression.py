@@ -3,8 +3,7 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Variable,
-                  InlineCall, Cast)
+from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Cast)
 from conftest import generate_identity
 
 
@@ -201,7 +200,7 @@ def test_parenthesis(refpath, reference, frontend):
     # and make sure we are still parenthesising as we should!
     from loki import SubstituteExpressions, FindVariables
     v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
-    v4 = v2.clone(name='v4') 
+    v4 = v2.clone(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
     # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
@@ -283,3 +282,21 @@ def test_very_long_statement(refpath, reference, frontend):
     function = getattr(test, 'very_long_statement_%s' % frontend)
     result = function(scalar)
     assert result == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI])  # FP fails to read format statements
+def test_intrinsics(refpath, reference, frontend):
+    """
+    Some collected intrinsics or other edge cases that failed in cloudsc.
+    """
+    from loki.ir import Intrinsic
+
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['intrinsics']
+
+    assert isinstance(routine.body[-2], Intrinsic)
+    assert isinstance(routine.body[-1], Intrinsic)
+    assert routine.body[-2].text.strip('\n') in ["1002  format(1x,2i10,1xi4,' : ',i10)"]
+    assert routine.body[-1].text.strip('\n') in \
+        ['write(0,1002) numomp,ngptot,-1,int(tdiff*1000.0_jprb)',
+         'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']

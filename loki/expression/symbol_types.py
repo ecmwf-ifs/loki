@@ -26,7 +26,8 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            return '%s_%s' % (str(expr.value), self.rec(expr.kind, PREC_CALL, *args, **kwargs))
+            return '%s_%s' % (str(expr.value), str(expr.kind))
+                # self.rec(expr.kind, PREC_CALL, *args, **kwargs))
         else:
             return str(expr.value)
 
