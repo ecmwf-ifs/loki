@@ -67,13 +67,13 @@ class DerivedArgsTransformation(AbstractTransformation):
             if arg.type.dtype == DataType.DERIVED_TYPE:
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable
-                       for v in arg.type.variables):
+                       for v in arg.type.variables.values()):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
                 arg_member_vars = set(v.name.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
-                candidates[arg] += [v for v in arg.type.variables
+                candidates[arg] += [v for v in arg.type.variables.values()
                                     if v.name.lower() in arg_member_vars]
         return candidates
 

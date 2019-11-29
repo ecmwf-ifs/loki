@@ -203,3 +203,6 @@ class TypeTable(dict):
 
     def __hash__(self):
         return hash(tuple(self.keys()))
+
+    def __repr__(self):
+        return '<loki.types.TypeTable object at %s>' % hex(id(self))
