@@ -71,10 +71,10 @@ class DerivedArgsTransformation(AbstractTransformation):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name.lower() for v in variables
+                arg_member_vars = set(v.basename.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
                 candidates[arg] += [v for v in arg.type.variables.values()
-                                    if v.name.lower() in arg_member_vars]
+                                    if v.basename.lower() in arg_member_vars]
         return candidates
 
     def flatten_derived_args_caller(self, caller):
@@ -99,8 +99,10 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
-                            new_arg = type_var.clone(dimensions=new_dims, parent=d_arg)  # deepcopy(d_arg))
+                            new_dims = tuple(RangeIndex() for _ in type_var.type.shape or [])
+                            new_type = type_var.type.clone(parent=d_arg)
+                            new_arg = type_var.clone(dimensions=new_dims, type=new_type,
+                                                     parent=d_arg, scope=d_arg.scope)  # deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -132,10 +134,11 @@ class DerivedArgsTransformation(AbstractTransformation):
             new_vars = []
             for type_var in type_vars:
                 # Create a new variable with a new type mimicking the old one
-                new_type = type_var.type.clone(intent=arg.type.intent)
-                new_name = '%s_%s' % (arg.name, type_var.name)
+                new_type = SymbolType(type_var.type.dtype, kind=type_var.type.kind,
+                                      intent=arg.type.intent, shape=type_var.type.shape)
+                new_name = '%s_%s' % (arg.name, type_var.basename)
                 new_var = Variable(name=new_name, type=new_type, dimensions=new_type.shape,
-                                   scope=routine)
+                                   scope=routine.symbols)
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
@@ -155,7 +158,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         # Note: The ``type=None`` prevents this clone from overwriting the type
         # we just derived above, as it would otherwise use whaterever type we
         # had derived previously (ie. the pointer type from the struct definition.)
-        vmap = {v: v.clone(name='%s_%s' % (v.parent.name, v.name), parent=None, type=None)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, type=None)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
