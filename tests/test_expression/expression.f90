@@ -155,7 +155,7 @@ subroutine intrinsics
       ngptot = 2
       tdiff = 1.2
 
-1002  format(1x,2i10,1xi4,' : ',i10)
+1002  format(1x,2i10,1x,i4,' : ',i10)
       write(0,1002) numomp,ngptot,-1,int(tdiff*1000.0_jprb)
 
 end subroutine
