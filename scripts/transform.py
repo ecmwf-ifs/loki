@@ -323,7 +323,7 @@ class SCATransformation(AbstractTransformation):
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        new_dims = tuple(Variable(name=target.variable)
+                        new_dims = tuple(Variable(name=target.variable, scope=caller.symbols)
                                          if str(tdim).upper() in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -352,7 +352,7 @@ class SCATransformation(AbstractTransformation):
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable),
+                    loop = Loop(variable=Variable(name=target.variable, scope=caller.symbols),
                                 bounds=(dim_lower, dim_upper, None),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -365,7 +365,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(DataType.INTEGER, kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller)]
+            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller.symbols)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):

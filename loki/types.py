@@ -209,3 +209,6 @@ class TypeTable(dict):
 
     def __repr__(self):
         return '<loki.types.TypeTable object at %s>' % hex(id(self))
+
+    def setdefault(self, key, default=None):
+        super(TypeTable, self).setdefault(self.format_lookup_name(key), default)
