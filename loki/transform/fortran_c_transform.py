@@ -73,7 +73,7 @@ class FortranCTransformation(BasicTransformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = '%s_c' % derived.name
-        obj = TypeDef(name=typename, bind_c=True, declarations=[])
+        obj = TypeDef(name=typename.lower(), bind_c=True, declarations=[])
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:

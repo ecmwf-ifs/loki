@@ -77,7 +77,8 @@ class CCodeMapper(LokiStringifyMapper):
             return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, *args, **kwargs):
-        dims = ''.join(['[%s]' % self.rec(d, *args, **kwargs) for d in expr.dimensions])
+        dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
+        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
@@ -260,7 +261,7 @@ class CCodegen(Visitor):
         self._depth += 1
         decls = self.visit(o.declarations)
         self._depth -= 1
-        return 'struct %s {\n%s\n} ;' % (o.name, decls)
+        return 'struct %s {\n%s\n} ;' % (o.name.lower(), decls)
 
     def visit_Comment(self, o):
         text = o._source.string if o.text is None else o.text
