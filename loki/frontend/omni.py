@@ -254,7 +254,9 @@ class OMNI2IR(GenericVisitor):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text, scope=self.scope.symbols)
+            vname = i.find('name').text
+            vtype = self.scope.symbols.lookup(var.name)
+            associations[var] = Variable(name=vname, type=vtype, scope=self.scope.symbols)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -338,7 +340,7 @@ class OMNI2IR(GenericVisitor):
 
         vtype = self.scope.symbols.lookup(vname, recursive=True)
 
-        if vtype is None and t in self.type_map:
+        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
             # Inject derived-type definition override :(
@@ -351,7 +353,7 @@ class OMNI2IR(GenericVisitor):
 #                                        pointer=vtype.pointer, optional=vtype.optional,
 #                                        parameter=vtype.parameter, target=vtype.target,
 #                                        contiguous=vtype.contiguous)
-        if vtype is None:
+        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self._omni_types:
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
 

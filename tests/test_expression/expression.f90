@@ -147,15 +147,14 @@ end subroutine very_long_statement
 
 
 subroutine intrinsics
-      integer, parameter :: jprb = selected_real_kind(13,300)
-      integer :: numomp, ngptot
-      real(kind=jprb) :: tdiff
+     integer, parameter :: jprb = selected_real_kind(13,300)
+     integer :: numomp, ngptot
+     real(kind=jprb) :: tdiff
 
-      numomp = 1
-      ngptot = 2
-      tdiff = 1.2
+     numomp = 1
+     ngptot = 2
+     tdiff = 1.2
 
-1002  format(1x,2i10,1x,i4,' : ',i10)
-      write(0,1002) numomp,ngptot,-1,int(tdiff*1000.0_jprb)
-
+1002 format(1x, 2i10, 1x, i4, ' : ', i10)
+     write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)
 end subroutine

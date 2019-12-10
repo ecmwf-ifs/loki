@@ -657,6 +657,9 @@ class FParser2IR(GenericVisitor):
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
         return Scope(associations=associations)
 
+    def visit_Format_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tofortran(), source=kwargs.get('source'))
+
     def visit_Write_Stmt(self, o, **kwargs):
         return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
 

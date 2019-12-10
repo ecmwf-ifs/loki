@@ -150,18 +150,21 @@ class TypeTable(dict):
 
     :param parent: class:``TypeTable`` instance of the parent scope to allow
                    for recursive lookups.
+    :param case_sensitive: Treat names of variables to be case sensitive.
     """
 
-    def __init__(self, parent=None, **kwargs):
+    def __init__(self, parent=None, case_sensitive=False, **kwargs):
         super(TypeTable, self).__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
+        self._case_sensitive = case_sensitive
 
     @property
     def parent(self):
         return self._parent() if self._parent is not None else None
 
-    @staticmethod
-    def format_lookup_name(name):
+    def format_lookup_name(self, name):
+        if not self._case_sensitive:
+            name = name.lower()
         name = name.partition('(')[0]  # Remove any dimension parameters
         return name
 

@@ -284,7 +284,7 @@ def test_very_long_statement(refpath, reference, frontend):
     assert result == 5
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])  # FP fails to read format statements
+@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
 def test_intrinsics(refpath, reference, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
@@ -296,7 +296,8 @@ def test_intrinsics(refpath, reference, frontend):
 
     assert isinstance(routine.body[-2], Intrinsic)
     assert isinstance(routine.body[-1], Intrinsic)
-    assert routine.body[-2].text.strip('\n') in ["1002  format(1x,2i10,1x,i4,' : ',i10)"]
-    assert routine.body[-1].text.strip('\n') in \
-        ['write(0,1002) numomp,ngptot,-1,int(tdiff*1000.0_jprb)',
+    assert routine.body[-2].text.strip('\n').lower() in \
+        ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)"]
+    assert routine.body[-1].text.strip('\n').lower() in \
+        ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
          'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']

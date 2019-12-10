@@ -1,23 +1,12 @@
 import pytest
 from pathlib import Path
 
-from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
-from conftest import generate_identity
+from loki import OFP, FP, SourceFile
 
 
 @pytest.fixture(scope='module')
 def refpath():
     return Path(__file__).parent / 'types.f90'
-
-
-@pytest.fixture(scope='module')
-def reference(refpath):
-    """
-    Compile and load the reference solution
-    """
-    clean(filename=refpath)  # Delete parser cache
-#    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
-#    return getattr(pymod, refpath.stem)
 
 
 def test_data_type():
@@ -75,7 +64,7 @@ def test_symbol_type():
 
 
 @pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI segfaults with pragmas in derived types
-def test_pragmas(refpath, reference, frontend):
+def test_pragmas(refpath, frontend):
     """
     !$loki dimension(3,3)
     real(kind=jprb), dimension(:,:), pointer :: matrix

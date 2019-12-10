@@ -17,6 +17,11 @@ module derived_types
     type(explicit) :: another_item
   end type nested
 
+  type case_sensitive
+    real(kind=jprb) :: u, v, T
+    real(kind=jprb) :: q, A
+  end type case_sensitive
+
 contains
 
   subroutine alloc_deferred(item)
@@ -158,5 +163,15 @@ contains
     end associate
 
   end subroutine associates
+
+  subroutine check_case(item)
+    type(case_sensitive), intent(inout) :: item
+
+    item%u = 1.0
+    item%v = 2.0
+    item%t = 3.0
+    item%q = -1.0
+    item%A = -5.0
+  end subroutine check_case
 
 end module derived_types

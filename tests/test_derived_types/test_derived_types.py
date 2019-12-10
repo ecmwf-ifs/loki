@@ -218,3 +218,34 @@ def test_associates(refpath, reference, frontend):
     item.vector[1:2] = 0.
     getattr(test, 'associates_%s' % frontend)(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_case_sensitivity(refpath, reference, frontend):
+    """
+    Some abuse of the case agnostic behaviour of Fortran
+    """
+    # Test the reference solution
+    item = reference.case_sensitive()
+    item.u = 0.
+    item.v = 0.
+    item.t = 0.
+    item.q = 0.
+    item.a = 0.
+    reference.check_case(item)
+    assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
+    assert item.q == -1.0 and item.a == -5.0
+
+    # Test the generated identity
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='check_case', frontend=frontend)
+    item = test.case_sensitive()
+    item.u = 0.
+    item.v = 0.
+    item.t = 0.
+    item.q = 0.
+    item.a = 0.
+    function = getattr(test, 'check_case_%s' % frontend)
+    function(item)
+    assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
+    assert item.q == -1.0 and item.a == -5.0
