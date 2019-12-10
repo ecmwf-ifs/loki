@@ -90,9 +90,9 @@ class FortranCTransformation(BasicTransformation):
             return 'c_int'
         elif _type.dtype == DataType.REAL:
             kind = str(_type.kind)
-            if kind in ('real32', 'c_float'):
+            if kind.lower() in ('real32', 'c_float'):
                 return 'c_float'
-            elif kind in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'c_double'
             else:
                 return None
@@ -101,13 +101,15 @@ class FortranCTransformation(BasicTransformation):
 
     @staticmethod
     def c_intrinsic_kind(_type):
-        if _type.dtype == DataType.INTEGER:
+        if _type.dtype == DataType.LOGICAL:
+            return 'int'
+        elif _type.dtype == DataType.INTEGER:
             return 'int'
         elif _type.dtype == DataType.REAL:
             kind = str(_type.kind)
-            if kind in ('real32', 'c_float'):
+            if kind.lower() in ('real32', 'c_float'):
                 return 'float'
-            elif kind in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'double'
             else:
                 return None
@@ -181,7 +183,7 @@ class FortranCTransformation(BasicTransformation):
                 getter = Subroutine(name=gettername, parent=obj)
 
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
-                isoctype = v.type.clone(kind=self.iso_c_intrinsic_kind(v.type))
+                isoctype = SymbolType(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)]
@@ -470,7 +472,7 @@ class FortranCTransformation(BasicTransformation):
             cname = c.name.lower()
             if cname in _intrinsic_map:
                 if cname == 'epsilon':
-                    callmap[c] = Variable(name=_intrinsic_map[cname])
+                    callmap[c] = Variable(name=_intrinsic_map[cname], scope=kernel.symbols)
                 else:
                     callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
                                             kw_parameters=c.kw_parameters)
