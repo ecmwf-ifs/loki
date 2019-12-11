@@ -284,7 +284,7 @@ def test_very_long_statement(refpath, reference, frontend):
     assert result == 5
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
+@pytest.mark.parametrize('frontend', [FP, OMNI])  # OFP doesn't work with the label of format stmt
 def test_intrinsics(refpath, reference, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.

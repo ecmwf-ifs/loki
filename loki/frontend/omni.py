@@ -177,7 +177,7 @@ class OMNI2IR(GenericVisitor):
         _type = self.visit(self.type_map[name.attrib['type']], scope=typedef)
         declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
                                 for v in _type.variables.values())
-        typedef._update(declarations=declarations)
+        typedef._update(declarations=declarations, symbols=typedef.symbols)
         return typedef
 
     def visit_FbasicType(self, o, source=None):

@@ -445,7 +445,7 @@ class FParser2IR(GenericVisitor):
         # Create declarations and update the parent type with the children from the declarations
         declarations = flatten([self.visit(i, scope=typedef, **kwargs)
                                 for i in walk_ast(o.content, [fp.Component_Part])])
-        typedef._update(declarations=declarations)
+        typedef._update(declarations=declarations, symbols=typedef.symbols)
         for decl in typedef.declarations:
             dtype.variables.update([(v.basename, v) for v in decl.variables])
         # Make type known in its scope's types table

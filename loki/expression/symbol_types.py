@@ -27,7 +27,6 @@ class LokiStringifyMapper(StringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             return '%s_%s' % (str(expr.value), str(expr.kind))
-                # self.rec(expr.kind, PREC_CALL, *args, **kwargs))
         else:
             return str(expr.value)
 
@@ -105,8 +104,7 @@ class Scalar(pmbl.Variable):
     def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
         super(Scalar, self).__init__(name)
 
-#        self._scope = weakref.ref(scope)
-        self.scope = scope
+        self._scope = weakref.ref(scope)
         if type is None:
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
@@ -118,12 +116,12 @@ class Scalar(pmbl.Variable):
         self.initial = initial
         self.source = source
 
-#    @property
-#    def scope(self):
-#        """
-#        The object corresponding to the symbols scope.
-#        """
-#        return self._scope()
+    @property
+    def scope(self):
+        """
+        The object corresponding to the symbols scope.
+        """
+        return self._scope()
 
     @property
     def basename(self):
@@ -189,8 +187,7 @@ class Array(pmbl.Variable):
                  initial=None, source=None):
         super(Array, self).__init__(name)
 
-#        self._scope = weakref.ref(scope)
-        self.scope = scope
+        self._scope = weakref.ref(scope)
         if type is None:
             # Insert the defered type in the type table only if it does not exist
             # yet (necessary for deferred type definitions)
@@ -202,12 +199,12 @@ class Array(pmbl.Variable):
         self.initial = initial
         self.source = source
 
-#    @property
-#    def scope(self):
-#        """
-#        The object corresponding to the symbols scope.
-#        """
-#        return self._scope()
+    @property
+    def scope(self):
+        """
+        The object corresponding to the symbols scope.
+        """
+        return self._scope()
 
     @property
     def basename(self):

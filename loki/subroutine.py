@@ -11,7 +11,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, Call,
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
-from loki.types import SymbolType, TypeTable
+from loki.types import TypeTable
 
 
 __all__ = ['Subroutine']
@@ -174,7 +174,8 @@ class Subroutine(object):
             tdef = TypeDef(name=tname, declarations=[])
             _type = parse_omni_ast(t, typedefs=_typedefs, type_map=type_map,
                                    symbol_map=symbol_map, raw_source=raw_source, scope=tdef)
-            tdef._update(declarations=as_tuple(Declaration(variables=(v, ), type=v.type)
+            tdef._update(symbols=tdef.symbols,
+                         declarations=as_tuple(Declaration(variables=(v, ), type=v.type)
                                                for v in _type.variables.values()))
             _typedefs[tname] = tdef
             obj.types[tname] = _type
@@ -271,7 +272,7 @@ class Subroutine(object):
 
         for decl in FindNodes(Declaration).visit(self.ir):
             # Record all variables independently
-            self.variables += list(decl.variables) 
+            self.variables += list(decl.variables)
 
             # Insert argument variable at the position of the dummy
             for v in decl.variables:
@@ -303,7 +304,7 @@ class Subroutine(object):
 
             if v in self._decl_map:
                 d = self._decl_map[v].clone()
-                d.variables = as_tuple(v) 
+                d.variables = as_tuple(v)
             else:
                 d = Declaration(variables=[v], type=v.type)
 

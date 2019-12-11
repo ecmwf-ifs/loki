@@ -446,20 +446,3 @@ class TypeDef(Node):
     @property
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
-
-#    def _rebuild(self, *args, **kwargs):
-#        import pdb; pdb.set_trace()
-#        obj = super()._rebuild(*args, **kwargs)
-#        return obj
-
-#    def _rebuild(self, *args, **kwargs):
-#        # This is super hacky, but some of the visitor traversals for omni throw away the
-#        # declarations...
-#        obj = super(TypeDef, self)._rebuild(*args, **kwargs)
-#        if kwargs.get('symbols') is None:
-#            obj.symbols = self.symbols.copy()
-#        if kwargs.get('types') is None:
-#            obj.types = self.types.copy()
-#        if kwargs.get('declarations') is None:
-#            obj.declarations = as_tuple(decl for decl in self.declarations)
-#        return obj

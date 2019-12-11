@@ -238,6 +238,7 @@ class OFP2IR(GenericVisitor):
                 components = o.findall('components')
                 attributes = [None] * len(types)
                 elements = o.getchildren()
+                declarations = []
                 # YUCK!!!
                 for i, (t, comps) in enumerate(zip(types, components)):
                     attributes[i] = elements[elements.index(t)+1:elements.index(comps)]
@@ -298,9 +299,9 @@ class OFP2IR(GenericVisitor):
                                                scope=typedef.symbols)]
 
                     parent_type.variables.update([(v.basename, v) for v in variables])
-                    typedef.declarations += [Declaration(variables=variables, type=_type,
-                                                         source=t_source)]
+                    declarations += [Declaration(variables=variables, type=_type, source=t_source)]
 
+                typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
                 # Make that derived type known in the types table
                 self.scope.types[derived_name] = parent_type
 
