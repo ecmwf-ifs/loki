@@ -9,7 +9,7 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Array, Cast
+from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
@@ -79,14 +79,13 @@ class OMNI2IR(GenericVisitor):
         'real': 'REAL',
     }
 
-    def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
+    def __init__(self, typedefs=None, type_map=None, symbol_map=None,
                  raw_source=None, scope=None):
         super(OMNI2IR, self).__init__()
 
         self.typedefs = typedefs
         self.type_map = type_map
         self.symbol_map = symbol_map
-        self.shape_map = shape_map
         self.raw_source = raw_source
         self.scope = scope
 
@@ -137,24 +136,9 @@ class OMNI2IR(GenericVisitor):
         if hasattr(self.scope, 'name') and self.scope.name == name.text:
             return None
 
-#        if name.text == 'item':
-#            import pdb; pdb.set_trace()
-
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
-
-            # Hacky..: Override derived type meta-info with provided ``typedefs``.
-            # This is needed to get the Loki-specific (pragma-driven) dimensions on
-            # derived-type components, that are otherwise deferred.
-#            if _type is not None and self.typedefs is not None:
-#                typedef = self.typedefs.get(_type.name.lower(), None)
-#                if typedef is not None:
-#                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
-#                                        intent=_type.intent, allocatable=_type.allocatable,
-#                                        pointer=_type.pointer, optional=_type.optional,
-#                                        parameter=_type.parameter, target=_type.target,
-#                                        contiguous=_type.contiguous)
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
@@ -174,10 +158,38 @@ class OMNI2IR(GenericVisitor):
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
         typedef = TypeDef(name=name.text, declarations=[])
-        _type = self.visit(self.type_map[name.attrib['type']], scope=typedef)
+
+        # Create the derived type...
+        _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
+
+        # ...and built the list of its members
+        variables = []
+        for s in self.type_map[name.attrib['type']].find('symbols'):
+            vname = s.find('name').text
+            dimensions = None
+
+            t = s.attrib['type']
+            if t in self.type_map:
+                vtype = self.visit(self.type_map[t])
+                dims = self.type_map[t].findall('indexRange')
+                if dims:
+                    dimensions = as_tuple(self.visit(d) for d in dims)
+                    vtype = vtype.clone(shape=dimensions)
+            else:
+                typename = self._omni_types.get(t, t)
+                vtype = SymbolType(DataType.from_fortran_type(typename))
+
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype,
+                                   scope=typedef.symbols, source=source)]
+
+        # Remember that derived type
+        _type.variables.update([(v.basename, v) for v in variables])
+        self.scope.types[name.text] = _type
+
+        # Build individual declarations for each member
         declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
                                 for v in _type.variables.values())
-        typedef._update(declarations=declarations, symbols=typedef.symbols)
+        typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
         return typedef
 
     def visit_FbasicType(self, o, source=None):
@@ -199,56 +211,26 @@ class OMNI2IR(GenericVisitor):
         _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
         return _type
 
-    def visit_FstructType(self, o, scope=None, source=None):
-        # We have encountered a derived type but we don't know in which capacity:
-        # could be the type of a variable that is declared in the spec of a routine,
-        # or the definition of the type in a module.
-
+    def visit_FstructType(self, o, source=None):
+        # We have encountered a derived type as part of the declaration in the spec
+        # of a routine.
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        if hasattr(scope, 'types'):
-            parent_type = self.scope.types.lookup(name, recursive=True)
-            if parent_type is not None:
-                return parent_type.clone()
+        parent_type = self.scope.types.lookup(name, recursive=True)
+        if parent_type is not None:
+            return parent_type.clone()
 
         # Check if the type was defined externally
         if self.typedefs is not None and name in self.typedefs:
             variables = OrderedDict([(v.name, v) for v in self.typedefs[name].variables])
             return SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables)
 
-        # Otherwise: We are in a typedef and need to create a new type...
-        scope = scope or self.scope
-        parent_type = SymbolType(DataType.DERIVED_TYPE, name=name, variables=OrderedDict())
-
-        # ...and build the list of its members
-        variables = []
-        for s in o.find('symbols'):
-            vname = s.find('name').text
-            dimensions = None
-
-            t = s.attrib['type']
-            if t in self.type_map:
-                vtype = self.visit(self.type_map[t])
-                dims = self.type_map[t].findall('indexRange')
-                if dims:
-                    dimensions = as_tuple(self.visit(d) for d in dims)
-                    vtype = vtype.clone(shape=dimensions)
-            else:
-                typename = self._omni_types.get(t, t)
-                vtype = SymbolType(DataType.from_fortran_type(typename))
-
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype,
-                                   scope=scope.symbols, source=source)]
-
-        # Remember that type
-        parent_type.variables.update([(v.basename, v) for v in variables])
-        if hasattr(scope, 'types'):
-            self.scope.types[name] = parent_type
-
-        return parent_type
+        # Otherwise: We have an externally defined type for which we were not given
+        # a typedef. We defer the definition
+        return SymbolType(DataType.DEFERRED, name=name)
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -590,14 +572,14 @@ class OMNI2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
+def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
                    raw_source=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
     ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 shape_map=shape_map, raw_source=raw_source, scope=scope).visit(ast)
+                 raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

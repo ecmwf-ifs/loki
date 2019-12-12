@@ -163,25 +163,8 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        # Create typedefs for externally defined derived types
-        # This is not pretty but it makes sure we know the types in full when
-        # declaring them inside a function etc.
-        _typedefs = typedefs.copy() if typedefs is not None else {}
-        for t in typetable.findall('FstructType'):
-            if t.attrib['type'] not in symbol_map:
-                continue
-            tname = symbol_map[t.attrib['type']].find('name').text
-            tdef = TypeDef(name=tname, declarations=[])
-            _type = parse_omni_ast(t, typedefs=_typedefs, type_map=type_map,
-                                   symbol_map=symbol_map, raw_source=raw_source, scope=tdef)
-            tdef._update(symbols=tdef.symbols,
-                         declarations=as_tuple(Declaration(variables=(v, ), type=v.type)
-                                               for v in _type.variables.values()))
-            _typedefs[tname] = tdef
-            obj.types[tname] = _type
-
         # Generate spec, filter out external declarations and docstring
-        spec = parse_omni_ast(ast.find('declarations'), typedefs=_typedefs, type_map=type_map,
+        spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or next(iter(d.variables)) == name}
@@ -193,18 +176,11 @@ class Subroutine(object):
         spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
         spec._update(body=as_tuple(spec_body))
 
-        # Get the declared shapes of local variables and arguments
-        shape_map = {}
-#        for decl in FindNodes(Declaration).visit(spec):
-#            for v in decl.variables:
-#                if isinstance(v, Array):
-#                    shape_map[v.name] = v.shape
-
         # Parse member functions properly
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=_typedefs,
+            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
                                             symbol_map=symbol_map, raw_source=raw_source,
                                             parent=parent)
                        for s in contains]
@@ -212,9 +188,9 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=_typedefs,
+        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
                                        type_map=type_map, symbol_map=symbol_map,
-                                       shape_map=shape_map, raw_source=raw_source, scope=obj))
+                                       raw_source=raw_source, scope=obj))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
