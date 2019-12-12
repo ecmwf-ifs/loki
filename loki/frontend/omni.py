@@ -89,6 +89,31 @@ class OMNI2IR(GenericVisitor):
         self.raw_source = raw_source
         self.scope = scope
 
+    def _struct_type_variables(self, o, scope, parent=None):
+        """
+        Helper routine to build the list of variables for a `FstructType` node
+        """
+        variables = []
+        for s in o.find('symbols'):
+            vname = s.find('name').text
+            if parent is not None:
+                vname = '%s%%%s' % (parent, vname)
+            dimensions = None
+
+            t = s.attrib['type']
+            if t in self.type_map:
+                vtype = self.visit(self.type_map[t])
+                dims = self.type_map[t].findall('indexRange')
+                if dims:
+                    dimensions = as_tuple(self.visit(d) for d in dims)
+                    vtype = vtype.clone(shape=dimensions)
+            else:
+                typename = self._omni_types.get(t, t)
+                vtype = SymbolType(DataType.from_fortran_type(typename))
+
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope)]
+        return variables
+
     def lookup_method(self, instance):
         """
         Alternative lookup method for XML element types, identified by ``element.tag``
@@ -140,6 +165,18 @@ class OMNI2IR(GenericVisitor):
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
 
+            # If the type definition comes back as deferred, carry out the definition here
+            # (this is due to not knowing to which variable instance the type definition
+            # belongs further down the tree, which makes scoping hard...)
+            if _type.dtype == DataType.DEFERRED and _type.name in self.type_map:
+                tname = self.symbol_map[_type.name].find('name').text
+                variables = self._struct_type_variables(self.type_map[_type.name],
+                                                        scope=self.scope.symbols, parent=name.text)
+                variables = OrderedDict([(v.basename, v) for v in variables])
+
+                # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
+                _type = _type.clone(dtype=DataType.DERIVED_TYPE, name=tname, variables=variables)
+
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
             dimensions = None if len(dimensions) == 0 else dimensions
@@ -163,24 +200,8 @@ class OMNI2IR(GenericVisitor):
         _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
 
         # ...and built the list of its members
-        variables = []
-        for s in self.type_map[name.attrib['type']].find('symbols'):
-            vname = s.find('name').text
-            dimensions = None
-
-            t = s.attrib['type']
-            if t in self.type_map:
-                vtype = self.visit(self.type_map[t])
-                dims = self.type_map[t].findall('indexRange')
-                if dims:
-                    dimensions = as_tuple(self.visit(d) for d in dims)
-                    vtype = vtype.clone(shape=dimensions)
-            else:
-                typename = self._omni_types.get(t, t)
-                vtype = SymbolType(DataType.from_fortran_type(typename))
-
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype,
-                                   scope=typedef.symbols, source=source)]
+        variables = self._struct_type_variables(self.type_map[name.attrib['type']],
+                                                typedef.symbols)
 
         # Remember that derived type
         _type.variables.update([(v.basename, v) for v in variables])
@@ -230,7 +251,7 @@ class OMNI2IR(GenericVisitor):
 
         # Otherwise: We have an externally defined type for which we were not given
         # a typedef. We defer the definition
-        return SymbolType(DataType.DEFERRED, name=name)
+        return SymbolType(DataType.DEFERRED, name=o.attrib['type'])
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -325,16 +346,6 @@ class OMNI2IR(GenericVisitor):
         if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
-            # Inject derived-type definition override :(
-#            if vtype is not None and self.typedefs is not None:
-#                typedef = self.typedefs.get(vtype.name.lower(), None)
-#                if typedef is not None:
-#                    import pdb; pdb.set_trace()
-#                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
-#                                        intent=vtype.intent, allocatable=vtype.allocatable,
-#                                        pointer=vtype.pointer, optional=vtype.optional,
-#                                        parameter=vtype.parameter, target=vtype.target,
-#                                        contiguous=vtype.contiguous)
         if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self._omni_types:
             typename = self._omni_types.get(t, t)
             vtype = SymbolType(DataType.from_fortran_type(typename))
