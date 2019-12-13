@@ -198,6 +198,8 @@ def test_associates(refpath, reference, frontend):
     item%vector(2) = vector(1)
     vector(3) = item%vector(1) + vector(2)
     """
+    from loki import FindVariables, IntLiteral, RangeIndex
+
     # Test the reference solution
     item = reference.explicit()
     item.scalar = 0.
@@ -207,6 +209,16 @@ def test_associates(refpath, reference, frontend):
     reference.associates(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
     assert (item.matrix[:, 0::2] == 3.).all()
+
+    # Test the internals
+    routine = SourceFile.from_file(refpath, frontend=frontend)['associates']
+    variables = FindVariables().visit(routine.body)
+    if frontend == OMNI:
+        assert all([v.shape == (RangeIndex(IntLiteral(1), IntLiteral(3)),)
+                    for v in variables if v.name in ['vector', 'vector2']])
+    else:
+        assert all([v.shape == (IntLiteral(3),)
+                    for v in variables if v.name in ['vector', 'vector2']])
 
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='associates', frontend=frontend)

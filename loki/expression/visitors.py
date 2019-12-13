@@ -1,8 +1,10 @@
 import pymbolic.primitives as pmbl
-from pymbolic.mapper import WalkMapper
+from pymbolic.mapper import Mapper, WalkMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 
-__all__ = ['LokiStringifyMapper', 'ExpressionRetriever']
+from loki.tools import as_tuple
+
+__all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -134,3 +136,42 @@ class ExpressionRetriever(WalkMapper):
         if expr.step:
             self.rec(expr.step, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
+
+
+class ExpressionDimensionsMapper(Mapper):
+    """
+    A visitor for an expression that determines the dimensions of the expression.
+    """
+
+    def __init__(self):
+        super(ExpressionDimensionsMapper, self).__init__()
+
+    def map_algebraic_leaf(self, expr, *args, **kwargs):
+        from loki.expression.symbol_types import IntLiteral
+        return as_tuple(IntLiteral(1))
+
+    map_logic_literal = map_algebraic_leaf
+    map_float_literal = map_algebraic_leaf
+    map_int_literal = map_algebraic_leaf
+    map_scalar = map_algebraic_leaf
+
+    def map_array(self, expr, *args, **kwargs):
+        if expr.dimensions is None:
+            return expr.shape
+        else:
+            from loki.expression.symbol_types import RangeIndex, IntLiteral
+            dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
+            # Replace colon dimensions by the value from shape
+            dims = [s if isinstance(d, RangeIndex) and d.lower is None and d.upper is None else d
+                    for d, s in zip(dims, expr.shape)]
+            # Remove singleton dimensions
+            dims = [d for d in dims if d != IntLiteral(1)]
+            return as_tuple(dims)
+
+    def map_range_index(self, expr, *args, **kwargs):
+        if expr.lower is None and expr.upper is None:
+            return as_tuple(expr)
+        else:
+            lower = expr.lower.value - 1 if expr.lower is not None else 0
+            step = expr.step.value if expr.step is not None else 1
+            return as_tuple((expr.upper - lower) // step)

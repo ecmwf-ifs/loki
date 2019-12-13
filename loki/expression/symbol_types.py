@@ -274,7 +274,7 @@ class FloatLiteral(pmbl.Leaf):
     def __init__(self, value, **kwargs):
         super(FloatLiteral, self).__init__()
 
-        self.value = value
+        self.value = float(value)
         self.kind = kwargs.get('kind', None)
 
     def __getinitargs__(self):
@@ -300,7 +300,7 @@ class IntLiteral(pmbl.Leaf):
     def __init__(self, value, **kwargs):
         super(IntLiteral, self).__init__()
 
-        self.value = value
+        self.value = int(value)
         self.kind = kwargs.get('kind', None)
 
     def __getinitargs__(self):

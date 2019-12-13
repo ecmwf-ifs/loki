@@ -13,8 +13,9 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array
-from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ExpressionDimensionsMapper)
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType
@@ -185,9 +186,6 @@ class OFP2IR(GenericVisitor):
 
     def visit_assignment(self, o, source=None):
         expr = self.visit(o.find('value'))
-#        from loki.expression import FloatLiteral
-#        if isinstance(expr, FloatLiteral):
-#            import pdb; pdb.set_trace()
         target = self.visit(o.find('target'))
         return Statement(target=target, expr=expr, source=source)
 
@@ -375,7 +373,10 @@ class OFP2IR(GenericVisitor):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
-            shape = var.dimensions if isinstance(var, Array) else None
+            if isinstance(var, Array):
+                shape = ExpressionDimensionsMapper()(var)
+            else:
+                shape = None
             _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
             associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope.symbols,

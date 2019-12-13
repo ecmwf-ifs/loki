@@ -9,7 +9,8 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast
+from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
+                             ExpressionDimensionsMapper)
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
@@ -257,9 +258,14 @@ class OMNI2IR(GenericVisitor):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
+            if isinstance(var, Array):
+                shape = ExpressionDimensionsMapper()(var)
+            else:
+                shape = None
             vname = i.find('name').text
-            vtype = self.scope.symbols.lookup(var.name)
-            associations[var] = Variable(name=vname, type=vtype, scope=self.scope.symbols)
+            vtype = var.type.clone(name=None, parent=None, shape=shape)
+            associations[var] = Variable(name=vname, type=vtype, scope=self.scope.symbols,
+                                         source=source)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 

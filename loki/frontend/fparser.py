@@ -16,8 +16,9 @@ from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, Call, Scope, Pragma
 )
-from loki.expression import Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast
-from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ExpressionDimensionsMapper)
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
@@ -456,57 +457,6 @@ class FParser2IR(GenericVisitor):
     # Declaration of members of a derived type (i.e., part of the definition of the derived type.
     visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
 
-#    def visit_Data_Component_Def_Stmt(self, o, **kwargs):
-#        """
-#        Declaration of members of a derived type (i.e., part of the definition of the derived type.
-#        """
-#        # First, determine type attributes
-#        attrs = as_tuple(self.visit(o.items[1])) if o.items[1] is not None else ()
-#        # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
-#        dimensions = [a for a in attrs if isinstance(a, tuple)]
-#        dimensions = None if len(dimensions) == 0 else dimensions[0]
-#        attrs = tuple(str(a).lower().strip() for a in attrs if isinstance(a, str))
-#        intent = None
-#        if 'intent(in)' in attrs:
-#            intent = 'in'
-#        elif 'intent(inout)' in attrs:
-#            intent = 'inout'
-#        elif 'intent(out)' in attrs:
-#            intent = 'out'
-#
-#        # Next, figure out the type we're declaring
-#        dtype = None
-#        basetype_ast = get_child(o, Intrinsic_Type_Spec)
-#        if basetype_ast is not None:
-#            dtype, kind = self.visit(basetype_ast)
-#            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
-#                               parameter='parameter' in attrs, optional='optional' in attrs,
-#                               allocatable='allocatable' in attrs, pointer='pointer' in attrs)
-#
-#        derived_type_ast = get_child(o, Declaration_Type_Spec)
-#        if derived_type_ast is not None:
-#            typename = derived_type_ast.items[1].tostr().lower()
-#            dtype = self.scope.types.lookup(typename, recursive=True)
-#            if dtype is None:
-#                # TODO: Insert variable information from stored TypeDef!
-#                if self.typedefs is not None and typename in self.typedefs:
-#                    variables = self.typedefs[typename].variables
-#                else:
-#                    variables = None
-#                dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
-#                                   intent=intent, allocatable='allocatable' in attrs,
-#                                   pointer='pointer' in attrs, optional='optional' in attrs,
-#                                   parameter='parameter' in attrs, target='target' in attrs)
-#
-#        kwargs['dimensions'] = dimensions
-#        kwargs['dtype'] = dtype
-#        variables = flatten(self.visit(o.items[2], **kwargs))
-#        variables = [(k, v) for k, v in zip(variables[::2], variables[1::2])]
-#        variables = OrderedDict(variables)
-#        # TODO: Deal with our Loki-specific dimension annotations
-#
-#        return Declaration(variables=variables, type=dtype, dimensions=dimensions)
-
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
         # Extract loop header and get stepping info
         # TODO: Will need to handle labeled ones too at some point
@@ -639,7 +589,6 @@ class FParser2IR(GenericVisitor):
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):
-#        import pdb; pdb.set_trace()
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         # Search for the ASSOCIATE statement and add all following items as its body
@@ -651,7 +600,10 @@ class FParser2IR(GenericVisitor):
         associations = OrderedDict()
         for assoc in o.items[1].items:
             var = self.visit(assoc.items[2], **kwargs)
-            shape = var.dimensions if isinstance(var, Array) else None
+            if isinstance(var, Array):
+                shape = ExpressionDimensionsMapper()(var)
+            else:
+                shape = None
             dtype = var.type.clone(name=None, parent=None, shape=shape)
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
         return Scope(associations=associations)
