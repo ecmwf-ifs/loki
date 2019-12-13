@@ -639,6 +639,7 @@ class FParser2IR(GenericVisitor):
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):
+#        import pdb; pdb.set_trace()
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         # Search for the ASSOCIATE statement and add all following items as its body
