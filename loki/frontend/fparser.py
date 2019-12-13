@@ -46,11 +46,9 @@ def node_sublist(nodelist, starttype, endtype):
 
 class FParser2IR(GenericVisitor):
 
-    def __init__(self, typedefs=None, shape_map=None, type_map=None, scope=None):
+    def __init__(self, typedefs=None, scope=None):
         super(FParser2IR, self).__init__()
         self.typedefs = typedefs
-        self.shape_map = shape_map
-        self.type_map = type_map
         self.scope = scope
 
     def visit(self, o, **kwargs):
@@ -683,13 +681,13 @@ def parse_fparser_file(filename):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, typedefs=None, shape_map=None, type_map=None, scope=None):
+def parse_fparser_ast(ast, typedefs=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    ir = FParser2IR(typedefs=typedefs, shape_map=shape_map, type_map=type_map, scope=scope).visit(ast)
+    ir = FParser2IR(typedefs=typedefs, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

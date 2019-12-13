@@ -38,13 +38,10 @@ def parse_ofp_file(filename):
 
 class OFP2IR(GenericVisitor):
 
-    def __init__(self, raw_source, shape_map=None, type_map=None,
-                 typedefs=None, scope=None):
+    def __init__(self, raw_source, typedefs=None, scope=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
-        self.shape_map = shape_map
-        self.type_map = type_map
         self.typedefs = typedefs
         self.scope = scope
 
@@ -633,14 +630,12 @@ class OFP2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, pp_info=None, raw_source=None, shape_map=None,
-                  type_map=None, typedefs=None, scope=None):
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OFP2IR(shape_map=shape_map, type_map=type_map, typedefs=typedefs,
-                raw_source=raw_source, scope=scope).visit(ast)
+    ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist.items():

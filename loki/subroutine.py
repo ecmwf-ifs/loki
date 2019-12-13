@@ -119,17 +119,8 @@ class Subroutine(object):
         spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source,
                              scope=obj)
 
-        # Derive type and shape maps to propagate through the subroutine body
-        type_map = {}
-        shape_map = {}
-#        for decl in FindNodes(Declaration).visit(spec):
-#            type_map.update({v.name: v.type for v in decl.variables})
-#            shape_map.update({v.name: v.shape for v in decl.variables
-#                              if isinstance(v, Array)})
-
         # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, pp_info=pp_info, shape_map=shape_map, type_map=type_map,
-                             raw_source=raw_source, scope=obj)
+        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=obj)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -215,17 +206,8 @@ class Subroutine(object):
         spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
         spec = Section(body=spec)
 
-        # Derive type and shape maps to propagate through the subroutine body
-        type_map = {}
-        shape_map = {}
-#        for decl in FindNodes(Declaration).visit(spec):
-#            type_map.update({v.name: v.type for v in decl.variables})
-#            shape_map.update({v.name: v.shape for v in decl.variables
-#                              if isinstance(v, Array)})
-
         body_ast = get_child(ast, Fortran2003.Execution_Part)
-        body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map,
-                                 type_map=type_map, scope=obj)
+        body = parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj)
         # body = Section(body=body)
 
         # Big, but necessary hack:
