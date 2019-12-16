@@ -12,7 +12,6 @@ from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
-from loki.types import BaseType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
 
