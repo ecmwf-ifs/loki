@@ -1,16 +1,164 @@
 from functools import reduce
 
-from loki.backend import CCodegen, CCodeMapper
-from loki.expression.symbol_types import Array
+from loki.backend import CCodegen
+from loki.expression.symbol_types import Array, LokiStringifyMapper
 from loki.ir import Import, Declaration
 from loki.tools import chunks
+from loki.types import DataType
 from loki.visitors import Visitor, FindNodes, Transformer
 
+__all__ = ['maxjgen', 'maxjmanagergen', 'maxjcgen', 'MaxjCodegen', 'MaxjCodeMapper',
+           'MaxjManagerCodegen', 'MaxjCCodegen']
 
-class MaxjCodeMapper(CCodeMapper):
 
-    def __init__(self, constant_mapper=repr):
+def maxj_local_type(_type):
+    if _type.dtype == DataType.LOGICAL:
+        return 'boolean'
+    elif _type.dtype == DataType.INTEGER:
+        return 'int'
+    elif _type.dtype == DataType.REAL:
+        if str(_type.kind) in ['real32']:
+            return 'float'
+        else:
+            return 'double'
+    else:
+        raise ValueError(str(_type))
+
+
+def maxj_dfevar_type(_type):
+    if _type.dtype == DataType.LOGICAL:
+        return 'dfeBool()'
+    elif _type.dtype == DataType.INTEGER:
+        return 'dfeInt(32)'
+    elif _type.dtype == DataType.REAL:
+        if str(_type.kind) in ['real32']:
+            return 'dfeFloat(8, 24)'
+        else:
+            return 'dfeFloat(11, 53)'
+    else:
+        raise ValueError(str(_type))
+
+
+class MaxjCodeMapper(LokiStringifyMapper):
+
+    def __init__(self, constant_mapper=None):
         super(MaxjCodeMapper, self).__init__(constant_mapper)
+
+#    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
+#        return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
+#
+#    def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
+#        if expr.kind is not None:
+#            _type = SymbolType(DataType.REAL, kind=expr.kind)
+#            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+#        else:
+#            result = str(expr.value)
+#        if not (result.startswith("(") and result.endswith(")")) \
+#                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
+#            return self.parenthesize(result)
+#        else:
+#            return result
+#
+#    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
+#        if expr.kind is not None:
+#            _type = SymbolType(DataType.INTEGER, kind=expr.kind)
+#            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+#        else:
+#            result = str(expr.value)
+#        if not (result.startswith("(") and result.endswith(")")) \
+#                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
+#            return self.parenthesize(result)
+#        else:
+#            return result
+#
+#    def map_string_literal(self, expr, *args, **kwargs):
+#        return '"%s"' % expr.value
+#
+#    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
+#        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
+#        expression = self.parenthesize_if_needed(
+#            self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
+#            PREC_CALL, PREC_NONE)
+#        return self.parenthesize_if_needed(
+#            self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
+
+    def map_scalar(self, expr, *args, **kwargs):
+        # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
+        ptr = '*' if expr.type and expr.type.pointer else ''
+        if expr.parent is not None:
+            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            return self.format('%s%s.%s', ptr, parent, expr.basename)
+        else:
+            return self.format('%s%s', ptr, expr.name)
+
+#    def map_array(self, expr, *args, **kwargs):
+#        dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
+#        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
+#        if expr.parent is not None:
+#            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+#            return self.format('%s.%s%s', parent, expr.basename, dims)
+#        else:
+#            return self.format('%s%s', expr.basename, dims)
+#
+#    def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
+#        return self.parenthesize_if_needed(
+#            "!" + self.rec(expr.child, PREC_UNARY, *args, **kwargs),
+#            enclosing_prec, PREC_UNARY)
+#
+#    def map_logical_or(self, expr, enclosing_prec, *args, **kwargs):
+#        return self.parenthesize_if_needed(
+#            self.join_rec(" || ", expr.children, PREC_LOGICAL_OR, *args, **kwargs),
+#            enclosing_prec, PREC_LOGICAL_OR)
+#
+#    def map_logical_and(self, expr, enclosing_prec, *args, **kwargs):
+#        return self.parenthesize_if_needed(
+#            self.join_rec(" && ", expr.children, PREC_LOGICAL_AND, *args, **kwargs),
+#            enclosing_prec, PREC_LOGICAL_AND)
+#
+#    def map_range_index(self, expr, *args, **kwargs):
+#        return self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
+#
+#    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
+#        """
+#        Since substraction and unary minus are mapped to multiplication with (-1), we are here
+#        looking for such cases and determine the matching operator for the output.
+#        """
+#        def get_neg_product(expr):
+#            from pymbolic.primitives import is_zero, Product
+#
+#            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+#                if len(expr.children) == 2:
+#                    # only the minus sign and the other child
+#                    return expr.children[1]
+#                else:
+#                    return Product(expr.children[1:])
+#            else:
+#                return None
+#
+#        terms = []
+#        is_neg_term = []
+#        for ch in expr.children:
+#            neg_prod = get_neg_product(ch)
+#            is_neg_term.append(neg_prod is not None)
+#            if neg_prod is not None:
+#                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
+#            else:
+#                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
+#
+#        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
+#        result += [' %s %s' % ('-' if is_neg else '+', term)
+#                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
+#
+#        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
+#
+#    def map_power(self, expr, enclosing_prec, *args, **kwargs):
+#        return self.parenthesize_if_needed(
+#            self.format('pow(%s, %s)', self.rec(expr.base, PREC_NONE, *args, **kwargs),
+#                        self.rec(expr.exponent, PREC_NONE, *args, **kwargs)),
+#            enclosing_prec, PREC_NONE)
+#
+#    def __init__(self, constant_mapper=repr):
+#        super(MaxjCodeMapper, self).__init__(constant_mapper)
 
 
 class MaxjCodegen(Visitor):
@@ -107,7 +255,7 @@ class MaxjCodegen(Visitor):
         # Generate declarations for local variables
         local_vars = [v for v in o.variables if v not in o.arguments]
         spec = ['\n']
-        spec += ['%s %s;\n' % (v.type.dtype.jtype, v) for v in local_vars]
+        spec += ['%s %s;\n' % ('DFEVar' if v.type.dfevar else self.visit(v.type), v.name.lower()) for v in local_vars]
         # spec += ['DFEVar %s;\n' % (v) for v in local_vars]
         spec = self.indent.join(spec)
 
@@ -160,11 +308,13 @@ class MaxjCodegen(Visitor):
                      for v, t, i in zip(o.variables, vtype, vinit)]
         return self.segment(variables) + comment
 
-    def visit_BaseType(self, o):
-        return o.dtype.maxjtype
-
-    def visit_DerivedType(self, o):
-        return 'DFEStructType %s' % o.name
+    def visit_SymbolType(self, o):
+        if o.dtype == DataType.DERIVED_TYPE:
+            return 'DFEStructType %s' % o.name
+        elif o.dfevar:
+            return maxj_dfevar_type(o)
+        else:
+            return maxj_local_type(o)
 
     def visit_TypeDef(self, o):
         self._depth += 1

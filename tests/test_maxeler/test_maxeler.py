@@ -117,7 +117,7 @@ def max_transpile(routine, refpath, builder, objects=None, wrap=None):
                     libs=get_max_libs(), lib_dirs=get_max_libdirs())
 
 
-def test_simulator(simulator):
+def test_max_simulator(simulator):
     """
     Starts and stops the Maxeler Simulator.
     """
@@ -126,7 +126,7 @@ def test_simulator(simulator):
     assert True
 
 
-def test_passthrough(simulator, build_dir, refpath):
+def test_max_passthrough(simulator, build_dir, refpath):
     """
     A simple test streaming data to the DFE and back to CPU.
     """
@@ -136,7 +136,7 @@ def test_passthrough(simulator, build_dir, refpath):
     simulator.run(build_dir / 'PassThrough')
 
 
-def test_passthrough_ctypes(simulator, build_dir, refpath):
+def test_max_passthrough_ctypes(simulator, build_dir, refpath):
     """
     A simple test streaming data to the DFE and back to CPU, called via ctypes
     """
@@ -175,7 +175,7 @@ def test_passthrough_ctypes(simulator, build_dir, refpath):
     assert list(data_in) == list(data_out)
 
 
-def test_routine_axpy(refpath, reference, builder, simulator):
+def test_max_routine_axpy(refpath, reference, builder, simulator):
 
     # Test the reference solution
     a = -3.
@@ -204,7 +204,7 @@ def test_routine_axpy(refpath, reference, builder, simulator):
     assert np.all(a * 2. + y == x)
 
 
-def test_routine_copy(refpath, reference, builder, simulator):
+def test_max_routine_copy(refpath, reference, builder, simulator):
 
     # Test the reference solution
     x = np.zeros(1) + 2.
@@ -228,7 +228,7 @@ def test_routine_copy(refpath, reference, builder, simulator):
     assert np.all(y == x)
 
 
-def test_routine_fixed_loop(refpath, reference, builder, simulator):
+def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
 
     # Test the reference solution
     n, m = 6, 4
@@ -263,7 +263,7 @@ def test_routine_fixed_loop(refpath, reference, builder, simulator):
 
 
 @pytest.mark.skip(reason='Working on it')
-def test_routine_moving_average(refpath, reference, builder, simulator):
+def test_max_routine_moving_average(refpath, reference, builder, simulator):
 
     # Create random input data
     n = 32
@@ -286,7 +286,7 @@ def test_routine_moving_average(refpath, reference, builder, simulator):
 
 
 @pytest.mark.skip(reason='Dynamic loop lengths not yet supported')
-def test_routine_shift(refpath, reference, builder):
+def test_max_routine_shift(refpath, reference, builder):
 
     # Test the reference solution
     length = 2

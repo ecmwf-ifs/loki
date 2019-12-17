@@ -1,17 +1,19 @@
 from collections import OrderedDict
+from functools import reduce
 from pathlib import Path
-from sympy import evaluate
+import operator
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
 from loki.expression import (Array, FindVariables, InlineCall, Literal, RangeIndex,
-                             SubstituteExpressions, Variable, Scalar)
+                             SubstituteExpressions, Variable, Scalar, ExpressionCallbackMapper)
 from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
                      Conditional, ConditionalStatement)
 from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
+from loki.types import SymbolType, DataType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -42,10 +44,22 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_src = path / source.name
             self.maxj_src.mkdir(exist_ok=True)
 
-            # Apply some common transformations
-            arguments, argument_map = self.transform_arguments(source)
-            body = self.transform_body(source)
-            host_interface = self.generate_host_interface(source, arguments, argument_map)
+            # Create a copy of the kernel...
+            # (TODO: There should probably be a .clone() or something like that...)
+            kernel = Subroutine(name=source.name)
+            smap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(source.spec)}
+            kernel.spec = SubstituteExpressions(smap).visit(Transformer({}).visit(source.spec))
+            bmap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(source.body)}
+            kernel.body = SubstituteExpressions(bmap).visit(Transformer({}).visit(source.body))
+            kernel.arguments = [a.clone(scope=kernel.symbols) for a in source.arguments]
+            kernel.variables = [v.clone(scope=kernel.symbols) for v in source.variables]
+
+            # ...and apply some common transformations
+            kernel, argument_map = self.transform_arguments(kernel)
+            kernel = self.transform_body(kernel)
+
+            # Create the host interface
+            host_interface = self.generate_host_interface(kernel, argument_map)
 
             # Generate Fortran wrapper routine
             wrapper = self.generate_iso_c_wrapper_routine(host_interface, c_structs)
@@ -57,28 +71,18 @@ class FortranMaxTransformation(BasicTransformation):
             self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
             SourceFile.to_file(source=maxjcgen(c_interface), path=self.c_path)
 
-            # Replicate the kernel to strip the Fortran-specific boilerplate
-            spec = Section(body=[])
-            variables = [a for a in arguments if a not in source.variables] + source.variables
-            kernel = Subroutine(name=source.name, spec=spec, body=body)
-            kernel.arguments = arguments
-            kernel.variables = variables
+            # Strip the Fortran-specific boilerplate
+#            spec = Section(body=[])
+#            max_kernel = Subroutine(name=source.name, spec=spec, body=kernel.body)
+#            max_kernel.variables = [v.clone(scope=max_kernel.symbols) for v in kernel.variables]
+#            max_kernel.arguments = [a.clone(scope=max_kernel.symbols) for a in kernel.arguments]
+            kernel.spec = Section(body=[])
 
             # Generate kernel manager
             self.maxj_manager_path = Path('%sManager.maxj' % (self.maxj_src / kernel.name))
             SourceFile.to_file(source=maxjmanagergen(kernel), path=self.maxj_manager_path)
 
             # Finally, generate MaxJ kernel that is to be run on the FPGA
-            maxj_kernel = self.generate_maxj_kernel(kernel)
-            self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
-            SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
-
-            # Generate C host code
-            c_kernel = self.generate_c_kernel(source)
-            self.c_path = (self.maxj_src / c_kernel.name).with_suffix('.c')
-            SourceFile.to_file(source=maxjcgen(c_kernel), path=self.c_path)
-
-            # Generate maxj kernel that is to be run on the FPGA
             maxj_kernel = self.generate_maxj_kernel(kernel)
             self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
             SourceFile.to_file(source=maxjgen(maxj_kernel), path=self.maxj_kernel_path)
@@ -94,14 +98,15 @@ class FortranMaxTransformation(BasicTransformation):
         arguments = []
         argument_map = {}
         for arg in routine.arguments:
+            new_arg = arg.clone(scope=routine.symbols)
             if arg.type.intent.lower() == 'inout':
-                arg_in = arg.clone(name='%s_in' % arg.name, initial=arg,
+                arg_in = arg.clone(name='%s_in' % arg.name, initial=arg, scope=routine.symbols,
                                    type=arg.type.clone(pointer=False, intent='in'))
-                arguments += [arg_in, arg]
-                argument_map.update({arg_in: arg, arg: arg})
+                arguments += [arg_in, new_arg]
+                argument_map.update({arg_in.name: arg.name, arg.name: arg.name})
             else:
-                arguments += [arg]
-                argument_map.update({arg: arg})
+                arguments += [new_arg]
+                argument_map.update({arg.name: arg.name})
 
         # In the SLiC interface, scalars are kept in-order apparently, followed by
         # instreams (alphabetically) and then outstreams (alphabetically)
@@ -112,54 +117,45 @@ class FortranMaxTransformation(BasicTransformation):
         out_arguments = [arg for arg in arguments if arg.type.intent.lower() in ('inout', 'out')]
         in_arguments.sort(key=lambda a: a.name)
         out_arguments.sort(key=lambda a: a.name)
-        arguments = scalar_arguments + in_arguments + out_arguments
+        routine.arguments = scalar_arguments + in_arguments + out_arguments
 
-        return arguments, argument_map
+        return routine, argument_map
 
     def transform_body(self, routine):
-        # Replicate the body to strip the Fortran-specific boilerplate
-        body = Transformer({}).visit(routine.body)
-        body = as_tuple(body)
-
         # Force all variables to lower-case, as Java and C are case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
+        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(routine.body)
                 if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
-        body = SubstituteExpressions(vmap).visit(body)
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
-        return body
+        return routine
 
     def generate_maxj_kernel(self, kernel, **kwargs):
+        # Create a copy for the MaxJ kernel
+        spec = Transformer().visit(kernel.spec)
+        body = Transformer().visit(kernel.body)
+        max_kernel = Subroutine(name=kernel.name, spec=spec, body=body)
+
         # Assign matching 'in' argument as initial value to 'inout' arguments
         arguments = []
+        max_kernel.variables = [v.clone(scope=max_kernel.symbols) for v in kernel.variables]
         for arg in kernel.arguments:
+            arg_type = arg.type.clone(dfevar=arg.type.intent in ['in', 'out', 'inout'],
+                                      pointer=None)
             if arg.type.intent.lower() == 'inout':
                 arg_in = next(a for a in kernel.arguments if a.name == '%s_in' % arg.name)
-                arguments += [arg.clone(name=arg.name, initial=arg_in)]
+                arguments += [arg.clone(name=arg.name, initial=arg_in, type=arg_type,
+                                        scope=max_kernel.symbols)]
             else:
-                arguments += [arg]
-        kernel.arguments = arguments
+                arguments += [arg.clone(type=arg_type, scope=max_kernel.symbols)]
+        max_kernel.arguments = arguments
 
-#        # Force pointer on reference-passed arguments
-#        for arg in kernel.arguments:
-#            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-#                arg.type.pointer = True
-#
-#        # Propagate that reference pointer to all variables
-#        arg_map = {a.name: a for a in kernel.arguments}
-#        for v in FindVariables(unique=False).visit(kernel.body):
-#            if v.name in arg_map:
-#                if v.type:
-#                    v.type.pointer = arg_map[v.name].type.pointer
-#                else:
-#                    v._type = arg_map[v.name].type
-
-        self._resolve_vector_notation(kernel, **kwargs)
-        self._resolve_omni_size_indexing(kernel, **kwargs)
+        self._resolve_vector_notation(max_kernel, **kwargs)
+        self._resolve_omni_size_indexing(max_kernel, **kwargs)
 
         # Remove dataflow loops
         loop_map = {}
         vmap = {}
-        for loop in FindNodes(Loop).visit(kernel.body):
+        for loop in FindNodes(Loop).visit(max_kernel.body):
             if (loop.pragma is not None and loop.pragma.keyword == 'loki' and \
                     'dataflow' in loop.pragma.content):
                 loop_map[loop] = loop.body
@@ -167,22 +163,23 @@ class FortranMaxTransformation(BasicTransformation):
                     loop.variable.clone(dimensions=None,
                                         initial=InlineCall('control.count.simpleCounter',
                                                            parameters=(Literal(32),)))
-        dataflow_indices = as_tuple(vmap.keys())  # [loop.variable for loop in loop_map.keys()]
-        kernel.body = Transformer(loop_map).visit(kernel.body)
+        # dataflow_indices = as_tuple(vmap.keys())  # [loop.variable for loop in loop_map.keys()]
+        max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
 
         # Replace conditionals by conditional statements
         # TODO: This does not handle nested conditionals!
         cond_map = {}
-        for cnt, cond in enumerate(FindNodes(Conditional).visit(kernel.body)):
+        for cnt, cond in enumerate(FindNodes(Conditional).visit(max_kernel.body)):
             body = []
 
             # Extract conditions as separate variables
             cond_vars = []
-            cond_type = BaseType('logical')
+            cond_type = SymbolType(DataType.LOGICAL, dfevar=False)
             for i, c in enumerate(cond.conditions):
-                cond_vars += [Variable(name='cond_%d_%d' % (cnt, i), type=cond_type)]
+                cond_vars += [Variable(name='cond_%d_%d' % (cnt, i), type=cond_type,
+                                       scope=max_kernel.symbols)]
                 body += [Statement(target=cond_vars[-1], expr=c)]
-            kernel.variables += cond_vars
+            max_kernel.variables += cond_vars
 
             # Build list of dicts with all the statements from all bodies of the conditional
             stmts = []
@@ -201,6 +198,7 @@ class FortranMaxTransformation(BasicTransformation):
             target_stmts = {t: [slist.get(t, []) for slist in stmts] for t in targets}
 
             # Hacky heuristic: We use the first body to hangle us along the order of statements
+            # TODO: Do this in a better way!
             for stmt in FindNodes(Statement).visit(cond.bodies[0]):
                 t = stmt.target
                 cond_stmt = else_stmts[t].pop(0).expr if else_stmts.get(t, []) else t
@@ -221,7 +219,16 @@ class FortranMaxTransformation(BasicTransformation):
                     body += [cond_stmt]
 
             cond_map[cond] = body
-        kernel.body = Transformer(cond_map).visit(kernel.body)
+        max_kernel.body = Transformer(cond_map).visit(max_kernel.body)
+
+        # Mark DFEVar variables
+        def is_dfevar(expr, *args, **kwargs):
+            return {isinstance(expr, (Scalar, Array)) and expr.type.dfevar == True}
+        dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar,
+                                                 combine=lambda v: reduce(operator.or_, v, set()))
+
+        for stmt in FindNodes(Statement).visit(max_kernel.body):
+            stmt.target.type.dfevar = dfevar_mapper(stmt.expr).pop()
 
         # Replace array access by stream inflow
         # TODO: this only works for vectors so far
@@ -243,34 +250,40 @@ class FortranMaxTransformation(BasicTransformation):
 #            kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        self._invert_array_indices(kernel, **kwargs)
-        self._shift_to_zero_indexing(kernel, **kwargs)
+        self._invert_array_indices(max_kernel, **kwargs)
+        self._shift_to_zero_indexing(max_kernel, **kwargs)
 #        self._replace_intrinsics(kernel, **kwargs)
 
-        return kernel
+        return max_kernel
 
-    def generate_host_interface(self, routine, variables, variable_map, **kwargs):
+    def generate_host_interface(self, routine, variable_map, **kwargs):
         """
         Generate the necessary call for the host interface.
         """
+        # Create a copy of the spec for the host interface
+        spec = Transformer({}).visit(routine.spec)
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec)
+
         # The arguments for the host interface subroutine are the same as for the original
-        # kernel plus some additional ones.
-        arguments = routine.arguments
+        # kernel plus some additional ones. Variables are just the arguments
+        arguments = [arg.clone(scope=kernel.symbols) for arg in routine.arguments]
+        variables = [v for v in arguments]
 
         # First, add an argument for ticks
-        size_t_type = BaseType('INTEGER', intent='in')  # TODO: make this size_t
-        ticks_argument = Variable(name='ticks', type=size_t_type)
+        size_t_type = SymbolType(DataType.INTEGER, intent='in')  # TODO: make this size_t
+        ticks_argument = Variable(name='ticks', type=size_t_type, scope=kernel.symbols)
         arguments = [ticks_argument] + arguments
         variables = [ticks_argument] + variables
 
         # Secondly, the DFE wants to know how big arrays are, so we replace array arguments by
         # pairs of (arg, arg_size)
-        arg_pairs = {a: (a, Variable(name='%s_size' % a.name, type=size_t_type))
+        arg_pairs = {a.name: (a, Variable(name='%s_size' % a.name, type=size_t_type,
+                                          scope=kernel.symbols))
                      if isinstance(a, Array) else a for a in arguments}
-        arguments = flatten([arg_pairs[a] for a in arguments])
+        arguments = flatten([arg_pairs[a.name] for a in arguments])
 
         # For the transformed arguments we can reuse the existing size-arguments
-        var_pairs = {v: (v, arg_pairs[variable_map[v]][1])
+        var_pairs = {v: (v, arg_pairs[variable_map[v.name].name][1])
                      if isinstance(v, Array) else v for v in variables}
         call_arguments = flatten([var_pairs[v] for v in variables])
 
@@ -280,9 +293,7 @@ class FortranMaxTransformation(BasicTransformation):
                 v.initial = None
 
         # The entire body is just a call to the SLiC interface
-        spec = Transformer().visit(routine.spec)
-        body = (Call(name=routine.name, arguments=call_arguments),)
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
+        kernel.body = (Call(name=routine.name, arguments=call_arguments),)
         kernel.arguments = arguments
         kernel.variables = variables
 
@@ -290,19 +301,38 @@ class FortranMaxTransformation(BasicTransformation):
 
         return kernel
 
-    def generate_c_interface_routine(self, routine):
+    @staticmethod
+    def iso_c_intrinsic_kind(_type):
+        if _type.dtype == DataType.INTEGER:
+            return 'c_int'
+        elif _type.dtype == DataType.REAL:
+            kind = str(_type.kind)
+            if kind.lower() in ('real32', 'c_float'):
+                return 'c_float'
+            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+                return 'c_double'
+            else:
+                return None
+        else:
+            return None
 
-        # Force pointer on reference-passed arguments
-        for arg in routine.arguments:
+    def generate_c_interface_routine(self, routine):
+        # Create a copy of the routine
+        kernel = Subroutine(name=routine.name)
+        kernel.spec = Section(body=[])
+        bmap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(routine.body)}
+        kernel.body = SubstituteExpressions(bmap).visit(Transformer({}).visit(routine.body))
+        kernel.arguments = [a.clone(scope=kernel.symbols) for a in routine.arguments]
+        kernel.variables = kernel.arguments 
+
+        # Force pointer on reference-passed arguments (i.e., all except input scalars)
+        for arg in kernel.arguments:
             if not (arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 arg.type.pointer = True
 
-        # Remove imports and other declarations
-        routine.spec = Section(body=[])
+        return kernel
 
-        return routine
-
-    def generate_iso_c_interface(self, routine, c_structs):
+    def generate_iso_c_interface(self, routine, c_structs, parent):
         """
         Generate the ISO-C subroutine interface
         """
@@ -312,28 +342,33 @@ class FortranMaxTransformation(BasicTransformation):
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_spec.body += as_tuple(c_structs.values())
-        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(),
+        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(), parent=parent,
                                   body=None, bind=routine.name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
+            if arg.type.dtype == DataType.DERIVED_TYPE:
+                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None, shape=arg.type.shape,
+                                   name=c_structs[arg.type.name.lower()].name)
             else:
-                ctype = arg.type.dtype.isoctype
                 # Only scalar, intent(in) arguments are pass by value
-                ctype.value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 # Pass by reference for array types
+                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
+                ctype = SymbolType(arg.type.dtype, value=value,
+                                   kind=self.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
-            shape = arg.shape if isinstance(arg, Array) else None
-            var = Variable(name=arg.name, dimensions=dimensions, shape=shape, type=ctype)
+            var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
+                           scope=intf_routine.symbols)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
         return Interface(body=(intf_routine, ))
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
-        interface = self.generate_iso_c_interface(routine, c_structs)
+        # Create initial object to have a scope
+        wrapper = Subroutine(name='%s_fmax' % routine.name)
+
+        interface = self.generate_iso_c_interface(routine, c_structs, wrapper)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
@@ -347,27 +382,29 @@ class FortranMaxTransformation(BasicTransformation):
         casts_in = []
         casts_out = []
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
-                ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
-                cvar = Variable(name='%s_c' % arg.name, type=ctype)
-                cast_in = InlineCall(name='transfer', arguments=as_tuple(arg),
-                                     kwarguments=as_tuple([('mold', cvar)]))
+            if arg.type.dtype == DataType.DERIVED_TYPE:
+                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None,
+                                   name=c_structs[arg.type.name.lower()].name)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper.symbols)
+                cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Statement(target=cvar, expr=cast_in)]
 
-                cast_out = InlineCall(name='transfer', arguments=as_tuple(cvar),
-                                      kwarguments=as_tuple([('mold', arg)]))
+                cast_out = InlineCall('transfer', parameters=(cvar,), kw_parameters={'mold': arg})
                 casts_out += [Statement(target=arg, expr=cast_out)]
                 local_arg_map[arg.name] = cvar
 
-        arguments = [local_arg_map[a] if a in local_arg_map else a for a in routine.argnames]
+        arguments = [local_arg_map[a.name]
+                     if a.name in local_arg_map else a.clone(scope=wrapper.symbols)
+                     for a in routine.arguments]
         wrapper_body = casts_in
         wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
-        wrapper = Subroutine(name='%s_fmax' % routine.name, spec=wrapper_spec, body=wrapper_body)
+        wrapper.__init__(name='%s_fmax' % routine.name, spec=wrapper_spec, body=wrapper_body,
+                         symbols=wrapper.symbols, types=wrapper.types)
 
         # Copy internal argument and declaration definitions
-        wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]
-        wrapper.arguments = routine.arguments
+        wrapper.arguments = [arg.clone(scope=wrapper.symbols) for arg in routine.arguments]
+        wrapper.variables = wrapper.arguments + [v for v in local_arg_map.values()]
         return wrapper
 
     def _resolve_vector_notation(self, kernel, **kwargs):
