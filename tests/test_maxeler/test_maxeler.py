@@ -36,6 +36,11 @@ def simulator():
                                               os.environ['MAXELEROSDIR'])})
             self.maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
 
+        def __del__(self):
+            del os.environ['SLIC_CONF']
+            del os.environ['LD_PRELOAD']
+            del self.maxeleros
+
         def restart(self):
             cmd = self.base_cmd + ['-c', 'MAX5C', 'restart']
             execute(cmd)
@@ -197,7 +202,7 @@ def test_max_routine_axpy(refpath, reference, builder, simulator):
         a = -3.
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
-        max_kernel.routine_axpy_c_fmax_mod.routine_axpy_c_fmax(ticks=1, a=a, x=x, y=y)
+        max_kernel.routine_axpy_c_fmax_mod.routine_axpy_c_fmax(ticks=1, a=a, x=x, x_in=x, y=y)
         print(x)
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)

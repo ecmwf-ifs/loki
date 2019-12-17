@@ -45,7 +45,7 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_src.mkdir(exist_ok=True)
 
             # Create a copy of the kernel...
-            # (TODO: There should probably be a .clone() or something like that...)
+            # (TODO: There should probably be a .clone() for that or something similar...)
             kernel = Subroutine(name=source.name)
             smap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(source.spec)}
             kernel.spec = SubstituteExpressions(smap).visit(Transformer({}).visit(source.spec))
@@ -55,8 +55,7 @@ class FortranMaxTransformation(BasicTransformation):
             kernel.variables = [v.clone(scope=kernel.symbols) for v in source.variables]
 
             # ...and apply some common transformations
-            kernel, argument_map = self.transform_arguments(kernel)
-            kernel = self.transform_body(kernel)
+            kernel, argument_map = self.transform_kernel(kernel)
 
             # Create the host interface
             host_interface = self.generate_host_interface(kernel, argument_map)
@@ -90,7 +89,7 @@ class FortranMaxTransformation(BasicTransformation):
         else:
             raise RuntimeError('Can only translate Module or Subroutine nodes')
 
-    def transform_arguments(self, routine):
+    def transform_kernel(self, routine):
         """
         Copies all arguments and splits up 'inout' arguments into a new 'in'-argument and
         the original 'inout' argument with the new 'in'-argument as initial value assigned.
@@ -98,15 +97,20 @@ class FortranMaxTransformation(BasicTransformation):
         arguments = []
         argument_map = {}
         for arg in routine.arguments:
-            new_arg = arg.clone(scope=routine.symbols)
             if arg.type.intent.lower() == 'inout':
-                arg_in = arg.clone(name='%s_in' % arg.name, initial=arg, scope=routine.symbols,
-                                   type=arg.type.clone(pointer=False, intent='in'))
+                in_type = arg.type.clone(intent='in')
+                arg_in = arg.clone(name='%s_in' % arg.name.lower(), scope=routine.symbols,
+                                   type=in_type)
+                new_type = arg.type.clone(initial=arg_in)
+                new_arg = arg.clone(name=arg.name.lower(), scope=routine.symbols, type=new_type)
                 arguments += [arg_in, new_arg]
-                argument_map.update({arg_in.name: arg.name, arg.name: arg.name})
+                argument_map.update({arg_in.name: arg.name, new_arg.name: arg.name})
             else:
+                new_arg = arg.clone(name=arg.name.lower(), scope=routine.symbols)
                 arguments += [new_arg]
-                argument_map.update({arg.name: arg.name})
+                argument_map.update({new_arg.name: arg.name})
+
+        variables = [v for v in routine.variables if v not in routine.arguments] 
 
         # In the SLiC interface, scalars are kept in-order apparently, followed by
         # instreams (alphabetically) and then outstreams (alphabetically)
@@ -118,16 +122,14 @@ class FortranMaxTransformation(BasicTransformation):
         in_arguments.sort(key=lambda a: a.name)
         out_arguments.sort(key=lambda a: a.name)
         routine.arguments = scalar_arguments + in_arguments + out_arguments
+        routine.variables = routine.arguments + variables
 
-        return routine, argument_map
-
-    def transform_body(self, routine):
         # Force all variables to lower-case, as Java and C are case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(routine.body)
                 if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
-        return routine
+        return routine, argument_map
 
     def generate_maxj_kernel(self, kernel, **kwargs):
         # Create a copy for the MaxJ kernel
@@ -283,7 +285,7 @@ class FortranMaxTransformation(BasicTransformation):
         arguments = flatten([arg_pairs[a.name] for a in arguments])
 
         # For the transformed arguments we can reuse the existing size-arguments
-        var_pairs = {v: (v, arg_pairs[variable_map[v.name].name][1])
+        var_pairs = {v: (v, arg_pairs[variable_map[v.name]][1])
                      if isinstance(v, Array) else v for v in variables}
         call_arguments = flatten([var_pairs[v] for v in variables])
 
@@ -503,7 +505,6 @@ class FortranMaxTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=True).visit(kernel.body):
             if isinstance(v, Array):
-                with evaluate(False):
-                    new_dims = as_tuple(d - 1 for d in v.dimensions)
-                    vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = as_tuple(d - 1 for d in v.dimensions)
+                vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)

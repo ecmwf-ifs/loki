@@ -44,44 +44,6 @@ class MaxjCodeMapper(LokiStringifyMapper):
     def __init__(self, constant_mapper=None):
         super(MaxjCodeMapper, self).__init__(constant_mapper)
 
-#    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
-#        return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
-#
-#    def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-#        if expr.kind is not None:
-#            _type = SymbolType(DataType.REAL, kind=expr.kind)
-#            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
-#        else:
-#            result = str(expr.value)
-#        if not (result.startswith("(") and result.endswith(")")) \
-#                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-#            return self.parenthesize(result)
-#        else:
-#            return result
-#
-#    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
-#        if expr.kind is not None:
-#            _type = SymbolType(DataType.INTEGER, kind=expr.kind)
-#            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
-#        else:
-#            result = str(expr.value)
-#        if not (result.startswith("(") and result.endswith(")")) \
-#                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-#            return self.parenthesize(result)
-#        else:
-#            return result
-#
-#    def map_string_literal(self, expr, *args, **kwargs):
-#        return '"%s"' % expr.value
-#
-#    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-#        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
-#        expression = self.parenthesize_if_needed(
-#            self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
-#            PREC_CALL, PREC_NONE)
-#        return self.parenthesize_if_needed(
-#            self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
-
     def map_scalar(self, expr, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
@@ -91,74 +53,22 @@ class MaxjCodeMapper(LokiStringifyMapper):
         else:
             return self.format('%s%s', ptr, expr.name)
 
-#    def map_array(self, expr, *args, **kwargs):
-#        dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
-#        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
-#        if expr.parent is not None:
-#            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
-#            return self.format('%s.%s%s', parent, expr.basename, dims)
-#        else:
-#            return self.format('%s%s', expr.basename, dims)
-#
-#    def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
-#        return self.parenthesize_if_needed(
-#            "!" + self.rec(expr.child, PREC_UNARY, *args, **kwargs),
-#            enclosing_prec, PREC_UNARY)
-#
-#    def map_logical_or(self, expr, enclosing_prec, *args, **kwargs):
-#        return self.parenthesize_if_needed(
-#            self.join_rec(" || ", expr.children, PREC_LOGICAL_OR, *args, **kwargs),
-#            enclosing_prec, PREC_LOGICAL_OR)
-#
-#    def map_logical_and(self, expr, enclosing_prec, *args, **kwargs):
-#        return self.parenthesize_if_needed(
-#            self.join_rec(" && ", expr.children, PREC_LOGICAL_AND, *args, **kwargs),
-#            enclosing_prec, PREC_LOGICAL_AND)
-#
-#    def map_range_index(self, expr, *args, **kwargs):
-#        return self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
-#
-#    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
-#        """
-#        Since substraction and unary minus are mapped to multiplication with (-1), we are here
-#        looking for such cases and determine the matching operator for the output.
-#        """
-#        def get_neg_product(expr):
-#            from pymbolic.primitives import is_zero, Product
-#
-#            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
-#                if len(expr.children) == 2:
-#                    # only the minus sign and the other child
-#                    return expr.children[1]
-#                else:
-#                    return Product(expr.children[1:])
-#            else:
-#                return None
-#
-#        terms = []
-#        is_neg_term = []
-#        for ch in expr.children:
-#            neg_prod = get_neg_product(ch)
-#            is_neg_term.append(neg_prod is not None)
-#            if neg_prod is not None:
-#                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
-#            else:
-#                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
-#
-#        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
-#        result += [' %s %s' % ('-' if is_neg else '+', term)
-#                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
-#
-#        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
-#
-#    def map_power(self, expr, enclosing_prec, *args, **kwargs):
-#        return self.parenthesize_if_needed(
-#            self.format('pow(%s, %s)', self.rec(expr.base, PREC_NONE, *args, **kwargs),
-#                        self.rec(expr.exponent, PREC_NONE, *args, **kwargs)),
-#            enclosing_prec, PREC_NONE)
-#
-#    def __init__(self, constant_mapper=repr):
-#        super(MaxjCodeMapper, self).__init__(constant_mapper)
+    def map_array(self, expr, *args, **kwargs):
+        dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
+        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
+        if expr.parent is not None:
+            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            return self.format('%s.%s%s', parent, expr.basename, dims)
+        else:
+            return self.format('%s%s', expr.basename, dims)
+
+    def map_range_index(self, expr, *args, **kwargs):
+        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
+        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
+        if expr.step:
+            return '(%s - %s + 1) / %s' % (upper, lower, self.rec(expr.step, *args, **kwargs))
+        else:
+            return '(%s - %s + 1)' % (upper, lower)
 
 
 class MaxjCodegen(Visitor):
@@ -199,16 +109,17 @@ class MaxjCodegen(Visitor):
         init_templates = ['new DFEVectorType<%s>(%s, %s)'] * L
         inits = [base_type]
         for i in range(L):
-            inits += [init_templates[i] % (types[i], inits[i], v.dimensions[-(i+1)])]
+            inits += [init_templates[i] % (types[i], inits[i],
+                                           self._maxjsymgen(v.dimensions[-(i+1)]))]
 
         if is_input:
             if v.type.intent is not None and v.type.intent.lower() == 'in':
                 # Determine matching initialization routine...
                 stream = 'io.%s("%s", %s)' % ('input' if isinstance(v, Array) else 'scalarInput',
                                               v.name, inits[-1])
-            elif v.initial is not None:
+            elif v.type.initial is not None:
                 # ...or assign a given initial value...
-                stream = v.initial.name
+                stream = v.type.initial.name
             else:
                 # ...or create an empty instance
                 stream = '%s.newInstance(this)' % inits[-1]
