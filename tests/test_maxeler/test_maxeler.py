@@ -31,15 +31,12 @@ def simulator():
         def __init__(self):
             name = '%s_pytest' % os.getlogin()
             self.base_cmd = ['maxcompilersim', '-n', name]
-            os.environ.update({'SLIC_CONF': 'use_simulation=%s' % name,
-                               'LD_PRELOAD': ('%s/lib/libmaxeleros.so' %
-                                              os.environ['MAXELEROSDIR'])})
+            os.environ['SLIC_CONF'] = 'use_simulation=%s' % name
             self.maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
 
         def __del__(self):
-            del os.environ['SLIC_CONF']
-            del os.environ['LD_PRELOAD']
             del self.maxeleros
+            del os.environ['SLIC_CONF']
 
         def restart(self):
             cmd = self.base_cmd + ['-c', 'MAX5C', 'restart']
@@ -54,7 +51,10 @@ def simulator():
             if args is not None:
                 cmd += [str(a) for a in args]
             self.restart()
-            execute(cmd)
+            env = os.environ.copy()
+            env['LD_PRELOAD'] = '%s/lib/libmaxeleros.so:%s' % (os.environ['MAXELEROSDIR'],
+                                                               os.environ.get('LD_PRELOAD', ''))
+            execute(cmd, env=env)
             self.stop()
 
         def call(self, fn, *args, **kwargs):
@@ -63,7 +63,8 @@ def simulator():
             self.stop()
             return ret
 
-    return MaxCompilerSim()
+    print('simulator()')
+    yield MaxCompilerSim()
 
 
 @pytest.fixture(scope='module')
@@ -91,9 +92,9 @@ def reference(refpath, builder):
 
     sources = ['maxeler.f90']
     objects = [Obj(source_path=s) for s in sources]
-    lib = Lib(name='ref', objs=objects, shared=False)
+    lib = Lib(name='max_ref', objs=objects, shared=False)
     lib.build(builder=builder)
-    return lib.wrap(modname='ref', sources=sources, builder=builder)
+    return lib.wrap(modname='max_ref', sources=sources, builder=builder)
 
 
 def max_transpile(routine, refpath, builder, objects=None, wrap=None):
