@@ -492,3 +492,35 @@ class Subroutine:
         String representation.
         """
         return '{}:: {}'.format('Function' if self.is_function else 'Subroutine', self.name)
+
+    def clone(self, **kwargs):
+        """
+        Create a copy of the subroutine.
+        """
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self._ast and 'ast' not in kwargs:
+            kwargs['ast'] = self._ast
+        if self._dummies and 'args' not in kwargs:
+            kwargs['args'] = self._dummies
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if self.docstring and 'docstring' not in kwargs:
+            kwargs['docstring'] = self.docstring
+        if self.members and 'members' not in kwargs:
+            kwargs['members'] = self.members
+        if self.bind and 'bind' not in kwargs:
+            kwargs['bind'] = self.bind
+        if self.is_function and 'is_function' not in kwargs:
+            kwargs['is_function'] = self.is_function
+
+        obj = self.__class__(**kwargs)
+        obj._decl_map = self._decl_map.copy()
+        smap = {v: v.clone(scope=obj.symbols) for v in FindVariables(unique=False).visit(self.spec)}
+        obj.spec = SubstituteExpressions(smap).visit(Transformer({}).visit(self.spec))
+        bmap = {v: v.clone(scope=obj.symbols) for v in FindVariables(unique=False).visit(self.body)}
+        obj.body = SubstituteExpressions(bmap).visit(Transformer({}).visit(self.body))
+        obj.arguments = [a.clone(scope=obj.symbols) for a in self.arguments]
+        obj.variables = [v.clone(scope=obj.symbols) for v in self.variables]
+
+        return obj
