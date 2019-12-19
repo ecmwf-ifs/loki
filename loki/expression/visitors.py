@@ -175,3 +175,47 @@ class ExpressionDimensionsMapper(Mapper):
             lower = expr.lower.value - 1 if expr.lower is not None else 0
             step = expr.step.value if expr.step is not None else 1
             return as_tuple((expr.upper - lower) // step)
+
+
+class ExpressionCallbackMapper(CombineMapper):
+    """
+    A visitor for expressions that returns the combined result of a specified callback function.
+    """
+
+    def __init__(self, callback, combine):
+        super(ExpressionCallbackMapper, self).__init__()
+        self.callback = callback
+        self.combine = combine
+
+    def map_constant(self, expr, *args, **kwargs):
+        return self.callback(expr, *args, **kwargs)
+
+    map_logic_literal = map_constant
+    map_int_literal = map_constant
+    map_float_literal = map_constant
+    map_string_literal = map_constant
+    map_scalar = map_constant
+    map_array = map_constant
+
+    map_inline_call = CombineMapper.map_call_with_kwargs
+
+    def map_cast(self, expr, *args, **kwargs):
+        if expr.kind and isinstance(expr.kind, pmbl.Expression):
+            kind = (self.rec(expr.kind, *args, **kwargs),)
+        else:
+            kind = tuple()
+        return self.combine((self.rec(expr.function, *args, **kwargs),
+                             self.rec(expr.parameters[0])) + kind)
+
+    def map_range_index(self, expr, *args, **kwargs):
+        lower = (self.rec(expr.lower, *args, **kwargs),) if expr.lower else tuple()
+        upper = (self.rec(expr.upper, *args, **kwargs),) if expr.upper else tuple()
+        step = (self.rec(expr.step, *args, **kwargs),) if expr.step else tuple()
+        return self.combine(lower + upper + step)
+
+    map_parenthesised_add = CombineMapper.map_sum
+    map_parenthesised_mul = CombineMapper.map_product
+    map_parenthesised_pow = CombineMapper.map_power
+
+    def map_literal_list(self, expr, *args, **kwargs):
+        return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))

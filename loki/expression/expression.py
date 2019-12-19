@@ -143,8 +143,21 @@ class LokiIdentityMapper(IdentityMapper):
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
-    map_scalar = IdentityMapper.map_variable
-    map_array = IdentityMapper.map_variable
+
+    def map_scalar(self, expr, *args, **kwargs):
+        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+                              initial=initial, source=expr.source)
+
+    def map_array(self, expr, *args, **kwargs):
+        if expr.dimensions:
+            dimensions = tuple(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+        else:
+            dimensions = None
+        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+                              dimensions=dimensions, initial=initial, source=expr.source)
+
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
@@ -166,6 +179,12 @@ class LokiIdentityMapper(IdentityMapper):
     map_parenthesised_mul = map_product
     map_parenthesised_pow = IdentityMapper.map_power
 
+    def map_range_index(self, expr, *args, **kwargs):
+        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
+        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper is not None else None
+        step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
+        return expr.__class__(lower, upper, step)
+
 
 class SubstituteExpressionsMapper(LokiIdentityMapper):
     """
@@ -184,11 +203,10 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
             setattr(self, expr.mapper_method, self.map_from_expr_map)
 
     def map_from_expr_map(self, expr, *args, **kwargs):
-        if expr in self.expr_map:
-            return self.expr_map[expr]
-        else:
-            map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
-            return map_fn(expr, *args, **kwargs)
+        # We have to recurse here to make sure we are applying the substitution also to
+        # "hidden" places (such as dimension expressions inside an array)
+        map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
+        return map_fn(self.expr_map.get(expr, expr), *args, **kwargs)
 
 
 class SubstituteExpressions(Transformer):
