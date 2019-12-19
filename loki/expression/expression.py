@@ -185,6 +185,10 @@ class LokiIdentityMapper(IdentityMapper):
         step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
         return expr.__class__(lower, upper, step)
 
+    def map_literal_list(self, expr, *args, **kwargs):
+        values = tuple(self.rec(v, *args, **kwargs) for v in expr.elements)
+        return expr.__class__(values)
+
 
 class SubstituteExpressionsMapper(LokiIdentityMapper):
     """
