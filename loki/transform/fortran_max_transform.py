@@ -6,7 +6,8 @@ import operator
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
 from loki.expression import (Array, FindVariables, InlineCall, Literal, RangeIndex,
-                             SubstituteExpressions, Variable, Scalar, ExpressionCallbackMapper)
+                             SubstituteExpressions, Variable, Scalar, ExpressionCallbackMapper,
+                             retrieve_variables)
 from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
                      Conditional, ConditionalStatement)
 from loki.module import Module
@@ -44,18 +45,8 @@ class FortranMaxTransformation(BasicTransformation):
             self.maxj_src = path / source.name
             self.maxj_src.mkdir(exist_ok=True)
 
-            # Create a copy of the kernel...
-            # (TODO: There should probably be a .clone() for that or something similar...)
-            kernel = Subroutine(name=source.name)
-            smap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(source.spec)}
-            kernel.spec = SubstituteExpressions(smap).visit(Transformer({}).visit(source.spec))
-            bmap = {v: v.clone(scope=kernel.symbols) for v in FindVariables().visit(source.body)}
-            kernel.body = SubstituteExpressions(bmap).visit(Transformer({}).visit(source.body))
-            kernel.arguments = [a.clone(scope=kernel.symbols) for a in source.arguments]
-            kernel.variables = [v.clone(scope=kernel.symbols) for v in source.variables]
-
-            # ...and apply some common transformations
-            kernel, argument_map = self.transform_kernel(kernel)
+            # Create a copy of the kernel and apply some common transformations
+            kernel, argument_map = self.transform_kernel(source.clone())  # kernel)
 
             # Create the host interface
             host_interface = self.generate_host_interface(kernel, argument_map)
@@ -101,8 +92,7 @@ class FortranMaxTransformation(BasicTransformation):
                 in_type = arg.type.clone(intent='in')
                 arg_in = arg.clone(name='%s_in' % arg.name.lower(), scope=routine.symbols,
                                    type=in_type)
-                new_type = arg.type.clone(initial=arg_in)
-                new_arg = arg.clone(name=arg.name.lower(), scope=routine.symbols, type=new_type)
+                new_arg = arg.clone(name=arg.name.lower(), scope=routine.symbols, initial=arg_in)
                 arguments += [arg_in, new_arg]
                 argument_map.update({arg_in.name: arg.name, new_arg.name: arg.name})
             else:
@@ -110,7 +100,7 @@ class FortranMaxTransformation(BasicTransformation):
                 arguments += [new_arg]
                 argument_map.update({new_arg.name: arg.name})
 
-        variables = [v for v in routine.variables if v not in routine.arguments] 
+        variables = [v for v in routine.variables if v not in routine.arguments]
 
         # In the SLiC interface, scalars are kept in-order apparently, followed by
         # instreams (alphabetically) and then outstreams (alphabetically)
@@ -133,9 +123,7 @@ class FortranMaxTransformation(BasicTransformation):
 
     def generate_maxj_kernel(self, kernel, **kwargs):
         # Create a copy for the MaxJ kernel
-        spec = Transformer().visit(kernel.spec)
-        body = Transformer().visit(kernel.body)
-        max_kernel = Subroutine(name=kernel.name, spec=spec, body=body)
+        max_kernel = kernel.clone()
 
         # Assign matching 'in' argument as initial value to 'inout' arguments
         arguments = []
@@ -151,21 +139,26 @@ class FortranMaxTransformation(BasicTransformation):
                 arguments += [arg.clone(type=arg_type, scope=max_kernel.symbols)]
         max_kernel.arguments = arguments
 
+        # TODO: hacky, do this properly!
+        max_kernel.variables = [v for v in max_kernel.variables if v.name.lower() not in ['jprb']]
+
         self._resolve_vector_notation(max_kernel, **kwargs)
         self._resolve_omni_size_indexing(max_kernel, **kwargs)
 
         # Remove dataflow loops
         loop_map = {}
-        vmap = {}
+        dataflow_indices = []
         for loop in FindNodes(Loop).visit(max_kernel.body):
             if (loop.pragma is not None and loop.pragma.keyword == 'loki' and \
                     'dataflow' in loop.pragma.content):
                 loop_map[loop] = loop.body
-                vmap[loop.variable] = \
-                    loop.variable.clone(dimensions=None,
-                                        initial=InlineCall('control.count.simpleCounter',
-                                                           parameters=(Literal(32),)))
-        # dataflow_indices = as_tuple(vmap.keys())  # [loop.variable for loop in loop_map.keys()]
+                var_init = InlineCall('control.count.simpleCounter', parameters=(Literal(32),))
+                # TODO: Add support for wrap point
+                #                      parameters=(Literal(32), loop.bounds[1]))
+                var_index = max_kernel.variables.index(loop.variable)
+#                max_kernel.variables[var_index].initial = var_init
+#                max_kernel.variables[var_index].type.dfevar = True
+                dataflow_indices += [loop.variable.name]
         max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
 
         # Replace conditionals by conditional statements
@@ -223,33 +216,71 @@ class FortranMaxTransformation(BasicTransformation):
             cond_map[cond] = body
         max_kernel.body = Transformer(cond_map).visit(max_kernel.body)
 
-        # Mark DFEVar variables
+        # Mark DFEVar variables:
+        # Add the attribute `dfevar` to the type of all variables that depend on a
+        # `dfevar` variable (which are initially all 'in', 'inout'-arguments and dataflow loop
+        # variables)
         def is_dfevar(expr, *args, **kwargs):
-            return {isinstance(expr, (Scalar, Array)) and expr.type.dfevar == True}
-        dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar,
-                                                 combine=lambda v: reduce(operator.or_, v, set()))
+            return {isinstance(expr, (Scalar, Array)) and expr.type.dfevar is True}
+        dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar, combine=lambda v: {any(v)})
+        node_fields = {Statement: ('expr',),
+                       ConditionalStatement: ('condition', 'expr', 'else_expr')}
 
-        for stmt in FindNodes(Statement).visit(max_kernel.body):
-            stmt.target.type.dfevar = dfevar_mapper(stmt.expr).pop()
+        for stmt in FindNodes(tuple(node_fields.keys())).visit(max_kernel.body):
+            is_dfe = any(dfevar_mapper(getattr(stmt, attr)).pop()
+                         for attr in node_fields[stmt.__class__])
+            stmt.target.type.dfevar = stmt.target.type.dfevar or is_dfe
 
         # Replace array access by stream inflow
-        # TODO: this only works for vectors so far
-        # TODO: this doesn't work at all!
-#        if dataflow_indices:
-#            dim = dataflow_indices[0]
-#            emap = {}
-#            for v in FindVariables(unique=True).visit(kernel.body):
-#                if isinstance(v, Array) and v.find(dim):
-#                    stream_v = v.clone(dimensions=None, shape=None)
-#                    if dim == v.dimensions[0]:
-#                        emap[v] = stream_v
-#                        vmap[v] = stream_v
-#                    else:
-#                        new_dim = v.dimensions[0] - dim
-#                        emap[v] = InlineCall('stream.offset', parameters=(stream_v, new_dim))
-#            kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-#            kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
-#            kernel.variables = [vmap.get(v, v) for v in kernel.variables]
+        if len(dataflow_indices) > 0:
+            vmap = {}
+            stream_counter = 0
+            for v in FindVariables(unique=False).visit(max_kernel.body):
+                if isinstance(v, Array) and v.dimensions is not None:
+                    dfe_dims = {d: d.name in dataflow_indices for d in retrieve_variables(v)}
+                    if not any(dfe_dims.values()) or v in vmap:
+                        continue
+                    if len(v.dimensions) > 1:
+                        raise NotImplementedError('Cannot yet handle >1 dataflow dim!')
+                    dim = dataflow_indices[0]
+                    v_type = v.type.clone(shape=None, dfestream=True)
+                    if v.dimensions[0].name == dim:
+                        v_init = None 
+                        v_name = v.name
+                    else:
+                        parameters = (Literal(v.name),
+                                      v.dimensions[0] - Variable(name=dim,
+                                                                 scope=max_kernel.symbols))
+                        v_init = InlineCall('stream.offset', parameters=parameters)
+                        v_name = 's_%s_%s' % (v.name, stream_counter)
+                        stream_counter += 1
+                    vmap[v] = v.clone(name=v_name, dimensions=None, type=v_type, initial=v_init)
+            max_kernel.body = SubstituteExpressions(vmap).visit(max_kernel.body)
+
+            # Replace old declarations by stream args
+            obs_args = {v.name for v in vmap.keys()}
+            new_args = list(set(vmap.values()))
+            max_kernel.arguments = [v for v in max_kernel.arguments if v.name not in obs_args]
+            max_kernel.arguments += new_args
+            max_kernel.variables = [v for v in max_kernel.variables if v.name not in obs_args]
+            max_kernel.variables += new_args
+
+        # TODO: This has to be communicated back to the host interface
+        # Find out which streams are actually unneeded (e.g., because they got obsolete with the
+        # removal of the dataflow loop or due to 'inout' being split up into 'in' and 'out'
+#        dfevar_mapper = ExpressionCallbackMapper(callback=lambda expr: {expr},
+#                                                 combine=lambda v: reduce(operator.or_, v, set()))
+#        depmap = {}
+#        for stmt in FindNodes(tuple(node_fields.keys())).visit(max_kernel.body):
+#            deps = [dfevar_mapper(getattr(stmt, attr)) for attr in node_fields[stmt.__class__]]
+#            deps = reduce(operator.or_, deps, set())
+#            depmap[stmt.target] = depmap.get(stmt.target, {}) or deps
+#
+#        deps = {v: len(depmap.get(v, {})) > 0 for v in max_kernel.arguments}
+#        deps = {k: any([k in d for d in depmap.values()]) or v for k, v in deps.items()}
+#        max_kernel.arguments = [k for k, v in deps.items() if v]
+#        obs_args = [k for k, v in deps.items() if not v]
+#        max_kernel.variables = [v for v in max_kernel.variables if v not in obs_args]
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(max_kernel, **kwargs)

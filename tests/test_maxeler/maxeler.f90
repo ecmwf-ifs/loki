@@ -74,9 +74,10 @@ subroutine routine_shift(length, scalar, vector_in, vector_out)
   ! A simple standard looking routine to test argument declarations
   ! and generator toolchain
   integer, intent(in) :: length, scalar, vector_in(length)
-  integer, intent(inout) :: vector_out(length)
+  integer, intent(out) :: vector_out(length)
   integer :: i
 
+  !$loki dataflow
   do i=1, length
     vector_out(i) = vector_in(i) + scalar
   end do

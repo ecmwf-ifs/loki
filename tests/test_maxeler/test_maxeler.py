@@ -64,7 +64,7 @@ def simulator():
             return ret
 
     print('simulator()')
-    yield MaxCompilerSim()
+    return MaxCompilerSim()
 
 
 @pytest.fixture(scope='module')
@@ -268,7 +268,30 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
     #                          [13., 23., 33., 43.]])
 
 
-@pytest.mark.skip(reason='Working on it')
+#@pytest.mark.skip(reason='Dynamic loop lengths not yet supported')
+def test_max_routine_shift(refpath, reference, builder, simulator):
+
+    # Test the reference solution
+    length = 2
+    scalar = 7
+    vector_in = np.array(range(length), order='F', dtype=np.intc)
+    vector_out = np.zeros(length, order='F', dtype=np.intc)
+    reference.routine_shift(length, scalar, vector_in, vector_out)
+    assert np.all(vector_out == np.array(range(length)) + scalar)
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_shift'], refpath, builder)
+
+    vec_in = np.array(range(length), order='F', dtype=np.intc)
+    vec_out = np.zeros(length, order='F', dtype=np.intc)
+    function = max_kernel.routine_shift_c_fmax_mod.routine_shift_c_fmax
+    simulator.call(function, ticks=length, length=length, scalar=scalar, vector_in=vec_in,
+                   vector_in_size=length * 4, vector_out=vec_out, vector_out_size=length * 4)
+    assert np.all(vec_out == np.array(range(length)) + scalar)
+
+
+#@pytest.mark.skip(reason='Working on it')
 def test_max_routine_moving_average(refpath, reference, builder, simulator):
 
     # Create random input data
@@ -289,19 +312,3 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
     # Generate the transpiled kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     max_kernel = max_transpile(source['routine_moving_average'], refpath, builder)
-
-
-@pytest.mark.skip(reason='Dynamic loop lengths not yet supported')
-def test_max_routine_shift(refpath, reference, builder):
-
-    # Test the reference solution
-    length = 2
-    scalar = 7
-    vector_in = np.array(range(length), order='F', dtype=np.intc)
-    vector_out = np.zeros(length, order='F', dtype=np.intc)
-    reference.routine_shift(length, scalar, vector_in, vector_out)
-    assert np.all(vector_out == np.array(range(length)) + scalar)
-
-    # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_shift'], refpath, builder)

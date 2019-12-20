@@ -115,11 +115,11 @@ class MaxjCodegen(Visitor):
         if is_input:
             if v.type.intent is not None and v.type.intent.lower() == 'in':
                 # Determine matching initialization routine...
-                stream = 'io.%s("%s", %s)' % ('input' if isinstance(v, Array) else 'scalarInput',
-                                              v.name, inits[-1])
-            elif v.type.initial is not None:
+                stream_name = 'input' if isinstance(v, Array) or v.type.dfestream else 'scalarInput'
+                stream = 'io.%s("%s", %s)' % (stream_name, v.name, inits[-1])
+            elif v.initial is not None:
                 # ...or assign a given initial value...
-                stream = v.type.initial.name
+                stream = v.initial.name
             else:
                 # ...or create an empty instance
                 stream = '%s.newInstance(this)' % inits[-1]
@@ -127,8 +127,8 @@ class MaxjCodegen(Visitor):
         else:
             # Matching outflow statement
             if v.type.intent is not None and v.type.intent.lower() in ('inout', 'out'):
-                stream = 'io.{0}utput("{1}", {1}, {2})'.format(
-                    'o' if isinstance(v, Array) else 'scalarO', v.name, inits[-1])
+                sname = 'output' if isinstance(v, Array) or v.type.dfestream else 'scalarOutput'
+                stream = 'io.{0}("{1}", {1}, {2})'.format(sname, v.name, inits[-1])
             else:
                 stream = None
 
@@ -165,9 +165,12 @@ class MaxjCodegen(Visitor):
 
         # Generate declarations for local variables
         local_vars = [v for v in o.variables if v not in o.arguments]
+        types = ['DFEVar' if v.type.dfevar else self.visit(v.type) for v in local_vars]
+        names = [self._maxjsymgen(v) for v in local_vars]
+        inits = [' = %s' % self._maxjsymgen(v.initial) if v.initial is not None else ''
+                 for v in local_vars]
         spec = ['\n']
-        spec += ['%s %s;\n' % ('DFEVar' if v.type.dfevar else self.visit(v.type), v.name.lower()) for v in local_vars]
-        # spec += ['DFEVar %s;\n' % (v) for v in local_vars]
+        spec += ['%s %s%s;\n' % vals for vals in zip(types, names, inits)]
         spec = self.indent.join(spec)
 
         # Remove any declarations for variables that are not arguments
@@ -178,7 +181,7 @@ class MaxjCodegen(Visitor):
         o.spec = Transformer(decl_map).visit(o.spec)
 
         # Generate remaining declarations
-        spec += self.visit(o.spec)
+        spec = self.visit(o.spec) + spec
 
         # Remove pointer type from scalar arguments
         decl_map = {}
