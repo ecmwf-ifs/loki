@@ -272,7 +272,7 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
 def test_max_routine_shift(refpath, reference, builder, simulator):
 
     # Test the reference solution
-    length = 2
+    length = 32 
     scalar = 7
     vector_in = np.array(range(length), order='F', dtype=np.intc)
     vector_out = np.zeros(length, order='F', dtype=np.intc)

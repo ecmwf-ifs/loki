@@ -156,8 +156,8 @@ class FortranMaxTransformation(BasicTransformation):
                 # TODO: Add support for wrap point
                 #                      parameters=(Literal(32), loop.bounds[1]))
                 var_index = max_kernel.variables.index(loop.variable)
-#                max_kernel.variables[var_index].initial = var_init
-#                max_kernel.variables[var_index].type.dfevar = True
+                max_kernel.variables[var_index].initial = var_init
+                max_kernel.variables[var_index].type.dfevar = True
                 dataflow_indices += [loop.variable.name]
         max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
 
