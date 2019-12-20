@@ -208,9 +208,12 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
 
     def map_from_expr_map(self, expr, *args, **kwargs):
         # We have to recurse here to make sure we are applying the substitution also to
-        # "hidden" places (such as dimension expressions inside an array)
+        # "hidden" places (such as dimension expressions inside an array).
+        # And we have to actually carry out the expression first before looking up the
+        # super()-method as the node type might change.
+        expr = self.expr_map.get(expr, expr)
         map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
-        return map_fn(self.expr_map.get(expr, expr), *args, **kwargs)
+        return map_fn(expr, *args, **kwargs)
 
 
 class SubstituteExpressions(Transformer):
