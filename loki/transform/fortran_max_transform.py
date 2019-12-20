@@ -299,7 +299,7 @@ class FortranMaxTransformation(BasicTransformation):
 
         # The arguments for the host interface subroutine are the same as for the original
         # kernel plus some additional ones. Variables are just the arguments
-        arguments = [arg.clone(scope=kernel.symbols) for arg in routine.arguments]
+        arguments = [arg.clone(scope=kernel.symbols, initial=None) for arg in routine.arguments]
         variables = [v for v in arguments]
 
         # First, add an argument for ticks
