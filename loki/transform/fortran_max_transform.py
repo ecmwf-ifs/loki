@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from functools import reduce
 from pathlib import Path
-import operator
+from pymbolic.primitives import Sum
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
@@ -153,11 +153,13 @@ class FortranMaxTransformation(BasicTransformation):
             if (loop.pragma is not None and loop.pragma.keyword == 'loki' and \
                     'dataflow' in loop.pragma.content):
                 loop_map[loop] = loop.body
-                var_init = InlineCall('control.count.simpleCounter', parameters=(Literal(32),))
+                # We have to add 1 since FORTRAN counts from 1
+                vinit = Sum((InlineCall('control.count.simpleCounter', parameters=(Literal(32),)),
+                             Literal(1)))
                 # TODO: Add support for wrap point
                 #                      parameters=(Literal(32), loop.bounds[1]))
                 var_index = max_kernel.variables.index(loop.variable)
-                max_kernel.variables[var_index].initial = var_init
+                max_kernel.variables[var_index].initial = vinit
                 max_kernel.variables[var_index].type.dfevar = True
                 dataflow_indices += [loop.variable.name]
         max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
