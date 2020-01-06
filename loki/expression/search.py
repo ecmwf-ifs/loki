@@ -4,8 +4,8 @@ retrieve different types of symbols and functions using query
 definitions.
 """
 
-from pymbolic.primitives import Expression, Variable
-from loki.expression.symbol_types import InlineCall
+from pymbolic.primitives import Expression
+from loki.expression.symbol_types import InlineCall, Scalar, Array
 from loki.expression.visitors import ExpressionRetriever
 
 __all__ = ['retrieve_expressions', 'retrieve_variables']
@@ -18,7 +18,7 @@ def retrieve_expressions(expr):
 
 
 def retrieve_variables(expr):
-    retriever = ExpressionRetriever(lambda e: isinstance(e, Variable))
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array)))
     retriever(expr)
     return retriever.exprs
 
