@@ -168,7 +168,10 @@ class MaxjCodegen(Visitor):
                 stream = 'io.%s("%s", %s)' % (stream_name, v.name, inits[-1])
             else:
                 # ...or create an empty instance
-                stream = '%s.newInstance(this, 0)' % inits[-1]
+                if isinstance(v, Array):
+                    stream = '%s.newInstance(this)' % inits[-1]
+                else:
+                    stream = '%s.newInstance(this, 0)' % inits[-1]
 
         else:
             # Matching outflow statement
@@ -212,10 +215,16 @@ class MaxjCodegen(Visitor):
         # Generate declarations for local variables
         local_vars = [v for v in o.variables if v not in o.arguments]
         names = [self._maxjsymgen(v) for v in local_vars]
-        types_and_inits = [self.type_and_stream(v) for v in local_vars]
-        types, inits = zip(*types_and_inits)
+        types_and_inits = [self.type_and_stream(v) if v.type.dfevar else
+                           (self.visit(v.type), self._maxjsymgen(v.initial) if v.initial else '')
+                           for v in local_vars]
+        if types_and_inits:
+            types, inits = zip(*types_and_inits)
+        else:
+            types, inits = [], []
         spec = ['\n']
-        spec += ['%s %s = %s;\n' % vals for vals in zip(types, names, inits)]
+        spec += ['%s %s%s%s;\n' % (t, n, ' = ' if i else '', i)
+                 for (t, n, i) in zip(types, names, inits)]
         spec = self.indent.join(spec)
 
         # Remove any declarations for variables that are not arguments
