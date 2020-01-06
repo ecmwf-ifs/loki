@@ -232,6 +232,7 @@ class FortranMaxTransformation(BasicTransformation):
             stmt.target.type.dfevar = stmt.target.type.dfevar or is_dfe
 
         # Replace array access by stream inflow
+        # TODO: Argh, this is ugly...
         if len(dataflow_indices) > 0:
             vmap = {}
             stream_counter = 0
@@ -244,13 +245,16 @@ class FortranMaxTransformation(BasicTransformation):
                         raise NotImplementedError('Cannot yet handle >1 dataflow dim!')
                     dim = dataflow_indices[0]
                     v_type = v.type.clone(shape=None, dfestream=True)
-                    if v.dimensions[0].name == dim:
-                        v_init = None 
+                    if isinstance(v.dimensions[0], (Scalar, Array)) and v.dimensions[0].name == dim:
+                        v_init = None
                         v_name = v.name
                     else:
-                        parameters = (Literal(v.name),
-                                      v.dimensions[0] - Variable(name=dim,
-                                                                 scope=max_kernel.symbols))
+                        # Hacky: Replacing dataflow index by zero
+                        dmap = {d: Literal(0)
+                                for d in retrieve_variables(v.dimensions[0]) if d.name == dim}
+                        from loki import SubstituteExpressionsMapper
+                        dims = tuple(SubstituteExpressionsMapper(dmap)(d) for d in v.dimensions)
+                        parameters = (v.clone(dimensions=[]), dims[0])
                         v_init = InlineCall('stream.offset', parameters=parameters)
                         v_name = 's_%s_%s' % (v.name, stream_counter)
                         stream_counter += 1
@@ -261,13 +265,18 @@ class FortranMaxTransformation(BasicTransformation):
             obs_args = {v.name for v in vmap.keys()}
             new_args = list(set(vmap.values()))
             max_kernel.arguments = [v for v in max_kernel.arguments if v.name not in obs_args]
-            max_kernel.arguments += new_args
             max_kernel.variables = [v for v in max_kernel.variables if v.name not in obs_args]
-            max_kernel.variables += new_args
+            # Add the new stream args at the end; make sure arguments that have been removed and
+            # are re-added are included first to avoid dependency problems
+            max_kernel.arguments += [v for v in new_args if v.name in obs_args]
+            max_kernel.arguments += [v for v in new_args if v.name not in obs_args]
+            max_kernel.variables += [v for v in new_args if v.name in obs_args]
+            max_kernel.variables += [v for v in new_args if v.name not in obs_args]
 
         # TODO: This has to be communicated back to the host interface
         # Find out which streams are actually unneeded (e.g., because they got obsolete with the
         # removal of the dataflow loop or due to 'inout' being split up into 'in' and 'out'
+        # but the argument being actually purely 'in' or 'out'
 #        dfevar_mapper = ExpressionCallbackMapper(callback=lambda expr: {expr},
 #                                                 combine=lambda v: reduce(operator.or_, v, set()))
 #        depmap = {}

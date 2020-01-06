@@ -44,6 +44,9 @@ class MaxjCodeMapper(LokiStringifyMapper):
     def __init__(self, constant_mapper=None):
         super(MaxjCodeMapper, self).__init__(constant_mapper)
 
+    def map_string_literal(self, expr, *args, **kwargs):
+        return '"%s"' % expr.value
+
     def map_scalar(self, expr, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
@@ -113,13 +116,13 @@ class MaxjCodegen(Visitor):
                                            self._maxjsymgen(v.dimensions[-(i+1)]))]
 
         if is_input:
-            if v.type.intent is not None and v.type.intent.lower() == 'in':
+            if v.initial is not None:
+                # ...or assign a given initial value...
+                stream = self._maxjsymgen(v.initial)
+            elif v.type.intent is not None and v.type.intent.lower() == 'in':
                 # Determine matching initialization routine...
                 stream_name = 'input' if isinstance(v, Array) or v.type.dfestream else 'scalarInput'
                 stream = 'io.%s("%s", %s)' % (stream_name, v.name, inits[-1])
-            elif v.initial is not None:
-                # ...or assign a given initial value...
-                stream = v.initial.name
             else:
                 # ...or create an empty instance
                 stream = '%s.newInstance(this)' % inits[-1]
