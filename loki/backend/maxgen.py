@@ -1,4 +1,5 @@
 from functools import reduce
+from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL)
 
 from loki.backend import CCodegen
 from loki.expression.symbol_types import Array, LokiStringifyMapper
@@ -29,7 +30,7 @@ def maxj_dfevar_type(_type):
     if _type.dtype == DataType.LOGICAL:
         return 'dfeBool()'
     elif _type.dtype == DataType.INTEGER:
-        return 'dfeInt(32)'
+        return 'dfeUInt(32)'  # TODO: Distinguish between signed and unsigned
     elif _type.dtype == DataType.REAL:
         if str(_type.kind) in ['real32']:
             return 'dfeFloat(8, 24)'
@@ -72,6 +73,12 @@ class MaxjCodeMapper(LokiStringifyMapper):
             return '(%s - %s + 1) / %s' % (upper, lower, self.rec(expr.step, *args, **kwargs))
         else:
             return '(%s - %s + 1)' % (upper, lower)
+
+    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
+        name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
+        expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
+        kind = '%s, ' % maxj_dfevar_type(expr.kind) if expr.kind else ''
+        return self.format('%s(%s%s)', name, kind, expression)
 
 
 class MaxjCodegen(Visitor):

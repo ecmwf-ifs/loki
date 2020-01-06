@@ -5,9 +5,10 @@ import operator
 
 from loki.transform.transformation import BasicTransformation
 from loki.backend import maxjgen, maxjcgen, maxjmanagergen
-from loki.expression import (Array, FindVariables, InlineCall, Literal, RangeIndex,
+from loki.expression import (Array, FindVariables, Cast, InlineCall, Literal, RangeIndex,
                              SubstituteExpressions, Variable, Scalar, ExpressionCallbackMapper,
-                             retrieve_variables)
+                             retrieve_variables, SubstituteExpressionsMapper, IntLiteral,
+                             FloatLiteral)
 from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
                      Conditional, ConditionalStatement)
 from loki.module import Module
@@ -252,7 +253,6 @@ class FortranMaxTransformation(BasicTransformation):
                         # Hacky: Replacing dataflow index by zero
                         dmap = {d: Literal(0)
                                 for d in retrieve_variables(v.dimensions[0]) if d.name == dim}
-                        from loki import SubstituteExpressionsMapper
                         dims = tuple(SubstituteExpressionsMapper(dmap)(d) for d in v.dimensions)
                         parameters = (v.clone(dimensions=[]), dims[0])
                         v_init = InlineCall('stream.offset', parameters=parameters)
@@ -290,6 +290,15 @@ class FortranMaxTransformation(BasicTransformation):
 #        max_kernel.arguments = [k for k, v in deps.items() if v]
 #        obs_args = [k for k, v in deps.items() if not v]
 #        max_kernel.variables = [v for v in max_kernel.variables if v not in obs_args]
+
+        # Add casts to dataflow constants for literal assignments
+        smap = {}
+        for stmt in FindNodes(Statement).visit(max_kernel.body):
+            if stmt.target.type.dfevar:
+                if isinstance(stmt.expr, (FloatLiteral, IntLiteral)):
+                    expr = Cast('constant.var', stmt.expr, kind=stmt.target.type)
+                    smap[stmt] = Statement(target=stmt.target, expr=expr)
+        max_kernel.body = Transformer(smap).visit(max_kernel.body)
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(max_kernel, **kwargs)
