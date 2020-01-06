@@ -268,7 +268,6 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
     #                          [13., 23., 33., 43.]])
 
 
-#@pytest.mark.skip(reason='Dynamic loop lengths not yet supported')
 def test_max_routine_shift(refpath, reference, builder, simulator):
 
     # Test the reference solution
@@ -291,12 +290,12 @@ def test_max_routine_shift(refpath, reference, builder, simulator):
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
 
-#@pytest.mark.skip(reason='Working on it')
 def test_max_routine_moving_average(refpath, reference, builder, simulator):
 
     # Create random input data
     n = 32
     data_in = np.array(np.random.rand(n), order='F')
+#    data_in = np.ones(n, order='F')
 
     # Compute reference solution
     expected = np.zeros(shape=(n,), order='F')
@@ -312,3 +311,10 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
     # Generate the transpiled kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
     max_kernel = max_transpile(source['routine_moving_average'], refpath, builder)
+
+    data_out = np.zeros(shape=(n,), order='F')
+    function = max_kernel.routine_moving_average_c_fmax_mod.routine_moving_average_c_fmax
+    simulator.call(function, ticks=n, length=n, data_in=data_in, data_in_size=n * 8,
+                   data_out_size=n * 8, data_out=data_out)
+    assert np.all(data_out == expected)
+

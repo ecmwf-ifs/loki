@@ -1,8 +1,8 @@
 from functools import reduce
-from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL)
+from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM)
 
 from loki.backend import CCodegen
-from loki.expression.symbol_types import Array, LokiStringifyMapper
+from loki.expression.symbol_types import Array, LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import, Declaration
 from loki.tools import chunks
 from loki.types import DataType
@@ -80,6 +80,42 @@ class MaxjCodeMapper(LokiStringifyMapper):
         kind = '%s, ' % maxj_dfevar_type(expr.kind) if expr.kind else ''
         return self.format('%s(%s%s)', name, kind, expression)
 
+    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
+        """
+        Since substraction and unary minus are mapped to multiplication with (-1), we are here
+        looking for such cases and determine the matching operator for the output.
+        """
+        def get_neg_product(expr):
+            from pymbolic.primitives import is_zero, Product
+
+            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+                if len(expr.children) == 2:
+                    # only the minus sign and the other child
+                    return expr.children[1]
+                else:
+                    return Product(expr.children[1:])
+            else:
+                return None
+
+        terms = []
+        is_neg_term = []
+        for ch in expr.children:
+            # Skip added zeros
+            if ch in [FloatLiteral(0.0), IntLiteral(0)]:
+                continue
+            neg_prod = get_neg_product(ch)
+            is_neg_term.append(neg_prod is not None)
+            if neg_prod is not None:
+                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
+            else:
+                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
+
+        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
+        result += [' %s %s' % ('-' if is_neg else '+', term)
+                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
+
+        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
+
 
 class MaxjCodegen(Visitor):
     """
@@ -124,15 +160,15 @@ class MaxjCodegen(Visitor):
 
         if is_input:
             if v.initial is not None:
-                # ...or assign a given initial value...
+                # Assign a given initial value...
                 stream = self._maxjsymgen(v.initial)
             elif v.type.intent is not None and v.type.intent.lower() == 'in':
-                # Determine matching initialization routine...
+                # ...or determine matching stream routine...
                 stream_name = 'input' if isinstance(v, Array) or v.type.dfestream else 'scalarInput'
                 stream = 'io.%s("%s", %s)' % (stream_name, v.name, inits[-1])
             else:
                 # ...or create an empty instance
-                stream = '%s.newInstance(this)' % inits[-1]
+                stream = '%s.newInstance(this, 0)' % inits[-1]
 
         else:
             # Matching outflow statement
@@ -175,12 +211,11 @@ class MaxjCodegen(Visitor):
 
         # Generate declarations for local variables
         local_vars = [v for v in o.variables if v not in o.arguments]
-        types = ['DFEVar' if v.type.dfevar else self.visit(v.type) for v in local_vars]
         names = [self._maxjsymgen(v) for v in local_vars]
-        inits = [' = %s' % self._maxjsymgen(v.initial) if v.initial is not None else ''
-                 for v in local_vars]
+        types_and_inits = [self.type_and_stream(v) for v in local_vars]
+        types, inits = zip(*types_and_inits)
         spec = ['\n']
-        spec += ['%s %s%s;\n' % vals for vals in zip(types, names, inits)]
+        spec += ['%s %s = %s;\n' % vals for vals in zip(types, names, inits)]
         spec = self.indent.join(spec)
 
         # Remove any declarations for variables that are not arguments

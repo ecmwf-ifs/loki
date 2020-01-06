@@ -296,7 +296,9 @@ class FortranMaxTransformation(BasicTransformation):
         for stmt in FindNodes(Statement).visit(max_kernel.body):
             if stmt.target.type.dfevar:
                 if isinstance(stmt.expr, (FloatLiteral, IntLiteral)):
-                    expr = Cast('constant.var', stmt.expr, kind=stmt.target.type)
+#                    expr = Cast('constant.var', stmt.expr, kind=stmt.target.type)
+                    _type = InlineCall('%s.getType' % stmt.target.name)
+                    expr = InlineCall('constant.var', parameters=(_type, stmt.expr))
                     smap[stmt] = Statement(target=stmt.target, expr=expr)
         max_kernel.body = Transformer(smap).visit(max_kernel.body)
 
