@@ -8,7 +8,7 @@ from loki.backend import maxjgen, maxjcgen, maxjmanagergen
 from loki.expression import (Array, FindVariables, Cast, InlineCall, Literal, RangeIndex,
                              SubstituteExpressions, Variable, Scalar, ExpressionCallbackMapper,
                              retrieve_variables, SubstituteExpressionsMapper, IntLiteral,
-                             FloatLiteral)
+                             FloatLiteral, FindInlineCalls)
 from loki.ir import (Call, Import, Interface, Intrinsic, Loop, Section, Statement,
                      Conditional, ConditionalStatement)
 from loki.module import Module
@@ -238,42 +238,56 @@ class FortranMaxTransformation(BasicTransformation):
         # TODO: Argh, this is ugly...
         if len(dataflow_indices) > 0:
             vmap = {}
+            in_streams = {}  # Collect here input streams
+            offset_streams = {}  # Collect here streams defined by offset from input stream
             stream_counter = 0
             for v in FindVariables(unique=False).visit(max_kernel.body):
+                # All array subscripts must be transformed to streams/stream offsets
                 if isinstance(v, Array) and v.dimensions is not None:
                     dfe_dims = {d: d.name in dataflow_indices for d in retrieve_variables(v)}
                     if not any(dfe_dims.values()) or v in vmap:
                         continue
+
+                    # TODO: we can only handle 1D arrays for now
+                    dim = dataflow_indices[0]
                     if len(v.dimensions) > 1:
                         raise NotImplementedError('Cannot yet handle >1 dataflow dim!')
-                    dim = dataflow_indices[0]
                     v_type = v.type.clone(shape=None, dfestream=True)
+
+                    # Always make sure the stream for that array exists
+                    if v.name not in in_streams:
+                        in_streams[v.name] = v.clone(dimensions=None, type=v_type, initial=None)
+
+                    # Array subscript corresponds to current stream position:  we can simply use
+                    # the input stream
                     if isinstance(v.dimensions[0], (Scalar, Array)) and v.dimensions[0].name == dim:
-                        v_init = None
-                        v_name = v.name
+                        vmap[v] = in_streams[v.name]
+
+                    # We have to create/use an offset stream
                     else:
-                        # Hacky: Replacing dataflow index by zero
-                        dmap = {d: Literal(0)
-                                for d in retrieve_variables(v.dimensions[0]) if d.name == dim}
-                        dims = tuple(SubstituteExpressionsMapper(dmap)(d) for d in v.dimensions)
-                        parameters = (v.clone(dimensions=[]), dims[0])
-                        v_init = InlineCall('stream.offset', parameters=parameters)
-                        v_name = 's_%s_%s' % (v.name, stream_counter)
-                        stream_counter += 1
-                    vmap[v] = v.clone(name=v_name, dimensions=None, type=v_type, initial=v_init)
+                        if v not in offset_streams:
+                            # Hacky: Replacing dataflow index (loop variable) by zero
+                            dmap = {d: Literal(0)
+                                    for d in retrieve_variables(v.dimensions[0]) if d.name == dim}
+                            offset = SubstituteExpressionsMapper(dmap)(v.dimensions[0])
+                            parameters = (in_streams[v.name], offset)
+                            v_init = InlineCall('stream.offset', parameters=parameters)
+                            v_name = 's_%s_%s' % (v.name, stream_counter)
+                            stream_counter += 1
+                            offset_streams[v] = v.clone(name=v_name, dimensions=None, type=v_type,
+                                                        initial=v_init)
+
+                        vmap[v] = offset_streams[v]
             max_kernel.body = SubstituteExpressions(vmap).visit(max_kernel.body)
 
             # Replace old declarations by stream args
             obs_args = {v.name for v in vmap.keys()}
-            new_args = list(set(vmap.values()))
+            new_args = list(in_streams.values())
+            new_vars = list(set(in_streams.values()) | set(offset_streams.values()))
             max_kernel.arguments = [v for v in max_kernel.arguments if v.name not in obs_args]
+            max_kernel.arguments += new_args
             max_kernel.variables = [v for v in max_kernel.variables if v.name not in obs_args]
-            # Add the new stream args at the end; make sure arguments that have been removed and
-            # are re-added are included first to avoid dependency problems
-            max_kernel.arguments += [v for v in new_args if v.name in obs_args]
-            max_kernel.arguments += [v for v in new_args if v.name not in obs_args]
-            max_kernel.variables += [v for v in new_args if v.name in obs_args]
-            max_kernel.variables += [v for v in new_args if v.name not in obs_args]
+            max_kernel.variables += new_vars
 
         # TODO: This has to be communicated back to the host interface
         # Find out which streams are actually unneeded (e.g., because they got obsolete with the
@@ -298,16 +312,17 @@ class FortranMaxTransformation(BasicTransformation):
         for stmt in FindNodes(Statement).visit(max_kernel.body):
             if stmt.target.type.dfevar:
                 if isinstance(stmt.expr, (FloatLiteral, IntLiteral)):
-#                    expr = Cast('constant.var', stmt.expr, kind=stmt.target.type)
                     _type = InlineCall('%s.getType' % stmt.target.name)
                     expr = InlineCall('constant.var', parameters=(_type, stmt.expr))
                     smap[stmt] = Statement(target=stmt.target, expr=expr)
         max_kernel.body = Transformer(smap).visit(max_kernel.body)
 
+        max_kernel.body = flatten(as_tuple(max_kernel.body))
+
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         self._invert_array_indices(max_kernel, **kwargs)
         self._shift_to_zero_indexing(max_kernel, **kwargs)
-#        self._replace_intrinsics(kernel, **kwargs)
+        self._replace_intrinsics(max_kernel, **kwargs)
 
         return max_kernel
 
@@ -561,3 +576,18 @@ class FortranMaxTransformation(BasicTransformation):
                 new_dims = as_tuple(d - 1 for d in v.dimensions)
                 vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+
+    def _replace_intrinsics(self, kernel, **kwargs):
+        """
+        Replace known numerical intrinsic functions.
+        """
+        _intrinsic_map = {'mod': 'KernelMath.modulo'}
+
+        callmap = {}
+        for c in FindInlineCalls(unique=False).visit(kernel.body):
+            cname = c.name.lower()
+            if cname in _intrinsic_map:
+                callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
+                                        kw_parameters=c.kw_parameters)
+
+        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

@@ -1,5 +1,6 @@
 from functools import reduce
-from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM)
+from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM,
+                                         PREC_COMPARISON)
 
 from loki.backend import CCodegen
 from loki.expression.symbol_types import Array, LokiStringifyMapper, IntLiteral, FloatLiteral
@@ -79,6 +80,16 @@ class MaxjCodeMapper(LokiStringifyMapper):
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         kind = '%s, ' % maxj_dfevar_type(expr.kind) if expr.kind else ''
         return self.format('%s(%s%s)', name, kind, expression)
+
+    def map_comparison(self, expr, enclosing_prec, *args, **kwargs):
+        if expr.operator in ('==', '!='):
+            return self.parenthesize_if_needed(
+                self.format("%s.%s(%s)", self.rec(expr.left, PREC_CALL, *args, **kwargs),
+                            {'==': 'eq', '!=': 'neq'}[expr.operator],
+                            self.rec(expr.right, PREC_NONE, *args, **kwargs)),
+                enclosing_prec, PREC_COMPARISON)
+        else:
+            return super().map_comparison(expr, enclosing_prec, *args, **kwargs)
 
     def map_sum(self, expr, enclosing_prec, *args, **kwargs):
         """
@@ -195,18 +206,19 @@ class MaxjCodegen(Visitor):
         # Re-generate variable declarations
         o._externalize()
 
-        package = 'package %s;\n\n' % o.name
+        package = 'package %s;\n' % o.name
 
         # Some boilerplate imports...
         imports = 'import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;\n'
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;\n'
+        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;\n'
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;\n'
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;\n'
         imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;\n'
         imports += self.visit(FindNodes(Import).visit(o.spec))
 
         # Standard Kernel definitions
-        header = 'class %sKernel extends Kernel {\n\n' % o.name
+        header = 'class %sKernel extends Kernel {\n' % o.name
         self._depth += 1
         header += '%s%sKernel(KernelParameters parameters) {\n' % (self.indent, o.name)
         self._depth += 1
@@ -258,7 +270,8 @@ class MaxjCodegen(Visitor):
         footer = '\n%s}\n}' % self.indent
         self._depth -= 1
 
-        return package + imports + '\n' + header + spec + '\n' + body + '\n' + outflow + footer
+        return (package + '\n' + imports + '\n' + header + '\n' + spec + '\n' +
+                body + '\n\n' + outflow + footer)
 
     def visit_Section(self, o):
         return self.visit(o.body) + '\n'
@@ -300,11 +313,11 @@ class MaxjCodegen(Visitor):
 
     def visit_Statement(self, o):
         if isinstance(o.target, Array):
-            stmt = '%s <== %s;\n' % (self._maxjsymgen(o.target),
-                                     self._maxjsymgen(o.expr))
-        else:
-            stmt = '%s = %s;\n' % (self._maxjsymgen(o.target),
+            stmt = '%s <== %s;' % (self._maxjsymgen(o.target),
                                    self._maxjsymgen(o.expr))
+        else:
+            stmt = '%s = %s;' % (self._maxjsymgen(o.target),
+                                 self._maxjsymgen(o.expr))
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         return self.indent + stmt + comment
 

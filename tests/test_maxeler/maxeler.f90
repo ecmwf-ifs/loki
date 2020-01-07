@@ -41,6 +41,20 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
   ! end do
 end subroutine routine_fixed_loop
 
+subroutine routine_shift(length, scalar, vector_in, vector_out)
+  implicit none
+  ! A simple standard looking routine to test argument declarations
+  ! and generator toolchain
+  integer, intent(in) :: length, scalar, vector_in(length)
+  integer, intent(out) :: vector_out(length)
+  integer :: i
+
+  !$loki dataflow
+  do i=1, length
+    vector_out(i) = vector_in(i) + scalar
+  end do
+end subroutine routine_shift
+
 subroutine routine_moving_average(length, data_in, data_out)
   use iso_fortran_env, only: real64
   implicit none
@@ -69,16 +83,40 @@ subroutine routine_moving_average(length, data_in, data_out)
   end do
 end subroutine routine_moving_average
 
-subroutine routine_shift(length, scalar, vector_in, vector_out)
+subroutine routine_laplace(h, data_in, data_out)
+  use iso_fortran_env, only: real64
   implicit none
-  ! A simple standard looking routine to test argument declarations
-  ! and generator toolchain
-  integer, intent(in) :: length, scalar, vector_in(length)
-  integer, intent(out) :: vector_out(length)
-  integer :: i
+  integer :: m = 32, n = 32
+!  real(kind=real64), intent(in) :: h, rhs(m*n), data_in(m*n)
+!  real(kind=real64), intent(out) :: data_out(m*n)
+  real(kind=real64), intent(in) :: h, data_in(32*32)
+  real(kind=real64), intent(out) :: data_out(32*32)
+  integer :: i, i_mod_n
+  real(kind=real64) :: north, south, east, west
 
   !$loki dataflow
-  do i=1, length
-    vector_out(i) = vector_in(i) + scalar
+  do i=1, m*n
+    i_mod_n = mod(i, n)
+    if (i_mod_n /= 0) then
+        north = data_in(i+1)
+    else
+        north = 0
+    endif
+    if (i_mod_n /= 1) then
+        south = data_in(i-1)
+    else
+        south = 0
+    end if
+    if (i > n) then
+        west = data_in(i-n)
+    else
+        west = 0
+    end if
+    if (i <= (m-1)*n) then
+        east = data_in(i+n)
+    else
+        east = 0
+    end if
+    data_out(i) = (north + south + east + west - 4 * data_in(i)) / (h * h)
   end do
-end subroutine routine_shift
+end subroutine routine_laplace

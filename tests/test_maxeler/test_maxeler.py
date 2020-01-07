@@ -4,7 +4,7 @@ import numpy as np
 import os
 from pathlib import Path
 
-from loki import SourceFile, OMNI, FortranMaxTransformation
+from loki import SourceFile, OMNI, FP, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
 from loki.build.max_compiler import (compile, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
@@ -295,7 +295,6 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
     # Create random input data
     n = 32
     data_in = np.array(np.random.rand(n), order='F')
-#    data_in = np.ones(n, order='F')
 
     # Compute reference solution
     expected = np.zeros(shape=(n,), order='F')
@@ -318,3 +317,45 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
                    data_out_size=n * 8, data_out=data_out)
     assert np.all(data_out == expected)
 
+
+@pytest.mark.parametrize('frontend', [OMNI])
+def test_max_routine_laplace(refpath, reference, builder, simulator, frontend):
+
+    # Create random input data
+    m, n = 32, 32
+    h, length = 1./m, m * n
+    data_in = np.array(np.random.rand(length), order='F')
+
+    # Compute reference solution
+    expected = -4. * data_in
+
+    expected[0:n] += data_in[n:2*n]
+    expected[1:n] += data_in[0:n-1]
+    expected[0:n-1] += data_in[1:n]
+
+    for i in range(1, m-1):
+        idx = i*n
+        expected[idx+0:idx+n] += data_in[idx-n:idx] + data_in[idx+n:idx+2*n]
+        expected[idx+1:idx+n] += data_in[idx+0:idx+n-1]
+        expected[idx+0:idx+n-1] += data_in[idx+1:idx+n]
+
+    idx = (m-1)*n
+    expected[idx+0:idx+n] += data_in[idx-n:idx]
+    expected[idx+1:idx+n] += data_in[idx+0:idx+n-1]
+    expected[idx+0:idx+n-1] += data_in[idx+1:idx+n]
+    expected /= h*h
+
+    # Test the Fortran kernel
+    data_out = np.zeros(shape=(length,), order='F')
+    reference.routine_laplace(h, data_in, data_out)
+    assert np.all(abs(data_out - expected) < 1e-12)
+
+    # Generate the transpiled kernel
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_laplace'], refpath, builder)
+
+    data_out = np.zeros(shape=(length,), order='F')
+    function = max_kernel.routine_laplace_c_fmax_mod.routine_laplace_c_fmax
+    simulator.call(function, ticks=length, h=h, data_in=data_in, data_in_size=length * 8,
+                   data_out=data_out, data_out_size=length * 8)
+    assert np.all(abs(data_out - expected) < 1e-12)
