@@ -458,10 +458,15 @@ class FParser2IR(GenericVisitor):
     visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
+        # In the banter before the loop, Pragmas are hidden...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, fp.Nonlabel_Do_Stmt):
+                break
+            banter += [self.visit(ch, **kwargs)]
         # Extract loop header and get stepping info
+        variable, bounds = self.visit(ch, **kwargs)
         # TODO: Will need to handle labeled ones too at some point
-        dostmt = get_child(o, fp.Nonlabel_Do_Stmt)
-        variable, bounds = self.visit(dostmt)
         if len(bounds) == 2:
             # Ensure we always have a step size
             bounds += (None,)
@@ -470,7 +475,7 @@ class FParser2IR(GenericVisitor):
         body_nodes = node_sublist(o.content, fp.Nonlabel_Do_Stmt, fp.End_Do_Stmt)
         body = as_tuple(self.visit(node) for node in body_nodes)
 
-        return Loop(variable=variable, body=body, bounds=bounds)
+        return (*banter, Loop(variable=variable, body=body, bounds=bounds), )
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
         variable, bounds = self.visit(o.items[1])
@@ -482,7 +487,7 @@ class FParser2IR(GenericVisitor):
         body_ast = node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         # TODO: Multiple elif bodies..!
-        bodies = as_tuple(self.visit(a) for a in as_tuple(body_ast))
+        bodies = (as_tuple(self.visit(a) for a in as_tuple(body_ast)),)
         else_body = as_tuple(self.visit(a) for a in as_tuple(else_ast))
         return Conditional(conditions=conditions, bodies=bodies,
                            else_body=else_body, inline=if_then is None)
