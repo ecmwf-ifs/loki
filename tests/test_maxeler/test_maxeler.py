@@ -290,7 +290,8 @@ def test_max_routine_shift(refpath, reference, builder, simulator):
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
 
-def test_max_routine_moving_average(refpath, reference, builder, simulator):
+@pytest.mark.parametrize('frontend', [OMNI, FP])
+def test_max_routine_moving_average(refpath, reference, builder, simulator, frontend):
 
     # Create random input data
     n = 32
@@ -308,7 +309,7 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
     assert np.all(data_out == expected)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     max_kernel = max_transpile(source['routine_moving_average'], refpath, builder)
 
     data_out = np.zeros(shape=(n,), order='F')
@@ -318,7 +319,7 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator):
     assert np.all(data_out == expected)
 
 
-@pytest.mark.parametrize('frontend', [OMNI])
+@pytest.mark.parametrize('frontend', [OMNI, FP])
 def test_max_routine_laplace(refpath, reference, builder, simulator, frontend):
 
     # Create random input data

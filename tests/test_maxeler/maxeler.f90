@@ -64,6 +64,8 @@ subroutine routine_moving_average(length, data_in, data_out)
   integer :: i
   real(kind=real64) :: prev, next, divisor
 
+  divisor = 1.0
+
   !$loki dataflow
   do i=1, length
     divisor = 1.0
@@ -93,6 +95,8 @@ subroutine routine_laplace(h, data_in, data_out)
   real(kind=real64), intent(out) :: data_out(32*32)
   integer :: i, i_mod_n
   real(kind=real64) :: north, south, east, west
+
+  i_mod_n = 0
 
   !$loki dataflow
   do i=1, m*n

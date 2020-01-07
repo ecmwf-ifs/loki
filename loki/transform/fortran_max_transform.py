@@ -464,7 +464,7 @@ class FortranMaxTransformation(BasicTransformation):
                 local_arg_map[arg.name] = cvar
 
         arguments = [local_arg_map[a.name]
-                     if a.name in local_arg_map else a.clone(scope=wrapper.symbols)
+                     if a.name in local_arg_map else a.clone(scope=wrapper.symbols, dimensions=[])
                      for a in routine.arguments]
         wrapper_body = casts_in
         wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
