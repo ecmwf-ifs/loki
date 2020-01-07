@@ -207,7 +207,7 @@ class Subroutine(object):
         spec = Section(body=spec)
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
-        body = parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj)
+        body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj))
         # body = Section(body=body)
 
         # Big, but necessary hack:
