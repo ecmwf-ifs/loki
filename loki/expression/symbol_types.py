@@ -67,7 +67,10 @@ class Scalar(pmbl.Variable):
         self.scope[self.name] = value
 
     def __getinitargs__(self):
-        return tuple([self.name, ('scope', self.scope)])
+        args = [self.name, ('scope', self.scope)]
+        if self.parent:
+            args += [('parent', self.parent)]
+        return tuple(args)
 
     mapper_method = intern('map_scalar')
 
@@ -175,6 +178,8 @@ class Array(pmbl.Variable):
         args = [self.name, ('scope', self.scope)]
         if self.dimensions:
             args += [('dimensions', self.dimensions)]
+        if self.parent:
+            args += [('parent', self.parent)]
         return tuple(args)
 
     mapper_method = intern('map_array')

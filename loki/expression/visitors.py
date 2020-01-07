@@ -198,7 +198,10 @@ class ExpressionCallbackMapper(CombineMapper):
     map_scalar = map_constant
     map_array = map_constant
 
-    map_inline_call = CombineMapper.map_call_with_kwargs
+    def map_inline_call(self, expr, *args, **kwargs):
+        parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.parameters)
+        kw_parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.kw_parameters.values())
+        return self.combine(parameters + kw_parameters)
 
     def map_cast(self, expr, *args, **kwargs):
         if expr.kind and isinstance(expr.kind, pmbl.Expression):
