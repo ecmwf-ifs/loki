@@ -35,7 +35,7 @@ class Scalar(pmbl.Variable):
             # parameters from other modules)
             self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
         else:
-            self.type = type
+            self.type = type.clone()
         self.parent = parent
         self.initial = initial
         self.source = source
@@ -117,7 +117,7 @@ class Array(pmbl.Variable):
             # yet (necessary for deferred type definitions)
             self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
         else:
-            self.type = type
+            self.type = type.clone()
         self.parent = parent
         self.dimensions = dimensions
         self.initial = initial

@@ -89,7 +89,7 @@ class ExpressionFinder(Visitor):
 
     def visit_Call(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
-        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments))
+        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments or []))
         return self.find_uniques(variables)
 
     def visit_Allocation(self, o, **kwargs):

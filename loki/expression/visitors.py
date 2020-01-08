@@ -1,10 +1,11 @@
 import pymbolic.primitives as pmbl
-from pymbolic.mapper import Mapper, WalkMapper
+from pymbolic.mapper import Mapper, WalkMapper, CombineMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 
 from loki.tools import as_tuple
 
-__all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper']
+__all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
+           'ExpressionCallbackMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
