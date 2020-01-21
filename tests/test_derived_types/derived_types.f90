@@ -92,5 +92,64 @@ contains
 
   end subroutine array_indexing_nested
 
+  subroutine deferred_array(item)
+    ! simple vector/matrix with an array of derived types
+    type(deferred), intent(inout) :: item
+    type(deferred), allocatable :: item2(:)
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i, j
+
+    allocate(item2(4))
+
+    do j=1, 4
+      call alloc_deferred(item2(j))
+
+      item2(j)%vector(:) = 666.
+
+      do i=1, 3
+        item2(j)%matrix(:, i) = vals(i)
+      end do
+    end do
+
+    item%vector(:) = 0.
+    item%matrix(:,:) = 0.
+
+    do j=1, 4
+      item%vector(:) = item%vector(:) + item2(j)%vector(:)
+
+      do i=1, 3
+          item%matrix(:,i) = item%matrix(:,i) + item2(j)%matrix(:,i)
+      end do
+
+      call free_deferred(item2(j))
+    end do
+
+    deallocate(item2)
+  end subroutine deferred_array
+
+  subroutine derived_type_caller(item)
+    ! simple call to another routine specifying a derived type as argument
+    type(explicit), intent(inout) :: item
+
+    item%red_herring = 42.
+    call simple_loops(item)
+
+  end subroutine derived_type_caller
+
+  subroutine associates(item)
+    ! Use associate to access and modify other items
+    type(explicit), intent(inout) :: item
+
+    item%scalar = 17.0
+
+    associate(vector=>item%vector)
+
+    item%vector(2) = vector(1)
+    vector(3) = item%vector(1) + vector(2)
+    vector(1) = 1.
+
+    end associate
+
+  end subroutine associates
 
 end module derived_types

@@ -45,15 +45,17 @@ subroutine logical_expr(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtru
 end subroutine logical_expr
 
 
-subroutine literal_expr(v1, v2, v3, v4)
+subroutine literal_expr(v1, v2, v3, v4, v5, v6)
   ! simple literal values
   integer, parameter :: jprb = selected_real_kind(13,300)
-  real(kind=jprb), intent(out) :: v1, v2, v3, v4
+  real(kind=jprb), intent(out) :: v1, v2, v3, v4, v5, v6
 
   v1 = 66
   v2 = 66.0
   v3 = 2.3
   v4 = 2.4_jprb
+  v5 = real(7, kind=jprb)
+  v6 = int(3.5)
 
 end subroutine literal_expr
 
@@ -123,3 +125,22 @@ subroutine index_ranges(dim, v1, v2, v3, v4, v5)
   v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
 
 end subroutine index_ranges
+
+
+subroutine strings()
+
+  print *, 'Hello world!'
+  print *, "42!"
+
+end subroutine strings
+
+
+subroutine very_long_statement(scalar, res)
+  integer, intent(in) :: scalar
+  integer, intent(out) :: res
+
+  res = 5 * scalar + scalar - scalar + scalar - scalar + (scalar - scalar &
+        + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
+        - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
+
+end subroutine very_long_statement

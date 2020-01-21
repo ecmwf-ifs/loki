@@ -1,6 +1,6 @@
 import pytest
 
-from loki import SourceFile, fgen, OFP, compile_and_load, clean
+from loki import SourceFile, fgen, OFP, compile_and_load, clean, FindNodes, Call
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -15,6 +15,8 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
         module.name += '_%s_%s' % (routinename, frontend)
         for routine in source.subroutines:
             routine.name += '_%s' % frontend
+            for call in FindNodes(Call).visit(routine.body):
+                call.name += '_%s' % frontend
         source.write(source=fgen(module), filename=testname)
     else:
         routine = [r for r in source.subroutines if r.name == routinename][0]

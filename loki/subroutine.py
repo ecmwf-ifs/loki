@@ -1,10 +1,13 @@
 from collections import OrderedDict
+from fparser.two import Fortran2003
+from fparser.two.utils import get_child
 
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
+from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
                      CallContext, Intrinsic)
-from loki.expression import FindVariables, Array, Scalar, SymbolCache
+from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -27,7 +30,7 @@ class Subroutine(object):
     Class to handle and manipulate a single subroutine.
 
     :param name: Name of the subroutine
-    :param ast: OFP parser node for this subroutine
+    :param ast: Frontend node for this subroutine
     :param raw_source: Raw source string, broken into lines(!), as it
                        appeared in the parsed source file.
     :param typedefs: Optional list of external definitions for derived
@@ -35,14 +38,10 @@ class Subroutine(object):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, cache=None, typedefs=None, bind=None,
-                 is_function=False):
+                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
-
-        # Symbol caching by default happens per subroutine
-        self._cache = cache or SymbolCache()
 
         self.arguments = None
         self.variables = None
@@ -60,14 +59,32 @@ class Subroutine(object):
         self.is_function = is_function
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, cache=None):
+    def _infer_allocatable_shapes(cls, spec, body):
+        """
+        Infer variable symbol shapes from allocations of ``allocatable`` arrays.
+        """
+        alloc_map = {}
+        for alloc in FindNodes(Allocation).visit(body):
+            for v in alloc.variables:
+                if isinstance(v, Array):
+                    alloc_map[v.name.lower()] = v.dimensions
+        vmap = {}
+        for v in FindVariables().visit(body):
+            if v.name.lower() in alloc_map:
+                vmap[v] = v.clone(shape=alloc_map[v.name.lower()])
+        smap = {}
+        for v in FindVariables().visit(spec):
+            if v.name.lower() in alloc_map:
+                smap[v] = v.clone(shape=alloc_map[v.name.lower()])
+        return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
+
+    @classmethod
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
         name = name or ast.attrib['name']
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
         args = [arg.attrib['name'].upper() for arg in arg_ast]
-
-        cache = SymbolCache() if cache is None else cache
 
         # Decompose the body into known sections
         ast_body = list(ast.find('body'))
@@ -77,9 +94,8 @@ class Subroutine(object):
         ast_body = ast_body[idx_spec+1:]
 
         # Create a IRs for the docstring and the declaration spec
-        docs = parse_ofp_ast(ast_docs, cache=cache, pp_info=pp_info, raw_source=raw_source)
-        spec = parse_ofp_ast(ast_spec, cache=cache, typedefs=typedefs,
-                             pp_info=pp_info, raw_source=raw_source)
+        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source)
+        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source)
 
         # Derive type and shape maps to propagate through the subroutine body
         type_map = {}
@@ -90,31 +106,23 @@ class Subroutine(object):
                               if isinstance(v, Array)})
 
         # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, cache=cache, pp_info=pp_info,
-                             shape_map=shape_map, type_map=type_map,
+        body = parse_ofp_ast(ast_body, pp_info=pp_info, shape_map=shape_map, type_map=type_map,
                              raw_source=raw_source)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        alloc_map = {}
-        for alloc in FindNodes(Allocation).visit(body):
-            for v in alloc.variables:
-                if v.is_Array:
-                    alloc_map[v.name.lower()] = v.dimensions
-        for v in FindVariables().visit(body):
-            if v.name.lower() in alloc_map:
-                v._shape = alloc_map[v.name.lower()]
+        spec, body = cls._infer_allocatable_shapes(spec, body)
 
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, cache=cache,
+            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source,
                                            typedefs=typedefs, pp_info=pp_info)
                        for s in ast.findall('members/subroutine')]
 
         return cls(name=name, args=args, docstring=docs, spec=spec, body=body,
-                   members=members, ast=ast, typedefs=typedefs, cache=cache)
+                   members=members, ast=ast, typedefs=typedefs)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None):
@@ -129,11 +137,9 @@ class Subroutine(object):
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        cache = SymbolCache()
-
         # Generate spec, filter out external declarations and docstring
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
-                              symbol_map=symbol_map, cache=cache, raw_source=raw_source)
+                              symbol_map=symbol_map, raw_source=raw_source)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                   if d._source.file != file or d.variables[0].name == name}
         spec = Section(body=Transformer(mapper).visit(spec))
@@ -148,7 +154,7 @@ class Subroutine(object):
         shape_map = {}
         for decl in FindNodes(Declaration).visit(spec):
             for v in decl.variables:
-                if v.is_Array:
+                if isinstance(v, Array):
                     shape_map[v.name] = v.shape
 
         # Parse member functions properly
@@ -162,30 +168,48 @@ class Subroutine(object):
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = parse_omni_ast(ast.find('body'), cache=cache, typedefs=typedefs,
-                              type_map=type_map, symbol_map=symbol_map,
-                              shape_map=shape_map, raw_source=raw_source)
+        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
+                                       type_map=type_map, symbol_map=symbol_map,
+                                       shape_map=shape_map, raw_source=raw_source))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
-        alloc_map = {}
-        for alloc in FindNodes(Allocation).visit(body):
-            for v in alloc.variables:
-                if v.is_Array:
-                    alloc_map[v.name.lower()] = v.dimensions
-        for v in FindVariables().visit(body):
-            if v.name.lower() in alloc_map:
-                v._shape = alloc_map[v.name.lower()]
+        spec, body = cls._infer_allocatable_shapes(spec, body)
 
         return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                   members=members, ast=ast, cache=cache)
+                   members=members, ast=ast)
 
-    def Variable(self, *args, **kwargs):
-        """
-        Instantiate cached variable symbols from local symbol cache.
-        """
-        return self._cache.Variable(*args, **kwargs)
+    @classmethod
+    def from_fparser(cls, ast, name=None, typedefs=None):
+        routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
+        name = name or routine_stmt.get_name().string
+        dummy_arg_list = routine_stmt.items[2]
+        args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
+
+        spec_ast = get_child(ast, Fortran2003.Specification_Part)
+        spec = parse_fparser_ast(spec_ast, typedefs=typedefs)
+        spec = Section(body=spec)
+
+        # Derive type and shape maps to propagate through the subroutine body
+        type_map = {}
+        shape_map = {}
+        for decl in FindNodes(Declaration).visit(spec):
+            type_map.update({v.name: v.type for v in decl.variables})
+            shape_map.update({v.name: v.shape for v in decl.variables
+                              if isinstance(v, Array)})
+
+        body_ast = get_child(ast, Fortran2003.Execution_Part)
+        body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map,
+                                 type_map=type_map)
+        # body = Section(body=body)
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        spec, body = cls._infer_allocatable_shapes(spec, body)
+
+        return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast)
 
     def _internalize(self):
         """

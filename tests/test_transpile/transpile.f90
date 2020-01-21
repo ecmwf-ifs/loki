@@ -44,12 +44,12 @@ subroutine transpile_arguments(n, array, array_io, a, b, c, a_io, b_io, c_io)
      array_io(i) = array_io(i) + 3.
   end do
 
-  a = 2
-  b = 3.2
-  c = 4.1
+  a = 2**3
+  b = 3.2_real32
+  c = 4.1_real64
 
   a_io = a_io + 2
-  b_io = b_io + 3.2
+  b_io = b_io + real(3.2, kind=real32)
   c_io = c_io + 4.1
 
 end subroutine transpile_arguments
@@ -96,6 +96,21 @@ end subroutine transpile_derived_type
 !   end do
 
 ! end subroutine transpile_derived_type_array
+
+
+subroutine transpile_associates(a_struct)
+  use transpile_type, only: my_struct
+  implicit none
+  type(my_struct), intent(inout) :: a_struct
+
+  associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+   & a_struct_c=>a_struct%c)
+  a_struct%a = a_struct_a + 4.
+  a_struct_b = a_struct%b + 5.
+  a_struct_c = a_struct_a + a_struct%b + a_struct_c
+  end associate
+
+end subroutine transpile_associates 
 
 
 subroutine transpile_module_variables(a, b, c)
@@ -171,3 +186,17 @@ subroutine transpile_loop_indices(n, idx, mask1, mask2, mask3)
   mask3(n) = 3.0
 
 end subroutine transpile_loop_indices
+
+
+subroutine transpile_logical_statements(v1, v2, v_xor, v_xnor, v_nand, v_neqv, v_val)
+  logical, intent(in) :: v1, v2
+  logical, intent(out) :: v_xor, v_nand, v_xnor, v_neqv, v_val(2)
+  
+  v_xor = (v1 .and. .not. v2) .or. (.not. v1 .and. v2)
+  v_xnor = v1 .eqv. v2
+  v_nand = .not. (v1 .and. v2)
+  v_neqv = v1 .neqv. v2
+  v_val(1) = .true.
+  v_val(2) = .false.
+
+end subroutine transpile_logical_statements

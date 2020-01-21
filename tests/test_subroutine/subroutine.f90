@@ -169,6 +169,18 @@ subroutine routine_call_caller(x, y, vector, matrix, item)
 end subroutine routine_call_caller
 
 
+subroutine routine_assign_string()
+  ! Simple routine calling some unknown routine with a string argument
+  ! There is nothing done with this routine but it tests the ability of
+  ! frontends to handle string literals
+  implicit none
+  character(len=:), allocatable :: s
+  
+  s = 'Hello world!'
+
+end subroutine routine_assign_string
+
+
 ! TODO: Below are placeholders for more testing
 ! subroutine routine_imports (...)
 !   ! Test submodule and header imports

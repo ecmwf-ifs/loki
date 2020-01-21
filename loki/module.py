@@ -1,5 +1,9 @@
+from fparser.two import Fortran2003
+from fparser.two.utils import get_child
+
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
+from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import TypeDef, Section
 from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
@@ -69,6 +73,24 @@ class Module(object):
                                              symbol_map=symbol_map,
                                              raw_source=raw_source)
                         for s in contains]
+
+        return cls(name=name, spec=spec, routines=routines, ast=ast)
+
+    @classmethod
+    def from_fparser(cls, ast, name=None):
+        name = name or ast.content[0].items[1].tostr()
+
+        spec_ast = get_child(ast, Fortran2003.Specification_Part)
+        spec = []
+        if spec_ast is not None:
+            spec = parse_fparser_ast(spec_ast)
+            spec = Section(body=spec)
+
+        routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
+        routines = None
+        if routines_ast is not None:
+            routines = [Subroutine.from_fparser(ast=s) for s in routines_ast.content
+                        if isinstance(s, Fortran2003.Subroutine_Subprogram)]
 
         return cls(name=name, spec=spec, routines=routines, ast=ast)
 

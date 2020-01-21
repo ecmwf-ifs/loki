@@ -1,5 +1,4 @@
 from collections import OrderedDict
-from sympy import evaluate
 
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
@@ -9,8 +8,9 @@ from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.types import BaseType, DerivedType
-from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex,
-                             Literal, Array, SubstituteExpressions, ExpressionFinder)
+from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
+                             Literal, Array, SubstituteExpressions, FindInlineCalls,
+                             SubstituteExpressionsMapper)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 
@@ -96,12 +96,10 @@ class FortranCTransformation(BasicTransformation):
             if isinstance(arg.type, DerivedType):
                 ctype = DerivedType(name=c_structs[arg.type.name.lower()].name, variables=None)
                 cvar = Variable(name='%s_c' % arg.name, type=ctype)
-                cast_in = InlineCall(name='transfer', arguments=as_tuple(arg),
-                                     kwarguments=as_tuple([('mold', cvar)]))
+                cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Statement(target=cvar, expr=cast_in)]
 
-                cast_out = InlineCall(name='transfer', arguments=as_tuple(cvar),
-                                      kwarguments=as_tuple([('mold', arg)]))
+                cast_out = InlineCall('transfer', parameters=(cvar,), kw_parameters={'mold': arg})
                 casts_out += [Statement(target=arg, expr=cast_out)]
                 local_arg_map[arg.name] = cvar
 
@@ -169,12 +167,11 @@ class FortranCTransformation(BasicTransformation):
             else:
                 ctype = arg.type.dtype.isoctype
                 # Only scalar, intent(in) arguments are pass by value
-                ctype.value = arg.is_Scalar and arg.type.intent.lower() == 'in'
+                ctype.value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 # Pass by reference for array types
-            dimensions = arg.dimensions if arg.is_Array else None
-            shape = arg.shape if arg.is_Array else None
-            var = intf_routine.Variable(name=arg.name, dimensions=dimensions,
-                                        shape=shape, type=ctype)
+            dimensions = arg.dimensions if isinstance(arg, Array) else None
+            shape = arg.shape if isinstance(arg, Array) else None
+            var = Variable(name=arg.name, dimensions=dimensions, shape=shape, type=ctype)
             intf_routine.variables += [var]
             intf_routine.arguments += [var]
 
@@ -203,7 +200,7 @@ class FortranCTransformation(BasicTransformation):
             for decl in td.declarations:
                 for v in decl.variables:
                     # Note that we force lower-case on all struct variables
-                    if v.is_Array:
+                    if isinstance(v, Array):
                         new_dims = as_tuple(d for d in v.dimensions if not isinstance(d, RangeIndex))
                         vmap[v] = v.clone(name=v.name.lower(), dimensions=new_dims)
                     else:
@@ -239,7 +236,7 @@ class FortranCTransformation(BasicTransformation):
 
                         decl = Declaration(variables=[var], type=var.type)
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Statement(target=var, expr=InlineCall(name=getter, arguments=()))
+                        vget = Statement(target=var, expr=InlineCall(function=getter))
                         getter_calls += [decl, vget]
 
         # Replicate the kernel to strip the Fortran-specific boilerplate
@@ -249,34 +246,39 @@ class FortranCTransformation(BasicTransformation):
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (v.is_Scalar or v.is_Array) and not v.name.islower()}
+                if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body, cache=routine._cache)
+        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
 
         # Force pointer on reference-passed arguments
+        arg_map = {}
         for arg in kernel.arguments:
-            if not (arg.type.intent.lower() == 'in' and arg.is_Scalar):
-                arg.type.pointer = True
-        # Propagate that reference pointer to all variables
-        arg_map = {a.name: a for a in kernel.arguments}
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+                dtype = arg.type
+                dtype.pointer = True
+                arg_map[arg.name.lower()] = arg.clone(type=dtype)
+        kernel.arguments = [arg_map.get(arg.name.lower(), arg) for arg in kernel.arguments]
+        kernel.variables = [arg_map.get(arg.name.lower(), arg) for arg in kernel.variables]
+
+        vmap = {}
         for v in FindVariables(unique=False).visit(kernel.body):
-            if v.name in arg_map:
-                if v.type:
-                    v.type.pointer = arg_map[v.name].type.pointer
-                else:
-                    v._type = arg_map[v.name].type
+            if v.name.lower() in arg_map:
+                dtype = v.type or arg_map[v.name.lower()].type
+                dtype.pointer = True
+                vmap[v] = v.clone(type=dtype)
+        SubstituteExpressions(vmap).visit(kernel.body)
 
         # Resolve implicit struct mappings through "associates"
         assoc_map = {}
         vmap = {}
         for assoc in FindNodes(Scope).visit(kernel.body):
-            invert_assoc = {v: k for k, v in assoc.associations.items()}
+            invert_assoc = {v.name: k for k, v in assoc.associations.items()}
             for v in FindVariables(unique=False).visit(kernel.body):
-                if v in invert_assoc:
-                    vmap[v] = v.clone(parent=invert_assoc[v].parent)
+                if v.name in invert_assoc:
+                    vmap[v] = invert_assoc[v.name]
             assoc_map[assoc] = assoc.body
         kernel.body = Transformer(assoc_map).visit(kernel.body)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
@@ -385,23 +387,16 @@ class FortranCTransformation(BasicTransformation):
         Shift each array indices to adjust to C indexing conventions
         """
         vmap = {}
-        for v in FindVariables(unique=True).visit(kernel.body):
+        for v in FindVariables(unique=False).visit(kernel.body):
             if isinstance(v, Array):
-                with evaluate(False):
-                    new_dims = as_tuple(d - 1 for d in v.dimensions)
-                    vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = as_tuple(d - 1 for d in v.dimensions)
+                vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
     def _replace_intrinsics(self, kernel, **kwargs):
         """
         Replace known numerical intrinsic functions.
         """
-        def q_inlinecall(expr):
-            return isinstance(expr, InlineCall)
-
-        def retrieve_inlinecall(expr):
-            return expr.find(q_inlinecall)
-
         _intrinsic_map = {
             'epsilon': 'DBL_EPSILON',
             'min': 'fmin', 'max': 'fmax',
@@ -409,19 +404,18 @@ class FortranCTransformation(BasicTransformation):
         }
 
         callmap = {}
-        for c in ExpressionFinder(retrieve=retrieve_inlinecall).visit(kernel.body):
-            cname = c.name.text.lower()
+        for c in FindInlineCalls(unique=False).visit(kernel.body):
+            cname = c.name.lower()
             if cname in _intrinsic_map:
-                with evaluate(False):
-                    if cname == 'epsilon':
-                        callmap[c] = kernel.Variable(name=_intrinsic_map[cname])
-                    else:
-                        callmap[c] = InlineCall(name=_intrinsic_map[cname],
-                                                arguments=c.arguments,
-                                                kwarguments=c.kwarguments)
+                if cname == 'epsilon':
+                    callmap[c] = Variable(name=_intrinsic_map[cname])
+                else:
+                    callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
+                                            kw_parameters=c.kw_parameters)
 
         # Capture nesting by applying map to itself before applying to the kernel
-        with evaluate(False):
-            callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
-            callmap = {k: v.xreplace(callmap) for k, v in callmap.items()}
+        for _ in range(2):
+            mapper = SubstituteExpressionsMapper(callmap)
+            callmap = {k: mapper(v) for k, v in callmap.items()}
+
         kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

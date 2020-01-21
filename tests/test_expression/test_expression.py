@@ -3,7 +3,8 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import clean, compile_and_load, OFP, OMNI, SourceFile, fgen
+from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Variable,
+                  InlineCall, Cast)
 from conftest import generate_identity
 
 
@@ -21,7 +22,7 @@ def reference(refpath):
     return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_simple_expr(refpath, reference, frontend):
     """
     v5 = (v1 + v2) * (v3 - v4)
@@ -38,7 +39,7 @@ def test_simple_expr(refpath, reference, frontend):
     assert v5 == 25. and v6 == 6.
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_intrinsic_functions(refpath, reference, frontend):
     """
     vmin = min(v1, v2)
@@ -61,7 +62,7 @@ def test_intrinsic_functions(refpath, reference, frontend):
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_logical_expr(refpath, reference, frontend):
     """
     vand_t = t .and. t
@@ -85,19 +86,22 @@ def test_logical_expr(refpath, reference, frontend):
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_literal_expr(refpath, reference, frontend):
     """
     v1 = 1
     v2 = 1.0
     v3 = 2.3
     v4 = 2.4_jprb
+    v5 = real(7, kind=jprb)
+    v6 = int(3.5)
     """
     from loki import SourceFile, FindNodes, Statement
 
     # Test the reference solution
-    v1, v2, v3, v4 = reference.literal_expr()
-    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    v1, v2, v3, v4, v5, v6 = reference.literal_expr()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     # Fortran will default this to single precision
     # so we need to give a significant range of error
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
@@ -105,8 +109,8 @@ def test_literal_expr(refpath, reference, frontend):
     # Test the generated identity
     test = generate_identity(refpath, 'literal_expr', frontend=frontend)
     function = getattr(test, 'literal_expr_%s' % frontend)
-    v1, v2, v3, v4 = function()
-    assert v1 == 66. and v2 == 66. and v4 == 2.4
+    v1, v2, v3, v4, v5, v6 = function()
+    assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
 
     # In addition to value testing, let's make sure
@@ -119,9 +123,12 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[2].expr, FloatLiteral)
     assert isinstance(stmts[3].expr, FloatLiteral)
     assert stmts[3].expr._kind == 'jprb'
+    assert isinstance(stmts[4].expr, Cast)
+    assert stmts[4].expr.kind.name in ['selected_real_kind', 'jprb']
+    assert isinstance(stmts[5].expr, Cast)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cast_expr(refpath, reference, frontend):
     """
     v4 = real(v1, kind=jprb)
@@ -138,7 +145,7 @@ def test_cast_expr(refpath, reference, frontend):
     assert v4 == 2. and v5 == 8.
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_logical_array(refpath, reference, frontend):
     """
     mask(1:2) = .false.
@@ -157,22 +164,24 @@ def test_logical_array(refpath, reference, frontend):
     # Test the reference solution
     out = np.zeros(6)
     reference.logical_array(6, [0., 2., -1., 3., 0., 2.], out)
-    assert (out  == [1., 1., 1., 3., 1., 3.]).all()
+    assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
     # Test the generated identity
+    out = np.zeros(6)
     test = generate_identity(refpath, 'logical_array', frontend=frontend)
     function = getattr(test, 'logical_array_%s' % frontend)
-    assert (out  == [1., 1., 1., 3., 1., 3.]).all()
+    function(6, [0., 2., -1., 3., 0., 2.], out)
+    assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, FP])
 def test_parenthesis(refpath, reference, frontend):
     """
     v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
 
     Note, that this test is very niche, as it ensures that mathematically
     insignificant (and hence sort of wrong) bracketing is still honoured.
-    The reason is that, if sub-expressions are sufficiently complexity,
+    The reason is that, if sub-expressions are sufficiently complex,
     this can still cause round-off deviations and hence destroy
     bit-reproducibility.
 
@@ -185,20 +194,20 @@ def test_parenthesis(refpath, reference, frontend):
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
-    assert str(stmt.expr) == '1.3*(v1**1.23) + (1 - v2**1.26)'
-    assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v2**1.26_jprb)'
+    # assert str(stmt.expr) == '1.3*(v1**1.23) + (1 - v2**1.26)'
+    assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v2**1.26_jprb)'
 
     # Now perform a simple substitutions on the expression
     # and make sure we are still parenthesising as we should!
-    from loki import SubstituteExpressions
-    v2 = routine.Variable(name='v2')
-    v4 = routine.Variable(name='v4')
+    from loki import SubstituteExpressions, FindVariables
+    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0] 
+    v4 = Variable(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
-    assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
-    assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1 - v4**1.26_jprb)'
+    # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
+    assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
 
 
-@pytest.mark.parametrize('frontend', [OFP])
+@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
 def test_commutativity(refpath, reference, frontend):
     """
     v3 = 1._jprb + v2*v1 - v2 - v3
@@ -212,11 +221,11 @@ def test_commutativity(refpath, reference, frontend):
 
     # TODO: One of 1 and v2 needs to be an array, as our scalars are
     # not yet non-commutative.
-    assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
+    # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) == 'v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_index_ranges(refpath, reference, frontend):
     """
     real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
@@ -242,3 +251,36 @@ def test_index_ranges(refpath, reference, frontend):
     assert str(vmap_body['v2']) == 'v2(1:dim)'
     assert str(vmap_body['v3']) == 'v3(0:4:2)'
     assert str(vmap_body['v5']) == 'v5(:)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_strings(refpath, reference, frontend):
+    """
+    character(len=64), intent(inout) :: str1
+    character(len=8) :: str2
+
+    str2 = " world!"
+    str1 = str1 // str2
+    """
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'strings', frontend=frontend)
+    _ = getattr(test, 'strings_%s' % frontend)
+    assert True
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_very_long_statement(refpath, reference, frontend):
+    """
+    Some long statement with line breaks.
+    """
+    # Test the reference solution
+    scalar = 1
+    result = reference.very_long_statement(scalar)
+    assert result == 5
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'very_long_statement', frontend=frontend)
+    function = getattr(test, 'very_long_statement_%s' % frontend)
+    result = function(scalar)
+    assert result == 5

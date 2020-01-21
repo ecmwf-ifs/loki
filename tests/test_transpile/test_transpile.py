@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import SourceFile, Module, OMNI, FortranCTransformation
+from loki import SourceFile, Module, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib, clean, compile_and_load
 from conftest import generate_identity
 
@@ -103,7 +103,7 @@ def test_transpile_arguments(refpath, reference, builder):
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
-    assert a == 2 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
+    assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
@@ -119,7 +119,7 @@ def test_transpile_arguments(refpath, reference, builder):
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
-    assert a == 2 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
+    assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
 
 def test_transpile_derived_type(refpath, reference, builder):
@@ -161,6 +161,50 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.a == 8
     assert a_struct.b == 10.
     assert a_struct.c == 12.
+
+
+def test_transpile_associates(refpath, reference, builder):
+    """
+    Tests associate statements 
+
+    associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+    & a_struct_c=>a_struct%c)
+    a_struct%a = a_struct_a + 4.
+    a_struct_b = a_struct%b + 5.
+    a_struct_c = a_struct_a + a_struct%b + a_struct_c
+    end associate
+    """
+
+    # Test the reference solution
+    a_struct = reference.transpile_type.my_struct()
+    a_struct.a = 4
+    a_struct.b = 5.
+    a_struct.c = 6.
+    reference.transpile_associates(a_struct)
+    assert a_struct.a == 8
+    assert a_struct.b == 10.
+    assert a_struct.c == 24.
+
+    # Translate the header module to expose parameters
+    typepath = refpath.parent/'transpile_type.f90'
+    typemod = SourceFile.from_file(typepath)['transpile_type']
+    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+
+    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+                                  typedefs=typemod.typedefs)
+    c_kernel = c_transpile(source['transpile_associates'], refpath, builder,
+                           objects=[Obj(source_path='transpile_type.f90')],
+                           wrap=['transpile_type.f90'], header_modules=[typemod])
+
+    a_struct = reference.transpile_type.my_struct()
+    a_struct.a = 4
+    a_struct.b = 5.
+    a_struct.c = 6.
+    function = c_kernel.transpile_associates_fc_mod.transpile_associates_fc
+    function(a_struct)
+    assert a_struct.a == 8
+    assert a_struct.b == 10.
+    assert a_struct.c == 24.
 
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
@@ -317,3 +361,36 @@ def test_transpile_loop_indices(refpath, reference, builder):
     assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
     assert np.all(mask3[:-1] == 0.)
     assert mask3[-1] == 3.
+
+
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_logical_statements(refpath, reference, builder, frontend):
+    """
+    A simple test routine to test logical statements
+    """
+
+    # Test the reference solution
+    for v1 in range(2):
+        for v2 in range(2):
+            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
+            v_xor, v_xnor, v_nand, v_neqv = reference.transpile_logical_statements(v1, v2, v_val)
+            assert v_xor == (v1 and not v2) or (not v1 and v2)
+            assert v_xnor == (v1 and v2) or not (v1 or v2)
+            assert v_nand == (not (v1 and v2))
+            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+            assert v_val[0] and not v_val[1]
+
+    # Generate the C kernel
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+    c_kernel = c_transpile(source['transpile_logical_statements'], refpath, builder)
+    function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
+
+    for v1 in range(2):
+        for v2 in range(2):
+            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
+            v_xor, v_xnor, v_nand, v_neqv = function(v1, v2, v_val)
+            assert v_xor == (v1 and not v2) or (not v1 and v2)
+            assert v_xnor == (v1 and v2) or not (v1 or v2)
+            assert v_nand == (not (v1 and v2))
+            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+            assert v_val[0] and not v_val[1]

@@ -4,12 +4,13 @@ from enum import IntEnum
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
 
-__all__ = ['Frontend', 'OFP', 'OMNI', 'inline_comments', 'cluster_comments', 'inline_pragmas']
+__all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'inline_pragmas']
 
 
 class Frontend(IntEnum):
     OMNI = 1
     OFP = 2
+    FP = 3
 
     def __str__(self):
         return self.name.lower()
@@ -17,6 +18,7 @@ class Frontend(IntEnum):
 
 OMNI = Frontend.OMNI
 OFP = Frontend.OFP
+FP = Frontend.FP  # The STFC FParser
 
 
 class SequenceFinder(Visitor):
@@ -101,10 +103,9 @@ def inline_comments(ir):
         # Note, we need to re-create the statement node
         # so that Transformers don't throw away the changes.
         if pair[0]._source and pair[1]._source:
-            if pair[1]._source.lines[0] > pair[0]._source.lines[1]:
-                continue
-        mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
-        mapper[pair[1]] = None  # Mark for deletion
+            if pair[1]._source.lines[0] == pair[0]._source.lines[1]:
+                mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
+                mapper[pair[1]] = None  # Mark for deletion
     return NestedTransformer(mapper).visit(ir)
 
 

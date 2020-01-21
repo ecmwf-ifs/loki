@@ -1,17 +1,19 @@
-from sympy import Expr, evaluate
+from pymbolic.primitives import Expression
+from pymbolic.mapper import IdentityMapper
 
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.search import retrieve_symbols, retrieve_functions, retrieve_variables
+from loki.expression.symbol_types import Array
+from loki.expression.search import retrieve_expressions, retrieve_variables, retrieve_inline_calls
 
-__all__ = ['FindSymbols', 'FindFunctions', 'FindVariables',
-           'SubstituteExpressions', 'ExpressionFinder']
+__all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls',
+           'SubstituteExpressions', 'ExpressionFinder', 'SubstituteExpressionsMapper']
 
 
 class ExpressionFinder(Visitor):
     """
     Base class visitor to collect specific sub-expressions,
-    eg. functions or symbls, from all nodes in an IR tree.
+    eg. functions or symbols, from all nodes in an IR tree.
 
     :param retrieve: Custom retrieval function that yields all wanted
                      sub-expressions from an expression.
@@ -34,6 +36,25 @@ class ExpressionFinder(Visitor):
         if retrieve is not None:
             type(self).retrieval_function = staticmethod(retrieve)
 
+    def find_uniques(self, variables):
+        """
+        Reduces the number of matched sub-expressions to a set of unique sub-expressions,
+        if self.unique is ``True``.
+        Currently, two sub-expressions are considered NOT to be unique if they have the same
+        - ``name``
+        - ``parent.name`` (or ``None``)
+        - ``dimensions`` (for :class:`Array`)
+        """
+        def dict_key(var):
+            return (var.name, var.parent.name if hasattr(var, 'parent') and var.parent else None,
+                    var.dimensions if isinstance(var, Array) else None)
+
+        if self.unique:
+            var_dict = {dict_key(var): var for var in variables}
+            return set(var_dict.values())
+        else:
+            return variables
+
     def retrieve(self, expr):
         """
         Internal retrieval function used on expressions.
@@ -44,66 +65,130 @@ class ExpressionFinder(Visitor):
 
     def visit_tuple(self, o):
         variables = as_tuple(flatten(self.visit(c) for c in o))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     visit_list = visit_tuple
 
     def visit_Statement(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.target))
         variables += as_tuple(self.retrieve(o.expr))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Conditional(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(c) for c in o.conditions))
         variables += as_tuple(flatten(self.visit(c) for c in o.bodies))
         variables += as_tuple(self.visit(o.else_body))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Loop(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.variable))
         variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
 
     def visit_Call(self, o, **kwargs):
-        variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments
-                                     if isinstance(a, Expr)))
-        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments
-                                      if isinstance(a, Expr)))
-        return set(variables) if self.unique else variables
+        variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
+        variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments))
+        return self.find_uniques(variables)
 
     def visit_Allocation(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.variables))
-        return set(variables) if self.unique else variables
+        return self.find_uniques(variables)
+
+    def visit_Declaration(self, o, **kwargs):
+        variables = as_tuple(flatten(self.retrieve(v) for v in o.variables))
+        if o.dimensions is not None:
+            variables += as_tuple(flatten(self.retrieve(d) for d in o.dimensions))
+        return self.find_uniques(variables)
 
 
-class FindSymbols(ExpressionFinder):
+class FindExpressions(ExpressionFinder):
     """
-    A visitor to collect all :class:`sympy.Symbol` symbols in an IR tree.
+    A visitor to collect all symbols (i.e., :class:`pymbolic.primitives.Expression`) in an IR tree.
 
     See :class:`ExpressionFinder`
     """
-    retrieval_function = staticmethod(retrieve_symbols)
-
-
-class FindFunctions(ExpressionFinder):
-    """
-    A visitor to collect all :class:`sympy.Function` symbols in an IR tree.
-
-    See :class:`ExpressionFinder`
-    """
-    retrieval_function = staticmethod(retrieve_functions)
+    retrieval_function = staticmethod(retrieve_expressions)
 
 
 class FindVariables(ExpressionFinder):
     """
-    A visitor to collect all variables (:class:`loki.Scalar` and
-    :class:`loki.Array`) symbols used in an IR tree.
+    A visitor to collect all variables (:class:`pymbolic.primitives.Variable`, which includes
+    :class:`loki.Scalar` and :class:`loki.Array`) symbols used in an IR tree.
 
     See :class:`ExpressionFinder`
     """
     retrieval_function = staticmethod(retrieve_variables)
+
+
+class FindInlineCalls(ExpressionFinder):
+    """
+    A visitor to collect all :class:`loki.InlineCall` symbols used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(retrieve_inline_calls)
+
+
+class LokiIdentityMapper(IdentityMapper):
+    """
+    A visitor which creates a copy of the expression tree.
+    """
+
+    def __init__(self):
+        super(LokiIdentityMapper, self).__init__()
+
+    map_logic_literal = IdentityMapper.map_constant
+    map_float_literal = IdentityMapper.map_constant
+    map_int_literal = IdentityMapper.map_constant
+    map_string_literal = IdentityMapper.map_constant
+    map_scalar = IdentityMapper.map_variable
+    map_array = IdentityMapper.map_variable
+    map_inline_call = IdentityMapper.map_call_with_kwargs
+
+    def map_cast(self, expr, *args, **kwargs):
+        if isinstance(expr.kind, Expression):
+            kind = self.rec(expr.kind, *args, **kwargs)
+        else:
+            kind = expr.kind
+        return expr.__class__(self.rec(expr.function, *args, **kwargs),
+                              tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
+                              kind=kind)
+
+    def map_sum(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    def map_product(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    map_parenthesised_add = map_sum
+    map_parenthesised_mul = map_product
+    map_parenthesised_pow = IdentityMapper.map_power
+
+
+class SubstituteExpressionsMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree) that
+    defines on-the-fly handlers from a given substitution map.
+
+    It returns a copy of the expression tree with expressions substituted according
+    to the given `expr_map`.
+    """
+
+    def __init__(self, expr_map):
+        super(SubstituteExpressionsMapper, self).__init__()
+
+        self.expr_map = expr_map
+        for expr in self.expr_map.keys():
+            setattr(self, expr.mapper_method, self.map_from_expr_map)
+
+    def map_from_expr_map(self, expr, *args, **kwargs):
+        if expr in self.expr_map:
+            return self.expr_map[expr]
+        else:
+            map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
+            return map_fn(expr, *args, **kwargs)
 
 
 class SubstituteExpressions(Transformer):
@@ -116,47 +201,41 @@ class SubstituteExpressions(Transformer):
     def __init__(self, expr_map):
         super(SubstituteExpressions, self).__init__()
 
-        self.expr_map = expr_map
+        self.expr_mapper = SubstituteExpressionsMapper(expr_map)
 
     def visit_Statement(self, o, **kwargs):
-        with evaluate(False):
-            target = o.target.xreplace(self.expr_map)
-            expr = o.expr.xreplace(self.expr_map)
+        target = self.expr_mapper(o.target)
+        expr = self.expr_mapper(o.expr)
         return o._rebuild(target=target, expr=expr)
 
     def visit_Conditional(self, o, **kwargs):
-        with evaluate(False):
-            conditions = tuple(e.xreplace(self.expr_map) for e in o.conditions)
+        conditions = tuple(self.expr_mapper(e) for e in o.conditions)
         bodies = self.visit(o.bodies)
         else_body = self.visit(o.else_body)
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_Loop(self, o, **kwargs):
-        with evaluate(False):
-            variable = o.variable.xreplace(self.expr_map)
-            bounds = tuple(b if b is None else b.xreplace(self.expr_map) for b in o.bounds)
-            body = self.visit(o.body)
+        variable = self.expr_mapper(o.variable)
+        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds)
+        body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 
     def visit_Call(self, o, **kwargs):
-        with evaluate(False):
-            arguments = tuple(a.xreplace(self.expr_map) for a in o.arguments)
-            kwarguments = tuple((k, v.xreplace(self.expr_map)) for k, v in o.kwarguments)
-            # TODO: Re-build the call context
+        arguments = tuple(self.expr_mapper(a) for a in o.arguments)
+        kwarguments = tuple((k, self.expr_mapper(v)) for k, v in o.kwarguments)
+        # TODO: Re-build the call context
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
     def visit_Allocation(self, o, **kwargs):
-        with evaluate(False):
-            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        variables = tuple(self.expr_mapper(v) for v in o.variables)
         return o._rebuild(variables=variables)
 
     def visit_Declaration(self, o, **kwargs):
-        with evaluate(False):
-            if o.dimensions is not None:
-                dimensions = tuple(d.xreplace(self.expr_map) for d in o.dimensions)
-            else:
-                dimensions = None
-            variables = tuple(v.xreplace(self.expr_map) for v in o.variables)
+        if o.dimensions is not None:
+            dimensions = tuple(self.expr_mapper(d) for d in o.dimensions)
+        else:
+            dimensions = None
+        variables = tuple(self.expr_mapper(v) for v in o.variables)
         return o._rebuild(dimensions=dimensions, variables=variables)
 
     def visit_TypeDef(self, o, **kwargs):

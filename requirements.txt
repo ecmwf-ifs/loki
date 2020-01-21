@@ -8,8 +8,9 @@ fastcache
 cached-property
 coloredlogs
 tqdm
-sympy==1.4
+pymbolic
 
 # Some dependencies require specific dev branches
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 git+https://github.com/jameskermode/f90wrap.git
+git+https://github.com/stfc/fparser.git
