@@ -97,7 +97,7 @@ def reference(refpath, builder):
     return lib.wrap(modname='max_ref', sources=sources, builder=builder)
 
 
-def max_transpile(routine, refpath, builder, objects=None, wrap=None):
+def max_transpile(routine, refpath, builder, frontend, objects=None, wrap=None):
     builder.clean()
 
     # Create transformation object and apply
@@ -114,11 +114,10 @@ def max_transpile(routine, refpath, builder, objects=None, wrap=None):
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2max.c_path), Obj(source_path=f2max.wrapperpath)]
-    lib = Lib(name='fmax_%s' % routine.name, objs=objects, shared=False)
+    lib = Lib(name='fmax_%s_%s' % (routine.name, frontend), objs=objects, shared=False)
     lib.build(builder=builder, include_dirs=[max_include], external_objs=[max_obj])
 
-    # maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
-    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
+    return lib.wrap(modname='mod_%s_%s' % (routine.name, frontend), builder=builder,
                     sources=(wrap or []) + [f2max.wrapperpath.name],
                     libs=get_max_libs(), lib_dirs=get_max_libdirs())
 
@@ -181,7 +180,8 @@ def test_max_passthrough_ctypes(simulator, build_dir, refpath):
     assert list(data_in) == list(data_out)
 
 
-def test_max_routine_axpy(refpath, reference, builder, simulator):
+@pytest.mark.parametrize('frontend', [OMNI, FP])
+def test_max_routine_axpy(refpath, reference, builder, simulator, frontend):
 
     # Test the reference solution
     a = -3.
@@ -196,8 +196,8 @@ def test_max_routine_axpy(refpath, reference, builder, simulator):
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-        max_kernel = max_transpile(source['routine_axpy'], refpath, builder)
+        source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+        max_kernel = max_transpile(source['routine_axpy'], refpath, builder, frontend)
 
         # Test the transpiled kernel
         a = -3.
@@ -210,7 +210,8 @@ def test_max_routine_axpy(refpath, reference, builder, simulator):
     assert np.all(a * 2. + y == x)
 
 
-def test_max_routine_copy(refpath, reference, builder, simulator):
+@pytest.mark.parametrize('frontend', [OMNI, FP])
+def test_max_routine_copy(refpath, reference, builder, simulator, frontend):
 
     # Test the reference solution
     x = np.zeros(1) + 2.
@@ -223,8 +224,8 @@ def test_max_routine_copy(refpath, reference, builder, simulator):
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-        max_kernel = max_transpile(source['routine_copy'], refpath, builder)
+        source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+        max_kernel = max_transpile(source['routine_copy'], refpath, builder, frontend)
 
         # Test the transpiled kernel
         x = np.zeros(1) + 2.
@@ -234,7 +235,8 @@ def test_max_routine_copy(refpath, reference, builder, simulator):
     assert np.all(y == x)
 
 
-def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
+@pytest.mark.parametrize('frontend', [OMNI, FP])
+def test_max_routine_fixed_loop(refpath, reference, builder, simulator, frontend):
 
     # Test the reference solution
     n, m = 6, 4
@@ -249,8 +251,8 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
     # assert np.all(tensor_out == tensor)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder)
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder, frontend)
 
     # Test the transpiled kernel
     n, m = 6, 4
@@ -268,10 +270,11 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator):
     #                          [13., 23., 33., 43.]])
 
 
-def test_max_routine_shift(refpath, reference, builder, simulator):
+@pytest.mark.parametrize('frontend', [OMNI, FP])
+def test_max_routine_shift(refpath, reference, builder, simulator, frontend):
 
     # Test the reference solution
-    length = 32 
+    length = 32
     scalar = 7
     vector_in = np.array(range(length), order='F', dtype=np.intc)
     vector_out = np.zeros(length, order='F', dtype=np.intc)
@@ -279,8 +282,8 @@ def test_max_routine_shift(refpath, reference, builder, simulator):
     assert np.all(vector_out == np.array(range(length)) + scalar)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_shift'], refpath, builder)
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
+    max_kernel = max_transpile(source['routine_shift'], refpath, builder, frontend)
 
     vec_in = np.array(range(length), order='F', dtype=np.intc)
     vec_out = np.zeros(length, order='F', dtype=np.intc)
@@ -310,7 +313,7 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator, fron
 
     # Generate the transpiled kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_moving_average'], refpath, builder)
+    max_kernel = max_transpile(source['routine_moving_average'], refpath, builder, frontend)
 
     data_out = np.zeros(shape=(n,), order='F')
     function = max_kernel.routine_moving_average_c_fmax_mod.routine_moving_average_c_fmax
@@ -353,7 +356,7 @@ def test_max_routine_laplace(refpath, reference, builder, simulator, frontend):
 
     # Generate the transpiled kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_laplace'], refpath, builder)
+    max_kernel = max_transpile(source['routine_laplace'], refpath, builder, frontend)
 
     data_out = np.zeros(shape=(length,), order='F')
     function = max_kernel.routine_laplace_c_fmax_mod.routine_laplace_c_fmax
