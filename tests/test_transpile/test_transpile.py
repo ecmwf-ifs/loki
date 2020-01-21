@@ -31,7 +31,7 @@ def fixture_reference(builder):
     return lib.wrap(modname='ref', sources=sources, builder=builder)
 
 
-def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wrap=None):
+def c_transpile(routine, refpath, builder, frontend, header_modules=None, objects=None, wrap=None):
     """
     Generate the ISO-C bindings wrapper and C-transpiled source code
     """
@@ -44,10 +44,10 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
                                  Obj(source_path=f2c.c_path)]
-    lib = Lib(name='fc_%s' % routine.name, objs=objects, shared=False)
+    lib = Lib(name='fc_%s_%s' % (routine.name, frontend), objs=objects, shared=False)
     lib.build(builder=builder)
 
-    return lib.wrap(modname='mod_%s' % routine.name, builder=builder,
+    return lib.wrap(modname='mod_%s_%s' % (routine.name, frontend), builder=builder,
                     sources=(wrap or []) + [f2c.wrapperpath.name])
 
 
@@ -70,7 +70,7 @@ def test_transpile_simple_loops(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder, frontend)
 
     # Test the transpiled C kernel
     n, m = 3, 4
@@ -108,7 +108,7 @@ def test_transpile_arguments(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_arguments'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_arguments'], refpath, builder, frontend)
 
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
@@ -151,7 +151,7 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder,
+    c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -196,7 +196,7 @@ def test_transpile_associates(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_associates'], refpath, builder,
+    c_kernel = c_transpile(source['transpile_associates'], refpath, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -237,7 +237,7 @@ def test_transpile_derived_type_array(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath, builder,
+    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -268,7 +268,7 @@ def test_transpile_module_variables(refpath, reference, builder, frontend):
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,
+    c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder, frontend,
                            objects=[Obj(source_path=refpath.parent / 'transpile_type.f90'),
                                     Obj(source_path=refpath.parent / 'transpile_type_fc.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
@@ -298,7 +298,7 @@ def test_transpile_vectorization(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_vectorization'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_vectorization'], refpath, builder, frontend)
 
     # Test the trnapiled C kernel
     n, m = 3, 4
@@ -325,7 +325,7 @@ def test_transpile_intrinsics(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_intrinsics'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_intrinsics'], refpath, builder, frontend)
 
     results = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc(v1, v2, v3, v4)
     vmin, vmax, vabs, vmin_nested, vmax_nested = results
@@ -356,7 +356,7 @@ def test_transpile_loop_indices(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_loop_indices'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_loop_indices'], refpath, builder, frontend)
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
@@ -390,7 +390,7 @@ def test_transpile_logical_statements(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_logical_statements'], refpath, builder)
+    c_kernel = c_transpile(source['transpile_logical_statements'], refpath, builder, frontend)
     function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
 
     for v1 in range(2):
