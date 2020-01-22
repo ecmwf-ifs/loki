@@ -13,11 +13,12 @@ from loki.ir import (Loop, Statement, Conditional, Call, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Array, Cast)
-from loki.expression.operations import ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
-from loki.types import BaseType, DerivedType
-from loki.tools import as_tuple, timeit, disk_cached
+from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ExpressionDimensionsMapper)
+from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_ast']
@@ -38,14 +39,12 @@ def parse_ofp_file(filename):
 
 class OFP2IR(GenericVisitor):
 
-    def __init__(self, raw_source, shape_map=None, type_map=None,
-                 typedefs=None):
+    def __init__(self, raw_source, typedefs=None, scope=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
-        self.shape_map = shape_map
-        self.type_map = type_map
         self.typedefs = typedefs
+        self.scope = scope
 
     def lookup_method(self, instance):
         """
@@ -74,7 +73,7 @@ class OFP2IR(GenericVisitor):
         return super(OFP2IR, self).visit(o, source=source, **kwargs)
 
     def visit_tuple(self, o, source=None):
-        return tuple(self.visit(c) for c in o)
+        return as_tuple(flatten(self.visit(c) for c in o))
 
     visit_list = visit_tuple
 
@@ -100,7 +99,7 @@ class OFP2IR(GenericVisitor):
         else:
             # We are processing a regular for/do loop with bounds
             vname = o.find('header/index-variable').attrib['name']
-            variable = Variable(name=vname)
+            variable = Variable(name=vname, scope=self.scope.symbols)
             lower = self.visit(o.find('header/index-variable/lower-bound'))
             upper = self.visit(o.find('header/index-variable/upper-bound'))
             step = None
@@ -186,8 +185,8 @@ class OFP2IR(GenericVisitor):
         return Intrinsic(text=source.string, source=source)
 
     def visit_assignment(self, o, source=None):
-        target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
+        target = self.visit(o.find('target'))
         return Statement(target=target, expr=expr, source=source)
 
     def visit_pointer_assignment(self, o, source=None):
@@ -215,19 +214,26 @@ class OFP2IR(GenericVisitor):
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
                 derived_name = o.find('end-type-stmt').attrib['id']
-                declarations = []
 
                 # Process any associated comments or pragams
                 comments = [self.visit(c) for c in o.findall('comment')]
                 pragmas = [c for c in comments if isinstance(c, Pragma)]
                 comments = [c for c in comments if not isinstance(c, Pragma)]
 
+                # Create the parent type...
+                typedef = TypeDef(name=derived_name, declarations=[],
+                                  pragmas=pragmas, comments=comments, source=source)
+                parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
+                                         variables=OrderedDict(), source=source)
+
+                # ...and derive all of its components
                 # This is customized in our dedicated branch atm,
                 # and really, really hacky! :(
                 types = o.findall('type')
                 components = o.findall('components')
                 attributes = [None] * len(types)
                 elements = o.getchildren()
+                declarations = []
                 # YUCK!!!
                 for i, (t, comps) in enumerate(zip(types, components)):
                     attributes[i] = elements[elements.index(t)+1:elements.index(comps)]
@@ -240,10 +246,27 @@ class OFP2IR(GenericVisitor):
                                  for a in attr[0].findall('attribute/component-attr-spec')]
                     typename = t.attrib['name']
                     t_source = extract_source(t.attrib, self._raw_source)
-                    kind = t.find('kind/name').attrib['id'] if t.find('kind') else None
-                    type = BaseType(typename, kind=kind, pointer='POINTER' in attrs,
-                                    allocatable='ALLOCATABLE' in attrs,
-                                    source=t_source)
+                    kind = t.find('kind/name')
+                    if kind is not None:
+                        kind = kind.attrib['id']
+                    # We have an intrinsic Fortran type
+                    if t.attrib['type'] == 'intrinsic':
+                        _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+                                           pointer='POINTER' in attrs,
+                                           allocatable='ALLOCATABLE' in attrs, source=t_source)
+                    else:
+                        # This is a derived type. Let's see if we know it already
+                        _type = self.scope.types.lookup(typename, recursive=True)
+                        if _type is not None:
+                            _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
+                                                allocatable='ALLOCATABLE' in attrs,
+                                                source=t_source)
+                        else:
+                            import pdb; pdb.set_trace()
+                            _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                                               kind=kind, pointer='POINTER' in attrs,
+                                               allocatable='ALLOCATABLE' in attrs,
+                                               variables=OrderedDict(), source=t_source)
 
                     # Derive variables for this declaration entry
                     variables = []
@@ -264,45 +287,66 @@ class OFP2IR(GenericVisitor):
                         dimensions = as_tuple(d for d in dimensions if d is not None)
                         dimensions = dimensions if len(dimensions) > 0 else None
                         v_source = extract_source(v.attrib, self._raw_source)
+                        v_type = _type.clone(shape=dimensions, source=v_source)
+                        v_name = v.attrib['name']
 
-                        variables += [Variable(name=v.attrib['name'], type=type,
-                                               dimensions=dimensions, shape=dimensions,
-                                               source=v_source)]
-                    declarations += [Declaration(variables=variables, type=type, source=t_source)]
-                return TypeDef(name=derived_name, declarations=declarations,
-                               pragmas=pragmas, comments=comments, source=source)
+                        variables += [Variable(name=v_name, type=v_type, dimensions=dimensions,
+                                               scope=typedef.symbols)]
+
+                    parent_type.variables.update([(v.basename, v) for v in variables])
+                    declarations += [Declaration(variables=variables, type=_type, source=t_source)]
+
+                typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
+                # Make that derived type known in the types table
+                self.scope.types[derived_name] = parent_type
+
+                return typedef
             else:
                 # We are dealing with a single declaration, so we retrieve
                 # all the declaration-level information first.
                 typename = o.find('type').attrib['name']
-                kind = o.find('type/kind/name').attrib['id'] if o.find('type/kind') else None
+                kind = o.find('type/kind/name')
+                if kind is not None:
+                    kind = kind.attrib['id']
                 intent = o.find('intent').attrib['type'] if o.find('intent') else None
                 allocatable = o.find('attribute-allocatable') is not None
                 pointer = o.find('attribute-pointer') is not None
                 parameter = o.find('attribute-parameter') is not None
                 optional = o.find('attribute-optional') is not None
                 target = o.find('attribute-target') is not None
-                if self.typedefs is not None and typename.lower() in self.typedefs:
-                    # Create the local variant of the derived type
-                    struct_type = self.typedefs[typename.lower()]
-                    _type = DerivedType(name=typename, variables=struct_type.variables,
-                                        kind=kind, intent=intent,
-                                        allocatable=allocatable, pointer=pointer,
-                                        optional=optional, parameter=parameter,
-                                        target=target, source=source)
-                else:
-                    # Create a basic variable type
-                    _type = BaseType(name=typename, kind=kind, intent=intent,
-                                     allocatable=allocatable, pointer=pointer,
-                                     optional=optional, parameter=parameter,
-                                     target=target, source=source)
                 dims = o.find('dimensions')
                 dimensions = None if dims is None else as_tuple(self.visit(dims))
+
+                if o.find('type').attrib['type'] == 'intrinsic':
+                    # Create a basic variable type
+                    _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+                                       intent=intent, allocatable=allocatable, pointer=pointer,
+                                       optional=optional, parameter=parameter, shape=dimensions,
+                                       target=target, source=source)
+                else:
+                    # Create the local variant of the derived type
+                    _type = self.scope.types.lookup(typename, recursive=True)
+                    if _type is not None:
+                        _type = _type.clone(kind=kind, intent=intent, allocatable=allocatable,
+                                            pointer=pointer, optional=optional, shape=dimensions,
+                                            parameter=parameter, target=target, source=source)
+                    if _type is None:
+                        if self.typedefs is not None and typename.lower() in self.typedefs:
+                            variables = OrderedDict([(v.basename, v) for v
+                                                     in self.typedefs[typename.lower()].variables])
+                        else:
+                            variables = OrderedDict()
+                        _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                                           variables=variables, kind=kind, intent=intent,
+                                           allocatable=allocatable, pointer=pointer,
+                                           optional=optional, parameter=parameter,
+                                           target=target, source=source)
+
                 variables = [self.visit(v, type=_type, dimensions=dimensions)
                              for v in o.findall('variables/variable')]
                 variables = [v for v in variables if v is not None]
-                return Declaration(variables=variables, type=_type,
-                                   dimensions=dimensions, source=source)
+                return Declaration(variables=variables, type=_type, dimensions=dimensions,
+                                   source=source)
         elif o.attrib['type'] == 'implicit':
             return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':
@@ -329,8 +373,14 @@ class OFP2IR(GenericVisitor):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
+            if isinstance(var, Array):
+                shape = ExpressionDimensionsMapper()(var)
+            else:
+                shape = None
+            _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = Variable(name=assoc_name)
+            associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
+                                         source=source)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -391,28 +441,27 @@ class OFP2IR(GenericVisitor):
                 return reshape(indices[0], shape=indices[1])
             elif vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(vname, parameters=indices, kw_parameters=kwargs)
+                return InlineCall(vname, parameters=indices)
             elif vname.upper() in ['REAL', 'INT']:
                 return Cast(vname, expression=indices[0], kind=kwargs.get('kind', None))
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(o.attrib['id'], parameters=indices)
             else:
-                shape = self.shape_map.get(vname, None) if self.shape_map else None
-                _type = self.type_map.get(vname, None) if self.type_map else None
+                if parent is not None:
+                    basename = vname
+                    vname = '%s%%%s' % (parent.name, vname)
 
-                # If the (possibly external) struct definitions exists
-                # derive the shape and real type from it.
-                if parent is not None and parent.type is not None:
-                    if isinstance(parent.type, DerivedType):
-                        typevar = [v for v in parent.type.variables
-                                   if v.name.lower() == vname.lower()][0]
-                        _type = typevar.type
-                        if isinstance(typevar, Array):
-                            shape = typevar.shape
+                _type = self.scope.symbols.lookup(vname, recursive=True)
+
+                # If the (possibly external) struct definitions exist
+                # try to derive the type from it.
+                if _type is None and parent is not None and parent.type is not None:
+                    if parent.type.dtype == DataType.DERIVED_TYPE:
+                        _type = parent.type.variables.get(basename)
 
                 var = Variable(name=vname, dimensions=indices, parent=parent,
-                               shape=shape, type=_type, source=source)
+                               type=_type, scope=self.scope.symbols, source=source)
                 return var
 
         # Creating compound variables is a bit tricky, so let's first
@@ -421,8 +470,8 @@ class OFP2IR(GenericVisitor):
         _children = deque(c for c in _children if c is not None)
 
         # Hack: find kwargs for Casts
-        kwargs = list([self.visit(i) for i in o.findall('subscripts/argument')])
-        kwargs = {k: v for k, v in kwargs}
+        kwargs = {i.attrib['name']: i.find('name').attrib['id']
+                  for i in o.findall('subscripts/argument')}
 
         # Now we nest variables, dimensions and sub-variables by
         # walking through our queue of nested symbols
@@ -440,7 +489,6 @@ class OFP2IR(GenericVisitor):
         return variable
 
     def visit_variable(self, o, source=None, **kwargs):
-        _type = kwargs.get('type', None)
         if 'id' not in o.attrib and 'name' not in o.attrib:
             return None
         name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
@@ -449,8 +497,11 @@ class OFP2IR(GenericVisitor):
             dimensions = tuple(d for d in dimensions if d is not None)
         else:
             dimensions = kwargs.get('dimensions', None)
+        _type = kwargs.get('type', None)
+        if _type is not None:
+            _type = _type.clone(shape=dimensions)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        return Variable(name=name, dimensions=dimensions, shape=dimensions,
+        return Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
                         type=_type, initial=initial, source=source)
 
     def visit_part_ref(self, o, source=None):
@@ -459,13 +510,17 @@ class OFP2IR(GenericVisitor):
 
     def visit_literal(self, o, source=None):
         value = o.attrib['value']
-        type = o.attrib['type'] if 'type' in o.attrib else None
+        _type = o.attrib['type'] if 'type' in o.attrib else None
         kind_param = o.find('kind-param')
         kind = kind_param.attrib['kind'] if kind_param is not None else None
-        # Cast to the right type if given
         value = int(value) if type == 'int' else value
         value = float(value) if type == 'real' else value
-        return Literal(value=value, kind=kind, type=type, source=source)
+        if _type is not None:
+            tmap = {'bool': DataType.LOGICAL, 'int': DataType.INTEGER,
+                    'real': DataType.REAL, 'char': DataType.CHARACTER}
+            _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
+        # Cast to the right type if given
+        return Literal(value=value, kind=kind, type=_type, source=source)
 
     def visit_subscripts(self, o, source=None):
         return tuple(self.visit(c)for c in o.getchildren()
@@ -576,14 +631,12 @@ class OFP2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, pp_info=None, raw_source=None, shape_map=None,
-                  type_map=None, typedefs=None):
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OFP2IR(shape_map=shape_map, type_map=type_map, typedefs=typedefs,
-                raw_source=raw_source).visit(ast)
+    ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist.items():

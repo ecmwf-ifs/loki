@@ -144,3 +144,17 @@ subroutine very_long_statement(scalar, res)
         - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
 
 end subroutine very_long_statement
+
+
+subroutine intrinsics
+     integer, parameter :: jprb = selected_real_kind(13,300)
+     integer :: numomp, ngptot
+     real(kind=jprb) :: tdiff
+
+     numomp = 1
+     ngptot = 2
+     tdiff = 1.2
+
+1002 format(1x, 2i10, 1x, i4, ' : ', i10)
+     write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)
+end subroutine

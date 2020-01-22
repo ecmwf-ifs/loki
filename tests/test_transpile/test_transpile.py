@@ -2,9 +2,8 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import SourceFile, Module, OFP, OMNI, FP, FortranCTransformation
-from loki.build import Builder, Obj, Lib, clean, compile_and_load
-from conftest import generate_identity
+from loki import SourceFile, OFP, OMNI, FP, FortranCTransformation
+from loki.build import Builder, Obj, Lib
 
 
 @pytest.fixture(scope='module')
@@ -52,7 +51,8 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
                     sources=(wrap or []) + [f2c.wrapperpath.name])
 
 
-def test_transpile_simple_loops(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_simple_loops(refpath, reference, builder, frontend):
     """
     A simple test routine to test C transpilation of loops
     """
@@ -69,7 +69,7 @@ def test_transpile_simple_loops(refpath, reference, builder):
                              [13., 23., 33., 43.]])
 
     # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder)
 
     # Test the transpiled C kernel
@@ -85,7 +85,8 @@ def test_transpile_simple_loops(refpath, reference, builder):
                              [13., 23., 33., 43.]])
 
 
-def test_transpile_arguments(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_arguments(refpath, reference, builder, frontend):
     """
     A test the correct exchange of arguments with varying intents
     """
@@ -106,7 +107,7 @@ def test_transpile_arguments(refpath, reference, builder):
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_arguments'], refpath, builder)
 
     array = np.zeros(shape=(n,), order='F')
@@ -122,7 +123,8 @@ def test_transpile_arguments(refpath, reference, builder):
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
 
-def test_transpile_derived_type(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_derived_type(refpath, reference, builder, frontend):
     """
     Tests handling and type-conversion of various argument types
 
@@ -146,7 +148,7 @@ def test_transpile_derived_type(refpath, reference, builder):
     typemod = SourceFile.from_file(typepath)['transpile_type']
     FortranCTransformation().apply(routine=typemod, path=refpath.parent)
 
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
     c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder,
                            objects=[Obj(source_path='transpile_type.f90')],
@@ -163,9 +165,10 @@ def test_transpile_derived_type(refpath, reference, builder):
     assert a_struct.c == 12.
 
 
-def test_transpile_associates(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_associates(refpath, reference, builder, frontend):
     """
-    Tests associate statements 
+    Tests associate statements
 
     associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
     & a_struct_c=>a_struct%c)
@@ -190,7 +193,7 @@ def test_transpile_associates(refpath, reference, builder):
     typemod = SourceFile.from_file(typepath)['transpile_type']
     FortranCTransformation().apply(routine=typemod, path=refpath.parent)
 
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
     c_kernel = c_transpile(source['transpile_associates'], refpath, builder,
                            objects=[Obj(source_path='transpile_type.f90')],
@@ -208,7 +211,7 @@ def test_transpile_associates(refpath, reference, builder):
 
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
-def test_transpile_derived_type_array(refpath, reference, builder):
+def test_transpile_derived_type_array(refpath, reference, builder, frontend):
     """
     Tests handling of multi-dimensional arrays and pointers.
 
@@ -231,7 +234,7 @@ def test_transpile_derived_type_array(refpath, reference, builder):
     typemod = SourceFile.from_file(typepath)['transpile_type']
     FortranCTransformation().apply(routine=typemod, path=refpath.parent)
 
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent],
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
     c_kernel = c_transpile(source['transpile_derived_type_array'], refpath, builder,
                            objects=[Obj(source_path='transpile_type.f90')],
@@ -247,7 +250,8 @@ def test_transpile_derived_type_array(refpath, reference, builder):
     reference.transpile_type.free_arrays(a_struct)
 
 
-def test_transpile_module_variables(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_module_variables(refpath, reference, builder, frontend):
     """
     Tests the use of imported module variables (via getter routines in C)
     """
@@ -262,7 +266,7 @@ def test_transpile_module_variables(refpath, reference, builder):
     typemod = SourceFile.from_file(typepath)['transpile_type']
     FortranCTransformation().apply(routine=typemod, path=refpath.parent)
 
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,
                            objects=[Obj(source_path=refpath.parent / 'transpile_type.f90'),
                                     Obj(source_path=refpath.parent / 'transpile_type_fc.f90')],
@@ -275,7 +279,8 @@ def test_transpile_module_variables(refpath, reference, builder):
     assert a == 3 and b == 5. and c == 4.
 
 
-def test_transpile_vectorization(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_vectorization(refpath, reference, builder, frontend):
     """
     Tests vector-notation conversion and local multi-dimensional arrays.
     """
@@ -291,7 +296,7 @@ def test_transpile_vectorization(refpath, reference, builder):
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
     # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_vectorization'], refpath, builder)
 
     # Test the trnapiled C kernel
@@ -305,7 +310,8 @@ def test_transpile_vectorization(refpath, reference, builder):
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
 
-def test_transpile_intrinsics(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_intrinsics(refpath, reference, builder, frontend):
     """
     A simple test routine to test supported intrinsic functions
     """
@@ -317,7 +323,7 @@ def test_transpile_intrinsics(refpath, reference, builder):
     assert vmin_nested == 1. and vmax_nested == 5.
 
     # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_intrinsics'], refpath, builder)
 
     results = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc(v1, v2, v3, v4)
@@ -326,7 +332,8 @@ def test_transpile_intrinsics(refpath, reference, builder):
     assert vmin_nested == 1. and vmax_nested == 5.
 
 
-def test_transpile_loop_indices(refpath, reference, builder):
+@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+def test_transpile_loop_indices(refpath, reference, builder, frontend):
     """
     Test to ensure loop indexing translates correctly
     """
@@ -347,7 +354,7 @@ def test_transpile_loop_indices(refpath, reference, builder):
     assert mask3[-1] == 3.
 
     # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=OMNI, xmods=[refpath.parent])
+    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_loop_indices'], refpath, builder)
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)

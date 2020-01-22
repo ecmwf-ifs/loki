@@ -2,7 +2,7 @@ from itertools import groupby
 from enum import IntEnum
 
 from loki.visitors import Visitor, NestedTransformer
-from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma
+from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma, Loop
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'inline_pragmas']
 
@@ -134,6 +134,7 @@ def inline_pragmas(ir):
     """
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
     pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
+    pairs += PatternFinder(pattern=(Pragma, Loop)).visit(ir)
     mapper = {}
     for pair in pairs:
         # Merge pragma with declaration and delete

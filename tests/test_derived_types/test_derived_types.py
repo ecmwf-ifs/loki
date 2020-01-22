@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from loki import clean, compile_and_load, OFP, OMNI, FP
+from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
 from conftest import generate_identity
 
 
@@ -198,13 +198,27 @@ def test_associates(refpath, reference, frontend):
     item%vector(2) = vector(1)
     vector(3) = item%vector(1) + vector(2)
     """
+    from loki import FindVariables, IntLiteral, RangeIndex
+
     # Test the reference solution
     item = reference.explicit()
     item.scalar = 0.
     item.vector[0] = 5.
     item.vector[1:2] = 0.
+    item.matrix = 0.
     reference.associates(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+    assert (item.matrix[:, 0::2] == 3.).all()
+
+    # Test the internals
+    routine = SourceFile.from_file(refpath, frontend=frontend)['associates']
+    variables = FindVariables().visit(routine.body)
+    if frontend == OMNI:
+        assert all([v.shape == (RangeIndex(IntLiteral(1), IntLiteral(3)),)
+                    for v in variables if v.name in ['vector', 'vector2']])
+    else:
+        assert all([v.shape == (IntLiteral(3),)
+                    for v in variables if v.name in ['vector', 'vector2']])
 
     test = generate_identity(refpath, modulename='derived_types',
                              routinename='associates', frontend=frontend)
@@ -216,3 +230,34 @@ def test_associates(refpath, reference, frontend):
     item.vector[1:2] = 0.
     getattr(test, 'associates_%s' % frontend)(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_case_sensitivity(refpath, reference, frontend):
+    """
+    Some abuse of the case agnostic behaviour of Fortran
+    """
+    # Test the reference solution
+    item = reference.case_sensitive()
+    item.u = 0.
+    item.v = 0.
+    item.t = 0.
+    item.q = 0.
+    item.a = 0.
+    reference.check_case(item)
+    assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
+    assert item.q == -1.0 and item.a == -5.0
+
+    # Test the generated identity
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='check_case', frontend=frontend)
+    item = test.case_sensitive()
+    item.u = 0.
+    item.v = 0.
+    item.t = 0.
+    item.q = 0.
+    item.a = 0.
+    function = getattr(test, 'check_case_%s' % frontend)
+    function(item)
+    assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
+    assert item.q == -1.0 and item.a == -5.0

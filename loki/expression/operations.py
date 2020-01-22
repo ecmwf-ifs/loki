@@ -7,7 +7,7 @@ nevertheless change code results.
 from pymbolic.primitives import Sum, Product, Power
 from six.moves import intern
 
-from loki.expression import LokiStringifyMapper
+from loki.expression.visitors import LokiStringifyMapper
 
 
 class ParenthesisedAdd(Sum):

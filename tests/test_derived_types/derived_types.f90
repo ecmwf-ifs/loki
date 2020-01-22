@@ -3,19 +3,24 @@ module derived_types
   integer, parameter :: jprb = selected_real_kind(13,300)
 
   type explicit
-     real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-     real(kind=jprb) :: red_herring
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
   end type explicit
 
   type deferred
-     real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
-     real(kind=jprb), allocatable :: red_herring
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
   end type deferred
 
   type nested
-     real(kind=jprb) :: a_scalar, a_vector(3)
-     type(explicit) :: another_item
+    real(kind=jprb) :: a_scalar, a_vector(3)
+    type(explicit) :: another_item
   end type nested
+
+  type case_sensitive
+    real(kind=jprb) :: u, v, T
+    real(kind=jprb) :: q, A
+  end type case_sensitive
 
 contains
 
@@ -142,14 +147,31 @@ contains
 
     item%scalar = 17.0
 
+    associate(vector2=>item%matrix(:,1))
+
+        vector2(:) = 3.
+        item%matrix(:,3) = vector2(:)
+
+    end associate
+
     associate(vector=>item%vector)
 
-    item%vector(2) = vector(1)
-    vector(3) = item%vector(1) + vector(2)
-    vector(1) = 1.
+        item%vector(2) = vector(1)
+        vector(3) = item%vector(1) + vector(2)
+        vector(1) = 1.
 
     end associate
 
   end subroutine associates
+
+  subroutine check_case(item)
+    type(case_sensitive), intent(inout) :: item
+
+    item%u = 1.0
+    item%v = 2.0
+    item%t = 3.0
+    item%q = -1.0
+    item%A = -5.0
+  end subroutine check_case
 
 end module derived_types

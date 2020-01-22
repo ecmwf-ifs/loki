@@ -1,3 +1,4 @@
+import weakref
 from collections import OrderedDict
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
@@ -6,11 +7,11 @@ from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, Call,
-                     CallContext, Intrinsic)
+                     CallContext, Intrinsic, TypeDef)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
-from loki.types import BaseType
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
+from loki.types import TypeTable
 
 
 __all__ = ['Subroutine']
@@ -35,10 +36,16 @@ class Subroutine(object):
                        appeared in the parsed source file.
     :param typedefs: Optional list of external definitions for derived
                      types that allows more detaild type information.
+    :param symbols: Instance of class:``TypeTable`` used to cache type information
+                    for all symbols defined within this module's scope.
+    :param types: Instance of class:``TypeTable`` used to cache type information
+                  for all (derived) types defined within this module's scope.
+    :param parent: Optional enclosing scope, to which a weakref can be held for symbol lookup.
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None, bind=None, is_function=False):
+                 members=None, ast=None, typedefs=None, bind=None, is_function=False,
+                 symbols=None, types=None, parent=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -46,6 +53,17 @@ class Subroutine(object):
         self.arguments = None
         self.variables = None
         self._decl_map = None
+        self._parent = weakref.ref(parent) if parent is not None else None
+
+        self.symbols = symbols
+        if self.symbols is None:
+            parent = self.parent.symbols if self.parent is not None else None
+            self.symbols = TypeTable(parent)
+
+        self.types = types
+        if self.types is None:
+            parent = self.parent.types if self.parent is not None else None
+            self.types = TypeTable(parent)
 
         self.docstring = docstring
         self.spec = spec
@@ -58,8 +76,8 @@ class Subroutine(object):
         self.bind = bind
         self.is_function = is_function
 
-    @classmethod
-    def _infer_allocatable_shapes(cls, spec, body):
+    @staticmethod
+    def _infer_allocatable_shapes(spec, body):
         """
         Infer variable symbol shapes from allocations of ``allocatable`` arrays.
         """
@@ -71,16 +89,19 @@ class Subroutine(object):
         vmap = {}
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:
-                vmap[v] = v.clone(shape=alloc_map[v.name.lower()])
+                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
+                vmap[v] = v.clone(type=vtype)
         smap = {}
         for v in FindVariables().visit(spec):
             if v.name.lower() in alloc_map:
-                smap[v] = v.clone(shape=alloc_map[v.name.lower()])
+                vtype = v.type.clone(shape=alloc_map[v.name.lower()])
+                smap[v] = v.clone(type=vtype)
         return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
         name = name or ast.attrib['name']
+        obj = cls(name=name, ast=ast, typedefs=typedefs, parent=parent)
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
@@ -94,20 +115,12 @@ class Subroutine(object):
         ast_body = ast_body[idx_spec+1:]
 
         # Create a IRs for the docstring and the declaration spec
-        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source)
-        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source)
-
-        # Derive type and shape maps to propagate through the subroutine body
-        type_map = {}
-        shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            type_map.update({v.name: v.type for v in decl.variables})
-            shape_map.update({v.name: v.shape for v in decl.variables
-                              if isinstance(v, Array)})
+        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=obj)
+        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source,
+                             scope=obj)
 
         # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, pp_info=pp_info, shape_map=shape_map, type_map=type_map,
-                             raw_source=raw_source)
+        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=obj)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -117,19 +130,23 @@ class Subroutine(object):
         # Parse "member" subroutines recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source,
-                                           typedefs=typedefs, pp_info=pp_info)
+            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
+                                           pp_info=pp_info, scope=obj)
                        for s in ast.findall('members/subroutine')]
 
-        return cls(name=name, args=args, docstring=docs, spec=spec, body=body,
-                   members=members, ast=ast, typedefs=typedefs)
+        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
+                     members=members, ast=ast, typedefs=typedefs, symbols=obj.symbols,
+                     types=obj.types, parent=parent)
+        return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None):
+    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None,
+                  parent=None):
         name = name or ast.find('name').text
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+        obj = cls(name=name, parent=parent)
 
         # Get the names of dummy variables from the type_map
         fhash = ast.find('name').attrib['type']
@@ -139,9 +156,9 @@ class Subroutine(object):
 
         # Generate spec, filter out external declarations and docstring
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source)
+                              symbol_map=symbol_map, raw_source=raw_source, scope=obj)
         mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-                  if d._source.file != file or d.variables[0].name == name}
+                  if d._source.file != file or next(iter(d.variables)) == name}
         spec = Section(body=Transformer(mapper).visit(spec))
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
@@ -150,19 +167,13 @@ class Subroutine(object):
         spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
         spec._update(body=as_tuple(spec_body))
 
-        # Get the declared shapes of local variables and arguments
-        shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            for v in decl.variables:
-                if isinstance(v, Array):
-                    shape_map[v.name] = v.shape
-
         # Parse member functions properly
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
             members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
-                                            symbol_map=symbol_map, raw_source=raw_source)
+                                            symbol_map=symbol_map, raw_source=raw_source,
+                                            parent=parent)
                        for s in contains]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
@@ -170,38 +181,33 @@ class Subroutine(object):
         # Convert the core kernel to IR
         body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
                                        type_map=type_map, symbol_map=symbol_map,
-                                       shape_map=shape_map, raw_source=raw_source))
+                                       raw_source=raw_source, scope=obj))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        return cls(name=name, args=args, docstring=None, spec=spec, body=body,
-                   members=members, ast=ast)
+        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body,
+                     members=members, ast=ast, parent=parent, symbols=obj.symbols, types=obj.types)
+        return obj
 
     @classmethod
-    def from_fparser(cls, ast, name=None, typedefs=None):
+    def from_fparser(cls, ast, name=None, typedefs=None, parent=None):
         routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
         name = name or routine_stmt.get_name().string
+
+        obj = cls(name, parent=parent)
+
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = parse_fparser_ast(spec_ast, typedefs=typedefs)
+        spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
         spec = Section(body=spec)
 
-        # Derive type and shape maps to propagate through the subroutine body
-        type_map = {}
-        shape_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            type_map.update({v.name: v.type for v in decl.variables})
-            shape_map.update({v.name: v.shape for v in decl.variables
-                              if isinstance(v, Array)})
-
         body_ast = get_child(ast, Fortran2003.Execution_Part)
-        body = parse_fparser_ast(body_ast, typedefs=typedefs, shape_map=shape_map,
-                                 type_map=type_map)
+        body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj))
         # body = Section(body=body)
 
         # Big, but necessary hack:
@@ -209,7 +215,9 @@ class Subroutine(object):
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        return cls(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast)
+        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
+                     symbols=obj.symbols, types=obj.types, parent=parent)
+        return obj
 
     def _internalize(self):
         """
@@ -343,3 +351,10 @@ class Subroutine(object):
 
         return InterfaceBlock(name=self.name, imports=imports,
                               arguments=arguments, declarations=declarations)
+
+    @property
+    def parent(self):
+        """
+        Access the enclosing scope.
+        """
+        return self._parent() if self._parent is not None else None

@@ -7,8 +7,8 @@ from pathlib import Path
 from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
                   info, as_tuple, Loop, Variable,
-                  Array, Call, Pragma, BaseType,
-                  DerivedType, Import, RangeIndex,
+                  Array, Call, Pragma, DataType,
+                  SymbolType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation, FCodeMapper,
                   Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper)
@@ -64,17 +64,17 @@ class DerivedArgsTransformation(AbstractTransformation):
         candidates = defaultdict(list)
 
         for arg in routine.arguments:
-            if isinstance(arg.type, DerivedType):
+            if arg.type.dtype == DataType.DERIVED_TYPE:
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable
-                       for v in arg.type.variables):
+                       for v in arg.type.variables.values()):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.name.lower() for v in variables
+                arg_member_vars = set(v.basename.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
-                candidates[arg] += [v for v in arg.type.variables
-                                    if v.name.lower() in arg_member_vars]
+                candidates[arg] += [v for v in arg.type.variables.values()
+                                    if v.basename.lower() in arg_member_vars]
         return candidates
 
     def flatten_derived_args_caller(self, caller):
@@ -99,8 +99,10 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex() for _ in type_var.dimensions)
-                            new_arg = type_var.clone(dimensions=new_dims, parent=d_arg)  # deepcopy(d_arg))
+                            new_dims = tuple(RangeIndex() for _ in type_var.type.shape or [])
+                            new_type = type_var.type.clone(parent=d_arg)
+                            new_arg = type_var.clone(dimensions=new_dims, type=new_type,
+                                                     parent=d_arg, scope=d_arg.scope)  # deepcopy(d_arg))
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -132,13 +134,11 @@ class DerivedArgsTransformation(AbstractTransformation):
             new_vars = []
             for type_var in type_vars:
                 # Create a new variable with a new type mimicking the old one
-                new_type = BaseType(name=type_var.type.name,
-                                    kind=type_var.type.kind,
-                                    intent=arg.type.intent)
-                new_name = '%s_%s' % (arg.name, type_var.name)
-                new_var = Variable(name=new_name, type=new_type,
-                                   dimensions=as_tuple(type_var.shape),
-                                   shape=as_tuple(type_var.shape))
+                new_type = SymbolType(type_var.type.dtype, kind=type_var.type.kind,
+                                      intent=arg.type.intent, shape=type_var.type.shape)
+                new_name = '%s_%s' % (arg.name, type_var.basename)
+                new_var = Variable(name=new_name, type=new_type, dimensions=new_type.shape,
+                                   scope=routine.symbols)
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
@@ -158,7 +158,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         # Note: The ``type=None`` prevents this clone from overwriting the type
         # we just derived above, as it would otherwise use whaterever type we
         # had derived previously (ie. the pointer type from the struct definition.)
-        vmap = {v: v.clone(name='%s_%s' % (v.parent.name, v.name), parent=None, type=None)
+        vmap = {v: v.clone(name=v.name.replace('%', '_'), parent=None, type=None)
                 for v in variables}
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
@@ -323,7 +323,7 @@ class SCATransformation(AbstractTransformation):
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        new_dims = tuple(Variable(name=target.variable)
+                        new_dims = tuple(Variable(name=target.variable, scope=caller.symbols)
                                          if str(tdim).upper() in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -352,7 +352,7 @@ class SCATransformation(AbstractTransformation):
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable),
+                    loop = Loop(variable=Variable(name=target.variable, scope=caller.symbols),
                                 bounds=(dim_lower, dim_upper, None),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -364,8 +364,8 @@ class SCATransformation(AbstractTransformation):
         # Finally, we add the declaration of the loop variable
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
-            dtype = BaseType(name='INTEGER', kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype)]
+            dtype = SymbolType(DataType.INTEGER, kind='JPIM')
+            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller.symbols)]
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):

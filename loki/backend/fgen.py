@@ -1,12 +1,12 @@
 from textwrap import wrap
 from pymbolic.primitives import Expression, is_zero, Product
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
+                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_CALL)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple, is_iterable
-from loki.types import BaseType
 from loki.expression import LokiStringifyMapper
+from loki.types import DataType, SymbolType
 
 __all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -26,14 +26,17 @@ class FCodeMapper(LokiStringifyMapper):
         ">": r">",
     }
 
-    def __init__(self, constant_mapper=repr):
+    def __init__(self, constant_mapper=None):
         super(FCodeMapper, self).__init__(constant_mapper)
 
     def map_logic_literal(self, expr, *args, **kwargs):
         return '.true.' if expr.value else '.false.'
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
-        result = '%s_%s' % (self(expr.value), expr._kind) if expr._kind else self(expr.value)
+        if expr.kind is not None:
+            return '%s_%s' % (str(expr.value), str(expr.kind)) # self.rec(expr.kind, PREC_CALL, *args, **kwargs))
+        else:
+            result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
@@ -217,11 +220,11 @@ class FortranCodegen(Visitor):
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
         type = self.visit(o.type)
-        variables = self.segment([self.visit(v) for v in o.variables])
         if o.dimensions is None:
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
+        variables = self.segment([self.visit(v) for v in o.variables])
         return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o):
@@ -328,7 +331,7 @@ class FortranCodegen(Visitor):
         if len(args) > self.chunking:
             self._depth += 2
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
-            # line limit. The linewidth chaeck should be made smarter to
+            # line limit. The linewidth check should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
             signature = self.segment([self.fsymgen(a) if isinstance(a, Expression)
                                       else a for a in args], chunking=3)
@@ -339,7 +342,7 @@ class FortranCodegen(Visitor):
 
     def visit_Allocation(self, o):
         source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
-        variables = ','.join(v.name if isinstance(v, str) else str(v)
+        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
                              for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
@@ -355,22 +358,24 @@ class FortranCodegen(Visitor):
 
     def visit_Scalar(self, o):
         if o.initial is not None:
-            if is_iterable(o.initial):
-                value = ArrayConstructor(elements=o.initial)
-            else:
-                value = o.initial
             # TODO: This is super-hacky! We need to find
             # a rigorous way to do this, but various corner
-            # cases around opinter assignments break the
+            # cases around pointer assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self.fsymgen(value))
+            return '%s = %s' % (o, self.fsymgen(o.initial))
         else:
             return self.fsymgen(o)
 
     visit_Array = visit_Scalar
 
-    def visit_BaseType(self, o):
-        tname = o.name if o.name.upper() in BaseType._base_types else 'TYPE(%s)' % o.name
+    def visit_SymbolType(self, o):
+        if o.dtype == DataType.DERIVED_TYPE:
+            tname = 'TYPE(%s)' % o.name
+        else:
+            type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
+                        DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
+                        DataType.COMPLEX: 'COMPLEX'}
+            tname = type_map[o.dtype]
         return '%s%s%s%s%s%s%s%s%s%s' % (
             tname,
             '(KIND=%s)' % o.kind if o.kind else '',

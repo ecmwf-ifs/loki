@@ -9,12 +9,13 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.expression import Variable, Literal, LiteralList, InlineCall, RangeIndex, Array, Cast
+from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
+                             ExpressionDimensionsMapper)
 from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
-from loki.types import BaseType, DerivedType, DataType
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['preprocess_omni', 'parse_omni_file', 'parse_omni_ast']
@@ -70,15 +71,49 @@ def parse_omni_file(filename, xmods=None):
 
 class OMNI2IR(GenericVisitor):
 
-    def __init__(self, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                 raw_source=None):
+    _omni_types = {
+        'Fint': 'INTEGER',
+        'Freal': 'REAL',
+        'Flogical': 'LOGICAL',
+        'Fcharacter': 'CHARACTER',
+        'int': 'INTEGER',
+        'real': 'REAL',
+    }
+
+    def __init__(self, typedefs=None, type_map=None, symbol_map=None,
+                 raw_source=None, scope=None):
         super(OMNI2IR, self).__init__()
 
         self.typedefs = typedefs
         self.type_map = type_map
         self.symbol_map = symbol_map
-        self.shape_map = shape_map
         self.raw_source = raw_source
+        self.scope = scope
+
+    def _struct_type_variables(self, o, scope, parent=None):
+        """
+        Helper routine to build the list of variables for a `FstructType` node
+        """
+        variables = []
+        for s in o.find('symbols'):
+            vname = s.find('name').text
+            if parent is not None:
+                vname = '%s%%%s' % (parent, vname)
+            dimensions = None
+
+            t = s.attrib['type']
+            if t in self.type_map:
+                vtype = self.visit(self.type_map[t])
+                dims = self.type_map[t].findall('indexRange')
+                if dims:
+                    dimensions = as_tuple(self.visit(d) for d in dims)
+                    vtype = vtype.clone(shape=dimensions)
+            else:
+                typename = self._omni_types.get(t, t)
+                vtype = SymbolType(DataType.from_fortran_type(typename))
+
+            variables += [Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope)]
+        return variables
 
     def lookup_method(self, instance):
         """
@@ -122,50 +157,71 @@ class OMNI2IR(GenericVisitor):
 
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
+
+        # Hack: For some £$%^ reason, OMNI inserts the function name as a varDecl...
+        if hasattr(self.scope, 'name') and self.scope.name == name.text:
+            return None
+
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
 
-            # Hacky..: Override derived type meta-info with provided ``typedefs``.
-            # This is needed to get the Loki-specific (pragma-driven) dimensions on
-            # derived-type components, that are otherwise deferred.
-            if _type is not None and self.typedefs is not None:
-                typedef = self.typedefs.get(_type.name.lower(), None)
-                if typedef is not None:
-                    _type = DerivedType(name=typedef.name, variables=typedef.variables,
-                                        intent=_type.intent, allocatable=_type.allocatable,
-                                        pointer=_type.pointer, optional=_type.optional,
-                                        parameter=_type.parameter, target=_type.target,
-                                        contiguous=_type.contiguous)
+            # If the type definition comes back as deferred, carry out the definition here
+            # (this is due to not knowing to which variable instance the type definition
+            # belongs further down the tree, which makes scoping hard...)
+            if _type.dtype == DataType.DEFERRED and _type.name in self.type_map:
+                tname = self.symbol_map[_type.name].find('name').text
+                variables = self._struct_type_variables(self.type_map[_type.name],
+                                                        scope=self.scope.symbols, parent=name.text)
+                variables = OrderedDict([(v.basename, v) for v in variables])
+
+                # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
+                _type = _type.clone(dtype=DataType.DERIVED_TYPE, name=tname, variables=variables)
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
-            t = name.attrib['type']
-            _type = BaseType(name=BaseType._omni_types.get(t, t))
+            t = self._omni_types[name.attrib['type']]
+            _type = SymbolType(DataType.from_fortran_type(t))
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
+        if _type is not None:
+            _type.shape = dimensions
         variable = Variable(name=name.text, dimensions=dimensions, type=_type,
-                            shape=dimensions, initial=value)
+                            initial=value, scope=self.scope.symbols, source=source)
         return Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        derived = self.visit(self.type_map[name.attrib['type']])
-        decls = as_tuple(Declaration(variables=(v, ), type=v.type)
-                         for v in derived.variables)
-        return TypeDef(name=name.text, declarations=decls)
+        typedef = TypeDef(name=name.text, declarations=[])
+
+        # Create the derived type...
+        _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
+
+        # ...and built the list of its members
+        variables = self._struct_type_variables(self.type_map[name.attrib['type']],
+                                                typedef.symbols)
+
+        # Remember that derived type
+        _type.variables.update([(v.basename, v) for v in variables])
+        self.scope.types[name.text] = _type
+
+        # Build individual declarations for each member
+        declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
+                                for v in _type.variables.values())
+        typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
+        return typedef
 
     def visit_FbasicType(self, o, source=None):
         ref = o.attrib.get('ref', None)
         if ref in self.type_map:
             _type = self.visit(self.type_map[ref])
         else:
-            name = BaseType._omni_types.get(ref, ref)
+            typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-            _type = BaseType(name, kind=kind)
+            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -178,31 +234,38 @@ class OMNI2IR(GenericVisitor):
         return _type
 
     def visit_FstructType(self, o, source=None):
+        # We have encountered a derived type as part of the declaration in the spec
+        # of a routine.
         name = o.attrib['type']
         if self.symbol_map is not None and name in self.symbol_map:
             name = self.symbol_map[name].find('name').text
-        variables = []
 
-        for s in o.find('symbols'):
-            vname = s.find('name').text
-            t = s.attrib['type']
-            dimensions = None
-            if t in self.type_map:
-                vtype = self.visit(self.type_map[t])
-                if len(self.type_map[t]) > 0:
-                    dimensions = as_tuple(self.visit(d) for d in self.type_map[t])
-            else:
-                vtype = BaseType(name=BaseType._omni_types.get(t, t))
-            variables += [Variable(name=vname, dimensions=dimensions,
-                                   shape=dimensions, type=vtype)]
+        # Check if we know that type already
+        parent_type = self.scope.types.lookup(name, recursive=True)
+        if parent_type is not None:
+            return parent_type.clone()
 
-        return DerivedType(name=name, variables=as_tuple(variables))
+        # Check if the type was defined externally
+        if self.typedefs is not None and name in self.typedefs:
+            variables = OrderedDict([(v.name, v) for v in self.typedefs[name].variables])
+            return SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables)
+
+        # Otherwise: We have an externally defined type for which we were not given
+        # a typedef. We defer the definition
+        return SymbolType(DataType.DEFERRED, name=o.attrib['type'])
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            associations[var] = Variable(name=i.find('name').text)
+            if isinstance(var, Array):
+                shape = ExpressionDimensionsMapper()(var)
+            else:
+                shape = None
+            vname = i.find('name').text
+            vtype = var.type.clone(name=None, parent=None, shape=shape)
+            associations[var] = Variable(name=vname, type=vtype, scope=self.scope.symbols,
+                                         source=source)
         body = self.visit(o.find('body'))
         return Scope(body=as_tuple(body), associations=associations)
 
@@ -243,73 +306,69 @@ class OMNI2IR(GenericVisitor):
         return Conditional(conditions=as_tuple(conditions),
                            bodies=(bodies, ), else_body=else_body)
 
-    def visit_FmemberRef(self, o, lookahead=False, source=None):
+    def visit_FmemberRef(self, o, **kwargs):
         vname = o.attrib['member']
         t = o.attrib['type']
-        if t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-        else:
-            vtype = BaseType(name=BaseType._omni_types.get(t, t))
         parent = self.visit(o.find('varRef'))
 
-        if lookahead:
-            # Hack: Return components of Variable symbol to allow deferred creation
-            return vname, vtype, parent
+        source = kwargs.get('source', None)
+        shape = kwargs.get('shape', None)
+        dimensions = kwargs.get('dimensions', None)
 
-        shape = None
+        vtype = None
         if parent is not None:
-            # If we have a parent with a type, get the shape info from it
-            if isinstance(parent.type, DerivedType):
-                typevar = [v for v in parent.type.variables
-                           if v.name.lower() == vname.lower()][0]
-                shape = None
-                if isinstance(typevar, Array):
-                    shape = typevar.shape or typevar.dimensions
+            basename = vname
+            vname = '%s%%%s' % (parent.name, vname)
 
-        return Variable(name=vname, type=vtype, parent=parent, shape=shape)
+        vtype = self.scope.symbols.lookup(vname, recursive=True)
 
-    def visit_Var(self, o, lookahead=False, source=None):
+        # If we have a parent with a type, use that
+        if vtype is None and parent is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+            vtype = parent.type.variables.get(basename, vtype)
+        if vtype is None and t in self.type_map:
+            vtype = self.visit(self.type_map[t])
+        if vtype is None:
+            typename = self._omni_types.get(t, t)
+            vtype = SymbolType(DataType.from_fortran_type(typename))
+
+        if shape is not None and vtype is not None and vtype.shape != shape:
+            # We need to create a clone of that type as other instances of that
+            # derived type might have a different allocation size
+            vtype = vtype.clone(shape=shape)
+
+        return Variable(name=vname, type=vtype, parent=parent, scope=self.scope.symbols,
+                        dimensions=dimensions, source=source)
+
+    def visit_Var(self, o, **kwargs):
         vname = o.text
         t = o.attrib['type']
-        if t in self.type_map:
+
+        source = kwargs.get('source', None)
+        dimensions = kwargs.get('dimensions', None)
+        shape = kwargs.get('shape', None)
+
+        vtype = self.scope.symbols.lookup(vname, recursive=True)
+
+        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
-            # Inject derived-type definition override :(
-            if vtype is not None and self.typedefs is not None:
-                typedef = self.typedefs.get(vtype.name.lower(), None)
-                if typedef is not None:
-                    vtype = DerivedType(name=typedef.name, variables=typedef.variables,
-                                        intent=vtype.intent, allocatable=vtype.allocatable,
-                                        pointer=vtype.pointer, optional=vtype.optional,
-                                        parameter=vtype.parameter, target=vtype.target,
-                                        contiguous=vtype.contiguous)
-        else:
-            vtype = BaseType(name=BaseType._omni_types.get(t, t))
+        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self._omni_types:
+            typename = self._omni_types.get(t, t)
+            vtype = SymbolType(DataType.from_fortran_type(typename))
 
-        if lookahead:
-            return vname, vtype, None
+        if shape is not None and vtype is not None and vtype.shape != shape:
+            # We need to create a clone of that type as other instances of that
+            # derived type might have a different allocation size
+            vtype = vtype.clone(shape=shape)
 
-        shape = None
-        if self.shape_map is not None:
-            shape = self.shape_map.get(vname, None)
-        return Variable(name=vname, type=vtype, shape=shape)
+        return Variable(name=vname, type=vtype, scope=self.scope.symbols,
+                        dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
         # explicitly before constructing our symbolic variable.
-        vname, vtype, parent = self.visit(o.find('varRef'), lookahead=True)
         dimensions = as_tuple(self.visit(i) for i in o[1:])
-        shape = self.shape_map.get(vname, None)
-
-        if parent is not None:
-            # If we have a parent with a type, get the shape info from it
-            if isinstance(parent.type, DerivedType):
-                typevar = [v for v in parent.type.variables
-                           if v.name.lower() == vname.lower()][0]
-                shape = typevar.shape or typevar.dimensions
-
-        return Variable(name=vname, dimensions=dimensions,
-                        shape=shape, type=vtype, parent=parent)
+        return self.visit(o.find('varRef'), dimensions=dimensions)
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -327,7 +386,7 @@ class OMNI2IR(GenericVisitor):
         return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
-        return Literal(value=o.text, type=DataType.BOOL)
+        return Literal(value=o.text, type=DataType.LOGICAL)
 
     def visit_FcharacterConstant(self, o, source=None):
         return Literal(value='"%s"' % o.text)
@@ -368,13 +427,11 @@ class OMNI2IR(GenericVisitor):
                         kind = kind[1]  # Yuckk!
                 else:
                     kind = None
-                dtype = BaseType(name=o.find('name').text, kind=kind)
-                return Cast(dtype.name, expression=expr, kind=dtype.kind)
+                return Cast(o.find('name').text, expression=expr, kind=kind)
             else:
                 return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
             return Call(name=name, arguments=args, kwarguments=kwargs)
-        return o.text
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
@@ -383,11 +440,14 @@ class OMNI2IR(GenericVisitor):
         if o.find('allocOpt') is not None:
             data_source = self.visit(o.find('allocOpt'))
         for a in allocs:
-            vname, vtype, parent = self.visit(a[0], lookahead=True)
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
-            variables += [Variable(name=vname, dimensions=dimensions,
-                                   type=vtype, parent=parent)]
+            variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
+#            vname, vtype, parent = self.visit(a[0], shape=dimensions)
+#            if parent is not None:
+#                vname = '%s%%%s' % (parent.name, vname)
+#            variables += [Variable(name=vname, dimensions=dimensions, scope=self.scope,
+#                                   type=vtype, parent=parent, source=source)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
@@ -529,14 +589,14 @@ class OMNI2IR(GenericVisitor):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None, shape_map=None,
-                   raw_source=None):
+def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
+                   raw_source=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
     ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 shape_map=shape_map, raw_source=raw_source).visit(ast)
+                 raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)

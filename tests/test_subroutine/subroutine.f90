@@ -102,7 +102,7 @@ end subroutine routine_arguments
 
 
 subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
-  ! Simple varaible assignments with non-trivial sizes and indices
+  ! Simple variable assignments with non-trivial sizes and indices
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: v1, v2
   real(kind=jprb), allocatable, intent(out) :: v3(:)

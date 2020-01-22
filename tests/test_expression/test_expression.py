@@ -3,8 +3,7 @@ import numpy as np
 from pathlib import Path
 import math
 
-from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Variable,
-                  InlineCall, Cast)
+from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Cast)
 from conftest import generate_identity
 
 
@@ -122,9 +121,9 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[1].expr, FloatLiteral)
     assert isinstance(stmts[2].expr, FloatLiteral)
     assert isinstance(stmts[3].expr, FloatLiteral)
-    assert stmts[3].expr._kind == 'jprb'
+    assert stmts[3].expr.kind in ['jprb']
     assert isinstance(stmts[4].expr, Cast)
-    assert stmts[4].expr.kind.name in ['selected_real_kind', 'jprb']
+    assert str(stmts[4].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[5].expr, Cast)
 
 
@@ -200,8 +199,8 @@ def test_parenthesis(refpath, reference, frontend):
     # Now perform a simple substitutions on the expression
     # and make sure we are still parenthesising as we should!
     from loki import SubstituteExpressions, FindVariables
-    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0] 
-    v4 = Variable(name='v4')
+    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
+    v4 = v2.clone(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
     # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
@@ -219,10 +218,9 @@ def test_commutativity(refpath, reference, frontend):
     routine = source['commutativity']
     stmt = list(routine.body)[0]
 
-    # TODO: One of 1 and v2 needs to be an array, as our scalars are
-    # not yet non-commutative.
     # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
-    assert fgen(stmt) == 'v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)'
+    assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
+                          'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -284,3 +282,22 @@ def test_very_long_statement(refpath, reference, frontend):
     function = getattr(test, 'very_long_statement_%s' % frontend)
     result = function(scalar)
     assert result == 5
+
+
+@pytest.mark.parametrize('frontend', [FP, OMNI])  # OFP doesn't work with the label of format stmt
+def test_intrinsics(refpath, reference, frontend):
+    """
+    Some collected intrinsics or other edge cases that failed in cloudsc.
+    """
+    from loki.ir import Intrinsic
+
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['intrinsics']
+
+    assert isinstance(routine.body[-2], Intrinsic)
+    assert isinstance(routine.body[-1], Intrinsic)
+    assert routine.body[-2].text.strip('\n').lower() in \
+        ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)"]
+    assert routine.body[-1].text.strip('\n').lower() in \
+        ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
+         'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']
