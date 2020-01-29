@@ -4,17 +4,16 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
-from loki import (SourceFile, Transformer,
-                  FindNodes, FindVariables, SubstituteExpressions,
-                  info, as_tuple, Loop, Variable,
-                  Array, CallStatement, Pragma, DataType,
-                  SymbolType, Import, RangeIndex,
-                  AbstractTransformation, BasicTransformation,
-                  FortranCTransformation, FCodeMapper,
-                  Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper)
-
-from raps_deps import RapsDependencyFile, Dependency, Rule
-from scheduler import TaskScheduler
+from loki import (
+    SourceFile, Transformer, TaskScheduler,
+    FindNodes, FindVariables, SubstituteExpressions,
+    info, as_tuple, Loop, Variable,
+    Array, CallStatement, Pragma, DataType,
+    SymbolType, Import, RangeIndex,
+    AbstractTransformation, BasicTransformation,
+    FortranCTransformation, FCodeMapper,
+    Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper
+)
 
 
 def get_typedefs(typedef, xmods=None, frontend=OFP):
