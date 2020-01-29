@@ -10,6 +10,7 @@ setup(name='loki',
       author="Michael Lange",
       packages=find_packages(exclude=['tests']),
       install_requires=['open-fortran-parser'],
-      test_requires=['pytest', 'flake8']
+      test_requires=['pytest', 'flake8'],
+      scripts=['scripts/loki_transform.py'],
 )
 

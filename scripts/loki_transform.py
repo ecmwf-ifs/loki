@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+
+"""
+Loki head script for source-to-source transformations concerning ECMWF
+physics, including "Single Column" (SCA) and CLAW transformations.
+"""
+
 import click
 import toml
 from collections import OrderedDict, defaultdict
