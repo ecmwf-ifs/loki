@@ -1,7 +1,11 @@
 from collections import OrderedDict
 import re
 from fparser.two.parser import ParserFactory
-from fparser.two.utils import get_child, walk_ast
+from fparser.two.utils import get_child
+try:
+    from fparser.two.utils import walk
+except ImportError:
+    from fparser.two.utils import walk_ast as walk
 from fparser.two import Fortran2003
 import fparser.two.Fortran2003 as fp
 from fparser.common.readfortran import FortranStringReader
@@ -144,6 +148,9 @@ class FParser2IR(GenericVisitor):
         return self.visit(o.items[1], **kwargs)
 
     def visit_Component_Attr_Spec(self, o, **kwargs):
+        return o.tostr()
+
+    def visit_Intent_Attr_Spec(self, o, **kwargs):
         return o.tostr()
 
     def visit_Attr_Spec(self, o, **kwargs):
@@ -367,8 +374,8 @@ class FParser2IR(GenericVisitor):
 
         # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
         dimensions = [self.visit(a, **kwargs)
-                      for a in walk_ast(o.items, [fp.Dimension_Component_Attr_Spec,
-                                                  fp.Dimension_Attr_Spec])]
+                      for a in walk(o.items, (fp.Dimension_Component_Attr_Spec,
+                                              fp.Dimension_Attr_Spec))]
         if len(dimensions) > 0:
             if isinstance(o, fp.Data_Component_Def_Stmt):
                 dimensions = dimensions[0][1]
@@ -379,7 +386,8 @@ class FParser2IR(GenericVisitor):
 
         # First, pick out parameters, including explicit DIMENSIONs
         attrs = as_tuple(str(self.visit(a)).lower().strip()
-                         for a in walk_ast(o.items, [fp.Attr_Spec, fp.Component_Attr_Spec]))
+                         for a in walk(o.items, (fp.Attr_Spec, fp.Component_Attr_Spec,
+                                                 fp.Intent_Attr_Spec)))
         intent = None
         if 'intent(in)' in attrs:
             intent = 'in'
@@ -433,7 +441,7 @@ class FParser2IR(GenericVisitor):
         name = get_child(o, fp.Derived_Type_Stmt).items[1].tostr().lower()
         source = kwargs.get('source', None)
         # Visit comments (and pragmas)
-        comments = [self.visit(i, **kwargs) for i in walk_ast(o.content, [fp.Comment])]
+        comments = [self.visit(i, **kwargs) for i in walk(o.content, fp.Comment)]
         pragmas = [c for c in comments if isinstance(c, Pragma)]
         comments = [c for c in comments if not isinstance(c, Pragma)]
         # Create the parent type with all the information we have so far
@@ -443,7 +451,7 @@ class FParser2IR(GenericVisitor):
                            source=source)
         # Create declarations and update the parent type with the children from the declarations
         declarations = flatten([self.visit(i, scope=typedef, **kwargs)
-                                for i in walk_ast(o.content, [fp.Component_Part])])
+                                for i in walk(o.content, fp.Component_Part)])
         typedef._update(declarations=declarations, symbols=typedef.symbols)
         for decl in typedef.declarations:
             dtype.variables.update([(v.basename, v) for v in decl.variables])
