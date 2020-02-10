@@ -502,7 +502,7 @@ class OMNI2IR(GenericVisitor):
         if 'value' in o.attrib:
             return name, o.attrib['value']
         else:
-            return name, self.visit(o.getchildren()[0])
+            return name, self.visit(list(o)[0])
 
     def visit_plusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)

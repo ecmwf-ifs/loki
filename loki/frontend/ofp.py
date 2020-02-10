@@ -81,7 +81,7 @@ class OFP2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
-        children = tuple(self.visit(c) for c in o.getchildren())
+        children = tuple(self.visit(c) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -195,7 +195,7 @@ class OFP2IR(GenericVisitor):
         return Statement(target=target, expr=expr, ptr=True, source=source)
 
     def visit_specification(self, o, source=None):
-        body = tuple(self.visit(c) for c in o.getchildren())
+        body = tuple(self.visit(c) for c in o)
         body = tuple(c for c in body if c is not None)
         # Wrap spec area into a separate Scope
         return Section(body=body, source=source)
@@ -232,7 +232,7 @@ class OFP2IR(GenericVisitor):
                 types = o.findall('type')
                 components = o.findall('components')
                 attributes = [None] * len(types)
-                elements = o.getchildren()
+                elements = list(o)
                 declarations = []
                 # YUCK!!!
                 for i, (t, comps) in enumerate(zip(types, components)):
@@ -466,7 +466,7 @@ class OFP2IR(GenericVisitor):
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
-        _children = deque(self.visit(c) for c in o.getchildren())
+        _children = deque(self.visit(c) for c in o)
         _children = deque(c for c in _children if c is not None)
 
         # Hack: find kwargs for Casts
@@ -523,7 +523,7 @@ class OFP2IR(GenericVisitor):
         return Literal(value=value, kind=kind, type=_type, source=source)
 
     def visit_subscripts(self, o, source=None):
-        return tuple(self.visit(c)for c in o.getchildren()
+        return tuple(self.visit(c) for c in o
                      if c.tag in ['subscript', 'name'])
 
     def visit_subscript(self, o, source=None):
