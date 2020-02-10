@@ -441,7 +441,7 @@ class FParser2IR(GenericVisitor):
         name = get_child(o, fp.Derived_Type_Stmt).items[1].tostr().lower()
         source = kwargs.get('source', None)
         # Visit comments (and pragmas)
-        comments = [self.visit(i, **kwargs) for i in walk(o.content, fp.Comment)]
+        comments = [self.visit(i, **kwargs) for i in walk(o.content, (fp.Comment,))]
         pragmas = [c for c in comments if isinstance(c, Pragma)]
         comments = [c for c in comments if not isinstance(c, Pragma)]
         # Create the parent type with all the information we have so far
@@ -451,7 +451,7 @@ class FParser2IR(GenericVisitor):
                            source=source)
         # Create declarations and update the parent type with the children from the declarations
         declarations = flatten([self.visit(i, scope=typedef, **kwargs)
-                                for i in walk(o.content, fp.Component_Part)])
+                                for i in walk(o.content, (fp.Component_Part,))])
         typedef._update(declarations=declarations, symbols=typedef.symbols)
         for decl in typedef.declarations:
             dtype.variables.update([(v.basename, v) for v in decl.variables])
