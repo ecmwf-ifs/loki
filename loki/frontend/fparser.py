@@ -312,7 +312,7 @@ class FParser2IR(GenericVisitor):
         # Do not recurse here to avoid treating function names as variables
         name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
         if name.upper() in ('REAL', 'INT'):
-            args = walk(o, (fp.Actual_Arg_Spec_List,))[0]
+            args = walk(o.items, (fp.Actual_Arg_Spec_List,))[0]
             expr = self.visit(args.items[0])
             if len(args.items) > 1:
                 # Do not recurse here to avoid treating kind names as variables
