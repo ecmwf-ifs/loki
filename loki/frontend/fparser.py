@@ -1,5 +1,7 @@
+import codecs
 from collections import OrderedDict
 import re
+
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child
 try:
@@ -23,7 +25,7 @@ from loki.ir import (
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
                              ExpressionDimensionsMapper)
-from loki.logging import DEBUG
+from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
@@ -131,6 +133,10 @@ class FParser2IR(GenericVisitor):
         kind = o.items[1] if o.items[1] is not None else None
         return Literal(value=int(o.items[0]), type=DataType.INTEGER, kind=kind)
 
+    def visit_Signed_Int_Literal_Constant(self, o, **kwargs):
+        kind = o.items[1] if o.items[1] is not None else None
+        return Literal(value=int(o.items[0]), type=DataType.INTEGER, kind=kind)
+
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
         return Literal(value=float(o.items[0]), type=DataType.REAL, kind=kind)
@@ -165,7 +171,10 @@ class FParser2IR(GenericVisitor):
         name = o.items[2].tostr()
         # TODO: This is probably not good
         # symbols = as_tuple(self.visit(s, **kwargs) for s in o.items[4].items)
-        symbols = as_tuple(s.tostr() for s in o.items[4].items)
+        if o.items[4]:
+            symbols = as_tuple(s.tostr() for s in o.items[4].items)
+        else:
+            symbols = None
         return Import(module=name, symbols=symbols)
 
     def visit_Include_Stmt(self, o, **kwargs):
@@ -303,10 +312,14 @@ class FParser2IR(GenericVisitor):
         # Do not recurse here to avoid treating function names as variables
         name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
         if name.upper() in ('REAL', 'INT'):
-            expr = self.visit(o.items[1].items[0])
-            # Do not recurse here to avoid treating kind names as variables
-            if len(o.items[1].items) > 1 and o.items[1].items[1].items[0].tostr() == 'kind':
-                kind = o.items[1].items[1].items[1].tostr()
+            args = walk(o, (fp.Actual_Arg_Spec_List,))[0]
+            expr = self.visit(args.items[0])
+            if len(args.items) > 1:
+                # Do not recurse here to avoid treating kind names as variables
+                kind = walk(o, (fp.Actual_Arg_Spec,))
+                # If kind is not specified as named argument, simply take the second
+                # argument and convert it to a string
+                kind = kind[0].items[1].tostr() if kind else args.items[1].tostr()
             else:
                 kind = None
             return Cast(name, expr, kind=kind)
@@ -634,16 +647,26 @@ def parse_fparser_file(filename):
     Generate an internal IR from file via the fparser AST.
     """
     filepath = Path(filename)
-    with filepath.open('r') as f:
-        fcode = f.read()
+    try:
+        with filepath.open('r') as f:
+            fcode = f.read()
+    except UnicodeDecodeError as excinfo:
+        warning('Skipping bad character in input file "%s": %s',
+                str(filepath), str(excinfo))
+        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
+        with codecs.open(filepath, **kwargs) as f:
+            fcode = f.read()
 
     # Remove ``#`` in front of include statements
     fcode = fcode.replace('#include', 'include')
 
+    # Comment out ``@PROCESS`` instructions
+    fcode = fcode.replace('@PROCESS', '! @PROCESS')
+
     reader = FortranStringReader(fcode, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
-    return f2008_parser(reader)  # , raw_source
+    return f2008_parser(reader)
 
 
 @timeit(log_level=DEBUG)

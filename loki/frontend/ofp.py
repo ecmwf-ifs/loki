@@ -443,7 +443,8 @@ class OFP2IR(GenericVisitor):
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(vname, parameters=indices)
             elif vname.upper() in ['REAL', 'INT']:
-                return Cast(vname, expression=indices[0], kind=kwargs.get('kind', None))
+                kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
+                return Cast(vname, expression=indices[0], kind=kind)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(o.attrib['id'], parameters=indices)
