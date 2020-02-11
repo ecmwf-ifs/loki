@@ -9,7 +9,7 @@ from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
-from loki.ir import (Loop, Statement, Conditional, Call, Comment,
+from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
@@ -422,7 +422,7 @@ class OFP2IR(GenericVisitor):
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
         kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
-        return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
+        return CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_argument(self, o, source=None):
         key = o.attrib['name']

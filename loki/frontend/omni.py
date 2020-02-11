@@ -11,7 +11,7 @@ from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.visitors import GenericVisitor
 from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
                              ExpressionDimensionsMapper)
-from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
+from loki.ir import (Scope, Statement, Conditional, CallStatement, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
@@ -431,7 +431,7 @@ class OMNI2IR(GenericVisitor):
             else:
                 return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
-            return Call(name=name, arguments=args, kwarguments=kwargs)
+            return CallStatement(name=name, arguments=args, kwarguments=kwargs)
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')

@@ -5,7 +5,7 @@ from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.backend import fgen
 from loki.visitors import FindNodes
-from loki.ir import Call
+from loki.ir import CallStatement
 
 
 __all__ = ['AbstractTransformation', 'BasicTransformation']
@@ -56,7 +56,7 @@ class BasicTransformation(AbstractTransformation):
         """
         Appends a suffix to :class:`Subroutine` names to distinguish
         them from the original version, and updates all subroutine
-        :class:`Call`s accordingly.
+        :class:`CallStatement`s accordingly.
 
         :param suffix: The suffix to append to the subroutine name.
         """
@@ -70,7 +70,7 @@ class BasicTransformation(AbstractTransformation):
         Update calls to actively transformed subroutines.
         """
         suffix = kwargs.get('suffix', None)
-        for call in FindNodes(Call).visit(routine.body):
+        for call in FindNodes(CallStatement).visit(routine.body):
             if call.context is not None and call.context.active:
                 call._update(name='%s_%s' % (call.name, suffix))
 

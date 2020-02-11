@@ -55,6 +55,7 @@ subroutine literal_expr(v1, v2, v3, v4, v5, v6)
   v3 = 2.3
   v4 = 2.4_jprb
   v5 = real(7, kind=jprb)
+  v6 = real(3.5,jprb)
   v6 = int(3.5)
 
 end subroutine literal_expr
@@ -157,4 +158,18 @@ subroutine intrinsics
 
 1002 format(1x, 2i10, 1x, i4, ' : ', i10)
      write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)
-end subroutine
+end subroutine intrinsics
+
+
+subroutine nested_call_inline_call(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(out) :: v2
+  integer, intent(out) :: v3
+  real(kind=jprb) :: tmp1, tmp2
+
+  tmp1 = real(1, kind=jprb)
+  call simple_expr(tmp1, abs(-2.0_jprb), 3.0_jprb, real(v1, jprb), v2, tmp2)
+  v2 = abs(tmp2 - v2)
+  call very_long_statement(int(v2), v3)
+end subroutine nested_call_inline_call

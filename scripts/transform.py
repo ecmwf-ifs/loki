@@ -7,7 +7,7 @@ from pathlib import Path
 from loki import (SourceFile, Transformer,
                   FindNodes, FindVariables, SubstituteExpressions,
                   info, as_tuple, Loop, Variable,
-                  Array, Call, Pragma, DataType,
+                  Array, CallStatement, Pragma, DataType,
                   SymbolType, Import, RangeIndex,
                   AbstractTransformation, BasicTransformation,
                   FortranCTransformation, FCodeMapper,
@@ -80,14 +80,14 @@ class DerivedArgsTransformation(AbstractTransformation):
     def flatten_derived_args_caller(self, caller):
         """
         Flatten all derived-type call arguments used in the target
-        :class:`Subroutine` for all active :class:`Call` nodes.
+        :class:`Subroutine` for all active :class:`CallStatement` nodes.
 
         The convention used is: ``derived%var => derived_var``.
 
         :param caller: The calling :class:`Subroutine`.
         """
         call_mapper = {}
-        for call in FindNodes(Call).visit(caller.body):
+        for call in FindNodes(CallStatement).visit(caller.body):
             if call.context is not None and call.context.active:
                 candidates = self._derived_type_arguments(call.context.routine)
 
@@ -302,7 +302,7 @@ class SCATransformation(AbstractTransformation):
         size_expressions = target.size_expressions
         replacements = {}
 
-        for call in FindNodes(Call).visit(caller.body):
+        for call in FindNodes(CallStatement).visit(caller.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
                 argmap = {}
@@ -533,7 +533,7 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                         if isinstance(v, Array) and len(v.dimensions) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
-    for call in FindNodes(Call).visit(routine.body):
+    for call in FindNodes(CallStatement).visit(routine.body):
         if call.name.lower() == 'ref_save':
             call.name = 'ref_error'
 
@@ -627,7 +627,7 @@ class InferArgShapeTransformation(AbstractTransformation):
 
     def _pipeline(self, caller, **kwargs):
 
-        for call in FindNodes(Call).visit(caller.body):
+        for call in FindNodes(CallStatement).visit(caller.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
 

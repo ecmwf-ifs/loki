@@ -87,7 +87,7 @@ class ExpressionFinder(Visitor):
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
         return self.find_uniques(variables)
 
-    def visit_Call(self, o, **kwargs):
+    def visit_CallStatement(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
         variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments or []))
         return self.find_uniques(variables)
@@ -245,7 +245,7 @@ class SubstituteExpressions(Transformer):
         body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 
-    def visit_Call(self, o, **kwargs):
+    def visit_CallStatement(self, o, **kwargs):
         arguments = tuple(self.expr_mapper(a) for a in o.arguments)
         kwarguments = tuple((k, self.expr_mapper(v)) for k, v in o.kwarguments)
         # TODO: Re-build the call context

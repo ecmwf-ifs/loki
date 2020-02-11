@@ -339,12 +339,12 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
     """
     Test that arrays passed down a subroutine call are treated as arrays.
     """
-    from loki import FindNodes, Call, FCodeMapper, fgen
+    from loki import FindNodes, CallStatement, FCodeMapper, fgen
 
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
     source = SourceFile.from_file(refpath, frontend=frontend, typedefs=header.typedefs)
     routine = source['routine_call_caller']
-    call = FindNodes(Call).visit(routine.body)[0]
+    call = FindNodes(CallStatement).visit(routine.body)[0]
 
     assert str(call.arguments[0]) == 'x'
     assert str(call.arguments[1]) == 'y'

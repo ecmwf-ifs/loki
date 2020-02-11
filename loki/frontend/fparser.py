@@ -20,7 +20,7 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, Call, Scope, Pragma
+    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
@@ -521,7 +521,7 @@ class FParser2IR(GenericVisitor):
         args = self.visit(o.items[1])
         kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
         arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        return Call(name=name, arguments=arguments, kwarguments=kwarguments)
+        return CallStatement(name=name, arguments=arguments, kwarguments=kwarguments)
 
     def visit_Loop_Control(self, o, **kwargs):
         variable = self.visit(o.items[1][0])

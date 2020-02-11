@@ -322,7 +322,7 @@ class FortranCodegen(Visitor):
         body = self.visit(o.body)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
-    def visit_Call(self, o):
+    def visit_CallStatement(self, o):
         if o.kwarguments is not None:
             kwargs = tuple(str('%s=%s' % (k, v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs

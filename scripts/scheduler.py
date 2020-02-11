@@ -8,7 +8,7 @@ except ImportError:
     gviz = None
 
 from loki import (as_tuple, info, warning, error, SourceFile,
-                  FindNodes, Call, OFP)
+                  FindNodes, CallStatement, OFP)
 
 
 __all__ = ['Task', 'TaskScheduler']
@@ -68,7 +68,7 @@ class Task(object):
         Set of all child routines that this work item calls.
         """
         members = [m.name.lower() for m in (self.routine.members or [])]
-        return tuple(call.name.lower() for call in FindNodes(Call).visit(self.routine.ir)
+        return tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir)
                      if call.name.lower() not in members)
 
     def enrich(self, routines):
@@ -194,7 +194,7 @@ class TaskScheduler(object):
         """
         Process all enqueued source modules and routines with the
         stored kernel. The traversal is performed in topological
-        order, which ensures that :class:`Call`s are always processed
+        order, which ensures that :class:`CallStatement`s are always processed
         before their target :class:`Subroutine`s.
         """
         for task in nx.topological_sort(self.taskgraph):

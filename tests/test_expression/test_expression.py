@@ -125,6 +125,8 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[4].expr, Cast)
     assert str(stmts[4].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[5].expr, Cast)
+    assert str(stmts[5].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert isinstance(stmts[6].expr, Cast)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -301,3 +303,34 @@ def test_intrinsics(refpath, reference, frontend):
     assert routine.body[-1].text.strip('\n').lower() in \
         ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
          'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_nested_call_inline_call(refpath, reference, frontend):
+    """
+    The purpose of this test is to highlight the differences between calls in expression
+    (such as `InlineCall`, `Cast`) and call nodes in the IR.
+    """
+    from loki import fgen, FindNodes, CallStatement, as_tuple
+    # Test the reference solution
+    v2, v3 = reference.nested_call_inline_call(1)
+    assert v2 == 8.
+    assert v3 == 40
+
+    # Test the generated identity
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine_names = ['nested_call_inline_call', 'simple_expr', 'very_long_statement']
+    routines = []
+    for routine in source.subroutines:
+        if routine.name in routine_names:
+            routine.name += '_%s' % frontend
+            for call in FindNodes(CallStatement).visit(routine.body):
+                call.name += '_%s' % frontend
+            routines.append(routine)
+    testname = refpath.parent / ('%s_nested_call_inline_call_%s.f90' % (refpath.stem, frontend))
+    source.write(source=fgen(as_tuple(routines)), filename=testname)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+    function = getattr(pymod, 'nested_call_inline_call_%s' % frontend)
+    v2, v3 = function(1)
+    assert v2 == 8.
+    assert v3 == 40

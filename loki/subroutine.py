@@ -6,7 +6,7 @@ from fparser.two.utils import get_child
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
-from loki.ir import (Declaration, Allocation, Import, Section, Call,
+from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
                      CallContext, Intrinsic, TypeDef)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
@@ -276,18 +276,18 @@ class Subroutine(object):
 
     def enrich_calls(self, routines):
         """
-        Attach target :class:`Subroutine` object to :class:`Call`
+        Attach target :class:`Subroutine` object to :class:`CallStatement`
         objects in the IR tree.
 
         :param call_targets: :class:`Subroutine` objects for corresponding
-                             :class:`Call` nodes in the IR tree.
-        :param active: Additional flag indicating whether this :call:`Call`
+                             :class:`CallStatement` nodes in the IR tree.
+        :param active: Additional flag indicating whether this :call:`CallStatement`
                        represents an active/inactive edge in the
                        interprocedural callgraph.
         """
         routine_map = {r.name.upper(): r for r in as_tuple(routines)}
 
-        for call in FindNodes(Call).visit(self.body):
+        for call in FindNodes(CallStatement).visit(self.body):
             if call.name.upper() in routine_map:
                 # Calls marked as 'reference' are inactive and thus skipped
                 active = True
