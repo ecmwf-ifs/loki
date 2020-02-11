@@ -316,7 +316,7 @@ class FParser2IR(GenericVisitor):
             expr = self.visit(args.items[0])
             if len(args.items) > 1:
                 # Do not recurse here to avoid treating kind names as variables
-                kind = walk(o, (fp.Actual_Arg_Spec,))
+                kind = walk(o.items, (fp.Actual_Arg_Spec,))
                 # If kind is not specified as named argument, simply take the second
                 # argument and convert it to a string
                 kind = kind[0].items[1].tostr() if kind else args.items[1].tostr()
