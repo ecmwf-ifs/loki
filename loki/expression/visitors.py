@@ -138,6 +138,12 @@ class ExpressionRetriever(WalkMapper):
             self.rec(expr.step, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
+    def map_literal_list(self, expr, *args, **kwargs):
+        self.visit(expr)
+        for elem in expr.elements:
+            self.visit(elem)
+        self.post_visit(expr, *args, **kwargs)
+
 
 class ExpressionDimensionsMapper(Mapper):
     """
