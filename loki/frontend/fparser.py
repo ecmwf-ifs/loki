@@ -179,7 +179,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
-        return Import(module=fname, c_import=True)
+        return Import(module=fname, source=kwargs.get('source'))
 
     def visit_Implicit_Stmt(self, o, **kwargs):
         return Intrinsic(text='IMPLICIT %s' % o.items[0],
@@ -646,13 +646,16 @@ class FParser2IR(GenericVisitor):
     visit_Cpp_Elif_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Else_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Endif_Stmt = visit_Cpp_If_Stmt
-    visit_Cpp_Include_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Macro_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Undef_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Line_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Warning_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Error_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Null_Stmt = visit_Cpp_If_Stmt
+
+    def visit_Cpp_Include_Stmt(self, o, **kwargs):
+        fname = o.items[0].tostr()
+        return Import(module=fname, c_import=True, source=kwargs.get('source'))
 
 
 @timeit(log_level=DEBUG)
@@ -670,9 +673,6 @@ def parse_fparser_file(filename):
         kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
         with codecs.open(filepath, **kwargs) as f:
             fcode = f.read()
-
-    # Remove ``#`` in front of include statements
-    fcode = fcode.replace('#include', 'include')
 
     # Comment out ``@PROCESS`` instructions
     fcode = fcode.replace('@PROCESS', '! @PROCESS')
