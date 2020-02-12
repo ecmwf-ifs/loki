@@ -366,6 +366,15 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
 
 
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_no_arg(refpath, reference, frontend):
+    from loki import CallStatement
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_call_no_arg']
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].arguments == ()
+    assert routine.body[0].kwarguments == ()
+
+
 @pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI applies preproc and doesn't keep directives
 def test_pp_macros(refpath, reference, frontend):
     from loki import FindNodes, Intrinsic

@@ -518,9 +518,13 @@ class FParser2IR(GenericVisitor):
 
     def visit_Call_Stmt(self, o, **kwargs):
         name = o.items[0].tostr()
-        args = self.visit(o.items[1])
-        kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
-        arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        args = self.visit(o.items[1]) if o.items[1] else None
+        if args:
+            kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        else:
+            arguments = None
+            kwarguments = None
         return CallStatement(name=name, arguments=arguments, kwarguments=kwarguments)
 
     def visit_Loop_Control(self, o, **kwargs):

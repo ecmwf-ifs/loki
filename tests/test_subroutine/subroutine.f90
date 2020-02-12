@@ -181,6 +181,13 @@ subroutine routine_assign_string()
 end subroutine routine_assign_string
 
 
+subroutine routine_call_no_arg()
+  implicit none
+
+  call abort
+end subroutine routine_call_no_arg
+
+
 subroutine routine_pp_macros()
 #define CONSTANT 123
 #define FLAG
