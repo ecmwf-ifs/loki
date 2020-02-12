@@ -169,8 +169,9 @@ class ExpressionDimensionsMapper(Mapper):
             from loki.expression.symbol_types import RangeIndex, IntLiteral
             dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
             # Replace colon dimensions by the value from shape
-            dims = [s if isinstance(d, RangeIndex) and d.lower is None and d.upper is None else d
-                    for d, s in zip(dims, expr.shape)]
+            shape = expr.shape or [None] * len(dims)
+            dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
+                    else d for d, s in zip(dims, shape)]
             # Remove singleton dimensions
             dims = [d for d in dims if d != IntLiteral(1)]
             return as_tuple(dims)

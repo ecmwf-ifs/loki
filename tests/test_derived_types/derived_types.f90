@@ -144,6 +144,7 @@ contains
   subroutine associates(item)
     ! Use associate to access and modify other items
     type(explicit), intent(inout) :: item
+    type(deferred) :: item2
 
     item%scalar = 17.0
 
@@ -161,6 +162,16 @@ contains
         vector(1) = 1.
 
     end associate
+
+    call alloc_deferred(item2)
+
+    associate(vec=>item2%vector(2))
+
+        vec = 1.
+
+    end associate
+
+    call free_deferred(item2)
 
   end subroutine associates
 

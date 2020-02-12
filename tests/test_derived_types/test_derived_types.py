@@ -233,6 +233,37 @@ def test_associates(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_associates_deferred(refpath, reference, frontend):
+    """
+    Verify that reading in subroutines with deferred external type definitions
+    and associates working on that are supported.
+    """
+
+    code = '''
+SUBROUTINE ASSOCIATES_DEFERRED(ITEM, IDX)
+USE SOME_MOD, ONLY: SOME_TYPE
+IMPLICIT NONE
+TYPE(SOME_TYPE), INTENT(IN) :: ITEM
+INTEGER, INTENT(IN) :: IDX
+ASSOCIATE(SOME_VAR=>ITEM%SOME_VAR(IDX))
+SOME_VAR = 5
+END ASSOCIATE
+END SUBROUTINE
+    '''
+    from loki import FindVariables, Scalar, DataType
+
+    filename = refpath.parent / ('associates_deferred_%s.f90' % frontend)
+    with open(filename, 'w') as f:
+        f.write(code)
+
+    routine = SourceFile.from_file(filename)['associates_deferred']
+    some_var = FindVariables().visit(routine.body).pop()
+    assert isinstance(some_var, Scalar)
+    assert some_var.name == 'SOME_VAR'
+    assert some_var.type.dtype == DataType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_case_sensitivity(refpath, reference, frontend):
     """
     Some abuse of the case agnostic behaviour of Fortran
