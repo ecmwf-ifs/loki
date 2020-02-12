@@ -640,6 +640,20 @@ class FParser2IR(GenericVisitor):
     def visit_Write_Stmt(self, o, **kwargs):
         return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
 
+    def visit_Cpp_If_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
+    visit_Cpp_Elif_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Else_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Endif_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Include_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Macro_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Undef_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Line_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Warning_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Error_Stmt = visit_Cpp_If_Stmt
+    visit_Cpp_Null_Stmt = visit_Cpp_If_Stmt
+
 
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):

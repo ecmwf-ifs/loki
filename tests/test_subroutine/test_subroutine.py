@@ -364,3 +364,18 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
 #    assert fsymgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI applies preproc and doesn't keep directives
+def test_pp_macros(refpath, reference, frontend):
+    from loki import FindNodes, Intrinsic
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
+    visitor = FindNodes(Intrinsic)
+    # We need to collect the intrinsics in multiple places because different frontends
+    # make the cut between parts of a routine in different places
+    intrinsics = visitor.visit(routine.docstring)
+    intrinsics += visitor.visit(routine.spec)
+    intrinsics += visitor.visit(routine.body)
+    assert len(intrinsics) == 9
+    assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
+               for node in intrinsics)
