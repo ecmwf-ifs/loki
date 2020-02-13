@@ -11,7 +11,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, auto_post_mortem_debugger
+    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info
 )
 
 # Get generalized transformations provided by Loki
@@ -282,6 +282,117 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     # but imports and calls our re-generated kernel.
     driver.apply(dependency, role='driver', targets=kernel_name)
     driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
+
+
+class CMakePlanner(Transformation):
+    """
+    Generates a list of files to inject/replace into CMake targets.
+    """
+
+    def __init__(self, rootpath, mode, config=None, build=None):
+        self.build = None if build is None else Path(build)
+        self.config = config
+        self.mode = mode
+
+        self.rootpath = Path(rootpath).resolve()
+        self.sources_to_append = []
+        self.sources_to_remove = []
+        self.sources_to_transform = []
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Construct lists of source files to process, add and remove.
+        """
+        item = kwargs.get('item')
+        role = kwargs.get('role')
+
+        # Back out, if this is Subroutine is not part of the plan
+        if item.name.lower() != routine.name.lower():
+            return
+
+        sourcepath = item.path.resolve()
+        newsource = sourcepath.with_suffix(f'.{self.mode.lower()}.F90')
+        if self.build is not None:
+            newsource = self.build/newsource.name
+
+        # Make new CMake paths relative to source again
+        sourcepath = sourcepath.relative_to(self.rootpath)
+
+        info(f'Planning:: {routine.name} (role={role}, mode={self.mode})')
+
+        self.sources_to_transform += [sourcepath]
+
+        # Inject new object into the final binary libs
+        if item.replicate:
+            # Add new source file next to the old one
+            self.sources_to_append += [newsource]
+        else:
+            # Replace old source file to avoid ghosting
+            self.sources_to_append += [newsource]
+            self.sources_to_remove += [sourcepath]
+
+    def write_planfile(self, filepath):
+        info(f'[Loki] CMakePlanner writing plan: {filepath}')
+        with Path(filepath).open('w') as f:
+            s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform)
+            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
+
+            s_append = '\n'.join(f'    {s}' for s in self.sources_to_append)
+            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
+
+            s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove)
+            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+
+
+@cli.command('plan')
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['idem', 'sca']))
+@click.option('--config', '-cfg', type=click.Path(),
+              help='Path to configuration file.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--source', '-s', type=click.Path(), multiple=True,
+              help='Path to source files to transform.')
+@click.option('--build', '-s', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--root', type=click.Path(),
+              help='Root path to which all paths are relative to.')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni', 'fp']),
+              help='Frontend parser to use (default OFP)')
+@click.option('--callgraph', '-cg', type=click.Path(), default=None,
+              help='Generate and display the subroutine callgraph.')
+@click.option('--cmake_file', type=click.Path(),
+              help='CMake include file to generate.')
+def plan(mode, config, header, source, build, root, include, frontend, callgraph, cmake_file):
+    """
+    Create a "plan", a schedule of files to inject and transform for a
+    given configuration.
+    """
+
+    info(f'[Loki] Creating CMake plan file from config: {config}')
+    config = SchedulerConfig.from_file(config)
+
+    frontend = Frontend[frontend.upper()]
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+
+    headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
+    definitions = flatten(h.modules for h in headers)
+
+    paths = [Path(s).resolve().parent for s in source]
+    paths += [Path(h).resolve().parent for h in header]
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler.populate(routines=config.routines.keys())
+
+    # Generate a cmake include file to tell CMake what we're gonna do!
+    planner = CMakePlanner(rootpath=root, config=scheduler.config, mode=mode, build=build)
+    scheduler.process(transformation=planner)
+    planner.write_planfile(cmake_file)
+
+    # Output the resulting callgraph
+    if callgraph:
+        scheduler.callgraph(callgraph)
 
 
 if __name__ == "__main__":
