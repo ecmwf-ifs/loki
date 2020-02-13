@@ -82,3 +82,14 @@ def test_loop_nest_variable(refpath, reference, frontend):
     function(3, 2, in1, in2, out1, out2)
     assert (out1 == [[3, 5], [5, 7], [7, 9]]).all()
     assert (out2 == [20, 38]).all()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_goto_stmt(refpath, reference, frontend):
+    ref = reference.goto_stmt()
+    assert ref == 3
+
+    test = generate_identity(refpath, 'goto_stmt', frontend=frontend)
+    function = getattr(test, 'goto_stmt_%s' % frontend)
+    result = function()
+    assert result == ref

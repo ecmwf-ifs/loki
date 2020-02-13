@@ -64,7 +64,9 @@ class FParser2IR(GenericVisitor):
         """
         source = kwargs.pop('source', None)
         if not isinstance(o, str) and o.item is not None:
-            source = Source(lines=o.item.span)
+            label = getattr(o.item, 'label', None)
+            string = getattr(o.item, 'line', None)
+            source = Source(lines=o.item.span, string=string, label=label)
         return super(FParser2IR, self).visit(o, source=source, **kwargs)
 
     def visit_Base(self, o, **kwargs):
@@ -660,6 +662,12 @@ class FParser2IR(GenericVisitor):
     def visit_Cpp_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
         return Import(module=fname, c_import=True, source=kwargs.get('source'))
+
+    def visit_Goto_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
+    visit_Return_Stmt = visit_Goto_Stmt
+    visit_Continue_Stmt = visit_Goto_Stmt
 
 
 @timeit(log_level=DEBUG)

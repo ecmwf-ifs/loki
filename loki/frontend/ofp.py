@@ -7,7 +7,7 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
 from loki.visitors import GenericVisitor
 from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
@@ -170,6 +170,9 @@ class OFP2IR(GenericVisitor):
 
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
             return as_tuple(stmts)
+        elif o.find('goto-stmt') is not None:
+            label = o.find('goto-stmt').attrib['target_label']
+            return Intrinsic(text='go to %s' % label, source=source)
         else:
             return self.visit_Element(o, source=source)
 
@@ -630,6 +633,13 @@ class OFP2IR(GenericVisitor):
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
 
+    def visit_label(self, o, source=None):
+        source.label = int(o.attrib['lbl'])
+        return Comment('__STATEMENT_LABEL__', source=source)
+
+    def visit_return(self, o, source=None):
+        return Intrinsic(text='return', source=source)
+
 
 @timeit(log_level=DEBUG)
 def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
@@ -648,5 +658,6 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
     ir = inline_comments(ir)
     ir = cluster_comments(ir)
     ir = inline_pragmas(ir)
+    ir = inline_labels(ir)
 
     return ir

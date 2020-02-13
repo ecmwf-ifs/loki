@@ -148,7 +148,11 @@ class FortranCodegen(Visitor):
             # Re-use original source associated with node
             return o._source.string
         else:
-            return super(FortranCodegen, self).visit(o)
+            if hasattr(o, '_source') and o._source is not None and o._source.label:
+                label = '%d ' % o._source.label
+            else:
+                label = ''
+            return '%s%s' % (label, super(FortranCodegen, self).visit(o))
 
     def visit_Node(self, o):
         return self.indent + '! <%s>' % o.__class__.__name__

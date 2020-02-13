@@ -46,3 +46,14 @@ subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
   end do
 
 end subroutine loop_nest_variable
+
+
+subroutine goto_stmt(var)
+  implicit none
+  integer, intent(out) :: var
+  var = 3
+  go to 1234
+  var = 5
+  1234 return
+  var = 7
+end subroutine
