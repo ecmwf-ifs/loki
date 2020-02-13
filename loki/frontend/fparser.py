@@ -326,9 +326,13 @@ class FParser2IR(GenericVisitor):
                 kind = None
             return Cast(name, expr, kind=kind)
         else:
-            args = self.visit(o.items[1], **kwargs)
-            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+            args = self.visit(o.items[1], **kwargs) if o.items[1] else None
+            if args:
+                kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+                arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+            else:
+                arguments = None
+                kwarguments = None
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
     def visit_Section_Subscript_List(self, o, **kwargs):
@@ -359,11 +363,15 @@ class FParser2IR(GenericVisitor):
 
     def visit_Part_Ref(self, o, **kwargs):
         name = o.items[0].tostr()
-        args = as_tuple(self.visit(o.items[1]))
+        args = as_tuple(self.visit(o.items[1])) if o.items[1] else None
         if name.lower() in ['min', 'max', 'exp', 'sqrt', 'abs', 'log',
                             'selected_real_kind', 'allocated', 'present']:
-            kwarguments = {k: a for k, a in args if isinstance(a, tuple)}
-            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+            if args:
+                kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+                arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+            else:
+                arguments = None
+                kwarguments = None
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
         else:
             # This is an array access and the arguments define the dimension.
@@ -521,13 +529,14 @@ class FParser2IR(GenericVisitor):
     def visit_Call_Stmt(self, o, **kwargs):
         name = o.items[0].tostr()
         args = self.visit(o.items[1]) if o.items[1] else None
+        source = kwargs.get('source', None)
         if args:
             kwarguments = as_tuple(a for a in args if isinstance(a, tuple))
             arguments = as_tuple(a for a in args if not isinstance(a, tuple))
         else:
             arguments = None
             kwarguments = None
-        return CallStatement(name=name, arguments=arguments, kwarguments=kwarguments)
+        return CallStatement(name=name, arguments=arguments, kwarguments=kwarguments, source=source)
 
     def visit_Loop_Control(self, o, **kwargs):
         variable = self.visit(o.items[1][0])
@@ -537,7 +546,8 @@ class FParser2IR(GenericVisitor):
     def visit_Assignment_Stmt(self, o, **kwargs):
         target = self.visit(o.items[0], **kwargs)
         expr = self.visit(o.items[2], **kwargs)
-        return Statement(target=target, expr=expr)
+        source = kwargs.get('source', None)
+        return Statement(target=target, expr=expr, source=source)
 
     def visit_operation(self, op, exprs):
         """
