@@ -23,7 +23,7 @@ from loki.ir import (
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
-                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
                              ExpressionDimensionsMapper)
 from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten
@@ -294,8 +294,10 @@ class FParser2IR(GenericVisitor):
         kind = get_child(o, fp.Kind_Selector)
         if kind is not None:
             kind = kind.items[1].tostr()
-        # TODO: Length_Selector for CHARACTER
-        return dtype, kind
+        length = get_child(o, fp.Length_Selector)
+        if length is not None:
+            length = length.items[1].tostr()
+        return dtype, kind, length
 
     def visit_Intrinsic_Name(self, o, **kwargs):
         return o.tostr()
@@ -432,11 +434,11 @@ class FParser2IR(GenericVisitor):
         dtype = None
         basetype_ast = get_child(o, fp.Intrinsic_Type_Spec)
         if basetype_ast is not None:
-            dtype, kind = self.visit(basetype_ast)
+            dtype, kind, length = self.visit(basetype_ast)
             dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
-                               shape=dimensions)
+                               shape=dimensions, length=length)
 
         derived_type_ast = get_child(o, fp.Declaration_Type_Spec)
         if derived_type_ast is not None:
@@ -600,6 +602,8 @@ class FParser2IR(GenericVisitor):
             return LogicalOr((LogicalAnd(exprs), LogicalNot(LogicalOr(exprs))))
         elif op.lower() == '.neqv.':
             return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
+        elif op == '//':
+            return StringConcat(exprs)
         else:
             raise RuntimeError('FParser: Error parsing generic expression')
 
@@ -626,6 +630,7 @@ class FParser2IR(GenericVisitor):
         exprs = as_tuple(self.visit(o.items[1], **kwargs))
         return self.visit_operation(op=o.items[0], exprs=exprs)
 
+    visit_Level_3_Expr = visit_Level_2_Expr
     visit_Level_4_Expr = visit_Level_2_Expr
     visit_Level_5_Expr = visit_Level_2_Expr
 

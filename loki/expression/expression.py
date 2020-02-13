@@ -178,6 +178,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_pow = IdentityMapper.map_power
+    map_string_concat = map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
         lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None

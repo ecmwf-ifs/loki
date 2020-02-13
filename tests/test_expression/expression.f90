@@ -173,3 +173,14 @@ subroutine nested_call_inline_call(v1, v2, v3)
   v2 = abs(tmp2 - v2)
   call very_long_statement(int(v2), v3)
 end subroutine nested_call_inline_call
+
+
+subroutine character_concat(string)
+  character(10) :: tmp_str1, tmp_str2
+  character(len=12), intent(out) :: string
+
+  tmp_str1 = "Hel" // "lo"
+  tmp_str2 = "wor" // "l" // "d"
+  string = trim(tmp_str1) // " " // trim(tmp_str2)
+  string = trim(string) // "!"
+end subroutine character_concat

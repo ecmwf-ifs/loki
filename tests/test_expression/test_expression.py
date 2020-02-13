@@ -334,3 +334,19 @@ def test_nested_call_inline_call(refpath, reference, frontend):
     v2, v3 = function(1)
     assert v2 == 8.
     assert v3 == 40
+
+
+@pytest.mark.parametrize('frontend', [OMNI, FP])  # Not implemented for OFP currently
+def test_character_concat(refpath, reference, frontend):
+    """
+    Concatenation operator ``//``
+    """
+    # Test the reference solution
+    ref = reference.character_concat()
+    assert ref == b'Hello world!'
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'character_concat', frontend=frontend)
+    function = getattr(test, 'character_concat_%s' % frontend)
+    result = function()
+    assert result == b'Hello world!'

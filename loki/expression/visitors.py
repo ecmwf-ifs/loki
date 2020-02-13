@@ -82,6 +82,9 @@ class LokiStringifyMapper(StringifyMapper):
     def map_parenthesised_pow(self, *args, **kwargs):
         return self.parenthesize(self.map_power(*args, **kwargs))
 
+    def map_string_concat(self, expr, *args, **kwargs):
+        return ' // '.join(self.rec(c, *args, **kwargs) for c in expr.children)
+
     def map_literal_list(self, expr, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
@@ -127,6 +130,7 @@ class ExpressionRetriever(WalkMapper):
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
     map_parenthesised_pow = WalkMapper.map_power
+    map_string_concat = WalkMapper.map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
         self.visit(expr)
@@ -227,6 +231,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product
     map_parenthesised_pow = CombineMapper.map_power
+    map_string_concat = CombineMapper.map_sum
 
     def map_literal_list(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))

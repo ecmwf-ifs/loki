@@ -14,7 +14,7 @@ from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
-                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
                              ExpressionDimensionsMapper)
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
@@ -322,6 +322,7 @@ class OFP2IR(GenericVisitor):
 
                 if o.find('type').attrib['type'] == 'intrinsic':
                     # Create a basic variable type
+                    # TODO: Character length attribute
                     _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
                                        intent=intent, allocatable=allocatable, pointer=pointer,
                                        optional=optional, parameter=parameter, shape=dimensions,
@@ -615,6 +616,8 @@ class OFP2IR(GenericVisitor):
             elif op == '.neqv.':
                 e = (expression, exprs.popleft())
                 expression = LogicalAnd((LogicalNot(LogicalAnd(e)), LogicalOr(e)))
+            elif op == '//':
+                expression = StringConcat((expression, exprs.popleft()))
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 

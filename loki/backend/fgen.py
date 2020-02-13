@@ -380,8 +380,9 @@ class FortranCodegen(Visitor):
                         DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
                         DataType.COMPLEX: 'COMPLEX'}
             tname = type_map[o.dtype]
-        return '%s%s%s%s%s%s%s%s%s%s' % (
+        return '%s%s%s%s%s%s%s%s%s%s%s' % (
             tname,
+            '(LEN=%s)' % o.length if o.length else '',
             '(KIND=%s)' % o.kind if o.kind else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',

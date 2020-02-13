@@ -10,7 +10,7 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
 from loki.visitors import GenericVisitor
 from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
-                             ExpressionDimensionsMapper)
+                             ExpressionDimensionsMapper, StringConcat)
 from loki.ir import (Scope, Statement, Conditional, CallStatement, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
@@ -221,7 +221,8 @@ class OMNI2IR(GenericVisitor):
         else:
             typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind)
+            length = self.visit(o.find('len')) if o.find('len') is not None else None
+            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind, length=length)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -586,6 +587,11 @@ class OMNI2IR(GenericVisitor):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
         return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
+
+    def visit_FconcatExpr(self, o, source=None):
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return StringConcat(exprs)
 
     def visit_gotoStatement(self, o, source=None):
         label = int(o.attrib['label_name'])
