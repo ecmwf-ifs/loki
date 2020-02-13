@@ -524,18 +524,43 @@ class FParser2IR(GenericVisitor):
         return variable, bounds
 
     def visit_If_Construct(self, o, **kwargs):
-        if_then = get_child(o, Fortran2003.If_Then_Stmt)
-        conditions = as_tuple(self.visit(if_then))
-        body_ast = node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt)
+        # The banter before the loop...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, Fortran2003.If_Then_Stmt):
+                break
+            banter += [self.visit(ch, **kwargs)]
+        # Start with the condition that is always there
+        conditions = [self.visit(get_child(o, Fortran2003.If_Then_Stmt), **kwargs)]
+        # Walk throught the if construct and collect statements for the if branch
+        # Pick up any ELSE IF along the way and collect their statements as well
+        bodies = []
+        body = []
+        for child in node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt):
+            node = self.visit(child, **kwargs)
+            if isinstance(child, Fortran2003.Else_If_Stmt):
+                bodies.append(as_tuple(body))
+                body = []
+                conditions.append(node)
+            else:
+                body.append(node)
+        bodies.append(as_tuple(body))
+        assert len(conditions) == len(bodies)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
-        # TODO: Multiple elif bodies..!
-        bodies = (as_tuple(self.visit(a) for a in as_tuple(body_ast)),)
         else_body = as_tuple(self.visit(a) for a in as_tuple(else_ast))
-        return Conditional(conditions=conditions, bodies=bodies,
-                           else_body=else_body, inline=if_then is None)
+        source = kwargs.get('source', None)
+        return (*banter, Conditional(conditions=conditions, bodies=bodies,
+                                     else_body=else_body, inline=False, source=source))
 
     def visit_If_Then_Stmt(self, o, **kwargs):
         return self.visit(o.items[0])
+
+    def visit_If_Stmt(self, o, **kwargs):
+        source = kwargs.get('source', None)
+        conditions = as_tuple(self.visit(o.items[0]))
+        body = as_tuple(self.visit(o.items[1]))
+        return Conditional(conditions=conditions, bodies=body, else_body=(),
+                           inline=True, source=source)
 
     def visit_Call_Stmt(self, o, **kwargs):
         name = o.items[0].tostr()

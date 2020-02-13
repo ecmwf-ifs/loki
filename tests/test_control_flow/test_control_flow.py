@@ -85,6 +85,58 @@ def test_loop_nest_variable(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_inline_conditionals(refpath, reference, frontend):
+    in1, in2 = 2, 2
+    out1, out2 = reference.inline_conditionals(in1, in2)
+    assert out1 == 2 and out2 == 2
+
+    in1, in2 = -2, 10
+    out1, out2 = reference.inline_conditionals(in1, in2)
+    assert out1 == 0 and out2 == 5
+
+    test = generate_identity(refpath, 'inline_conditionals', frontend=frontend)
+    function = getattr(test, 'inline_conditionals_%s' % frontend)
+
+    in1, in2 = 2, 2
+    out1, out2 = function(in1, in2)
+    assert out1 == 2 and out2 == 2
+
+    in1, in2 = -2, 10
+    out1, out2 = function(in1, in2)
+    assert out1 == 0 and out2 == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_multi_body_conditionals(refpath, reference, frontend):
+    out1, out2 = reference.multi_body_conditionals(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = reference.multi_body_conditionals(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = reference.multi_body_conditionals(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = reference.multi_body_conditionals(10)
+    assert out1 == 5 and out2 == 5
+
+    test = generate_identity(refpath, 'multi_body_conditionals', frontend=frontend)
+    function = getattr(test, 'multi_body_conditionals_%s' % frontend)
+
+    out1, out2 = function(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = function(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = function(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = function(10)
+    assert out1 == 5 and out2 == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_goto_stmt(refpath, reference, frontend):
     ref = reference.goto_stmt()
     assert ref == 3

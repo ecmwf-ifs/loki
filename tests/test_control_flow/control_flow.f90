@@ -48,6 +48,41 @@ subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
 end subroutine loop_nest_variable
 
 
+subroutine inline_conditionals(in1, in2, out1, out2)
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+
+  out1 = in1
+  out2 = in2
+
+  if (in1 < 0) out1 = 0
+  if (in2 > 5) out2 = 5
+end subroutine inline_conditionals
+
+
+subroutine multi_body_conditionals(in1, out1, out2)
+  integer, intent(in) :: in1
+  integer, intent(out) :: out1, out2
+
+  if (in1 > 5) then
+    out1 = 5
+  else
+    out1 = 1
+  end if
+
+  if (in1 < 0) then
+    out2 = 0
+  else if (in1 > 5) then
+    out2 = 6
+    out2 = out2 - 1
+  else if (3 < in1 .and. in1 <= 5) then
+    out2 = 4
+  else
+    out2 = in1
+  end if
+end subroutine multi_body_conditionals
+
+
 subroutine goto_stmt(var)
   implicit none
   integer, intent(out) :: var
