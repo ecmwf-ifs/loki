@@ -693,6 +693,12 @@ class FParser2IR(GenericVisitor):
     visit_Return_Stmt = visit_Goto_Stmt
     visit_Continue_Stmt = visit_Goto_Stmt
 
+    def visit_Read_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
+    def visit_Open_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
 
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
