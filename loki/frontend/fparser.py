@@ -141,7 +141,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return Literal(value=float(o.items[0]), type=DataType.REAL, kind=kind)
+        return Literal(value=o.items[0], type=DataType.REAL, kind=kind)
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
         return Literal(value=o.items[0], type=DataType.LOGICAL)

@@ -279,7 +279,9 @@ class FloatLiteral(pmbl.Leaf):
     def __init__(self, value, **kwargs):
         super(FloatLiteral, self).__init__()
 
-        self.value = float(value)
+        # We store float literals as strings to make sure no information gets
+        # lost in the conversion
+        self.value = str(value)
         self.kind = kwargs.get('kind', None)
 
     def __getinitargs__(self):
