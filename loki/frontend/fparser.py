@@ -379,6 +379,15 @@ class FParser2IR(GenericVisitor):
             # Recurse down to visit_Name
             return self.visit(o.items[0], **kwargs)
 
+    def visit_Proc_Component_Ref(self, o, **kwargs):
+        '''This is the compound object for accessing procedure components of a variable.'''
+        pname = o.items[0].tostr().lower()
+        v = Variable(name=pname, scope=self.scope.symbols)
+        for i in o.items[1:-1]:
+            if i != '%':
+                v = self.visit(i, parent=v, source=kwargs.get('source'))
+        return self.visit(o.items[-1], parent=v, **kwargs)
+
     def visit_Array_Section(self, o, **kwargs):
         kwargs['dimensions'] = as_tuple(self.visit(o.items[1]))
         return self.visit(o.items[0], **kwargs)
