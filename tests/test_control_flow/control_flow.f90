@@ -110,3 +110,16 @@ subroutine select_case(cmd, out1)
       out1 = -1
   end select
 end subroutine select_case
+
+
+subroutine cycle_stmt(var)
+  implicit none
+  integer, intent(out) :: var
+  integer :: i
+
+  var = 0
+  do i=1,10
+    if (var > 5) cycle
+    var = var + 1
+  end do
+end subroutine cycle_stmt

@@ -166,3 +166,14 @@ def test_select_case(refpath, reference, frontend):
     for cmd, ref in in_out_pairs.items():
         out1 = function(cmd)
         assert out1 == ref
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_cycle_stmt(refpath, reference, frontend):
+    ref = reference.cycle_stmt()
+    assert ref == 6
+
+    test = generate_identity(refpath, 'cycle_stmt', frontend=frontend)
+    function = getattr(test, 'cycle_stmt_%s' % frontend)
+    result = function()
+    assert result == ref
