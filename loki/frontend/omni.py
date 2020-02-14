@@ -384,7 +384,7 @@ class OMNI2IR(GenericVisitor):
         return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
+        return Literal(value=o.text, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text, type=DataType.LOGICAL)
