@@ -341,7 +341,8 @@ class FortranCodegen(Visitor):
                                       else a for a in args], chunking=3)
             self._depth -= 2
         else:
-            signature = ', '.join(str(a) for a in args)
+            signature = ', '.join(self.fsymgen(a) if isinstance(a, Expression)
+                                  else str(a) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
