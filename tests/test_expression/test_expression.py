@@ -175,7 +175,11 @@ def test_logical_array(refpath, reference, frontend):
     assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP])
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Precedence not honoured')),
+    FP
+])
 def test_parenthesis(refpath, reference, frontend):
     """
     v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
@@ -286,7 +290,11 @@ def test_very_long_statement(refpath, reference, frontend):
     assert result == 5
 
 
-@pytest.mark.parametrize('frontend', [FP, OMNI])  # OFP doesn't work with the label of format stmt
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Format stmt labels not implemented')),
+    OMNI,
+    FP
+])
 def test_intrinsics(refpath, reference, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
@@ -336,7 +344,11 @@ def test_nested_call_inline_call(refpath, reference, frontend):
     assert v3 == 40
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])  # Not implemented for OFP currently
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
+    FP
+])
 def test_character_concat(refpath, reference, frontend):
     """
     Concatenation operator ``//``
@@ -352,8 +364,11 @@ def test_character_concat(refpath, reference, frontend):
     assert result == b'Hello world!'
 
 
-# With OFP, single-line where stmts do not work, with OMNI no WHERE stmts work
-@pytest.mark.parametrize('frontend', [FP])
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Inline WHERE not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
 def test_masked_statements(refpath, reference, frontend):
     """
     Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)

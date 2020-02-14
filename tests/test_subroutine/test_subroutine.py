@@ -375,7 +375,11 @@ def test_call_no_arg(refpath, reference, frontend):
     assert routine.body[0].kwarguments == ()
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI applies preproc and doesn't keep directives
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
+    FP
+])
 def test_pp_macros(refpath, reference, frontend):
     from loki import FindNodes, Intrinsic
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
