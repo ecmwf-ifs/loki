@@ -145,3 +145,24 @@ def test_goto_stmt(refpath, reference, frontend):
     function = getattr(test, 'goto_stmt_%s' % frontend)
     result = function()
     assert result == ref
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_select_case(refpath, reference, frontend):
+    in_out_pairs = {0: 0, 1: 1, 2: 1, 5: 1, 9: 1, 10: 2, 11: 2, 12: -1}
+
+    # Test the reference solution
+    for cmd, ref in in_out_pairs.items():
+        out1 = reference.select_case(cmd)
+        assert out1 == ref
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'select_case', frontend=frontend)
+    function = getattr(test, 'select_case_%s' % frontend)
+    for cmd, ref in in_out_pairs.items():
+        out1 = function(cmd)
+        assert out1 == ref

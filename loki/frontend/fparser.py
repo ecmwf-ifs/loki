@@ -20,7 +20,7 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement
+    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
@@ -755,6 +755,45 @@ class FParser2IR(GenericVisitor):
         default = ()
         source = kwargs.get('source', None)
         return MaskedStatement(condition, body, default, source=source)
+
+    def visit_Case_Construct(self, o, **kwargs):
+        # The banter before the construct...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, Fortran2003.Select_Case_Stmt):
+                break
+            banter += [self.visit(ch, **kwargs)]
+        # The SELECT argument
+        expr = self.visit(get_child(o, Fortran2003.Select_Case_Stmt), **kwargs)
+        body_ast = node_sublist(o.children, Fortran2003.Select_Case_Stmt,
+                                Fortran2003.End_Select_Stmt)
+        values = []
+        bodies = []
+        body = []
+        for child in body_ast:
+            node = self.visit(child, **kwargs)
+            if isinstance(child, Fortran2003.Case_Stmt):
+                if values:  # Avoid appending empty body before first Case_Stmt
+                    bodies.append(as_tuple(body))
+                body = []
+                values.append(node)
+            else:
+                body.append(node)
+        bodies.append(as_tuple(body))
+        assert len(values) == len(bodies)
+        source = kwargs.get('source', None)
+        return (*banter, MultiConditional(expr, values, bodies, source=source))
+
+    def visit_Select_Case_Stmt(self, o, **kwargs):
+        return self.visit(o.items[0], **kwargs)
+
+    def visit_Case_Stmt(self, o, **kwargs):
+        return self.visit(o.items[0], **kwargs)
+
+    def visit_Case_Value_Range(self, o, **kwargs):
+        lower = None if o.items[0] is None else self.visit(o.items[0])
+        upper = None if o.items[1] is None else self.visit(o.items[1])
+        return RangeIndex(lower=lower, upper=upper, step=None)
 
 
 @timeit(log_level=DEBUG)

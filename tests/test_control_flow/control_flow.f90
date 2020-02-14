@@ -91,4 +91,22 @@ subroutine goto_stmt(var)
   var = 5
   1234 return
   var = 7
-end subroutine
+end subroutine goto_stmt
+
+
+subroutine select_case(cmd, out1)
+  implicit none
+  integer, intent(in) :: cmd
+  integer, intent(out) :: out1
+
+  select case (cmd)
+    case (0)
+      out1 = 0
+    case (1:9)
+      out1 = 1
+    case (10, 11)
+      out1 = 2
+    case default
+      out1 = -1
+  end select
+end subroutine select_case
