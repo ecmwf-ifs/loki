@@ -262,6 +262,10 @@ class Section(Node):
     def append(self, node):
         self._update(body=self.body + as_tuple(node))
 
+    def insert(self, pos, node):
+        '''Insert at given position'''
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+
     def prepend(self, node):
         self._update(body=as_tuple(node) + self.body)
 

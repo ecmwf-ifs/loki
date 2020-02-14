@@ -203,4 +203,22 @@ subroutine masked_statements(length, vec1, vec2, vec3)
   endwhere
 
   where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
-end subroutine
+end subroutine masked_statements
+
+
+subroutine data_declaration(data_out)
+  implicit none
+  integer, dimension(5, 4), intent(out) :: data_out
+  integer, dimension(5, 4) :: data1, data2
+  integer, dimension(3) :: data3
+  integer :: i, j
+
+  data data1 /20*5/
+
+  data ((data2(i,j), i=1,5), j=1,4) /20*3/
+
+  data data3(1), data3(3), data3(2) /1, 2, 3/
+
+  data_out(:,:) = data1(:,:) + data2(:,:)
+  data_out(1:3,1) = data3
+end subroutine data_declaration

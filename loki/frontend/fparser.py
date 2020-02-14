@@ -20,7 +20,8 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional
+    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
+    DataDeclaration
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
@@ -795,6 +796,17 @@ class FParser2IR(GenericVisitor):
         lower = None if o.items[0] is None else self.visit(o.items[0])
         upper = None if o.items[1] is None else self.visit(o.items[1])
         return RangeIndex(lower=lower, upper=upper, step=None)
+
+    def visit_Data_Stmt_Set(self, o, **kwargs):
+        # TODO: actually parse the statements
+        variable = o.items[0].tostr().lower()
+        values = as_tuple(self.visit(v, **kwargs) for v in o.items[1].items)
+        source = kwargs.get('source', None)
+        return DataDeclaration(variable=variable, values=values, source=source)
+
+    def visit_Data_Stmt_Value(self, o, **kwargs):
+        exprs = as_tuple(self.visit(c) for c in o.items)
+        return self.visit_operation('*', exprs)
 
 
 @timeit(log_level=DEBUG)

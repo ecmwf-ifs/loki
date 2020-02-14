@@ -7,7 +7,7 @@ from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
-                     CallContext, Intrinsic, TypeDef)
+                     CallContext, Intrinsic, TypeDef, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -270,7 +270,18 @@ class Subroutine(object):
             d.dimensions = None
 
             decls += [d]
-        self.spec.append(decls)
+
+        # Find any DataDeclaration instances to make sure variables are declared before
+        # their initialization
+        try:
+            data_index = [isinstance(d, DataDeclaration) for d in self.spec.body].index(True)
+        except ValueError:
+            data_index = None
+
+        if data_index is not None:
+            self.spec.insert(data_index, decls)
+        else:
+            self.spec.append(decls)
 
         self._decl_map = None
 

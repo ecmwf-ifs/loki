@@ -401,3 +401,27 @@ def test_masked_statements(refpath, reference, frontend):
     assert np.all(ref1 == vec1)
     assert np.all(ref2 == vec2)
     assert np.all(ref3 == vec3)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Implicit DO not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_data_declaration(refpath, reference, frontend):
+    """
+    Variable initialization with DATA statements
+    """
+    expected = np.ones(shape=(5, 4), dtype=np.int32, order='F') * 8
+    expected[[0, 1, 2], 0] = [1, 3, 2]
+    # Test the reference solution
+    ref = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
+    reference.data_declaration(ref)
+    assert np.all(ref == expected)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'data_declaration', frontend=frontend)
+    function = getattr(test, 'data_declaration_%s' % frontend)
+    result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
+    function(result)
+    assert np.all(result == ref)
