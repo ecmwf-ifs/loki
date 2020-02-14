@@ -350,3 +350,39 @@ def test_character_concat(refpath, reference, frontend):
     function = getattr(test, 'character_concat_%s' % frontend)
     result = function()
     assert result == b'Hello world!'
+
+
+# With OFP, single-line where stmts do not work, with OMNI no WHERE stmts work
+@pytest.mark.parametrize('frontend', [FP])
+def test_masked_statements(refpath, reference, frontend):
+    """
+    Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
+    """
+    # Reference solution
+    length = 11
+    ref1 = np.append(np.arange(0, 6, dtype=np.float64),
+                     5 * np.ones(length - 6, dtype=np.float64))
+    ref2 = np.append(np.zeros(5, dtype=np.float64),
+                     np.ones(length - 5, dtype=np.float64))
+    ref3 = np.append(np.arange(-2, 1, dtype=np.float64), np.ones(2, dtype=np.float64))
+    ref3 = np.append(ref3, np.arange(3, length - 2, dtype=np.float64))
+
+    # Test the reference solution
+    vec1 = np.arange(0, length, dtype=np.float64)
+    vec2 = np.arange(-5, length - 5, dtype=np.float64)
+    vec3 = np.arange(-2, length - 2, dtype=np.float64)
+    reference.masked_statements(length, vec1, vec2, vec3)
+    assert np.all(ref1 == vec1)
+    assert np.all(ref2 == vec2)
+    assert np.all(ref3 == vec3)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'masked_statements', frontend=frontend)
+    function = getattr(test, 'masked_statements_%s' % frontend)
+    vec1 = np.arange(0, length, dtype=np.float64)
+    vec2 = np.arange(-5, length - 5, dtype=np.float64)
+    vec3 = np.arange(-2, length - 2, dtype=np.float64)
+    function(length, vec1, vec2, vec3)
+    assert np.all(ref1 == vec1)
+    assert np.all(ref2 == vec2)
+    assert np.all(ref3 == vec3)

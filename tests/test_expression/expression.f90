@@ -184,3 +184,23 @@ subroutine character_concat(string)
   string = trim(tmp_str1) // " " // trim(tmp_str2)
   string = trim(string) // "!"
 end subroutine character_concat
+
+
+subroutine masked_statements(length, vec1, vec2, vec3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: length
+  real(kind=jprb), intent(inout), dimension(length) :: vec1, vec2, vec3
+
+  where (vec1(:) > 5.0_jprb)
+    vec1(:) = 7.0_jprb
+    vec1(:) = 5.0_jprb
+  endwhere
+
+  where (vec2(:) < 0.d0)
+    vec2(:) = 0.0_jprb
+  elsewhere
+    vec2(:) = 1.0_jprb
+  endwhere
+
+  where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
+end subroutine

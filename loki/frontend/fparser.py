@@ -20,7 +20,7 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma
+    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
@@ -723,6 +723,38 @@ class FParser2IR(GenericVisitor):
 
     def visit_Open_Stmt(self, o, **kwargs):
         return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
+    def visit_Where_Construct(self, o, **kwargs):
+        # The banter before the construct...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, Fortran2003.Where_Construct_Stmt):
+                break
+            banter += [self.visit(ch, **kwargs)]
+        # The mask condition
+        condition = self.visit(get_child(o, Fortran2003.Where_Construct_Stmt), **kwargs)
+        default_ast = node_sublist(o.children, Fortran2003.Elsewhere_Stmt,
+                                   Fortran2003.End_Where_Stmt)
+        if default_ast:
+            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
+                                    Fortran2003.Elsewhere_Stmt)
+        else:
+            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
+                                    Fortran2003.End_Where_Stmt)
+        body = as_tuple(self.visit(ch) for ch in body_ast)
+        default = as_tuple(self.visit(ch) for ch in default_ast)
+        source = kwargs.get('source', None)
+        return (*banter, MaskedStatement(condition, body, default, source=source))
+
+    def visit_Where_Construct_Stmt(self, o, **kwargs):
+        return self.visit(o.items[0], **kwargs)
+
+    def visit_Where_Stmt(self, o, **kwargs):
+        condition = self.visit(o.items[0], **kwargs)
+        body = as_tuple(self.visit(o.items[1], **kwargs))
+        default = ()
+        source = kwargs.get('source', None)
+        return MaskedStatement(condition, body, default, source=source)
 
 
 @timeit(log_level=DEBUG)
