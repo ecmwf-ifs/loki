@@ -90,6 +90,8 @@ class Scalar(pmbl.Variable):
             kwargs['type'] = self.type
         if self.parent and 'parent' not in kwargs:
             kwargs['parent'] = self.parent
+        if self.initial and 'initial' not in kwargs:
+            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
 
@@ -205,6 +207,8 @@ class Array(pmbl.Variable):
             kwargs['type'] = self.type
         if self.parent and 'parent' not in kwargs:
             kwargs['parent'] = self.parent
+        if self.initial and 'initial' not in kwargs:
+            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
 
