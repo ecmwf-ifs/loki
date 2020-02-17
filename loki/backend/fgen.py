@@ -352,10 +352,18 @@ class FortranCodegen(Visitor):
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
-        return self.indent + 'DEALLOCATE(%s)' % o.variable
+        if isinstance(o.variable, str):
+            variable = o.variable
+        else:
+            variable = self.fsymgen(o.variable)
+        return self.indent + 'DEALLOCATE(%s)' % variable
 
     def visit_Nullify(self, o):
-        return self.indent + 'NULLIFY(%s)' % o.variable
+        if isinstance(o.variable, str):
+            variable = o.variable
+        else:
+            variable = self.fsymgen(o.variable)
+        return self.indent + 'NULLIFY(%s)' % variable
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
@@ -367,9 +375,13 @@ class FortranCodegen(Visitor):
             # a rigorous way to do this, but various corner
             # cases around pointer assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self.fsymgen(o.initial))
+            stmt = '%s = %s' % (o, self.fsymgen(o.initial))
         else:
-            return self.fsymgen(o)
+            stmt = self.fsymgen(o)
+        # Hack the pointer assignment (very ugly):
+        if o.type.pointer:
+            stmt = stmt.replace(' = ', ' => ')
+        return stmt
 
     visit_Array = visit_Scalar
 

@@ -222,3 +222,17 @@ subroutine data_declaration(data_out)
   data_out(:,:) = data1(:,:) + data2(:,:)
   data_out(1:3,1) = data3
 end subroutine data_declaration
+
+
+subroutine pointer_nullify()
+  implicit none
+  character(len=64), dimension(:), pointer :: charp => NULL()
+  character(len=64), pointer :: pp => NULL()
+  allocate(charp(3))
+  charp(:) = "_ptr_"
+  pp => charp(1)
+  pp = "_other_ptr_"
+  nullify(pp)
+  deallocate(charp)
+  charp => NULL()
+end subroutine pointer_nullify

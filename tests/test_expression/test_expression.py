@@ -404,7 +404,7 @@ def test_masked_statements(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Implicit DO not implemented')),
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     FP
 ])
@@ -425,3 +425,38 @@ def test_data_declaration(refpath, reference, frontend):
     result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
     function(result)
     assert np.all(result == ref)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_pointer_nullify(refpath, reference, frontend):
+    """
+    POINTERS and their nullification via '=> NULL()'
+    """
+    from loki import FindNodes, Nullify, Statement, InlineCall
+
+    # Execute the reference solution (does not return anything but should not fail
+    reference.pointer_nullify()
+
+    # Create the AST and perform some checks
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['pointer_nullify']
+    routine.name += '_%s' % frontend
+
+    assert np.all(v.type.pointer for v in routine.variables)
+    assert np.all(isinstance(v.initial, InlineCall) and v.type.initial.name.lower() == 'null'
+                  for v in routine.variables)
+    assert FindNodes(Nullify).visit(routine.body)[0].variable.name == 'pp'
+    assert [stmt.ptr for stmt in FindNodes(Statement).visit(routine.body)].count(True) == 2
+
+    # Generate the identitiy
+    testname = refpath.parent / ('%s_pointer_nullify_%s.f90' % (refpath.stem, frontend))
+    source.write(source=fgen(routine), filename=testname)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+    function = getattr(pymod, 'pointer_nullify_%s' % frontend)
+
+    # Execute the generated identity (to verify it is valid Fortran)
+    function()

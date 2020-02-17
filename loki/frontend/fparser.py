@@ -21,7 +21,7 @@ from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
-    DataDeclaration
+    DataDeclaration, Nullify
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
@@ -283,12 +283,14 @@ class FParser2IR(GenericVisitor):
     def visit_Allocate_Stmt(self, o, **kwargs):
         allocations = get_child(o, fp.Allocation_List)
         variables = as_tuple(self.visit(a, **kwargs) for a in allocations.items)
-        return Allocation(variables=variables)
+        source = kwargs.get('source', None)
+        return Allocation(variables=variables, source=source)
 
     def visit_Deallocate_Stmt(self, o, **kwargs):
         deallocations = get_child(o, fp.Allocate_Object_List)
         variables = as_tuple(self.visit(a, **kwargs) for a in deallocations.items)
-        return Deallocation(variable=variables)
+        source = kwargs.get('source', None)
+        return as_tuple(Deallocation(variable=v, source=source) for v in variables)
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         dtype = o.items[0]
@@ -337,6 +339,8 @@ class FParser2IR(GenericVisitor):
                 arguments = None
                 kwarguments = None
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
+
+    visit_Function_Reference = visit_Intrinsic_Function_Reference
 
     def visit_Section_Subscript_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
@@ -586,6 +590,12 @@ class FParser2IR(GenericVisitor):
         source = kwargs.get('source', None)
         return Statement(target=target, expr=expr, source=source)
 
+    def visit_Pointer_Assignment_Stmt(self, o, **kwargs):
+        target = self.visit(o.items[0], **kwargs)
+        expr = self.visit(o.items[2], **kwargs)
+        source = kwargs.get('source', None)
+        return Statement(target=target, expr=expr, ptr=True, source=source)
+
     def visit_operation(self, op, exprs):
         """
         Construct expressions from individual operations.
@@ -719,6 +729,7 @@ class FParser2IR(GenericVisitor):
     visit_Return_Stmt = visit_Goto_Stmt
     visit_Continue_Stmt = visit_Goto_Stmt
     visit_Cycle_Stmt = visit_Goto_Stmt
+    visit_Exit_Stmt = visit_Goto_Stmt
 
     def visit_Read_Stmt(self, o, **kwargs):
         return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
@@ -807,6 +818,13 @@ class FParser2IR(GenericVisitor):
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(self.visit(c) for c in o.items)
         return self.visit_operation('*', exprs)
+
+    def visit_Nullify_Stmt(self, o, **kwargs):
+        if not o.items[1]:
+            return ()
+        variables = [self.visit(v, **kwargs) for v in o.items[1].items]
+        source = kwargs.get('source', None)
+        return as_tuple(Nullify(v, source=source) for v in variables)
 
 
 @timeit(log_level=DEBUG)

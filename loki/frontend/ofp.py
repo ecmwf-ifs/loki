@@ -359,7 +359,9 @@ class OFP2IR(GenericVisitor):
             # Data declaration blocks
             declarations = []
             for variables, values in zip(o.findall('variables'), o.findall('values')):
-                variable = self.visit(variables)
+                # TODO: actually parse the statements
+                variable = source.string[5:source.string.index('/')].strip()
+                # variable = self.visit(variables)
                 # Lists of literal values are again nested, so extract
                 # them recursively.
                 lit = values.find('literal')  # We explicitly recurse on l
@@ -369,7 +371,7 @@ class OFP2IR(GenericVisitor):
                     lit = lit.find('literal')
                 vals += [self.visit(lit)]
                 declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
-            return tuple(declarations)
+            return as_tuple(declarations)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
