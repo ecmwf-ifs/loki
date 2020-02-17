@@ -178,11 +178,11 @@ class FParser2IR(GenericVisitor):
             symbols = as_tuple(s.tostr() for s in o.items[4].items)
         else:
             symbols = None
-        return Import(module=name, symbols=symbols)
+        return Import(module=name, symbols=symbols, source=kwargs.get('source'))
 
     def visit_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
-        return Import(module=fname, source=kwargs.get('source'))
+        return Import(module=fname, f_include=True, source=kwargs.get('source'))
 
     def visit_Implicit_Stmt(self, o, **kwargs):
         return Intrinsic(text='IMPLICIT %s' % o.items[0],
@@ -360,8 +360,7 @@ class FParser2IR(GenericVisitor):
         return (key, value)
 
     def visit_Data_Ref(self, o, **kwargs):
-        v = self.visit(o.items[0], source=kwargs.get('source', None)) #o.items[0].tostr().lower()
-        # v = Variable(name=pname, scope=self.scope.symbols)
+        v = self.visit(o.items[0], source=kwargs.get('source', None))
         for i in o.items[1:-1]:
             # Careful not to propagate type or dims here
             v = self.visit(i, parent=v, source=kwargs.get('source', None))
@@ -369,8 +368,7 @@ class FParser2IR(GenericVisitor):
         return self.visit(o.items[-1], parent=v, **kwargs)
 
     def visit_Data_Pointer_Object(self, o, **kwargs):
-        v = self.visit(o.items[0], source=kwargs.get('source', None)) #o.items[0].tostr().lower()
-        #v = Variable(name=pname, scope=self.scope.symbols)
+        v = self.visit(o.items[0], source=kwargs.get('source', None))
         for i in o.items[1:-1]:
             if i == '%':
                 continue
@@ -380,16 +378,23 @@ class FParser2IR(GenericVisitor):
         return self.visit(o.items[-1], parent=v, **kwargs)
 
     def visit_Part_Ref(self, o, **kwargs):
+        # WARNING: Due to fparser's lack of a symbol table, it is not always possible to
+        # distinguish between array subscript and function call. This employs a heuristic
+        # identifying only intrinsic function calls and calls with keyword parameters as
+        # a function call.
         name = o.items[0].tostr()
+        parent = kwargs.get('parent', None)
+        if parent:
+            name = '%s%%%s' % (parent, name)
         args = as_tuple(self.visit(o.items[1])) if o.items[1] else None
-        if name.lower() in ['min', 'max', 'exp', 'sqrt', 'abs', 'log',
-                            'selected_real_kind', 'allocated', 'present']:
-            if args:
-                kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-                arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-            else:
-                arguments = None
-                kwarguments = None
+        if args:
+            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        else:
+            arguments = None
+            kwarguments = None
+        if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
+            # This is (presumably) a function call
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
         else:
             # This is an array access and the arguments define the dimension.
@@ -711,8 +716,11 @@ class FParser2IR(GenericVisitor):
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
         return Scope(associations=associations)
 
+    def visit_Intrinsic_Stmt(self, o, **kwargs):
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
     def visit_Format_Stmt(self, o, **kwargs):
-        return Intrinsic(text=o.tofortran(), source=kwargs.get('source'))
+        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
 
     def visit_Write_Stmt(self, o, **kwargs):
         return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
@@ -741,12 +749,11 @@ class FParser2IR(GenericVisitor):
     visit_Continue_Stmt = visit_Goto_Stmt
     visit_Cycle_Stmt = visit_Goto_Stmt
     visit_Exit_Stmt = visit_Goto_Stmt
-
-    def visit_Read_Stmt(self, o, **kwargs):
-        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
-
-    def visit_Open_Stmt(self, o, **kwargs):
-        return Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+    visit_Save_Stmt = visit_Goto_Stmt
+    visit_Read_Stmt = visit_Goto_Stmt
+    visit_Open_Stmt = visit_Goto_Stmt
+    visit_Close_Stmt = visit_Goto_Stmt
+    visit_Inquire_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...

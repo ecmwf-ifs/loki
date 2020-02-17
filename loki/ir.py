@@ -320,15 +320,19 @@ class Import(Node):
     """
     Internal representation of a module import.
     """
-    def __init__(self, module, symbols=None, c_import=False, source=None):
+    def __init__(self, module, symbols=None, c_import=False, f_include=False, source=None):
         super(Import, self).__init__(source=source)
 
         self.module = module
         self.symbols = symbols or ()
         self.c_import = c_import
+        self.f_include = f_include
+
+        if c_import and f_include:
+            raise ValueError('Import cannot be C include and Fortran include')
 
     def __repr__(self):
-        _c = 'C-' if self.c_import else ''
+        _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return '%sImport:: %s => %s' % (_c, self.module, self.symbols)
 
 

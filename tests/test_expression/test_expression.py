@@ -299,15 +299,17 @@ def test_intrinsics(refpath, reference, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
     """
-    from loki.ir import Intrinsic
+    from loki import Intrinsic, fgen
 
     source = SourceFile.from_file(refpath, frontend=frontend)
     routine = source['intrinsics']
 
     assert isinstance(routine.body[-2], Intrinsic)
     assert isinstance(routine.body[-1], Intrinsic)
-    assert routine.body[-2].text.strip('\n').lower() in \
-        ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)"]
+    assert routine.body[-2].text.strip('\n').lower() in ["format(1x, 2i10, 1x, i4, ' : ', i10)",
+                                                         'format(1x, 2i10, 1x, i4, " : ", i10)']
+    assert fgen(routine.body[-2]).lower() in ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)",
+                                              '1002 format(1x, 2i10, 1x, i4, " : ", i10)']
     assert routine.body[-1].text.strip('\n').lower() in \
         ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
          'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']

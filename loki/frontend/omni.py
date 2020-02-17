@@ -493,10 +493,8 @@ class OMNI2IR(GenericVisitor):
         return Intrinsic(text='print %s, %s' % (fmt, args), source=source)
 
     def visit_FformatDecl(self, o, source):
-        # Hackery galore; this is wrong on soooo many levels! :(
-        lineno = int(o.attrib['lineno'])
-        line = self.raw_source.splitlines(keepends=False)[lineno-1]
-        return Intrinsic(text=line, source=source)
+        fmt = 'FORMAT%s' % o.attrib['format']
+        return Intrinsic(text=fmt, source=source)
 
     def visit_namedValue(self, o, source):
         name = o.attrib['name']

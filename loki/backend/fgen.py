@@ -238,6 +238,8 @@ class FortranCodegen(Visitor):
     def visit_Import(self, o):
         if o.c_import:
             return '#include "%s"' % o.module
+        elif o.f_include:
+            return 'include "%s"' % o.module
         else:
             only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
             return self.indent + 'USE %s%s' % (o.module, only)
