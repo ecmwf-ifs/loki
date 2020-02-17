@@ -360,9 +360,20 @@ class FParser2IR(GenericVisitor):
         return (key, value)
 
     def visit_Data_Ref(self, o, **kwargs):
-        pname = o.items[0].tostr().lower()
-        v = Variable(name=pname, scope=self.scope.symbols)
+        v = self.visit(o.items[0], source=kwargs.get('source', None)) #o.items[0].tostr().lower()
+        # v = Variable(name=pname, scope=self.scope.symbols)
         for i in o.items[1:-1]:
+            # Careful not to propagate type or dims here
+            v = self.visit(i, parent=v, source=kwargs.get('source', None))
+        # Attach types and dims to final leaf variable
+        return self.visit(o.items[-1], parent=v, **kwargs)
+
+    def visit_Data_Pointer_Object(self, o, **kwargs):
+        v = self.visit(o.items[0], source=kwargs.get('source', None)) #o.items[0].tostr().lower()
+        #v = Variable(name=pname, scope=self.scope.symbols)
+        for i in o.items[1:-1]:
+            if i == '%':
+                continue
             # Careful not to propagate type or dims here
             v = self.visit(i, parent=v, source=kwargs.get('source', None))
         # Attach types and dims to final leaf variable

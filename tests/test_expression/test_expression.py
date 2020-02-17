@@ -428,7 +428,7 @@ def test_data_declaration(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OFP,
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     FP
 ])
