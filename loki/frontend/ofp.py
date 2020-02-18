@@ -355,6 +355,8 @@ class OFP2IR(GenericVisitor):
             return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':
             return Intrinsic(text=source.string, source=source)
+        elif o.attrib['type'] == 'parameter':
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
