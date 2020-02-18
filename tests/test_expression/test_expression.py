@@ -462,3 +462,22 @@ def test_pointer_nullify(refpath, reference, frontend):
 
     # Execute the generated identity (to verify it is valid Fortran)
     function()
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
+    pytest.param(FP, marks=pytest.mark.xfail(reason='Order in spec not preserved')),
+])
+def test_parameter_stmt(refpath, reference, frontend):
+    """
+    PARAMETER(...) statement
+    """
+    out1 = reference.parameter_stmt()
+    assert out1 == 2.0
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'parameter_stmt', frontend=frontend)
+    function = getattr(test, 'parameter_stmt_%s' % frontend)
+    out1 = function()
+    assert out1 == 2.0

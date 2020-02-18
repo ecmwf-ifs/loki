@@ -769,6 +769,7 @@ class FParser2IR(GenericVisitor):
     visit_Inquire_Stmt = visit_Goto_Stmt
     visit_Access_Stmt = visit_Goto_Stmt
     visit_Namelist_Stmt = visit_Goto_Stmt
+    visit_Parameter_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...

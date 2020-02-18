@@ -236,3 +236,14 @@ subroutine pointer_nullify()
   deallocate(charp)
   charp => NULL()
 end subroutine pointer_nullify
+
+
+subroutine parameter_stmt(out1)
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb) :: param
+  parameter(param=2.0)
+  real(kind=jprb), intent(out) :: out1
+
+  out1 = param
+end subroutine parameter_stmt
