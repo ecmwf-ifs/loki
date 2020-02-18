@@ -48,6 +48,15 @@ subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
 end subroutine loop_nest_variable
 
 
+subroutine loop_scalar_logical_expr(outvar)
+  integer, intent(out) :: outvar
+
+  do while (outvar < 5)
+    outvar = outvar + 1
+  end do
+end subroutine loop_scalar_logical_expr
+
+
 subroutine inline_conditionals(in1, in2, out1, out2)
   integer, intent(in) :: in1, in2
   integer, intent(out) :: out1, out2

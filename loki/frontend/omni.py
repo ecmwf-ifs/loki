@@ -288,6 +288,13 @@ class OMNI2IR(GenericVisitor):
         expr = self.visit(o[1])
         return Statement(target=target, expr=expr, ptr=True, source=source)
 
+    def visit_FdoWhileStatement(self, o, source=None):
+        assert (o.find('condition') is not None)
+        assert (o.find('body') is not None)
+        variable = self.visit(o.find('condition'))
+        body = self.visit(o.find('body'))
+        return Loop(variable=variable, body=body, bounds=None, source=source)
+
     def visit_FdoStatement(self, o, source=None):
         assert (o.find('Var') is not None)
         assert (o.find('body') is not None)
@@ -298,7 +305,7 @@ class OMNI2IR(GenericVisitor):
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
         bounds = lower, upper, step
-        return Loop(variable=variable, body=body, bounds=bounds)
+        return Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_FifStatement(self, o, source=None):
         conditions = [self.visit(c) for c in o.findall('condition')]
@@ -444,11 +451,6 @@ class OMNI2IR(GenericVisitor):
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
             variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
-#            vname, vtype, parent = self.visit(a[0], shape=dimensions)
-#            if parent is not None:
-#                vname = '%s%%%s' % (parent.name, vname)
-#            variables += [Variable(name=vname, dimensions=dimensions, scope=self.scope,
-#                                   type=vtype, parent=parent, source=source)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):

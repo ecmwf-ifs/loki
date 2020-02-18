@@ -120,7 +120,8 @@ class FParser2IR(GenericVisitor):
         # derived type definition
         if parent is not None and dtype is None:
             if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
-                if parent.type.variables is not None:
+                if parent.type.variables is not None and \
+                        basename in parent.type.variables:
                     dtype = parent.type.variables[basename]
 
         if shape is not None and dtype is not None and dtype.shape != shape:
@@ -530,7 +531,7 @@ class FParser2IR(GenericVisitor):
         # Extract loop header and get stepping info
         variable, bounds = self.visit(ch, **kwargs)
         # TODO: Will need to handle labeled ones too at some point
-        if len(bounds) == 2:
+        if bounds and len(bounds) == 2:
             # Ensure we always have a step size
             bounds += (None,)
 
@@ -541,7 +542,7 @@ class FParser2IR(GenericVisitor):
         return (*banter, Loop(variable=variable, body=body, bounds=bounds), )
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
-        variable, bounds = self.visit(o.items[1])
+        variable, bounds = self.visit(o.items[1], **kwargs)
         return variable, bounds
 
     def visit_If_Construct(self, o, **kwargs):
@@ -596,8 +597,13 @@ class FParser2IR(GenericVisitor):
         return CallStatement(name=name, arguments=arguments, kwarguments=kwarguments, source=source)
 
     def visit_Loop_Control(self, o, **kwargs):
-        variable = self.visit(o.items[1][0])
-        bounds = as_tuple(self.visit(a) for a in as_tuple(o.items[1][1]))
+        if o.items[0]:
+            # Scalar logical expression
+            variable = self.visit(o.items[0], **kwargs)
+            bounds = None
+        else:
+            variable = self.visit(o.items[1][0])
+            bounds = as_tuple(self.visit(a) for a in as_tuple(o.items[1][1]))
         return variable, bounds
 
     def visit_Assignment_Stmt(self, o, **kwargs):

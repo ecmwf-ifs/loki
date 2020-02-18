@@ -82,7 +82,7 @@ class ExpressionFinder(Visitor):
 
     def visit_Loop(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.variable))
-        variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds
+        variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds or []
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
         return self.find_uniques(variables)
@@ -242,7 +242,7 @@ class SubstituteExpressions(Transformer):
 
     def visit_Loop(self, o, **kwargs):
         variable = self.expr_mapper(o.variable)
-        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds)
+        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds or [])
         body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 

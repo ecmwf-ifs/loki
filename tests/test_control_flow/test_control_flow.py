@@ -85,6 +85,17 @@ def test_loop_nest_variable(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_loop_scalar_logical_expr(refpath, reference, frontend):
+    outvar = reference.loop_scalar_logical_expr()
+    assert outvar == 5
+
+    test = generate_identity(refpath, 'loop_scalar_logical_expr', frontend=frontend)
+    function = getattr(test, 'loop_scalar_logical_expr_%s' % frontend)
+    outvar = function()
+    assert outvar == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_inline_conditionals(refpath, reference, frontend):
     in1, in2 = 2, 2
     out1, out2 = reference.inline_conditionals(in1, in2)

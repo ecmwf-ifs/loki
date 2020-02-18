@@ -256,8 +256,11 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
-                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
+        if o.bounds:
+            header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
+                                      ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
+        else:
+            header = 'while (%s)' % self.fsymgen(o.variable)
         return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
