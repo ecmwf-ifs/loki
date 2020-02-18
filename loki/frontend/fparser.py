@@ -542,7 +542,10 @@ class FParser2IR(GenericVisitor):
         return (*banter, Loop(variable=variable, body=body, bounds=bounds), )
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
-        variable, bounds = self.visit(o.items[1], **kwargs)
+        if o.items[1]:
+            variable, bounds = self.visit(o.items[1], **kwargs)
+        else:
+            variable, bounds = None, None
         return variable, bounds
 
     def visit_If_Construct(self, o, **kwargs):
