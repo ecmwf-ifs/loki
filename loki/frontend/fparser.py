@@ -122,7 +122,7 @@ class FParser2IR(GenericVisitor):
             if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
                 if parent.type.variables is not None and \
                         basename in parent.type.variables:
-                    dtype = parent.type.variables[basename]
+                    dtype = parent.type.variables[basename].type
 
         if shape is not None and dtype is not None and dtype.shape != shape:
             dtype = dtype.clone(shape=shape)
