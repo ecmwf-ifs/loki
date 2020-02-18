@@ -392,3 +392,14 @@ def test_pp_macros(refpath, reference, frontend):
     assert len(intrinsics) == 9
     assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
                for node in intrinsics)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_empty_spec(refpath, reference, frontend):
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_empty_spec']
+    if frontend == OMNI:
+        # OMNI inserts IMPLICIT NONE into spec
+        assert len(routine.spec.body) == 1
+    else:
+        assert not routine.spec.body
+    assert len(routine.body) == 1

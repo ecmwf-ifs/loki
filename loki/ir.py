@@ -338,11 +338,12 @@ class Import(Node):
 
 class Interface(Node):
     """
-    Internal representation of a Fortran interace block.
+    Internal representation of a Fortran interface block.
     """
-    def __init__(self, body=None, source=None):
+    def __init__(self, spec=None, body=None, source=None):
         super(Interface, self).__init__(source=source)
 
+        self.spec = spec
         self.body = as_tuple(body)
 
 

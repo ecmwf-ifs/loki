@@ -203,7 +203,10 @@ class Subroutine(object):
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
+        if spec_ast:
+            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
+        else:
+            spec = ()
         spec = Section(body=spec)
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)

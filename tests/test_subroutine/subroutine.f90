@@ -201,7 +201,12 @@ subroutine routine_pp_macros()
 #ifdef FLAG
   z = 3
 #endif
-end subroutine
+end subroutine routine_pp_macros
+
+
+subroutine routine_empty_spec
+write(*,*) 'Hello world!'
+end subroutine routine_empty_spec
 
 
 ! TODO: Below are placeholders for more testing

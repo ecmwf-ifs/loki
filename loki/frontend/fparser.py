@@ -21,7 +21,7 @@ from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
     Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
-    DataDeclaration, Nullify
+    DataDeclaration, Nullify, Interface
 )
 from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
@@ -754,6 +754,8 @@ class FParser2IR(GenericVisitor):
     visit_Open_Stmt = visit_Goto_Stmt
     visit_Close_Stmt = visit_Goto_Stmt
     visit_Inquire_Stmt = visit_Goto_Stmt
+    visit_Access_Stmt = visit_Goto_Stmt
+    visit_Namelist_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...
@@ -843,6 +845,15 @@ class FParser2IR(GenericVisitor):
         variables = [self.visit(v, **kwargs) for v in o.items[1].items]
         source = kwargs.get('source', None)
         return as_tuple(Nullify(v, source=source) for v in variables)
+
+    def visit_Interface_Block(self, o, **kwargs):
+        interface_stmt = get_child(o, Fortran2003.Interface_Stmt)
+        spec = interface_stmt.items[0].tostr() if interface_stmt.items[0] else None
+        body_ast = node_sublist(o.children, Fortran2003.Interface_Stmt,
+                                Fortran2003.End_Interface_Stmt)
+        body = [self.visit(ch, **kwargs) for ch in body_ast]
+        source = kwargs.get('source', None)
+        return Interface(spec=spec, body=body, source=source)
 
 
 @timeit(log_level=DEBUG)
