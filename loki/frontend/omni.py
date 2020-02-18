@@ -455,11 +455,8 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FdeallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
-        deallocations = []
-        for a in allocs:
-            v = self.visit(a[0])
-            deallocations += [Deallocation(variable=v)]
-        return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
+        variables = as_tuple(self.visit(a[0]) for a in allocs)
+        return Deallocation(variables=variables, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
         return Intrinsic(text='cycle', source=source)

@@ -395,8 +395,8 @@ class OFP2IR(GenericVisitor):
         return Allocation(variables=variables, source=source)
 
     def visit_deallocate(self, o, source=None):
-        variable = self.visit(o.find('expressions/expression/name'))
-        return Deallocation(variable=variable, source=source)
+        variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
+        return Deallocation(variables=variables, source=source)
 
     def visit_use(self, o, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]

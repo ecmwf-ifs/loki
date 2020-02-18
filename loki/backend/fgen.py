@@ -359,11 +359,9 @@ class FortranCodegen(Visitor):
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
-        if isinstance(o.variable, str):
-            variable = o.variable
-        else:
-            variable = self.fsymgen(o.variable)
-        return self.indent + 'DEALLOCATE(%s)' % variable
+        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
+                             for v in o.variables)
+        return self.indent + 'DEALLOCATE(%s)' % variables
 
     def visit_Nullify(self, o):
         if isinstance(o.variable, str):

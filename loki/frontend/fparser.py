@@ -291,7 +291,7 @@ class FParser2IR(GenericVisitor):
         deallocations = get_child(o, fp.Allocate_Object_List)
         variables = as_tuple(self.visit(a, **kwargs) for a in deallocations.items)
         source = kwargs.get('source', None)
-        return as_tuple(Deallocation(variable=v, source=source) for v in variables)
+        return Deallocation(variables=variables, source=source)
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         dtype = o.items[0]

@@ -367,10 +367,10 @@ class Deallocation(Node):
     """
     Internal representation of a variable deallocation
     """
-    def __init__(self, variable, source=None):
+    def __init__(self, variables, source=None):
         super(Deallocation, self).__init__(source=source)
 
-        self.variable = variable
+        self.variables = variables
 
 
 class Nullify(Node):
