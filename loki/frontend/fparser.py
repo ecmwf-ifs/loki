@@ -316,6 +316,10 @@ class FParser2IR(GenericVisitor):
     def visit_Ac_Value_List(self, o, **kwargs):
         return as_tuple(self.visit(i, **kwargs) for i in o.items)
 
+    def visit_Ac_Implied_Do(self, o, **kwargs):
+        # TODO: Implement this properly!
+        return o.tostr()
+
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
         # Do not recurse here to avoid treating function names as variables
         name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
@@ -856,8 +860,9 @@ class FParser2IR(GenericVisitor):
         return as_tuple(Nullify(v, source=source) for v in variables)
 
     def visit_Interface_Block(self, o, **kwargs):
-        interface_stmt = get_child(o, Fortran2003.Interface_Stmt)
-        spec = interface_stmt.items[0].tostr() if interface_stmt.items[0] else None
+        spec = get_child(o, Fortran2003.Interface_Stmt).items[0]
+        if spec:
+            spec = spec if isinstance(spec, str) else spec.tostr()
         body_ast = node_sublist(o.children, Fortran2003.Interface_Stmt,
                                 Fortran2003.End_Interface_Stmt)
         body = [self.visit(ch, **kwargs) for ch in body_ast]

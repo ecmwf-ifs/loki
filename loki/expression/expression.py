@@ -187,7 +187,8 @@ class LokiIdentityMapper(IdentityMapper):
         return expr.__class__(lower, upper, step)
 
     def map_literal_list(self, expr, *args, **kwargs):
-        values = tuple(self.rec(v, *args, **kwargs) for v in expr.elements)
+        values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
+                       for v in expr.elements)
         return expr.__class__(values)
 
 
