@@ -32,6 +32,8 @@ from loki.types import DataType, SymbolType
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
 
+_regex_ifndef = re.compile(r'#\s*if\b\s+[!]\s*defined\b\s*\(?([A-Za-z_]+)\)?')
+
 
 def node_sublist(nodelist, starttype, endtype):
     """
@@ -464,7 +466,7 @@ class FParser2IR(GenericVisitor):
             dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
-                               shape=dimensions, length=length)
+                               contiguous='contiguous' in attrs, shape=dimensions, length=length)
 
         derived_type_ast = get_child(o, fp.Declaration_Type_Spec)
         if derived_type_ast is not None:
@@ -475,7 +477,7 @@ class FParser2IR(GenericVisitor):
                 dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
                                     pointer='pointer' in attrs, optional='optional' in attrs,
                                     parameter='parameter' in attrs, target='target' in attrs,
-                                    shape=dimensions)
+                                    contiguous='contiguous' in attrs, shape=dimensions)
             else:
                 # TODO: Insert variable information from stored TypeDef!
                 if self.typedefs is not None and typename in self.typedefs:
@@ -487,7 +489,7 @@ class FParser2IR(GenericVisitor):
                                    intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,
                                    parameter='parameter' in attrs, target='target' in attrs,
-                                   shape=dimensions)
+                                   contiguous='contiguous' in attrs, shape=dimensions)
 
         # Now create the actual variables declared in this statement
         # (and provide them with the type and dimension information)
@@ -770,6 +772,7 @@ class FParser2IR(GenericVisitor):
     visit_Access_Stmt = visit_Goto_Stmt
     visit_Namelist_Stmt = visit_Goto_Stmt
     visit_Parameter_Stmt = visit_Goto_Stmt
+    visit_Final_Binding = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...
@@ -889,6 +892,11 @@ def parse_fparser_file(filename):
 
     # Comment out ``@PROCESS`` instructions
     fcode = fcode.replace('@PROCESS', '! @PROCESS')
+
+    # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
+    # everything that looks like an in-line comment (i.e., anything from the
+    # letter '!' onwards).
+    fcode = _regex_ifndef.sub(r'#ifndef \1', fcode)
 
     reader = FortranStringReader(fcode, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')

@@ -51,6 +51,7 @@ class DataType(IntEnum):
         Convert the given string representation of a FORTRAN type.
         """
         type_map = {'logical': cls.LOGICAL, 'integer': cls.INTEGER, 'real': cls.REAL,
+                    'double precision': cls.REAL, 'double complex': cls.COMPLEX,
                     'character': cls.CHARACTER, 'complex': cls.COMPLEX}
         return type_map[value.lower()]
 
