@@ -773,6 +773,9 @@ class FParser2IR(GenericVisitor):
     visit_Namelist_Stmt = visit_Goto_Stmt
     visit_Parameter_Stmt = visit_Goto_Stmt
     visit_Final_Binding = visit_Goto_Stmt
+    visit_Procedure_Stmt = visit_Goto_Stmt
+    visit_Equivalence_Stmt = visit_Goto_Stmt
+    visit_External_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...
@@ -869,7 +872,7 @@ class FParser2IR(GenericVisitor):
             spec = spec if isinstance(spec, str) else spec.tostr()
         body_ast = node_sublist(o.children, Fortran2003.Interface_Stmt,
                                 Fortran2003.End_Interface_Stmt)
-        body = [self.visit(ch, **kwargs) for ch in body_ast]
+        body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
         source = kwargs.get('source', None)
         return Interface(spec=spec, body=body, source=source)
 

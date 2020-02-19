@@ -198,15 +198,6 @@ class FortranCodegen(Visitor):
             contains = ''
         return self.indent + header + docstring + spec + body + contains + members + footer
 
-    def visit_InterfaceBlock(self, o):
-        arguments = self.segment([a.name for a in o.arguments])
-        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
-        header = 'INTERFACE\nSUBROUTINE %s%s' % (o.name, argument)
-        footer = '\nEND SUBROUTINE %s\nEND INTERFACE\n' % o.name
-        imports = self.visit(o.imports)
-        declarations = self.visit(o.declarations)
-        return header + imports + '\n' + declarations + footer
-
     def visit_Comment(self, o):
         text = o._source.string if o.text is None else o.text
         return self.indent + text
@@ -246,9 +237,11 @@ class FortranCodegen(Visitor):
 
     def visit_Interface(self, o):
         self._depth += 1
-        body = self.visit(o.body)
+        spec = ' %s' % o.spec if o.spec else ''
+        header = 'INTERFACE%s\n' % spec
+        body = ('\n%s' % self.indent).join(self.visit(ch) for ch in o.body)
         self._depth -= 1
-        return self.indent + 'INTERFACE\n%s\n%sEND INTERFACE\n' % (body, self.indent)
+        return self.indent + header + body + '\n%sEND INTERFACE\n' % self.indent
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -335,7 +328,7 @@ class FortranCodegen(Visitor):
 
     def visit_CallStatement(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple(str('%s=%s' % (k, v)) for k, v in o.kwarguments)
+            kwargs = tuple('%s=%s' % (k, self.fsymgen(v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments

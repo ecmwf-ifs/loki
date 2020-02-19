@@ -1,3 +1,4 @@
+import re
 import pymbolic.primitives as pmbl
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
@@ -15,6 +16,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
+    _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
     def __init__(self, constant_mapper=None):
         super(LokiStringifyMapper, self).__init__(constant_mapper)
@@ -31,7 +33,7 @@ class LokiStringifyMapper(StringifyMapper):
     map_int_literal = map_logic_literal
 
     def map_string_literal(self, expr, *args, **kwargs):
-        return "'%s'" % expr.value
+        return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
 
     def map_scalar(self, expr, *args, **kwargs):
         if expr.parent is not None:
