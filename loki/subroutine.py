@@ -1,13 +1,13 @@
 import weakref
 from collections import OrderedDict
 from fparser.two import Fortran2003
-from fparser.two.utils import get_child
+from fparser.two.utils import get_child, walk
 
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
 from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
-                     CallContext, Intrinsic, TypeDef, DataDeclaration)
+                     CallContext, Intrinsic, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -174,7 +174,7 @@ class Subroutine(object):
             members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
                                             symbol_map=symbol_map, raw_source=raw_source,
                                             parent=obj)
-                       for s in contains]
+                       for s in contains.findall('FfunctionDefinition')]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
 
@@ -221,8 +221,15 @@ class Subroutine(object):
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
+        # Parse "member" subroutines recursively
+        members = None
+        contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
+        if contains_ast:
+            members = [Subroutine.from_fparser(ast=s, typedefs=typedefs, parent=obj)
+                       for s in walk(contains_ast, Fortran2003.Subroutine_Subprogram)]
+
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
-                     symbols=obj.symbols, types=obj.types, parent=parent)
+                     members=members, symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
     def _internalize(self):

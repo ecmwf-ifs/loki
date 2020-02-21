@@ -403,3 +403,32 @@ def test_empty_spec(refpath, reference, frontend):
     else:
         assert not routine.spec.body
     assert len(routine.body) == 1
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_member_procedures(refpath, reference, frontend):
+    """ Test member subroutine and function """
+    # Test the reference solution
+    in1 = 1
+    in2 = 2
+    out1, out2 = reference.routine_member_procedures(in1, in2)
+    assert out1 == 7
+    assert out2 == 23
+
+    # Check that member procedures are parsed correctly
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_member_procedures']
+    assert len(routine.members) == 1
+    assert routine.members[0].name == 'member_procedure'
+    assert routine.members[0].symbols.lookup('localvar', recursive=False) is None
+    assert routine.members[0].symbols.lookup('localvar') is not None
+    assert routine.members[0].symbols.lookup('localvar') is routine.symbols.lookup('localvar')
+    assert routine.members[0].symbols.lookup('in1') is not None
+    assert routine.symbols.lookup('in1') is not None
+    assert routine.members[0].symbols.lookup('in1') is not routine.symbols.lookup('in1')
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'routine_member_procedures', frontend=frontend)
+    function = getattr(test, 'routine_member_procedures_%s' % frontend)
+    out1, out2 = function(in1, in2)
+    assert out1 == 7
+    assert out2 == 23

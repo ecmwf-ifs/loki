@@ -34,7 +34,10 @@ class Scalar(pmbl.Variable):
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
             self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
-        else:
+        elif type is not self.scope.lookup(self.name):
+            # If the type information does already exist and is identical (not just
+            # equal) we don't update it. This makes sure that we don't create double
+            # entries for variables inherited from a parent scope
             self.type = type.clone()
         self.parent = parent
         self.initial = initial
@@ -60,7 +63,7 @@ class Scalar(pmbl.Variable):
         """
         Internal representation of the declared data type.
         """
-        return self.scope[self.name]
+        return self.scope.lookup(self.name)
 
     @type.setter
     def type(self, value):
@@ -121,7 +124,10 @@ class Array(pmbl.Variable):
             # Insert the defered type in the type table only if it does not exist
             # yet (necessary for deferred type definitions)
             self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
-        else:
+        elif type is not self.scope.lookup(self.name):
+            # If the type information does already exist and is identical (not just
+            # equal) we don't update it. This makes sure that we don't create double
+            # entries for variables inherited from a parent scope
             self.type = type.clone()
         self.parent = parent
         self.dimensions = dimensions
@@ -148,7 +154,7 @@ class Array(pmbl.Variable):
         """
         Internal representation of the declared data type.
         """
-        return self.scope[self.name]
+        return self.scope.lookup(self.name)
 
     @type.setter
     def type(self, value):
@@ -235,7 +241,7 @@ class Variable(object):
         scope = kwargs.pop('scope')
         dimensions = kwargs.pop('dimensions', None)
         initial = kwargs.pop('initial', None)
-        _type = kwargs.get('type', scope.lookup(name, recursive=False))
+        _type = kwargs.get('type', scope.lookup(name))
         parent = kwargs.pop('parent', None)
         source = kwargs.get('source', None)
 
