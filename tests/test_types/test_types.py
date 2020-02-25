@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from loki import OFP, FP, SourceFile
+from loki import OFP, OMNI, FP, SourceFile
 
 
 @pytest.fixture(scope='module')
@@ -63,7 +63,11 @@ def test_symbol_type():
     assert _type.foo is None
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP])  # OMNI segfaults with pragmas in derived types
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Segfault with pragmas in derived types')),
+    FP
+])
 def test_pragmas(refpath, frontend):
     """
     !$loki dimension(3,3)

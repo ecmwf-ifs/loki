@@ -125,6 +125,8 @@ def test_literal_expr(refpath, reference, frontend):
     assert isinstance(stmts[4].expr, Cast)
     assert str(stmts[4].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[5].expr, Cast)
+    assert str(stmts[5].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert isinstance(stmts[6].expr, Cast)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -173,7 +175,11 @@ def test_logical_array(refpath, reference, frontend):
     assert (out == [1., 1., 1., 3., 1., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP])
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Precedence not honoured')),
+    FP
+])
 def test_parenthesis(refpath, reference, frontend):
     """
     v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
@@ -284,20 +290,194 @@ def test_very_long_statement(refpath, reference, frontend):
     assert result == 5
 
 
-@pytest.mark.parametrize('frontend', [FP, OMNI])  # OFP doesn't work with the label of format stmt
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Format stmt labels not implemented')),
+    OMNI,
+    FP
+])
 def test_intrinsics(refpath, reference, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
     """
-    from loki.ir import Intrinsic
+    from loki import Intrinsic, fgen
 
     source = SourceFile.from_file(refpath, frontend=frontend)
     routine = source['intrinsics']
 
     assert isinstance(routine.body[-2], Intrinsic)
     assert isinstance(routine.body[-1], Intrinsic)
-    assert routine.body[-2].text.strip('\n').lower() in \
-        ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)"]
+    assert routine.body[-2].text.strip('\n').lower() in ["format(1x, 2i10, 1x, i4, ' : ', i10)",
+                                                         'format(1x, 2i10, 1x, i4, " : ", i10)']
+    assert fgen(routine.body[-2]).lower() in ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)",
+                                              '1002 format(1x, 2i10, 1x, i4, " : ", i10)']
     assert routine.body[-1].text.strip('\n').lower() in \
         ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
          'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_nested_call_inline_call(refpath, reference, frontend):
+    """
+    The purpose of this test is to highlight the differences between calls in expression
+    (such as `InlineCall`, `Cast`) and call nodes in the IR.
+    """
+    from loki import fgen, FindNodes, CallStatement, as_tuple
+    # Test the reference solution
+    v2, v3 = reference.nested_call_inline_call(1)
+    assert v2 == 8.
+    assert v3 == 40
+
+    # Test the generated identity
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine_names = ['nested_call_inline_call', 'simple_expr', 'very_long_statement']
+    routines = []
+    for routine in source.subroutines:
+        if routine.name in routine_names:
+            routine.name += '_%s' % frontend
+            for call in FindNodes(CallStatement).visit(routine.body):
+                call.name += '_%s' % frontend
+            routines.append(routine)
+    testname = refpath.parent / ('%s_nested_call_inline_call_%s.f90' % (refpath.stem, frontend))
+    source.write(source=fgen(as_tuple(routines)), filename=testname)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+    function = getattr(pymod, 'nested_call_inline_call_%s' % frontend)
+    v2, v3 = function(1)
+    assert v2 == 8.
+    assert v3 == 40
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
+    FP
+])
+def test_character_concat(refpath, reference, frontend):
+    """
+    Concatenation operator ``//``
+    """
+    # Test the reference solution
+    ref = reference.character_concat()
+    assert ref == b'Hello world!'
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'character_concat', frontend=frontend)
+    function = getattr(test, 'character_concat_%s' % frontend)
+    result = function()
+    assert result == b'Hello world!'
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Inline WHERE not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_masked_statements(refpath, reference, frontend):
+    """
+    Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
+    """
+    # Reference solution
+    length = 11
+    ref1 = np.append(np.arange(0, 6, dtype=np.float64),
+                     5 * np.ones(length - 6, dtype=np.float64))
+    ref2 = np.append(np.zeros(5, dtype=np.float64),
+                     np.ones(length - 5, dtype=np.float64))
+    ref3 = np.append(np.arange(-2, 1, dtype=np.float64), np.ones(2, dtype=np.float64))
+    ref3 = np.append(ref3, np.arange(3, length - 2, dtype=np.float64))
+
+    # Test the reference solution
+    vec1 = np.arange(0, length, dtype=np.float64)
+    vec2 = np.arange(-5, length - 5, dtype=np.float64)
+    vec3 = np.arange(-2, length - 2, dtype=np.float64)
+    reference.masked_statements(length, vec1, vec2, vec3)
+    assert np.all(ref1 == vec1)
+    assert np.all(ref2 == vec2)
+    assert np.all(ref3 == vec3)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'masked_statements', frontend=frontend)
+    function = getattr(test, 'masked_statements_%s' % frontend)
+    vec1 = np.arange(0, length, dtype=np.float64)
+    vec2 = np.arange(-5, length - 5, dtype=np.float64)
+    vec3 = np.arange(-2, length - 2, dtype=np.float64)
+    function(length, vec1, vec2, vec3)
+    assert np.all(ref1 == vec1)
+    assert np.all(ref2 == vec2)
+    assert np.all(ref3 == vec3)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_data_declaration(refpath, reference, frontend):
+    """
+    Variable initialization with DATA statements
+    """
+    expected = np.ones(shape=(5, 4), dtype=np.int32, order='F') * 8
+    expected[[0, 1, 2], 0] = [1, 3, 2]
+    # Test the reference solution
+    ref = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
+    reference.data_declaration(ref)
+    assert np.all(ref == expected)
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'data_declaration', frontend=frontend)
+    function = getattr(test, 'data_declaration_%s' % frontend)
+    result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
+    function(result)
+    assert np.all(result == ref)
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    FP
+])
+def test_pointer_nullify(refpath, reference, frontend):
+    """
+    POINTERS and their nullification via '=> NULL()'
+    """
+    from loki import FindNodes, Nullify, Statement, InlineCall
+
+    # Execute the reference solution (does not return anything but should not fail
+    reference.pointer_nullify()
+
+    # Create the AST and perform some checks
+    source = SourceFile.from_file(refpath, frontend=frontend)
+    routine = source['pointer_nullify']
+    routine.name += '_%s' % frontend
+
+    assert np.all(v.type.pointer for v in routine.variables)
+    assert np.all(isinstance(v.initial, InlineCall) and v.type.initial.name.lower() == 'null'
+                  for v in routine.variables)
+    assert FindNodes(Nullify).visit(routine.body)[0].variable.name == 'pp'
+    assert [stmt.ptr for stmt in FindNodes(Statement).visit(routine.body)].count(True) == 2
+
+    # Generate the identitiy
+    testname = refpath.parent / ('%s_pointer_nullify_%s.f90' % (refpath.stem, frontend))
+    source.write(source=fgen(routine), filename=testname)
+    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
+    function = getattr(pymod, 'pointer_nullify_%s' % frontend)
+
+    # Execute the generated identity (to verify it is valid Fortran)
+    function()
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
+    pytest.param(FP, marks=pytest.mark.xfail(reason='Order in spec not preserved')),
+])
+def test_parameter_stmt(refpath, reference, frontend):
+    """
+    PARAMETER(...) statement
+    """
+    out1 = reference.parameter_stmt()
+    assert out1 == 2.0
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'parameter_stmt', frontend=frontend)
+    function = getattr(test, 'parameter_stmt_%s' % frontend)
+    out1 = function()
+    assert out1 == 2.0

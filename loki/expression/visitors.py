@@ -1,3 +1,4 @@
+import re
 import pymbolic.primitives as pmbl
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
@@ -15,6 +16,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
+    _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
     def __init__(self, constant_mapper=None):
         super(LokiStringifyMapper, self).__init__(constant_mapper)
@@ -31,7 +33,7 @@ class LokiStringifyMapper(StringifyMapper):
     map_int_literal = map_logic_literal
 
     def map_string_literal(self, expr, *args, **kwargs):
-        return "'%s'" % expr.value
+        return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
 
     def map_scalar(self, expr, *args, **kwargs):
         if expr.parent is not None:
@@ -82,6 +84,9 @@ class LokiStringifyMapper(StringifyMapper):
     def map_parenthesised_pow(self, *args, **kwargs):
         return self.parenthesize(self.map_power(*args, **kwargs))
 
+    def map_string_concat(self, expr, *args, **kwargs):
+        return ' // '.join(self.rec(c, *args, **kwargs) for c in expr.children)
+
     def map_literal_list(self, expr, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
@@ -127,6 +132,7 @@ class ExpressionRetriever(WalkMapper):
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
     map_parenthesised_pow = WalkMapper.map_power
+    map_string_concat = WalkMapper.map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
         self.visit(expr)
@@ -136,6 +142,12 @@ class ExpressionRetriever(WalkMapper):
             self.rec(expr.upper, *args, **kwargs)
         if expr.step:
             self.rec(expr.step, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_literal_list(self, expr, *args, **kwargs):
+        self.visit(expr)
+        for elem in expr.elements:
+            self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
 
 
@@ -163,8 +175,9 @@ class ExpressionDimensionsMapper(Mapper):
             from loki.expression.symbol_types import RangeIndex, IntLiteral
             dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
             # Replace colon dimensions by the value from shape
-            dims = [s if isinstance(d, RangeIndex) and d.lower is None and d.upper is None else d
-                    for d, s in zip(dims, expr.shape)]
+            shape = expr.shape or [None] * len(dims)
+            dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
+                    else d for d, s in zip(dims, shape)]
             # Remove singleton dimensions
             dims = [d for d in dims if d != IntLiteral(1)]
             return as_tuple(dims)
@@ -220,6 +233,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product
     map_parenthesised_pow = CombineMapper.map_power
+    map_string_concat = CombineMapper.map_sum
 
     def map_literal_list(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))

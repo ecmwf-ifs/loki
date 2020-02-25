@@ -7,14 +7,14 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
 from loki.visitors import GenericVisitor
-from loki.ir import (Loop, Statement, Conditional, Call, Comment,
+from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
                      Import, Scope, Intrinsic, TypeDef, MaskedStatement,
                      MultiConditional, WhileLoop, DataDeclaration, Section)
 from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
-                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow,
+                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
                              ExpressionDimensionsMapper)
 from loki.tools import as_tuple, timeit, disk_cached, flatten
 from loki.logging import info, DEBUG
@@ -81,7 +81,7 @@ class OFP2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
-        children = tuple(self.visit(c) for c in o.getchildren())
+        children = tuple(self.visit(c) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -170,6 +170,9 @@ class OFP2IR(GenericVisitor):
 
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
             return as_tuple(stmts)
+        elif o.find('goto-stmt') is not None:
+            label = o.find('goto-stmt').attrib['target_label']
+            return Intrinsic(text='go to %s' % label, source=source)
         else:
             return self.visit_Element(o, source=source)
 
@@ -195,7 +198,7 @@ class OFP2IR(GenericVisitor):
         return Statement(target=target, expr=expr, ptr=True, source=source)
 
     def visit_specification(self, o, source=None):
-        body = tuple(self.visit(c) for c in o.getchildren())
+        body = tuple(self.visit(c) for c in o)
         body = tuple(c for c in body if c is not None)
         # Wrap spec area into a separate Scope
         return Section(body=body, source=source)
@@ -232,7 +235,7 @@ class OFP2IR(GenericVisitor):
                 types = o.findall('type')
                 components = o.findall('components')
                 attributes = [None] * len(types)
-                elements = o.getchildren()
+                elements = list(o)
                 declarations = []
                 # YUCK!!!
                 for i, (t, comps) in enumerate(zip(types, components)):
@@ -319,6 +322,7 @@ class OFP2IR(GenericVisitor):
 
                 if o.find('type').attrib['type'] == 'intrinsic':
                     # Create a basic variable type
+                    # TODO: Character length attribute
                     _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
                                        intent=intent, allocatable=allocatable, pointer=pointer,
                                        optional=optional, parameter=parameter, shape=dimensions,
@@ -351,11 +355,15 @@ class OFP2IR(GenericVisitor):
             return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'intrinsic':
             return Intrinsic(text=source.string, source=source)
+        elif o.attrib['type'] == 'parameter':
+            return Intrinsic(text=source.string, source=source)
         elif o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
             for variables, values in zip(o.findall('variables'), o.findall('values')):
-                variable = self.visit(variables)
+                # TODO: actually parse the statements
+                variable = source.string[5:source.string.index('/')].strip()
+                # variable = self.visit(variables)
                 # Lists of literal values are again nested, so extract
                 # them recursively.
                 lit = values.find('literal')  # We explicitly recurse on l
@@ -365,7 +373,7 @@ class OFP2IR(GenericVisitor):
                     lit = lit.find('literal')
                 vals += [self.visit(lit)]
                 declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
-            return tuple(declarations)
+            return as_tuple(declarations)
         else:
             raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
@@ -389,8 +397,8 @@ class OFP2IR(GenericVisitor):
         return Allocation(variables=variables, source=source)
 
     def visit_deallocate(self, o, source=None):
-        variable = self.visit(o.find('expressions/expression/name'))
-        return Deallocation(variable=variable, source=source)
+        variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
+        return Deallocation(variables=variables, source=source)
 
     def visit_use(self, o, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
@@ -422,7 +430,7 @@ class OFP2IR(GenericVisitor):
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
         kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
-        return Call(name=name, arguments=args, kwarguments=kwargs, source=source)
+        return CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_argument(self, o, source=None):
         key = o.attrib['name']
@@ -443,7 +451,8 @@ class OFP2IR(GenericVisitor):
                                    'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(vname, parameters=indices)
             elif vname.upper() in ['REAL', 'INT']:
-                return Cast(vname, expression=indices[0], kind=kwargs.get('kind', None))
+                kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
+                return Cast(vname, expression=indices[0], kind=kind)
             elif indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 return InlineCall(o.attrib['id'], parameters=indices)
@@ -466,7 +475,7 @@ class OFP2IR(GenericVisitor):
 
         # Creating compound variables is a bit tricky, so let's first
         # process all our children and shove them into a deque
-        _children = deque(self.visit(c) for c in o.getchildren())
+        _children = deque(self.visit(c) for c in o)
         _children = deque(c for c in _children if c is not None)
 
         # Hack: find kwargs for Casts
@@ -523,7 +532,7 @@ class OFP2IR(GenericVisitor):
         return Literal(value=value, kind=kind, type=_type, source=source)
 
     def visit_subscripts(self, o, source=None):
-        return tuple(self.visit(c)for c in o.getchildren()
+        return tuple(self.visit(c) for c in o
                      if c.tag in ['subscript', 'name'])
 
     def visit_subscript(self, o, source=None):
@@ -611,6 +620,8 @@ class OFP2IR(GenericVisitor):
             elif op == '.neqv.':
                 e = (expression, exprs.popleft())
                 expression = LogicalAnd((LogicalNot(LogicalAnd(e)), LogicalOr(e)))
+            elif op == '//':
+                expression = StringConcat((expression, exprs.popleft()))
             else:
                 raise RuntimeError('OFP: Unknown expression operator: %s' % op)
 
@@ -628,6 +639,13 @@ class OFP2IR(GenericVisitor):
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
+
+    def visit_label(self, o, source=None):
+        source.label = int(o.attrib['lbl'])
+        return Comment('__STATEMENT_LABEL__', source=source)
+
+    def visit_return(self, o, source=None):
+        return Intrinsic(text='return', source=source)
 
 
 @timeit(log_level=DEBUG)
@@ -647,5 +665,6 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
     ir = inline_comments(ir)
     ir = cluster_comments(ir)
     ir = inline_pragmas(ir)
+    ir = inline_labels(ir)
 
     return ir

@@ -1,13 +1,13 @@
 import weakref
 from collections import OrderedDict
 from fparser.two import Fortran2003
-from fparser.two.utils import get_child
+from fparser.two.utils import get_child, walk
 
 from loki.frontend.omni import parse_omni_ast
 from loki.frontend.ofp import parse_ofp_ast
 from loki.frontend.fparser import parse_fparser_ast
-from loki.ir import (Declaration, Allocation, Import, Section, Call,
-                     CallContext, Intrinsic, TypeDef)
+from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
+                     CallContext, Intrinsic, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple
@@ -131,7 +131,7 @@ class Subroutine(object):
         members = None
         if ast.find('members'):
             members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
-                                           pp_info=pp_info, scope=obj)
+                                           pp_info=pp_info, parent=obj)
                        for s in ast.findall('members/subroutine')]
 
         obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
@@ -173,8 +173,8 @@ class Subroutine(object):
         if contains is not None:
             members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
                                             symbol_map=symbol_map, raw_source=raw_source,
-                                            parent=parent)
-                       for s in contains]
+                                            parent=obj)
+                       for s in contains.findall('FfunctionDefinition')]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
 
@@ -203,11 +203,17 @@ class Subroutine(object):
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
+        if spec_ast:
+            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
+        else:
+            spec = ()
         spec = Section(body=spec)
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
-        body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj))
+        if body_ast:
+            body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj))
+        else:
+            body = ()
         # body = Section(body=body)
 
         # Big, but necessary hack:
@@ -215,8 +221,15 @@ class Subroutine(object):
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
+        # Parse "member" subroutines recursively
+        members = None
+        contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
+        if contains_ast:
+            members = [Subroutine.from_fparser(ast=s, typedefs=typedefs, parent=obj)
+                       for s in walk(contains_ast, Fortran2003.Subroutine_Subprogram)]
+
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
-                     symbols=obj.symbols, types=obj.types, parent=parent)
+                     members=members, symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
     def _internalize(self):
@@ -270,24 +283,35 @@ class Subroutine(object):
             d.dimensions = None
 
             decls += [d]
-        self.spec.append(decls)
+
+        # Find any DataDeclaration instances to make sure variables are declared before
+        # their initialization
+        try:
+            data_index = [isinstance(d, DataDeclaration) for d in self.spec.body].index(True)
+        except ValueError:
+            data_index = None
+
+        if data_index is not None:
+            self.spec.insert(data_index, decls)
+        else:
+            self.spec.append(decls)
 
         self._decl_map = None
 
     def enrich_calls(self, routines):
         """
-        Attach target :class:`Subroutine` object to :class:`Call`
+        Attach target :class:`Subroutine` object to :class:`CallStatement`
         objects in the IR tree.
 
         :param call_targets: :class:`Subroutine` objects for corresponding
-                             :class:`Call` nodes in the IR tree.
-        :param active: Additional flag indicating whether this :call:`Call`
+                             :class:`CallStatement` nodes in the IR tree.
+        :param active: Additional flag indicating whether this :call:`CallStatement`
                        represents an active/inactive edge in the
                        interprocedural callgraph.
         """
         routine_map = {r.name.upper(): r for r in as_tuple(routines)}
 
-        for call in FindNodes(Call).visit(self.body):
+        for call in FindNodes(CallStatement).visit(self.body):
             if call.name.upper() in routine_map:
                 # Calls marked as 'reference' are inactive and thus skipped
                 active = True

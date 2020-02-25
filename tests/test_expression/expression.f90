@@ -55,6 +55,7 @@ subroutine literal_expr(v1, v2, v3, v4, v5, v6)
   v3 = 2.3
   v4 = 2.4_jprb
   v5 = real(7, kind=jprb)
+  v6 = real(3.5,jprb)
   v6 = int(3.5)
 
 end subroutine literal_expr
@@ -157,4 +158,92 @@ subroutine intrinsics
 
 1002 format(1x, 2i10, 1x, i4, ' : ', i10)
      write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)
-end subroutine
+end subroutine intrinsics
+
+
+subroutine nested_call_inline_call(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(out) :: v2
+  integer, intent(out) :: v3
+  real(kind=jprb) :: tmp1, tmp2
+
+  tmp1 = real(1, kind=jprb)
+  call simple_expr(tmp1, abs(-2.0_jprb), 3.0_jprb, real(v1, jprb), v2, tmp2)
+  v2 = abs(tmp2 - v2)
+  call very_long_statement(int(v2), v3)
+end subroutine nested_call_inline_call
+
+
+subroutine character_concat(string)
+  character(10) :: tmp_str1, tmp_str2
+  character(len=12), intent(out) :: string
+
+  tmp_str1 = "Hel" // "lo"
+  tmp_str2 = "wor" // "l" // "d"
+  string = trim(tmp_str1) // " " // trim(tmp_str2)
+  string = trim(string) // "!"
+end subroutine character_concat
+
+
+subroutine masked_statements(length, vec1, vec2, vec3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: length
+  real(kind=jprb), intent(inout), dimension(length) :: vec1, vec2, vec3
+
+  where (vec1(:) > 5.0_jprb)
+    vec1(:) = 7.0_jprb
+    vec1(:) = 5.0_jprb
+  endwhere
+
+  where (vec2(:) < 0.d0)
+    vec2(:) = 0.0_jprb
+  elsewhere
+    vec2(:) = 1.0_jprb
+  endwhere
+
+  where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
+end subroutine masked_statements
+
+
+subroutine data_declaration(data_out)
+  implicit none
+  integer, dimension(5, 4), intent(out) :: data_out
+  integer, dimension(5, 4) :: data1, data2
+  integer, dimension(3) :: data3
+  integer :: i, j
+
+  data data1 /20*5/
+
+  data ((data2(i,j), i=1,5), j=1,4) /20*3/
+
+  data data3(1), data3(3), data3(2) /1, 2, 3/
+
+  data_out(:,:) = data1(:,:) + data2(:,:)
+  data_out(1:3,1) = data3
+end subroutine data_declaration
+
+
+subroutine pointer_nullify()
+  implicit none
+  character(len=64), dimension(:), pointer :: charp => NULL()
+  character(len=64), pointer :: pp => NULL()
+  allocate(charp(3))
+  charp(:) = "_ptr_"
+  pp => charp(1)
+  pp = "_other_ptr_"
+  nullify(pp)
+  deallocate(charp)
+  charp => NULL()
+end subroutine pointer_nullify
+
+
+subroutine parameter_stmt(out1)
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb) :: param
+  parameter(param=2.0)
+  real(kind=jprb), intent(out) :: out1
+
+  out1 = param
+end subroutine parameter_stmt

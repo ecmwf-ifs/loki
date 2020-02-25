@@ -52,7 +52,7 @@ def init_worker(log_queue=None):
         default_logger.setLevel(DEBUG)
 
 
-def init_execute(*args, **kwargs):
+def init_call(fn, *args, **kwargs):
     """
     Hack alert: This small wrapper function ensure that an initialization
     function is called once and only once per worker from the within the
@@ -66,7 +66,7 @@ def init_execute(*args, **kwargs):
         init_worker(log_queue=log_queue)
         _initialized = True
 
-    execute(*args, **kwargs)
+    return fn(*args, **kwargs)
 
 
 def wait_and_check(task, timeout=DEFAULT_TIMEOUT, logger=None):
@@ -116,7 +116,14 @@ class ParallelQueue(object):
         Wrapper around the ``tools.execute(cmd)`` function presented by the
         :class:`ParallelQueue` object to its users.
         """
-        return self.executor.submit(init_execute, *args, **kwargs)
+        return self.executor.submit(init_call, execute, *args, **kwargs)
+
+    def call(self, fn, *args, **kwargs):
+        """
+        Arbitrary interface to submit function calls to the
+        :class:`ParallelQueue` object.
+        """
+        return self.executor.submit(init_call, fn, *args, **kwargs)
 
 
 @contextmanager

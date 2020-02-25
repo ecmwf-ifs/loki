@@ -339,12 +339,12 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
     """
     Test that arrays passed down a subroutine call are treated as arrays.
     """
-    from loki import FindNodes, Call, FCodeMapper, fgen
+    from loki import FindNodes, CallStatement, FCodeMapper, fgen
 
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
     source = SourceFile.from_file(refpath, frontend=frontend, typedefs=header.typedefs)
     routine = source['routine_call_caller']
-    call = FindNodes(Call).visit(routine.body)[0]
+    call = FindNodes(CallStatement).visit(routine.body)[0]
 
     assert str(call.arguments[0]) == 'x'
     assert str(call.arguments[1]) == 'y'
@@ -364,3 +364,71 @@ def test_routine_call_arrays(refpath, reference, header_path, header_mod, fronte
 #    assert fsymgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_no_arg(refpath, reference, frontend):
+    from loki import CallStatement
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_call_no_arg']
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].arguments == ()
+    assert routine.body[0].kwarguments == ()
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
+    FP
+])
+def test_pp_macros(refpath, reference, frontend):
+    from loki import FindNodes, Intrinsic
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
+    visitor = FindNodes(Intrinsic)
+    # We need to collect the intrinsics in multiple places because different frontends
+    # make the cut between parts of a routine in different places
+    intrinsics = visitor.visit(routine.docstring)
+    intrinsics += visitor.visit(routine.spec)
+    intrinsics += visitor.visit(routine.body)
+    assert len(intrinsics) == 9
+    assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
+               for node in intrinsics)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_empty_spec(refpath, reference, frontend):
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_empty_spec']
+    if frontend == OMNI:
+        # OMNI inserts IMPLICIT NONE into spec
+        assert len(routine.spec.body) == 1
+    else:
+        assert not routine.spec.body
+    assert len(routine.body) == 1
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_member_procedures(refpath, reference, frontend):
+    """ Test member subroutine and function """
+    # Test the reference solution
+    in1 = 1
+    in2 = 2
+    out1, out2 = reference.routine_member_procedures(in1, in2)
+    assert out1 == 7
+    assert out2 == 23
+
+    # Check that member procedures are parsed correctly
+    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_member_procedures']
+    assert len(routine.members) == 1
+    assert routine.members[0].name == 'member_procedure'
+    assert routine.members[0].symbols.lookup('localvar', recursive=False) is None
+    assert routine.members[0].symbols.lookup('localvar') is not None
+    assert routine.members[0].symbols.lookup('localvar') is routine.symbols.lookup('localvar')
+    assert routine.members[0].symbols.lookup('in1') is not None
+    assert routine.symbols.lookup('in1') is not None
+    assert routine.members[0].symbols.lookup('in1') is not routine.symbols.lookup('in1')
+
+    # Test the generated identity
+    test = generate_identity(refpath, 'routine_member_procedures', frontend=frontend)
+    function = getattr(test, 'routine_member_procedures_%s' % frontend)
+    out1, out2 = function(in1, in2)
+    assert out1 == 7
+    assert out2 == 23

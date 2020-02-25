@@ -4,7 +4,7 @@ from itertools import count
 from loki.transform.transformation import BasicTransformation
 from loki.sourcefile import SourceFile
 from loki.backend import cgen
-from loki.ir import (Section, Import, Intrinsic, Interface, Call, Declaration,
+from loki.ir import (Section, Import, Intrinsic, Interface, CallStatement, Declaration,
                      TypeDef, Statement, Scope, Loop)
 from loki.subroutine import Subroutine
 from loki.module import Module
@@ -147,7 +147,7 @@ class FortranCTransformation(BasicTransformation):
 
         arguments = [local_arg_map[a] if a in local_arg_map else a for a in routine.argnames]
         wrapper_body = casts_in
-        wrapper_body += [Call(name=interface.body[0].name, arguments=arguments)]
+        wrapper_body += [CallStatement(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
         wrapper.__init__(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,
                          symbols=wrapper.symbols, types=wrapper.types)

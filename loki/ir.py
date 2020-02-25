@@ -6,7 +6,7 @@ from loki.tools import flatten, as_tuple
 from loki.types import TypeTable
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'Call', 'CallContext',
+__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
            'MultiConditional', 'Interface', 'Intrinsic']
@@ -262,6 +262,10 @@ class Section(Node):
     def append(self, node):
         self._update(body=self.body + as_tuple(node))
 
+    def insert(self, pos, node):
+        '''Insert at given position'''
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+
     def prepend(self, node):
         self._update(body=as_tuple(node) + self.body)
 
@@ -316,25 +320,30 @@ class Import(Node):
     """
     Internal representation of a module import.
     """
-    def __init__(self, module, symbols=None, c_import=False, source=None):
+    def __init__(self, module, symbols=None, c_import=False, f_include=False, source=None):
         super(Import, self).__init__(source=source)
 
         self.module = module
         self.symbols = symbols or ()
         self.c_import = c_import
+        self.f_include = f_include
+
+        if c_import and f_include:
+            raise ValueError('Import cannot be C include and Fortran include')
 
     def __repr__(self):
-        _c = 'C-' if self.c_import else ''
+        _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return '%sImport:: %s => %s' % (_c, self.module, self.symbols)
 
 
 class Interface(Node):
     """
-    Internal representation of a Fortran interace block.
+    Internal representation of a Fortran interface block.
     """
-    def __init__(self, body=None, source=None):
+    def __init__(self, spec=None, body=None, source=None):
         super(Interface, self).__init__(source=source)
 
+        self.spec = spec
         self.body = as_tuple(body)
 
 
@@ -358,10 +367,10 @@ class Deallocation(Node):
     """
     Internal representation of a variable deallocation
     """
-    def __init__(self, variable, source=None):
+    def __init__(self, variables, source=None):
         super(Deallocation, self).__init__(source=source)
 
-        self.variable = variable
+        self.variables = variables
 
 
 class Nullify(Node):
@@ -374,7 +383,7 @@ class Nullify(Node):
         self.variable = variable
 
 
-class Call(Node):
+class CallStatement(Node):
     """
     Internal representation of a function call
     """
@@ -383,7 +392,7 @@ class Call(Node):
 
     def __init__(self, name, arguments, kwarguments=None, context=None,
                  pragma=None, source=None):
-        super(Call, self).__init__(source=source)
+        super(CallStatement, self).__init__(source=source)
 
         self.name = name
         self.arguments = arguments
@@ -399,7 +408,7 @@ class Call(Node):
 
 class CallContext(Node):
     """
-    Special node type to encapsulate the target of a :class:`Call`
+    Special node type to encapsulate the target of a :class:`CallStatement`
     node (usually a :call:`Subroutine`) alongside context-specific
     meta-information. This is required for transformations requiring
     context-sensitive inter-procedural analysis (IPA).
@@ -412,7 +421,7 @@ class CallContext(Node):
     def arg_iter(self, call):
         """
         Iterator that maps argument definitions in the target :class:`Subroutine`
-        to arguments and keyword arguments in the :param:`Call` provided.
+        to arguments and keyword arguments in the :param:`CallStatement` provided.
         """
         r_args = {arg.name: arg for arg in self.routine.arguments}
         args = zip(self.routine.arguments, call.arguments)

@@ -81,13 +81,13 @@ class ExpressionFinder(Visitor):
         return self.find_uniques(variables)
 
     def visit_Loop(self, o, **kwargs):
-        variables = as_tuple(self.retrieve(o.variable))
-        variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds
+        variables = as_tuple(self.retrieve(o.variable)) if o.variable else ()
+        variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds or []
                                       if c is not None))
         variables += as_tuple(flatten(self.visit(c) for c in o.body))
         return self.find_uniques(variables)
 
-    def visit_Call(self, o, **kwargs):
+    def visit_CallStatement(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(a) for a in o.arguments))
         variables += as_tuple(flatten(self.retrieve(a) for _, a in o.kwarguments or []))
         return self.find_uniques(variables)
@@ -178,6 +178,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_pow = IdentityMapper.map_power
+    map_string_concat = map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
         lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
@@ -186,7 +187,8 @@ class LokiIdentityMapper(IdentityMapper):
         return expr.__class__(lower, upper, step)
 
     def map_literal_list(self, expr, *args, **kwargs):
-        values = tuple(self.rec(v, *args, **kwargs) for v in expr.elements)
+        values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
+                       for v in expr.elements)
         return expr.__class__(values)
 
 
@@ -240,12 +242,12 @@ class SubstituteExpressions(Transformer):
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_Loop(self, o, **kwargs):
-        variable = self.expr_mapper(o.variable)
-        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds)
+        variable = self.expr_mapper(o.variable) if o.variable else None
+        bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds or [])
         body = self.visit(o.body)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
 
-    def visit_Call(self, o, **kwargs):
+    def visit_CallStatement(self, o, **kwargs):
         arguments = tuple(self.expr_mapper(a) for a in o.arguments)
         kwarguments = tuple((k, self.expr_mapper(v)) for k, v in o.kwarguments)
         # TODO: Re-build the call context

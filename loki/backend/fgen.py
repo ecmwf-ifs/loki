@@ -148,7 +148,11 @@ class FortranCodegen(Visitor):
             # Re-use original source associated with node
             return o._source.string
         else:
-            return super(FortranCodegen, self).visit(o)
+            if hasattr(o, '_source') and o._source is not None and o._source.label:
+                label = '%d ' % o._source.label
+            else:
+                label = ''
+            return '%s%s' % (label, super(FortranCodegen, self).visit(o))
 
     def visit_Node(self, o):
         return self.indent + '! <%s>' % o.__class__.__name__
@@ -194,15 +198,6 @@ class FortranCodegen(Visitor):
             contains = ''
         return self.indent + header + docstring + spec + body + contains + members + footer
 
-    def visit_InterfaceBlock(self, o):
-        arguments = self.segment([a.name for a in o.arguments])
-        argument = ' &\n & (%s)\n' % arguments if len(o.arguments) > 0 else '\n'
-        header = 'INTERFACE\nSUBROUTINE %s%s' % (o.name, argument)
-        footer = '\nEND SUBROUTINE %s\nEND INTERFACE\n' % o.name
-        imports = self.visit(o.imports)
-        declarations = self.visit(o.declarations)
-        return header + imports + '\n' + declarations + footer
-
     def visit_Comment(self, o):
         text = o._source.string if o.text is None else o.text
         return self.indent + text
@@ -234,15 +229,19 @@ class FortranCodegen(Visitor):
     def visit_Import(self, o):
         if o.c_import:
             return '#include "%s"' % o.module
+        elif o.f_include:
+            return 'include "%s"' % o.module
         else:
             only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
             return self.indent + 'USE %s%s' % (o.module, only)
 
     def visit_Interface(self, o):
         self._depth += 1
-        body = self.visit(o.body)
+        spec = ' %s' % o.spec if o.spec else ''
+        header = 'INTERFACE%s\n' % spec
+        body = ('\n%s' % self.indent).join(self.visit(ch) for ch in o.body)
         self._depth -= 1
-        return self.indent + 'INTERFACE\n%s\n%sEND INTERFACE\n' % (body, self.indent)
+        return self.indent + header + body + '\n%sEND INTERFACE\n' % self.indent
 
     def visit_Loop(self, o):
         pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
@@ -250,9 +249,14 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body)
         self._depth -= 1
-        header = '%s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
-                                  ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
-        return pragma + self.indent + 'DO %s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
+        if o.bounds:
+            header = ' %s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
+                                       ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
+        elif o.variable:
+            header = ' while (%s)' % self.fsymgen(o.variable)
+        else:
+            header = ''
+        return pragma + self.indent + 'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
         condition = self.fsymgen(o.condition)
@@ -322,9 +326,9 @@ class FortranCodegen(Visitor):
         body = self.visit(o.body)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
-    def visit_Call(self, o):
+    def visit_CallStatement(self, o):
         if o.kwarguments is not None:
-            kwargs = tuple(str('%s=%s' % (k, v)) for k, v in o.kwarguments)
+            kwargs = tuple('%s=%s' % (k, self.fsymgen(v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
         else:
             args = o.arguments
@@ -337,7 +341,8 @@ class FortranCodegen(Visitor):
                                       else a for a in args], chunking=3)
             self._depth -= 2
         else:
-            signature = ', '.join(str(a) for a in args)
+            signature = ', '.join(self.fsymgen(a) if isinstance(a, Expression)
+                                  else str(a) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o):
@@ -347,10 +352,16 @@ class FortranCodegen(Visitor):
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o):
-        return self.indent + 'DEALLOCATE(%s)' % o.variable
+        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
+                             for v in o.variables)
+        return self.indent + 'DEALLOCATE(%s)' % variables
 
     def visit_Nullify(self, o):
-        return self.indent + 'NULLIFY(%s)' % o.variable
+        if isinstance(o.variable, str):
+            variable = o.variable
+        else:
+            variable = self.fsymgen(o.variable)
+        return self.indent + 'NULLIFY(%s)' % variable
 
     def visit_Expression(self, o):
         # TODO: Expressions are currently purely treated as strings
@@ -362,9 +373,13 @@ class FortranCodegen(Visitor):
             # a rigorous way to do this, but various corner
             # cases around pointer assignments break the
             # shape verification in sympy.
-            return '%s = %s' % (o, self.fsymgen(o.initial))
+            stmt = '%s = %s' % (o, self.fsymgen(o.initial))
         else:
-            return self.fsymgen(o)
+            stmt = self.fsymgen(o)
+        # Hack the pointer assignment (very ugly):
+        if o.type.pointer:
+            stmt = stmt.replace(' = ', ' => ')
+        return stmt
 
     visit_Array = visit_Scalar
 
@@ -376,8 +391,9 @@ class FortranCodegen(Visitor):
                         DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
                         DataType.COMPLEX: 'COMPLEX'}
             tname = type_map[o.dtype]
-        return '%s%s%s%s%s%s%s%s%s%s' % (
+        return '%s%s%s%s%s%s%s%s%s%s%s' % (
             tname,
+            '(LEN=%s)' % o.length if o.length else '',
             '(KIND=%s)' % o.kind if o.kind else '',
             ', ALLOCATABLE' if o.allocatable else '',
             ', POINTER' if o.pointer else '',

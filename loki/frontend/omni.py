@@ -7,11 +7,11 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 
 
 from loki.frontend.source import Source
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
+from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
 from loki.visitors import GenericVisitor
 from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
-                             ExpressionDimensionsMapper)
-from loki.ir import (Scope, Statement, Conditional, Call, Loop, Allocation, Deallocation,
+                             ExpressionDimensionsMapper, StringConcat)
+from loki.ir import (Scope, Statement, Conditional, CallStatement, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit
@@ -221,7 +221,8 @@ class OMNI2IR(GenericVisitor):
         else:
             typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
-            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind)
+            length = self.visit(o.find('len')) if o.find('len') is not None else None
+            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind, length=length)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -280,12 +281,19 @@ class OMNI2IR(GenericVisitor):
     def visit_FassignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return Statement(target=target, expr=expr)
+        return Statement(target=target, expr=expr, source=source)
 
     def visit_FpointerAssignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return Statement(target=target, expr=expr, ptr=True)
+        return Statement(target=target, expr=expr, ptr=True, source=source)
+
+    def visit_FdoWhileStatement(self, o, source=None):
+        assert (o.find('condition') is not None)
+        assert (o.find('body') is not None)
+        variable = self.visit(o.find('condition'))
+        body = self.visit(o.find('body'))
+        return Loop(variable=variable, body=body, bounds=None, source=source)
 
     def visit_FdoStatement(self, o, source=None):
         assert (o.find('Var') is not None)
@@ -297,7 +305,7 @@ class OMNI2IR(GenericVisitor):
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
         bounds = lower, upper, step
-        return Loop(variable=variable, body=body, bounds=bounds)
+        return Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_FifStatement(self, o, source=None):
         conditions = [self.visit(c) for c in o.findall('condition')]
@@ -383,16 +391,16 @@ class OMNI2IR(GenericVisitor):
         return RangeIndex(lower=lower, upper=upper, step=step)
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=float(o.text), kind=o.attrib.get('kind', None))
+        return Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
         return Literal(value=o.text, type=DataType.LOGICAL)
 
     def visit_FcharacterConstant(self, o, source=None):
-        return Literal(value='"%s"' % o.text)
+        return Literal(value='"%s"' % o.text, type=DataType.CHARACTER)
 
     def visit_FintConstant(self, o, source=None):
-        return Literal(value=int(o.text))
+        return Literal(value=int(o.text), type=DataType.INTEGER)
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
@@ -431,7 +439,7 @@ class OMNI2IR(GenericVisitor):
             else:
                 return InlineCall(name, parameters=args, kw_parameters=kwargs)
         else:
-            return Call(name=name, arguments=args, kwarguments=kwargs)
+            return CallStatement(name=name, arguments=args, kwarguments=kwargs)
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
@@ -443,66 +451,56 @@ class OMNI2IR(GenericVisitor):
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
             variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
-#            vname, vtype, parent = self.visit(a[0], shape=dimensions)
-#            if parent is not None:
-#                vname = '%s%%%s' % (parent.name, vname)
-#            variables += [Variable(name=vname, dimensions=dimensions, scope=self.scope,
-#                                   type=vtype, parent=parent, source=source)]
         return Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
-        deallocations = []
-        for a in allocs:
-            v = self.visit(a[0])
-            deallocations += [Deallocation(variable=v)]
-        return deallocations[0] if len(deallocations) == 1 else as_tuple(deallocations)
+        variables = as_tuple(self.visit(a[0]) for a in allocs)
+        return Deallocation(variables=variables, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
-        return Intrinsic(text='cycle')
+        return Intrinsic(text='cycle', source=source)
 
     def visit_FopenStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return Intrinsic(text='open(%s)' % nargs)
+        return Intrinsic(text='open(%s)' % nargs, source=source)
 
     def visit_FcloseStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return Intrinsic(text='close(%s)' % nargs)
+        return Intrinsic(text='close(%s)' % nargs, source=source)
 
     def visit_FreadStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         values = [self.visit(v) for v in o.find('valueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
         args = ', '.join('%s' % v for v in values)
-        return Intrinsic(text='read(%s) %s' % (nargs, args))
+        return Intrinsic(text='read(%s) %s' % (nargs, args), source=source)
 
     def visit_FwriteStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         values = [self.visit(v) for v in o.find('valueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
         args = ', '.join('%s' % v for v in values)
-        return Intrinsic(text='write(%s) %s' % (nargs, args))
+        return Intrinsic(text='write(%s) %s' % (nargs, args), source=source)
 
     def visit_FprintStatement(self, o, source):
         values = [self.visit(v) for v in o.find('valueList')]
         args = ', '.join('%s' % v for v in values)
         fmt = o.attrib['format']
-        return Intrinsic(text='print %s, %s' % (fmt, args))
+        return Intrinsic(text='print %s, %s' % (fmt, args), source=source)
 
     def visit_FformatDecl(self, o, source):
-        # Hackery galore; this is wrong on soooo many levels! :(
-        lineno = int(o.attrib['lineno'])
-        line = self.raw_source.splitlines(keepends=False)[lineno-1]
-        return Intrinsic(text=line)
+        fmt = 'FORMAT%s' % o.attrib['format']
+        return Intrinsic(text=fmt, source=source)
 
     def visit_namedValue(self, o, source):
         name = o.attrib['name']
         if 'value' in o.attrib:
             return name, o.attrib['value']
         else:
-            return name, self.visit(o.getchildren()[0])
+            return name, self.visit(list(o)[0])
 
     def visit_plusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
@@ -587,6 +585,22 @@ class OMNI2IR(GenericVisitor):
         assert len(exprs) == 2
         return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
 
+    def visit_FconcatExpr(self, o, source=None):
+        exprs = tuple(self.visit(c) for c in o)
+        assert len(exprs) == 2
+        return StringConcat(exprs)
+
+    def visit_gotoStatement(self, o, source=None):
+        label = int(o.attrib['label_name'])
+        return Intrinsic(text='go to %d' % label, source=source)
+
+    def visit_statementLabel(self, o, source=None):
+        source.label = int(o.attrib['label_name'])
+        return Comment('__STATEMENT_LABEL__', source=source)
+
+    def visit_FreturnStatement(self, o, source=None):
+        return Intrinsic(text='return', source=source)
+
 
 @timeit(log_level=DEBUG)
 def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
@@ -602,5 +616,6 @@ def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
     ir = inline_comments(ir)
     ir = cluster_comments(ir)
     ir = inline_pragmas(ir)
+    ir = inline_labels(ir)
 
     return ir

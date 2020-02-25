@@ -2,7 +2,8 @@ from itertools import groupby
 from enum import IntEnum
 
 from loki.visitors import Visitor, NestedTransformer
-from loki.ir import Statement, Call, Comment, CommentBlock, Declaration, Pragma, Loop
+from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaration, Pragma, Loop,
+                     Intrinsic)
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'inline_pragmas']
 
@@ -133,11 +134,30 @@ def inline_pragmas(ir):
     declaration due to way we parse derived types.
     """
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
-    pairs += PatternFinder(pattern=(Pragma, Call)).visit(ir)
+    pairs += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
     pairs += PatternFinder(pattern=(Pragma, Loop)).visit(ir)
     mapper = {}
     for pair in pairs:
         # Merge pragma with declaration and delete
         mapper[pair[0]] = None  # Mark for deletion
         mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
+    return NestedTransformer(mapper).visit(ir)
+
+
+def inline_labels(ir):
+    """
+    Find labels and merge them onto the following node.
+
+    Note: This is currently only required for OMNI and OFP frontends which
+    has labels as nodes next to the corresponding statement without
+    any connection between both.
+    """
+    pairs = PatternFinder(pattern=(Comment, Statement)).visit(ir)
+    pairs += PatternFinder(pattern=(Comment, Intrinsic)).visit(ir)
+    mapper = {}
+    for pair in pairs:
+        if pair[0]._source and pair[0].text == '__STATEMENT_LABEL__':
+            if pair[1]._source and pair[1]._source.lines[0] == pair[0]._source.lines[1]:
+                mapper[pair[0]] = None  # Mark for deletion
+                mapper[pair[1]] = pair[1]._rebuild(source=pair[0]._source)
     return NestedTransformer(mapper).visit(ir)
