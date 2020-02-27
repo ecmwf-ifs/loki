@@ -79,15 +79,16 @@ def cli(ctx, debug, log):
 
 @cli.command(help='Check for syntax errors and compliance to coding rules.')
 @click.option('--include', '-I', type=str, multiple=True,
-              help='File name or pattern for file names to be checked.')
+              help=('File name or pattern for file names to be checked. '
+                    'Allows for relative and absolute paths/glob patterns.'))
 @click.option('--exclude', '-X', type=str, multiple=True,
               help=('File name or pattern for file names to be excluded. '
                     'This allows to exclude files that were included by '
                     '--include.'))
 @click.option('--basedir', type=click.Path(exists=True, file_okay=False),
               help=('(Default: current working directory) Base directory '
-                    'relative to which relative --include/--exclude patterns '
-                    'are interpreted.'))
+                    'relative to which --include/--exclude patterns are '
+                    'interpreted.'))
 @click.option('--workers', type=int, default=4,
               help=('(Default: 4) Number of worker processes to use. With '
                     '--debug enabled this option is ignored and only one '
