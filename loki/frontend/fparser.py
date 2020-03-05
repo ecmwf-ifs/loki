@@ -712,7 +712,7 @@ class FParser2IR(GenericVisitor):
     visit_Label_Do_Stmt = visit_Nonlabel_Do_Stmt
 
     def visit_If_Construct(self, o, **kwargs):
-        # The banter before the loop...
+        # The banter before the construct...
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.If_Then_Stmt):
@@ -976,8 +976,8 @@ class FParser2IR(GenericVisitor):
         else:
             body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
                                     Fortran2003.End_Where_Stmt)
-        body = as_tuple(flatten(self.visit(ch) for ch in body_ast))
-        default = as_tuple(flatten(self.visit(ch) for ch in default_ast))
+        body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
+        default = as_tuple(self.visit(ch, **kwargs) for ch in default_ast)
         return (*banter, ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
                                             source=kwargs.get('source')))
 
