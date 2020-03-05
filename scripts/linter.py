@@ -12,6 +12,7 @@ from loki.logging import logger, DEBUG, warning, info, error, debug
 from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
+from loki.lint import Linter
 
 
 def get_relative_path_and_anchor(path, anchor):
@@ -47,17 +48,18 @@ def get_file_list(includes, excludes, basedir):
     return incl, excl
 
 
-def parse_file(filename, frontend=FP):
+def check_file(filename, linter, frontend=FP):
     debug('[%s] Parsing...', filename)
     try:
-        _ = SourceFile.from_file(filename, frontend=frontend)
+        source = SourceFile.from_file(filename, frontend=frontend)
     except FortranSyntaxError as excinfo:
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
     except Exception as excinfo:
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
-    info('[%s] Parsing completed without error.', filename)
+    debug('[%s] Parsing completed without error.', filename)
+    linter.check(source, None)
     return True
 
 
@@ -111,13 +113,15 @@ def check(ctx, include, exclude, basedir, workers):
     info('Using %d workers.', workers)
     info('')
 
+    linter = Linter()
+
     success_count = 0
     if workers == 1:
         for f in files:
-            success_count += parse_file(f)
+            success_count += check_file(f, linter)
     else:
         with workqueue(workers, logger=logger) as q:
-            q_tasks = [q.call(parse_file, f, log_queue=q.log_queue)
+            q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
                        for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
