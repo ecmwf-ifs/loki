@@ -226,7 +226,9 @@ class FortranCodegen(Visitor):
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
         variables = []
         for v in o.variables:
-            stmt = self.visit(v, **kwargs)
+            # This is a bit dubious, but necessary, as we otherwise pick up
+            # array dimensions from the internal representation of the variable.
+            stmt = self.visit(v, **kwargs) if o.dimensions is None else v.basename
             if v.initial is not None:
                 stmt += ' = %s' % self.visit(v.initial, **kwargs)
             # Hack the pointer assignment (very ugly):

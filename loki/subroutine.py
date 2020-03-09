@@ -280,7 +280,7 @@ class Subroutine:
 
     @property
     def variables(self):
-        return flatten(decl.variables for decl in FindNodes(Declaration).visit(self.ir))
+        return flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec))
 
     @property
     def arguments(self):

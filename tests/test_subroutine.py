@@ -356,7 +356,7 @@ end subroutine routine_dim_shapes
                       ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
     # Ensure shapes of body variables are ok
-    b_shapes = [fsymgen(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
+    b_shapes = [fsymgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
                 if isinstance(v, Array)]
     assert b_shapes in (['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
                         ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
