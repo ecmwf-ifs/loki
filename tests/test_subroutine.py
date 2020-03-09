@@ -299,7 +299,7 @@ end subroutine routine_variables_find
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    vars_all = FindVariables(unique=False).visit(routine.ir)
+    vars_all = FindVariables(unique=False).visit(routine.body)
     # Note, we are not counting declarations here
     assert sum(1 for s in vars_all if str(s) == 'i') == 6
     assert sum(1 for s in vars_all if str(s) == 'j') == 3

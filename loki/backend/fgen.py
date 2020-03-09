@@ -185,9 +185,6 @@ class FortranCodegen(Visitor):
         return header + spec + contains + body + footer
 
     def visit_Subroutine(self, o, **kwargs):
-        # Make sure declarations are re-inserted
-        o._externalize()
-
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '()'

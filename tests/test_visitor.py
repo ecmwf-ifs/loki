@@ -32,7 +32,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables(unique=False).visit(routine.ir)
+    variables = FindVariables(unique=False).visit(routine.body)
     assert len(variables) == 12
     assert all(isinstance(v, Expression) for v in variables)
 
@@ -63,7 +63,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables().visit(routine.ir)
+    variables = FindVariables().visit(routine.body)
     assert isinstance(variables, set)
     assert len(variables) == 5
     assert all(isinstance(v, Expression) for v in variables)
@@ -94,7 +94,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables(unique=False, with_ir_node=True).visit(routine.ir)
+    variables = FindVariables(unique=False, with_ir_node=True).visit(routine.body)
     assert len(variables) == 3
     assert all(isinstance(v, tuple) and len(v) == 2 for v in variables)
 
@@ -135,7 +135,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables(with_ir_node=True).visit(routine.ir)
+    variables = FindVariables(with_ir_node=True).visit(routine.body)
     assert len(variables) == 3
     assert all(isinstance(v, tuple) and len(v) == 2 for v in variables)
 
@@ -190,10 +190,10 @@ end subroutine routine_simple
 
     retriever = ExpressionCallbackMapper(callback=is_matrix,
                                          combine=lambda v: tuple(e for e in v if e is not None))
-    matrix_count = ExpressionFinder(retrieve=retriever, unique=False).visit(routine.ir)
+    matrix_count = ExpressionFinder(retrieve=retriever, unique=False).visit(routine.body)
     assert len(matrix_count) == 2
 
-    matrix_count = ExpressionFinder(retrieve=retriever).visit(routine.ir)
+    matrix_count = ExpressionFinder(retrieve=retriever).visit(routine.body)
     assert len(matrix_count) == 1
     assert str(matrix_count.pop()) == 'matrix(i, j)'
 

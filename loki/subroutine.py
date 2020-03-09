@@ -11,7 +11,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
                      CallContext, Intrinsic, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 from loki.types import TypeTable
 
 
@@ -51,9 +51,6 @@ class Subroutine:
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
 
-        self.arguments = None
-        self.variables = None
-        self._decl_map = None
         self._parent = weakref.ref(parent) if parent is not None else None
 
         self.symbols = symbols
@@ -66,13 +63,11 @@ class Subroutine:
             parent_types = self.parent.types if self.parent is not None else None
             self.types = TypeTable(parent=parent_types)
 
+        # The primary IR components
         self.docstring = docstring
         self.spec = spec
         self.body = body
         self.members = members
-
-        # Internalize argument declarations
-        self._internalize()
 
         self.bind = bind
         self.is_function = is_function
@@ -283,71 +278,13 @@ class Subroutine:
                      members=members, symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
-    def _internalize(self):
-        """
-        Internalize argument and variable declarations.
-        """
-        self.arguments = [None] * len(self._dummies)
-        self.variables = []
-        self._decl_map = OrderedDict()
-        dmap = {}
+    @property
+    def variables(self):
+        return flatten(decl.variables for decl in FindNodes(Declaration).visit(self.ir))
 
-        for decl in FindNodes(Declaration).visit(self.ir):
-            # Record all variables independently
-            self.variables += list(decl.variables)
-
-            # Insert argument variable at the position of the dummy
-            for v in decl.variables:
-                if v.name.lower() in self._dummies:
-                    idx = self._dummies.index(v.name.lower())
-                    self.arguments[idx] = v
-
-            # Stash declaration and mark for removal
-            for v in decl.variables:
-                self._decl_map[v] = decl
-            dmap[decl] = None
-
-        # Remove declarations from the IR
-        self.spec = Transformer(dmap).visit(self.spec)
-
-    def _externalize(self, c_backend=False):
-        """
-        Re-insert argument declarations...
-        """
-        # A hacky way to ensure we don;t do this twice
-        # TODO; Need better way to determine this; THIS IS NOT SAFE!
-        if self._decl_map is None:
-            return
-
-        decls = []
-        for v in self.variables:
-            if c_backend and v in self.arguments:
-                continue
-
-            if v in self._decl_map:
-                d = self._decl_map[v].clone()
-                d.variables = as_tuple(v)
-            else:
-                d = Declaration(variables=[v], type=v.type)
-
-            # Dimension declarations are done on variables
-            d.dimensions = None
-
-            decls += [d]
-
-        # Find any DataDeclaration instances to make sure variables are declared before
-        # their initialization
-        try:
-            data_index = [isinstance(d, DataDeclaration) for d in self.spec.body].index(True)
-        except ValueError:
-            data_index = None
-
-        if data_index is not None:
-            self.spec.insert(data_index, decls)
-        else:
-            self.spec.append(decls)
-
-        self._decl_map = None
+    @property
+    def arguments(self):
+        return as_tuple(v for v in self.variables if v.name.lower() in self._dummies)
 
     def enrich_calls(self, routines):
         """

@@ -193,9 +193,6 @@ class CCodegen(Visitor):
         return spec + '\n\n' + routines
 
     def visit_Subroutine(self, o, **kwargs):
-        # Re-generate variable declarations
-        o._externalize(c_backend=True)
-
         # Generate header with argument signature
         aptr = []
         for a in o.arguments:
