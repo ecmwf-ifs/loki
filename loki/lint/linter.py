@@ -9,8 +9,8 @@ class Linter(object):
     @staticmethod
     def _lookup_rules():
         import loki.lint.rules as rules
-        rule_list = [r for r in inspect.getmembers(
-            rules, lambda obj: inspect.isclass(obj) and obj.__name__.endswith('Rule'))]
+        rule_list = inspect.getmembers(
+            rules, lambda obj: inspect.isclass(obj) and obj.__name__.endswith('Rule'))
         rule_list = [r[1] for r in rule_list if r[0] != 'GenericRule']
         return rule_list
 
@@ -18,8 +18,9 @@ class Linter(object):
         if rules is None:
             rules = Linter._lookup_rules()
         for rule in rules:
-            config = self.config.get(rule.__name__, {})
-            rule.check(ast, reporter, **config)
+            config = rule.config
+            config.update(self.config.get(rule.__name__, {}))
+            rule.check(ast, reporter, config)
 
     def fix(self, ast, reporter):
         pass
