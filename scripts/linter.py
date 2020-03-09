@@ -91,12 +91,12 @@ def cli(ctx, debug, log):
               help=('(Default: current working directory) Base directory '
                     'relative to which --include/--exclude patterns are '
                     'interpreted.'))
-@click.option('--workers', type=int, default=4,
+@click.option('--worker', type=int, default=4,
               help=('(Default: 4) Number of worker processes to use. With '
                     '--debug enabled this option is ignored and only one '
                     'process is used.'))
 @click.pass_context
-def check(ctx, include, exclude, basedir, workers):
+def check(ctx, include, exclude, basedir, worker):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -108,19 +108,19 @@ def check(ctx, include, exclude, basedir, workers):
 
     debug('Searching for files using specified patterns...')
     files, excludes = get_file_list(include, exclude, basedir)
-    info('%d files selected for checking (%d files excludes).',
+    info('%d files selected for checking (%d files excluded).',
          len(files), len(excludes))
-    info('Using %d workers.', workers)
+    info('Using %d worker.', worker)
     info('')
 
     linter = Linter()
 
     success_count = 0
-    if workers == 1:
+    if worker == 1:
         for f in files:
             success_count += check_file(f, linter)
     else:
-        with workqueue(workers, logger=logger) as q:
+        with workqueue(worker, logger=logger) as q:
             q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
                        for f in files]
             for t in as_completed(q_tasks):
