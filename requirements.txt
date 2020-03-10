@@ -11,8 +11,7 @@ pymbolic
 
 # Some dependencies require specific dev branches
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
-# git+https://github.com/jameskermode/f90wrap.git
-git+https://github.com/reuterbal/f90wrap.git@101_contained_subroutines
+git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/reuterbal/fparser.git@loki_integration
 
 # For tests

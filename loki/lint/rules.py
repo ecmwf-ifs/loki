@@ -41,39 +41,49 @@ class GenericRule(object):
     replaced_by = ()
 
     @classmethod
+    def check_module(cls, ast, reporter, config):
+        pass
+
+    @classmethod
+    def check_subroutine(cls, ast, reporter, config):
+        pass
+
+    @classmethod
+    def check_file(cls, ast, reporter, config):
+        pass
+
+    @classmethod
     def check(cls, ast, reporter, config):
+        # Perform checks on source file level
+        if isinstance(ast, SourceFile):
+            cls.check_file(ast, reporter, config)
+
         # Perform checks on module level
-        if hasattr(cls, 'check_module'):
-            if isinstance(ast, SourceFile):
-                # If we have a source file, we call the routine for each module
-                for module in ast.modules:
-                    cls.check_module(module, reporter, config)
-            elif isinstance(ast, Module):
-                cls.check_module(ast, reporter, config)
+        if isinstance(ast, SourceFile):
+            # If we have a source file, we call the routine for each module
+            for module in ast.modules:
+                cls.check_module(module, reporter, config)
+        elif isinstance(ast, Module):
+            cls.check_module(ast, reporter, config)
 
         # Perform checks on subroutine level
-        if hasattr(cls, 'check_subroutine'):
-            if isinstance(ast, (SourceFile, Module)):
-                # If we have a source file or module, we call the routine for
-                # each module and subroutine
-                if hasattr(ast, 'routines') and ast.routines is not None:
-                    for subroutine in ast.routines:
+        if isinstance(ast, (SourceFile, Module)):
+            # If we have a source file or module, we call the routine for
+            # each module and subroutine
+            if hasattr(ast, 'routines') and ast.routines is not None:
+                for subroutine in ast.routines:
+                    cls.check_subroutine(subroutine, reporter, config)
+            if hasattr(ast, 'modules') and ast.modules is not None:
+                for module in ast.modules:
+                    for subroutine in module.routines:
                         cls.check_subroutine(subroutine, reporter, config)
-                if hasattr(ast, 'modules') and ast.modules is not None:
-                    for module in ast.modules:
-                        for subroutine in module.routines:
-                            cls.check_subroutine(subroutine, reporter, config)
-            elif isinstance(ast, Subroutine):
-                cls.check_subroutine(ast, reporter, config)
+        elif isinstance(ast, Subroutine):
+            cls.check_subroutine(ast, reporter, config)
 
-                # Recurse for any procedures contained in a subroutine
-                if hasattr(ast, 'members') and ast.members is not None:
-                    for member in ast.members:
-                        cls.check_subroutine(member, reporter, config)
-
-        if hasattr(cls, 'check_file'):
-            if isinstance(ast, SourceFile):
-                cls.check_file(ast, reporter, config)
+            # Recurse for any procedures contained in a subroutine
+            if hasattr(ast, 'members') and ast.members is not None:
+                for member in ast.members:
+                    cls.check_subroutine(member, reporter, config)
 
 
 class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
@@ -139,14 +149,29 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
     _regex = re.compile(r'implicit\s+none\b', re.I)
 
     @staticmethod
-    def check_subroutine(ast, reporter, config):
+    def check_for_implicit_none(ast):
         # Check for intrinsic nodes with 'implicit none'
-        for intr in FindNodes(ir.Intrinsic).visit(ast.ir):
+        for intr in FindNodes(ir.Intrinsic).visit(ast):
             if ImplicitNoneRule._regex.match(intr.text):
                 break
         else:
+            return False
+        return True
+
+    @classmethod
+    def check_subroutine(cls, ast, reporter, config):
+        found_implicit_none = cls.check_for_implicit_none(ast.ir)
+
+        # Check if enclosing scopes contain implicit none
+        scope = ast.parent
+        while scope and not found_implicit_none:
+            if hasattr(scope, 'spec') and scope.spec:
+                found_implicit_none = cls.check_for_implicit_none(scope.spec)
+            scope = scope.parent if hasattr(scope, 'parent') else None
+
+        if not found_implicit_none:
             # No 'IMPLICIT NONE' intrinsic node was found
-            print('{}: No "IMPLICIT NONE" in routine {}'.format(
+            print('{}: No "IMPLICIT NONE" in routine "{}"'.format(
                 get_filename_from_parent(ast), ast.name))
 
 
