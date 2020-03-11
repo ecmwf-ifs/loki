@@ -12,7 +12,7 @@ from loki.logging import logger, DEBUG, warning, info, error, debug
 from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
-from loki.lint import Linter, Reporter, DefaultFormatter
+from loki.lint import Linter, Reporter
 
 
 def get_relative_path_and_anchor(path, anchor):
@@ -49,6 +49,7 @@ def get_file_list(includes, excludes, basedir):
 
 
 def check_file(filename, linter, frontend=FP):
+    reporter = Reporter()
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend)
@@ -59,7 +60,8 @@ def check_file(filename, linter, frontend=FP):
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
     debug('[%s] Parsing completed without error.', filename)
-    linter.check(source, None)
+    linter.check(source, reporter)
+    linter.fix(source, reporter)
     return True
 
 
@@ -113,8 +115,7 @@ def check(ctx, include, exclude, basedir, worker):
     info('Using %d worker.', worker)
     info('')
 
-    reporter = Reporter()
-    linter = Linter(reporter)
+    linter = Linter()
 
     success_count = 0
     if worker == 1:

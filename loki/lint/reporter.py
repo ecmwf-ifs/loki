@@ -20,6 +20,7 @@ class Reporter(object):
 
     def __init__(self, formatters=None):
         self.formatters = formatters or [DefaultFormatter()]
+        self.reports = []
 
     def add(self, rule, location, msg):
         report = Report(rule, location, msg)
@@ -30,7 +31,7 @@ class Reporter(object):
             raise TypeError(
                 'Object of type "{}" given, must be of type "{}"'.format(
                     type(report), Report))
-        # TODO: collect reports somewhere
+        self.reports.append(report)
         self.print_report(report)
 
     def print_report(self, report):
