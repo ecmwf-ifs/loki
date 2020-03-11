@@ -12,7 +12,7 @@ from loki.logging import logger, DEBUG, warning, info, error, debug
 from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
-from loki.lint import Linter
+from loki.lint import Linter, Reporter, DefaultFormatter
 
 
 def get_relative_path_and_anchor(path, anchor):
@@ -113,14 +113,15 @@ def check(ctx, include, exclude, basedir, worker):
     info('Using %d worker.', worker)
     info('')
 
-    linter = Linter()
+    reporter = Reporter()
+    linter = Linter(reporter)
 
     success_count = 0
     if worker == 1:
         for f in files:
             success_count += check_file(f, linter)
     else:
-        with workqueue(worker, logger=logger) as q:
+        with workqueue(workers=worker, logger=logger) as q:
             q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
                        for f in files]
             for t in as_completed(q_tasks):
