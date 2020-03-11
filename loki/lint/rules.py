@@ -104,15 +104,14 @@ class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
         ir.Deallocation, ir.Nullify, ir.CallStatement
     )
 
-    @staticmethod
-    def check_subroutine(ast, reporter, config):
+    @classmethod
+    def check_subroutine(cls, ast, reporter, config):
         # count number of executable statements
         num_nodes = len(FindNodes(SubroutineLengthRule.exec_nodes).visit(ast.ir))
         if num_nodes > config['max_num_statements']:
-            print(('{}: Number of executable statements ({}) in routine "{}" '
-                   'exceeds maximum number allowed ({})').format(
-                       get_filename_from_parent(ast), num_nodes, ast.name,
-                       config['max_num_statements']))
+            fmt_string = '{} executable statements exceed maximum number allowed ({})'
+            msg = fmt_string.format(num_nodes, config['max_num_statements'])
+            reporter.add(cls, ast, msg)
 
 
 class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
@@ -127,15 +126,14 @@ class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
         'max_num_arguments': 50
     }
 
-    @staticmethod
-    def check_subroutine(ast, reporter, config):
+    @classmethod
+    def check_subroutine(cls, ast, reporter, config):
         # check number of arguments
         num_arguments = len(ast.arguments)
         if num_arguments > config['max_num_arguments']:
-            print(('{}: Number of dummy arguments ({}) in routine {} '
-                   'exceeds maximum number allowed ({})').format(
-                       get_filename_from_parent(ast), num_arguments,
-                       ast.name, config['max_num_arguments']))
+            fmt_string = '{} dummy arguments exceed maximum number allowed ({})'
+            msg = fmt_string.format(num_arguments, config['max_num_arguments'])
+            reporter.add(cls, ast, msg)
 
 
 class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
@@ -171,8 +169,7 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
         if not found_implicit_none:
             # No 'IMPLICIT NONE' intrinsic node was found
-            print('{}: No "IMPLICIT NONE" in routine "{}"'.format(
-                get_filename_from_parent(ast), ast.name))
+            reporter.add(cls, ast, 'No "IMPLICIT NONE" found')
 
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
@@ -189,12 +186,11 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
                    'FORMAT', 'COMMON', 'EQUIVALENCE'],
     }
 
-    @staticmethod
-    def check_subroutine(ast, reporter, config):
+    @classmethod
+    def check_subroutine(cls, ast, reporter, config):
         # Check for intrinsic nodes containing the banned statements
         for intr in FindNodes(ir.Intrinsic).visit(ast.ir):
             for keyword in config['banned']:
                 if keyword.lower() in intr.text.lower():
-                    print('{}: Line {} - Banned keyword "{}"'.format(
-                        get_filename_from_parent(ast),
-                        get_line_from_source(intr._source), keyword))
+                    msg = 'Banned keyword "{}"'.format(keyword)
+                    reporter.add(cls, ast, msg)
