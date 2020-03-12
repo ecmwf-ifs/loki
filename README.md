@@ -14,32 +14,7 @@ implementations and programming models.
 
 ### Installation
 
-Loki is pure Python package that depends on a range of upstream packages,
-including some dependencies on dev branches. It is therefore recommended
-to create a Loki-specific virtual environment:
-
-```
-# Create virtual env
-python3 -m venv loki_env
-source loki_env/bin/activate
-
-# Clone and install dev version of Loki
-git clone ssh://git@git.ecmwf.int:7999/~naml/loki.git
-cd loki
-pip install numpy  # Needed during next step
-pip install -r requirements.txt
-pip install -e .  # Installs Loki dev copy in editable mode
-```
-
-Open Fortran Parser (OFP) requires a few additional steps to work.
-First, change the version number to `0.5.3` in 
-`../loki_env/src/open-fortran-parser/open_fortran_parser/_version.py`.
-Then do the following:
-
-```
-python3 -m open_fortran_parser --deps # Add the displayed CLASSPATH to
-                                      # your environment
-```
+See [INSTALL.md](INSTALL.md).
 
 ### Core concepts (the philosophical bit)
 
