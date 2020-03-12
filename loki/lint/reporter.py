@@ -12,11 +12,13 @@ class Report(object):
     def __init__(self, rule, filename, location, msg):
         self.rule = rule
         self.filename = filename
-        self._location = weakref.ref(location)
+        self._location = weakref.ref(location) if location is not None else None
         self.msg = msg
 
     @property
     def location(self):
+        if self._location is None:
+            return None
         return self._location()
 
 

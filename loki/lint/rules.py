@@ -75,7 +75,7 @@ class GenericRule(object):
                     cls.check_subroutine(subroutine, reporter, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    for subroutine in module.routines:
+                    for subroutine in module.routines or []:
                         cls.check_subroutine(subroutine, reporter, config)
         elif isinstance(ast, Subroutine):
             cls.check_subroutine(ast, reporter, config)

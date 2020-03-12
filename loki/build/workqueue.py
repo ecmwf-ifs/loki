@@ -97,17 +97,16 @@ class ParallelQueue:
     main process.
     """
 
-    def __init__(self, executor, logger=None):
+    def __init__(self, executor, logger=None, manager=None):
         self.executor = executor
 
-        self.manager = None
+        self.manager = manager
         self.listener = None
         self.log_queue = None
 
         if logger is not None:
-            # Initialize a listenerfor the logging queue that dispatches
+            # Initialize a listener for the logging queue that dispatches
             # to our pre-configured handlers on the master process
-            self.manager = Manager()
             self.log_queue = self.manager.Queue()
             self.listener = QueueListener(self.log_queue, *(logger.handlers),
                                           respect_handler_level=True)
@@ -128,7 +127,7 @@ class ParallelQueue:
 
 
 @contextmanager
-def workqueue(workers=None, logger=None):
+def workqueue(workers=None, logger=None, manager=None):
     """
     Parallel work queue manager that creates a worker pool and exposes
     the ``q.execute(cmd)`` utility to invoke shell commands in parallel.
@@ -138,7 +137,7 @@ def workqueue(workers=None, logger=None):
         return
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        q = ParallelQueue(executor, logger=logger)
+        q = ParallelQueue(executor, logger=logger, manager=manager)
 
         # We have to manually start and stop the queue listener
         # for our funneled logging setup.
