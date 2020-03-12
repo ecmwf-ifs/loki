@@ -12,13 +12,13 @@ from loki.logging import logger, DEBUG, warning, info, error, debug
 from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
-from loki.lint import Linter, Reporter
+from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
 
 
 def get_relative_path_and_anchor(path, anchor):
     """
     If the given path is an absolute path, it is converted into a
-    relative path and returns the corresponding anchor.
+    relative path and returned together with the corresponding anchor.
     """
     p = Path(path)
     if p.is_absolute():
@@ -49,7 +49,6 @@ def get_file_list(includes, excludes, basedir):
 
 
 def check_file(filename, linter, frontend=FP):
-    reporter = Reporter()
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend)
@@ -60,8 +59,8 @@ def check_file(filename, linter, frontend=FP):
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
     debug('[%s] Parsing completed without error.', filename)
-    linter.check(source, reporter)
-    linter.fix(source, reporter)
+    linter.check(source)
+    linter.fix(source)
     return True
 
 
@@ -97,8 +96,10 @@ def cli(ctx, debug, log):
               help=('(Default: 4) Number of worker processes to use. With '
                     '--debug enabled this option is ignored and only one '
                     'process is used.'))
+@click.option('--junitxml', type=click.File(mode='w'),
+              help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, worker):
+def check(ctx, include, exclude, basedir, worker, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -115,7 +116,11 @@ def check(ctx, include, exclude, basedir, worker):
     info('Using %d worker.', worker)
     info('')
 
-    linter = Linter()
+    handlers = [DefaultHandler()]
+    if junitxml:
+        handlers.append(JunitXmlHandler(target=junitxml.write))
+
+    linter = Linter(reporter=Reporter(handlers))
 
     success_count = 0
     if worker == 1:
@@ -123,10 +128,13 @@ def check(ctx, include, exclude, basedir, worker):
             success_count += check_file(f, linter)
     else:
         with workqueue(workers=worker, logger=logger) as q:
+            linter.reporter.init_parallel(q.manager)
             q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
                        for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
+
+    linter.reporter.output()
 
     info('')
     info('%d files parsed successfully', success_count)
