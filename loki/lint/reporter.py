@@ -1,6 +1,8 @@
 from pathlib import Path
 from junit_xml import TestSuite, TestCase
 
+from junit_xml import TestSuite, TestCase
+
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.logging import logger
