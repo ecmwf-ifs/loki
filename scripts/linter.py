@@ -5,6 +5,7 @@ from concurrent.futures import as_completed
 from itertools import chain
 from logging import FileHandler
 from pathlib import Path
+from multiprocessing import Manager
 
 from fparser.two.utils import FortranSyntaxError
 
@@ -53,9 +54,13 @@ def check_file(filename, linter, frontend=FP):
     try:
         source = SourceFile.from_file(filename, frontend=frontend)
     except FortranSyntaxError as excinfo:
+        linter.reporter.add(FortranSyntaxError, None,
+                            'Parsing "{}" failed: {}'.format(filename, excinfo))
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
     except Exception as excinfo:
+        linter.reporter.add(type(excinfo), None,
+                            'Parsing "{}" failed: {}'.format(filename, excinfo))
         error('[%s] Parsing failed: %s\n', filename, excinfo)
         return False
     debug('[%s] Parsing completed without error.', filename)
@@ -127,8 +132,10 @@ def check(ctx, include, exclude, basedir, worker, junitxml):
         for f in files:
             success_count += check_file(f, linter)
     else:
-        with workqueue(workers=worker, logger=logger) as q:
-            linter.reporter.init_parallel(q.manager)
+        manager = Manager()
+        linter.reporter.init_parallel(manager)
+
+        with workqueue(workers=worker, logger=logger, manager=manager) as q:
             q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
                        for f in files]
             for t in as_completed(q_tasks):
