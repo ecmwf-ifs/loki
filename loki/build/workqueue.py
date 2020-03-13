@@ -100,13 +100,14 @@ class ParallelQueue:
     def __init__(self, executor, logger=None, manager=None):
         self.executor = executor
 
-        self.manager = manager
+        self.manager = None
         self.listener = None
         self.log_queue = None
 
         if logger is not None:
             # Initialize a listener for the logging queue that dispatches
             # to our pre-configured handlers on the master process
+            self.manager = manager or Manager()
             self.log_queue = self.manager.Queue()
             self.listener = QueueListener(self.log_queue, *(logger.handlers),
                                           respect_handler_level=True)
