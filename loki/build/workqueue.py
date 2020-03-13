@@ -104,7 +104,7 @@ class ParallelQueue:
     def __init__(self, executor, logger=None, manager=None):
         self.executor = executor
 
-        self.manager = manager
+        self.manager = None
         self.listener = None
         self.log_queue = None
 
