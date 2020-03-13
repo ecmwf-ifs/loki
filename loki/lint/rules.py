@@ -41,30 +41,30 @@ class GenericRule(object):
     replaced_by = ()
 
     @classmethod
-    def check_module(cls, ast, reporter, config):
+    def check_module(cls, module, rule_report, config):
         pass
 
     @classmethod
-    def check_subroutine(cls, ast, reporter, config):
+    def check_subroutine(cls, subroutine, rule_report, config):
         pass
 
     @classmethod
-    def check_file(cls, ast, reporter, config):
+    def check_file(cls, sourcefile, rule_report, config):
         pass
 
     @classmethod
-    def check(cls, ast, reporter, config):
+    def check(cls, ast, rule_report, config):
         # Perform checks on source file level
         if isinstance(ast, SourceFile):
-            cls.check_file(ast, reporter, config)
+            cls.check_file(ast, rule_report, config)
 
         # Perform checks on module level
         if isinstance(ast, SourceFile):
             # If we have a source file, we call the routine for each module
             for module in ast.modules:
-                cls.check_module(module, reporter, config)
+                cls.check_module(module, rule_report, config)
         elif isinstance(ast, Module):
-            cls.check_module(ast, reporter, config)
+            cls.check_module(ast, rule_report, config)
 
         # Perform checks on subroutine level
         if isinstance(ast, (SourceFile, Module)):
@@ -72,18 +72,18 @@ class GenericRule(object):
             # each module and subroutine
             if hasattr(ast, 'routines') and ast.routines is not None:
                 for subroutine in ast.routines:
-                    cls.check_subroutine(subroutine, reporter, config)
+                    cls.check_subroutine(subroutine, rule_report, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
                     for subroutine in module.routines or []:
-                        cls.check_subroutine(subroutine, reporter, config)
+                        cls.check_subroutine(subroutine, rule_report, config)
         elif isinstance(ast, Subroutine):
-            cls.check_subroutine(ast, reporter, config)
+            cls.check_subroutine(ast, rule_report, config)
 
             # Recurse for any procedures contained in a subroutine
             if hasattr(ast, 'members') and ast.members is not None:
                 for member in ast.members:
-                    cls.check_subroutine(member, reporter, config)
+                    cls.check_subroutine(member, rule_report, config)
 
 
 class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
@@ -105,13 +105,15 @@ class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
     )
 
     @classmethod
-    def check_subroutine(cls, ast, reporter, config):
-        # count number of executable statements
-        num_nodes = len(FindNodes(SubroutineLengthRule.exec_nodes).visit(ast.ir))
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Count the number of nodes in the subroutine and check if they exceed
+        a given maximum number.
+        '''
+        num_nodes = len(FindNodes(SubroutineLengthRule.exec_nodes).visit(subroutine.ir))
         if num_nodes > config['max_num_statements']:
-            fmt_string = '{} executable statements exceed maximum number allowed ({})'
+            fmt_string = 'Found {} executable statements (maximum allowed: {})'
             msg = fmt_string.format(num_nodes, config['max_num_statements'])
-            reporter.add(cls, ast, msg)
+            rule_report.add(msg, subroutine)
 
 
 class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
@@ -127,13 +129,15 @@ class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
     }
 
     @classmethod
-    def check_subroutine(cls, ast, reporter, config):
-        # check number of arguments
-        num_arguments = len(ast.arguments)
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Count the number of dummy arguments and report if given
+        maximum number exceeded.
+        '''
+        num_arguments = len(subroutine.arguments)
         if num_arguments > config['max_num_arguments']:
-            fmt_string = '{} dummy arguments exceed maximum number allowed ({})'
+            fmt_string = 'Found {} dummy arguments (maximum allowed: {})'
             msg = fmt_string.format(num_arguments, config['max_num_arguments'])
-            reporter.add(cls, ast, msg)
+            rule_report.add(msg, subroutine)
 
 
 class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
@@ -157,11 +161,14 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
         return True
 
     @classmethod
-    def check_subroutine(cls, ast, reporter, config):
-        found_implicit_none = cls.check_for_implicit_none(ast.ir)
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for IMPLICIT NONE in the subroutine's spec or any enclosing
+        scope.
+        '''
+        found_implicit_none = cls.check_for_implicit_none(subroutine.ir)
 
         # Check if enclosing scopes contain implicit none
-        scope = ast.parent
+        scope = subroutine.parent
         while scope and not found_implicit_none:
             if hasattr(scope, 'spec') and scope.spec:
                 found_implicit_none = cls.check_for_implicit_none(scope.spec)
@@ -169,7 +176,7 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
         if not found_implicit_none:
             # No 'IMPLICIT NONE' intrinsic node was found
-            reporter.add(cls, ast, 'No "IMPLICIT NONE" found')
+            rule_report.add('No "IMPLICIT NONE" found', subroutine)
 
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
@@ -187,10 +194,10 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
     }
 
     @classmethod
-    def check_subroutine(cls, ast, reporter, config):
-        # Check for intrinsic nodes containing the banned statements
-        for intr in FindNodes(ir.Intrinsic).visit(ast.ir):
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for banned statements in intrinsic nodes.'''
+        for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
             for keyword in config['banned']:
                 if keyword.lower() in intr.text.lower():
                     msg = 'Banned keyword "{}"'.format(keyword)
-                    reporter.add(cls, ast, msg)
+                    rule_report.add(msg, intr)

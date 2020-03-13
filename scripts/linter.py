@@ -53,15 +53,8 @@ def check_file(filename, linter, frontend=FP):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend)
-    except FortranSyntaxError as excinfo:
-        linter.reporter.add(FortranSyntaxError, None,
-                            'Parsing "{}" failed: {}'.format(filename, excinfo))
-        error('[%s] Parsing failed: %s\n', filename, excinfo)
-        return False
     except Exception as excinfo:
-        linter.reporter.add(type(excinfo), None,
-                            'Parsing "{}" failed: {}'.format(filename, excinfo))
-        error('[%s] Parsing failed: %s\n', filename, excinfo)
+        linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
     debug('[%s] Parsing completed without error.', filename)
     linter.check(source)

@@ -1,72 +1,67 @@
-import weakref
-
 from junit_xml import TestSuite, TestCase
 
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.logging import logger
+from loki.lint.utils import get_filename_from_parent
 
 
-class Report(object):
+class ProblemReport(object):
 
-    def __init__(self, rule, filename, location, msg):
-        self.rule = rule
-        self.filename = filename
-        self._location = weakref.ref(location) if location is not None else None
+    def __init__(self, msg, location):
         self.msg = msg
+        self.location = location
 
-    @property
-    def location(self):
-        if self._location is None:
-            return None
-        return self._location()
+
+class RuleReport(object):
+
+    def __init__(self, rule, problem_reports=None):
+        self.rule = rule
+        self.problem_reports = problem_reports or []
+
+    def add(self, msg, location):
+        self.problem_reports.append(ProblemReport(msg, location))
+
+
+class FileReport(object):
+
+    def __init__(self, filename, reports=None):
+        self.filename = filename
+        self.reports = reports or []
+
+    def add(self, rule_report):
+        if not isinstance(rule_report, RuleReport):
+            raise TypeError('{} given, {} expected'.format(type(rule_report), RuleReport))
+        self.reports.append(rule_report)
 
 
 class Reporter(object):
 
     def __init__(self, handlers=None):
-        self.handlers = handlers or [DefaultHandler()]
-        self.reports = [{} for _ in self.handlers]
-        self._file_list_type = list
+        if not handlers:
+            handlers = [DefaultHandler()]
+        self.handlers_reports = {handler: [] for handler in handlers}
 
     def init_parallel(self, manager):
-        self._file_list_type = manager.list
-        parallel_reports = manager.list()
-        for handler_reports in self.reports:
-            file_reports = manager.dict()
-            for filename, reports in handler_reports.items():
-                file_reports[filename] = self._file_list_type(reports)
-            parallel_reports.append(file_reports)
-        self.reports = parallel_reports
+        parallel_reports = {handler: manager.list(reports)
+                            for handler, reports in self.handlers_reports.items()}
+        self.reports = manager.dict(parallel_reports)
 
-    @staticmethod
-    def get_filename_from_parent(location):
-        scope = location
-        while hasattr(scope, 'parent') and scope.parent:
-            # Go up until we are at SourceFile level
-            scope = scope.parent
-        if hasattr(scope, 'path'):
-            return scope.path
-        return None
+    def add_file_report(self, file_report):
+        if not isinstance(file_report, FileReport):
+            raise TypeError('{} given, {} expected'.format(type(file_report), FileReport))
+        for handler, reports in self.handlers_reports.items():
+            reports.append(handler.handle(file_report))
 
-    def add(self, rule, location, msg):
-        filename = self.get_filename_from_parent(location)
-        report = Report(rule, filename, location, msg)
-        self.handle(report)
-
-    def handle(self, report):
-        if not isinstance(report, Report):
-            raise TypeError(
-                'Object of type "{}" given, must be of type "{}"'.format(
-                    type(report), Report))
-        for handler, reports in zip(self.handlers, self.reports):
-            if report.filename not in reports:
-                reports[report.filename] = self._file_list_type()
-            reports[report.filename].append(handler.handle(report))
+    def add_file_error(self, filename, rule, msg):
+        problem_report = ProblemReport(msg, None)
+        rule_report = RuleReport(rule, [problem_report])
+        file_report = FileReport(filename, [rule_report])
+        self.add_file_report(file_report)
 
     def output(self):
-        for handler, handler_reports in zip(self.handlers, self.reports):
-            handler.output(handler_reports)
+        for handler, reports in self.handlers_reports.items():
+            handler.output(reports)
 
 
 class GenericHandler(object):
@@ -77,7 +72,7 @@ class GenericHandler(object):
     @staticmethod
     def format_location(filename, location):
         if not filename:
-            filename = Reporter.get_filename_from_parent(location) or ''
+            filename = get_filename_from_parent(location) or ''
         line = ''
         if hasattr(location, '_source') and location._source:
             if location._source.lines[0] == location._source.lines[1]:
@@ -89,7 +84,7 @@ class GenericHandler(object):
             routine = ' in routine "{}"'.format(location.name)
         return '{}{}{}'.format(filename, line, routine)
 
-    def handle(self, report):
+    def handle(self, file_report):
         raise NotImplementedError()
 
     def output(self, handler_reports):
@@ -105,13 +100,18 @@ class DefaultHandler(GenericHandler):
         self.target = target
         self.immediate_output = immediate_output
 
-    def handle(self, report):
-        rule = report.rule.__name__
-        location = self.format_location(report.filename, report.location)
-        msg = self.fmt_string.format(rule=rule, location=location, msg=report.msg)
-        if self.immediate_output:
-            self.target(msg)
-        return msg
+    def handle(self, file_report):
+        filename = file_report.filename
+        reports_list = []
+        for rule_report in file_report.reports:
+            rule = rule_report.rule.__name__
+            for problem in rule_report.problem_reports:
+                location = self.format_location(filename, problem.location)
+                msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)
+                if self.immediate_output:
+                    self.target(msg)
+                reports_list.append(msg)
+        return reports_list
 
     def output(self, handler_reports):
         if not self.immediate_output:
@@ -122,23 +122,24 @@ class DefaultHandler(GenericHandler):
 
 class JunitXmlHandler(GenericHandler):
 
+    fmt_string = '{location} - {msg}'
+
     def __init__(self, target=logger.warning):
         super().__init__()
         self.target = target
 
-    def handle(self, report):
-        if isinstance(report.location, (Subroutine, Module)):
-            classname = report.location.name
-        else:
-            classname = None
-        testcase = TestCase(report.rule.__name__, classname=classname,
-                            file=report.filename)
-        testcase.add_failure_info(report.msg)
-        return testcase
+    def handle(self, file_report):
+        filename = file_report.filename
+        test_cases = []
+        for rule_report in file_report.reports:
+            testcase = TestCase(rule_report.rule.__name__, classname=filename)
+            for problem in rule_report.problem_reports:
+                location = self.format_location(filename, problem.location)
+                msg = self.fmt_string.format(location=location, msg=problem.msg)
+                testcase.add_failure_info(msg)
+            test_cases.append(testcase)
+        return TestSuite(filename, test_cases)
 
     def output(self, handler_reports):
-        test_suites = []
-        for filename, reports in handler_reports.items():
-            test_suites.append(TestSuite(filename, reports))
-        xml_string = TestSuite.to_xml_string(test_suites)
+        xml_string = TestSuite.to_xml_string(handler_reports)
         self.target(xml_string)
