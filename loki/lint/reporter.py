@@ -43,9 +43,10 @@ class Reporter(object):
         self.handlers_reports = {handler: [] for handler in handlers}
 
     def init_parallel(self, manager):
-        parallel_reports = {handler: manager.list(reports)
-                            for handler, reports in self.handlers_reports.items()}
-        self.reports = manager.dict(parallel_reports)
+        parallel_reports = manager.dict()
+        for handler, reports in self.handlers_reports.items():
+            parallel_reports[handler] = manager.list(reports)
+        self.handlers_reports = parallel_reports
 
     def add_file_report(self, file_report):
         if not isinstance(file_report, FileReport):
@@ -115,7 +116,7 @@ class DefaultHandler(GenericHandler):
 
     def output(self, handler_reports):
         if not self.immediate_output:
-            for reports in handler_reports.values():
+            for reports in handler_reports:
                 for report in reports:
                     self.target(report)
 
