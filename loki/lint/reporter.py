@@ -1,3 +1,4 @@
+from pathlib import Path
 from junit_xml import TestSuite, TestCase
 
 from loki.subroutine import Subroutine
@@ -131,9 +132,11 @@ class JunitXmlHandler(GenericHandler):
 
     def handle(self, file_report):
         filename = file_report.filename
+        classname = str(Path(filename).with_suffix(''))
         test_cases = []
         for rule_report in file_report.reports:
-            testcase = TestCase(rule_report.rule.__name__, classname=filename)
+            testcase = TestCase(rule_report.rule.__name__, classname=classname,
+                                allow_multiple_subelements=True)
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(location=location, msg=problem.msg)
