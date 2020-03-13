@@ -15,6 +15,11 @@ class ProblemReport:
         self.msg = msg
         self.location = location
 
+class ProblemReport(object):
+
+    def __init__(self, msg, location):
+        self.msg = msg
+        self.location = location
 
 class RuleReport:
 
