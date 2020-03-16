@@ -141,7 +141,7 @@ def check(ctx, include, exclude, basedir, worker, junitxml):
 
     handlers = [DefaultHandler()]
     if junitxml:
-        junitxml_file = LogFile(junitxml)
+        junitxml_file = OutputFile(junitxml)
         handlers.append(JunitXmlHandler(target=junitxml_file.write))
 
     linter = Linter(reporter=Reporter(handlers))
