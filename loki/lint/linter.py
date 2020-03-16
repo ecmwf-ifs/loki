@@ -1,4 +1,5 @@
 import inspect
+import time
 
 from loki.lint.reporter import FileReport, RuleReport
 from loki.sourcefile import SourceFile
@@ -28,10 +29,13 @@ class Linter(object):
         file_report = FileReport(str(sourcefile.path))
         # Run all the rules on that file
         for rule in rules:
+            start_time = time.time()
             config = rule.config
             config.update(self.config.get(rule.__name__, {}))
             rule_report = RuleReport(rule)
             rule.check(sourcefile, rule_report, config)
+            end_time = time.time()
+            rule_report.elapsed_sec = end_time - start_time
             file_report.add(rule_report)
         # Store the file report
         self.reporter.add_file_report(file_report)

@@ -19,6 +19,7 @@ class RuleReport(object):
     def __init__(self, rule, problem_reports=None):
         self.rule = rule
         self.problem_reports = problem_reports or []
+        self.elapsed_sec = 0.
 
     def add(self, msg, location):
         self.problem_reports.append(ProblemReport(msg, location))
@@ -81,10 +82,12 @@ class GenericHandler(object):
                 line = ' (l. {})'.format(location._source.lines[0])
             else:
                 line = ' (ll. {}-{})'.format(*location._source.lines)
-        routine = ''
+        scope = ''
         if isinstance(location, Subroutine):
-            routine = ' in routine "{}"'.format(location.name)
-        return '{}{}{}'.format(filename, line, routine)
+            scope = ' in routine "{}"'.format(location.name)
+        if isinstance(location, Module):
+            scope = ' in module "{}"'.format(location.name)
+        return '{}{}{}'.format(filename, line, scope)
 
     def handle(self, file_report):
         raise NotImplementedError()
@@ -135,15 +138,25 @@ class JunitXmlHandler(GenericHandler):
         classname = str(Path(filename).with_suffix(''))
         test_cases = []
         for rule_report in file_report.reports:
-            testcase = TestCase(rule_report.rule.__name__, classname=classname,
-                                allow_multiple_subelements=True)
+            kwargs = {'name': rule_report.rule.__name__, 'classname': classname,
+                      'allow_multiple_subelements': True, 'elapsed_sec': rule_report.elapsed_sec}
+            messages = []
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(location=location, msg=problem.msg)
-                testcase.add_failure_info(msg)
-            test_cases.append(testcase)
-        return TestSuite(filename, test_cases)
+                messages.append(msg)
+            test_cases.append((kwargs, messages))
+        return (filename, test_cases)
 
     def output(self, handler_reports):
-        xml_string = TestSuite.to_xml_string(handler_reports)
+        testsuites = []
+        for filename, tc_args in handler_reports:
+            testcases = []
+            for kwargs, messages in tc_args:
+                testcase = TestCase(**kwargs)
+                for msg in messages:
+                    testcase.add_failure_info(msg)
+                testcases.append(testcase)
+            testsuites.append(TestSuite(filename, testcases))
+        xml_string = TestSuite.to_xml_string(testsuites)
         self.target(xml_string)
