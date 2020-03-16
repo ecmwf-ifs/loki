@@ -7,13 +7,38 @@ from logging import FileHandler
 from pathlib import Path
 from multiprocessing import Manager
 
-from fparser.two.utils import FortranSyntaxError
-
-from loki.logging import logger, DEBUG, warning, info, error, debug
+from loki.logging import logger, DEBUG, warning, info, debug
 from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
+
+
+class OutputFile(object):
+    '''Helper class to encapsulate opening and writing to a file.
+    This exists because opening the file immediately and then passing
+    its ``write`` function to a handler makes it impossible to pickle
+    it afterwards, which would make parallel execution infeasible.
+    Instead of creating a more complicated interface for the handlers
+    we opted for this way of a just-in-time file handler.
+    '''
+
+    def __init__(self, filename):
+        self.file_name = filename
+        self.file_handle = None
+
+    def _check_open(self):
+        if not self.file_handle:
+            self.file_handle = open(self.file_name, 'w')
+
+    def __del__(self):
+        if self.file_handle:
+            self.file_handle.close()
+            self.file_handle = None
+
+    def write(self, msg):
+        self._check_open()
+        self.file_handle.write(msg)
 
 
 def get_relative_path_and_anchor(path, anchor):
@@ -94,7 +119,7 @@ def cli(ctx, debug, log):
               help=('(Default: 4) Number of worker processes to use. With '
                     '--debug enabled this option is ignored and only one '
                     'process is used.'))
-@click.option('--junitxml', type=click.File(mode='w'),
+@click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
 def check(ctx, include, exclude, basedir, worker, junitxml):
@@ -116,7 +141,8 @@ def check(ctx, include, exclude, basedir, worker, junitxml):
 
     handlers = [DefaultHandler()]
     if junitxml:
-        handlers.append(JunitXmlHandler(target=junitxml.write))
+        junitxml_file = LogFile(junitxml)
+        handlers.append(JunitXmlHandler(target=junitxml_file.write))
 
     linter = Linter(reporter=Reporter(handlers))
 
