@@ -14,11 +14,11 @@ from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIn
 from loki.ir import (Scope, Statement, Conditional, CallStatement, Loop, Allocation, Deallocation,
                      Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
 from loki.logging import info, error, DEBUG
-from loki.tools import as_tuple, timeit
+from loki.tools import as_tuple, timeit, gettempdir, filehash
 from loki.types import DataType, SymbolType
 
 
-__all__ = ['preprocess_omni', 'parse_omni_file', 'parse_omni_ast']
+__all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
 
 
 def preprocess_omni(filename, outname, includes=None):
@@ -67,6 +67,37 @@ def parse_omni_file(filename, xmods=None):
         raise e
 
     return ET.parse(str(xml_path)).getroot()
+
+
+@timeit(log_level=DEBUG)
+def parse_omni_source(source, xmods=None):
+    """
+    Deploy the OMNI compiler's frontend (F_Front) to AST for a source string.
+    """
+    filepath = gettempdir()/filehash(source, prefix='omni-', suffix='.f90')
+    with filepath.open('w') as f:
+        f.write(source)
+
+    return parse_omni_file(filename=filepath, xmods=xmods)
+
+
+@timeit(log_level=DEBUG)
+def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
+                   raw_source=None, scope=None):
+    """
+    Generate an internal IR from the raw OMNI parser AST.
+    """
+    # Parse the raw OMNI language AST
+    ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
+                 raw_source=raw_source, scope=scope).visit(ast)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+    ir = inline_labels(ir)
+
+    return ir
 
 
 class OMNI2IR(GenericVisitor):
@@ -600,22 +631,3 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FreturnStatement(self, o, source=None):
         return Intrinsic(text='return', source=source)
-
-
-@timeit(log_level=DEBUG)
-def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
-                   raw_source=None, scope=None):
-    """
-    Generate an internal IR from the raw OMNI parser AST.
-    """
-    # Parse the raw OMNI language AST
-    ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 raw_source=raw_source, scope=scope).visit(ast)
-
-    # Perform soime minor sanitation tasks
-    ir = inline_comments(ir)
-    ir = cluster_comments(ir)
-    ir = inline_pragmas(ir)
-    ir = inline_labels(ir)
-
-    return ir

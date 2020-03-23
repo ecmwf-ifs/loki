@@ -16,12 +16,12 @@ from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
 from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
                              ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
                              ExpressionDimensionsMapper)
-from loki.tools import as_tuple, timeit, disk_cached, flatten
+from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash
 from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType
 
 
-__all__ = ['parse_ofp_file', 'parse_ofp_ast']
+__all__ = ['parse_ofp_file', 'parse_ofp_source','parse_ofp_ast']
 
 
 @timeit(log_level=DEBUG)
@@ -35,6 +35,40 @@ def parse_ofp_file(filename):
     filepath = Path(filename)
     info("[Frontend.OFP] Parsing %s" % filepath.name)
     return open_fortran_parser.parse(filepath, raise_on_error=True)
+
+
+@timeit(log_level=DEBUG)
+def parse_ofp_source(source, xmods=None):
+    """
+    Read and parse a source string using the Open Fortran Parser (OFP).
+    """
+    filepath = gettempdir()/filehash(source, prefix='ofp-', suffix='.f90')
+    with filepath.open('w') as f:
+        f.write(source)
+
+    return parse_ofp_file(filename=filepath)
+
+
+@timeit(log_level=DEBUG)
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
+    """
+    Generate an internal IR from the raw OMNI parser AST.
+    """
+    # Parse the raw OMNI language AST
+    ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
+
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    for r_name, rule in blacklist.items():
+        info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
+        ir = rule.postprocess(ir, info)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+    ir = inline_labels(ir)
+
+    return ir
 
 
 class OFP2IR(GenericVisitor):
@@ -646,25 +680,3 @@ class OFP2IR(GenericVisitor):
 
     def visit_return(self, o, source=None):
         return Intrinsic(text='return', source=source)
-
-
-@timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
-    """
-    Generate an internal IR from the raw OMNI parser AST.
-    """
-    # Parse the raw OMNI language AST
-    ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
-
-    # Apply postprocessing rules to re-insert information lost during preprocessing
-    for r_name, rule in blacklist.items():
-        info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-        ir = rule.postprocess(ir, info)
-
-    # Perform soime minor sanitation tasks
-    ir = inline_comments(ir)
-    ir = cluster_comments(ir)
-    ir = inline_pragmas(ir)
-    ir = inline_labels(ir)
-
-    return ir

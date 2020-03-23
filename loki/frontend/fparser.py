@@ -29,7 +29,9 @@ from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
-__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
+
+__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
+
 
 _regex_ifndef = re.compile(r'#\s*if\b\s+[!]\s*defined\b\s*\(?([A-Za-z_]+)\)?')
 
@@ -893,8 +895,13 @@ def parse_fparser_file(filename):
         with codecs.open(filepath, **kwargs) as f:
             fcode = f.read()
 
+    return parse_fparser_source(source=fcode)
+
+@timeit(log_level=DEBUG)
+def parse_fparser_source(source):
+
     # Comment out ``@PROCESS`` instructions
-    fcode = fcode.replace('@PROCESS', '! @PROCESS')
+    fcode = source.replace('@PROCESS', '! @PROCESS')
 
     # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
     # everything that looks like an in-line comment (i.e., anything from the

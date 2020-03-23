@@ -1,11 +1,16 @@
 import os
 import time
 import pickle
+import tempfile
 from functools import wraps
+from pathlib import Path
+from hashlib import md5
+
 
 from loki.logging import log, info, INFO
 
-__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached']
+
+__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached', 'gettempdir']
 
 
 def as_tuple(item, type=None, length=None):
@@ -128,3 +133,22 @@ def timeit(log_level=INFO, argname=None):
 
         return timed
     return decorator
+
+
+def gettempdir():
+    """
+    Create a Loki-specific tempdir in the systems temporary directory.
+    """
+    tmpdir = Path(tempfile.gettempdir())/'loki'
+    if not tmpdir.exists():
+        tmpdir.mkdir()
+    return tmpdir
+
+
+def filehash(source, prefix=None, suffix=None):
+    """
+    Generate a filename from a hash of ``source`` with an optional ``prefix``.
+    """
+    prefix = '' if prefix is None else prefix
+    suffix = '' if suffix is None else suffix
+    return '%s%s%s' % (prefix, str(md5(source.encode()).hexdigest()), suffix)
