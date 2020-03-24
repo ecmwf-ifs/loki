@@ -4,9 +4,8 @@ from pathlib import Path
 
 from loki import (
     clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables,
-    DataType, Array, Scalar, Variable, SymbolType, fgen
+    DataType, Array, Scalar, fgen
 )
-from conftest import generate_identity
 
 
 @pytest.fixture(scope='module')
@@ -21,20 +20,6 @@ def header_mod(header_path):
     """
     clean(filename=header_path)  # Delete parser cache
     return compile_and_load(header_path, cwd=str(header_path.parent))
-
-
-@pytest.fixture(scope='module')
-def refpath():
-    return Path(__file__).parent / 'subroutine.f90'
-
-
-@pytest.fixture(scope='module')
-def reference(refpath, header_mod):
-    """
-    Compile and load the reference solution
-    """
-    clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath, cwd=str(refpath.parent))
 
 
 @pytest.fixture(scope='module')
@@ -403,7 +388,7 @@ end subroutine routine_shape
 """)
 
     # Check shapes on the internalized variable and argument lists
-    x, y, = routine.arguments[0], routine.arguments[1]
+    # x, y, = routine.arguments[0], routine.arguments[1]
     # TODO: The string comparison here is due to the fact that shapes are actually
     # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
     # This needs some more thorough conceptualisation of dimensions and indices!
@@ -621,8 +606,9 @@ end subroutine routine_call_no_arg
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
     FP
 ])
-def test_pp_macros(refpath, reference, frontend):
+def test_pp_macros(testpath, frontend):
     from loki import FindNodes, Intrinsic
+    refpath = testpath/'subroutine_pp_macros.f90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
     visitor = FindNodes(Intrinsic)
     # We need to collect the intrinsics in multiple places because different frontends
@@ -636,7 +622,7 @@ def test_pp_macros(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_empty_spec(refpath, reference, frontend):
+def test_empty_spec(frontend):
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_empty_spec
 write(*,*) 'Hello world!'
