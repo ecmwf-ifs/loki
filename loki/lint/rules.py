@@ -2,6 +2,7 @@ import re
 
 from loki import SourceFile, Module, Subroutine
 from loki.visitors import FindNodes
+from loki.expression import FindLiterals, IntLiteral, FloatLiteral
 import loki.ir as ir
 
 
@@ -177,6 +178,24 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
         if not found_implicit_none:
             # No 'IMPLICIT NONE' intrinsic node was found
             rule_report.add('No "IMPLICIT NONE" found', subroutine)
+
+
+class ExplicitKindRule(GenericRule):  # Coding standards 4.7
+
+    type = 'problem'
+
+    docs = {
+        'name': 'Variables and constants must be declared with explicit kind'
+    }
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for explicit kind information in constants and
+        variable declarations.'''
+        for node, exprs in FindLiterals(unique=False, with_expression_root=True).visit(subroutine.ir):
+            for lit in exprs:
+                if isinstance(lit, (IntLiteral, FloatLiteral)) and not lit.kind:
+                    rule_report.add('"{}" without explicit kind declared.'.format(lit), node)
 
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11

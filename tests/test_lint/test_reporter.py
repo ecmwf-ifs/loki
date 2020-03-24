@@ -4,7 +4,7 @@ from loki.lint.reporter import ProblemReport, RuleReport, FileReport, DefaultHan
 from loki.lint.rules import GenericRule
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def dummy_file_report():
     file_report = FileReport('file.f90')
     rule_report = RuleReport(GenericRule)
