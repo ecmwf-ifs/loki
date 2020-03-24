@@ -33,70 +33,89 @@ The aim of Loki is therefore to give developers all the tools to encode their
 own code transformation in an elegant, pythonic fashion. The core concepts
 provided for this are:
 
-* ``Module` and ``Subroutine`` classes (kernels) that each provide an
-  abstract syntax tree (AST) of their source code, as well as utilities.
-* Assignments, loops and conditional each contain expressions of the actual
-  computation to perform with a set of variables. These expressions consist
-  of extended [SymPy](https://sympy.org) expressions, which provide powerful symbolic
-  capabilities (more below).
-* ``Transformation`` class, as well as bulk processing and inter-procedural
-  analysis (IPA) tools that allow bulk processing large numbers of files
-  while honoring the call-tree that connects them. `Transformation`s are
-  customizable and are intended as the primary tool to encode a specific
-  set of changes (much like compiler passes).
+* `Module` and `Subroutine` classes (kernels) that each provide an
+  _Intermediate Representation_ (IR) of their source code, as well as
+  utilities to inspect and transform the underlying IR nodes.
+* Expressions contained in `Statement`, `Loop` and `Conditional` nodes
+  are represented as independent sub-trees, based on the
+  [Pymbolic](https://github.com/inducer/pymbolic) infrastructure.
+* Three frontends are supported that are used to parse Fortran code
+  either from source files or strings into the Loki IR trees. Two
+  backends are provided to generate Fortran or (experimentally) C code
+  from the combined IR and expression trees.
+* A `Transformation` class is provided that allows users to encode
+  individual code changes based on the abstract representation
+  provided by Loki's IR and expression objects and can be applied
+  to individual `Subroutine` and `Module` objects - much like simple
+  compiler passes).
+* A `Scheduler` class (work in progress) that provides bulk processing
+  and inter-procedural analysis (IPA) tools to apply individual change
+  over large numbers of files while honoring the call-tree that
+  connects them.
 
-### Examples and current features
+### Example transformations and current features
 
 Loki is primarily an API and toolbox, requiring developers to create their
 own head scripts to create and invoke source-to-source translation toolchains.
-The primary set of example transformations lives under `scripts/transform.py`.
+The primary set of example transformations lives under `scripts/transform.py`,
+and the `loki_transform.py` script is provided by the Loki install. The primary
+transformation passes provided are:
 
-#### Idempotence (Idem)
+* **Idempotence (Idem)** - A simple transformation that performs a
+    neutral parse-unparse cycle on a kernel.
 
-A simple transformation that performs a neutral parse-unparse cycle on a kernel.
+* **Single column abstraction (SCA)** - Transforms a set of kernels
+  into Single column format by removing the specified horizontal
+  iteration dimension. This transformation has a "driver" and a
+  "kernel" mode, as it potentially changes the subroutines call
+  signature to remove derived types (structs do not expose
+  dimensions).
 
-#### Single column abstraction (SCA)
+* **RAPS integration** - A special set of tools is provided that can
+  bulk-transform large numbers of source files while honoring
+  dependencies due to Fortran module imports
+  (`scripts/scheduler`). This has been integrated with RAPS, which
+  requires an additional step to inject a modified "root" source file
+  into an IFS build from which a modified dependency tree (for example
+  in SCA format) is invoked.
 
-Transforms a set of kernels into Single column format by removing the
-specified horizontal iteration dimension. This transformation has a "driver"
-and a "kernel" mode, as it potentially changes the subroutines call signature
-to remove derived types (structs do not expose dimensions).
+* **C transpilation** - A dedicated Fortran-to-C transpilation
+  pipeline that converts Fortran source code into (column major,
+  1-indexed) C kernel code. The transformation pipeline also creates
+  the necessary header and `ISOC` wrappers to integrate this C kernel
+  with a Fortran driver layer, as demonstrated with the CLOUDSC ESCAPE
+  dwarf.
 
-#### RAPS integration
+### Quick start and basic usage
 
-A special set of tools is provided that can bulk-transform large
-numbers of source files while honoring dependencies due to Fortran
-module imports (`scripts/scheduler`). This has been integrated with RAPS,
-which requires an additional step to inject a modified "root" source file
-into an IFS build from which a modified dependency tree (for example in
-SCA format) is invoked.
-
-#### C transpilation
-
-A dedicated Fortran-to-C transpilation pipeline that converts Fortran source
-code into (column major, 1-indexed) C kernel code. The transformation pipeline
-also creates the necessary header and `ISOC` wrappers to integrate this C kernel
-with a Fortran driver layer, as demonstrated with the CLOUDSC ESCAPE dwarf.
-
-### Further development considerations
-
-#### Frontends
+#### Parsing and Frontends
 
 To read and parser existing source files Loki provides multiple frontends:
 ```
-source = SourceFile.from_file(path, ..., frontend=OFP/OMNI)
+source = SourceFile.from_file(path, ..., frontend=OFP|OMNI|FP)
 routine = source['my_subroutine']
 ```
+Alternatively, for testing purposes, we also allow direct construction of
+`Subroutines` from source code strings:
+```
+fcode = """
+  subroutine test_routine
+    write(*,*) 'Hello world!'
+  end subroutine test_routine
+"""
+routine = Subroutine.from_source(fcode, frontend=OFP|OMNI|FP)
+```
 
-We currently support two frontends:
+Due to the inherently convoluted nature of the Fortran language, no
+freely available frontend is feature complete. For this reason we
+currently support three frontends, each with known limitations:
 
-* [OFP](https://github.com/mbdevpl/open-fortran-parser-xml) - A
-  Python-wrapper by [mbdevpl](https://github.com/mbdevpl) around the
-  [Open Fortran
-  Parser](https://github.com/OpenFortranProject/open-fortran-parser)
-  (ROSE frontend). A little brittle in places and requires a few of
-  ugly workarounds, but it does provide line numbers and is best for
-  preserving the "look-and-feel" of original code.
+* [FP - FParser](https://github.com/stfc/fparser) - A "pure Python"
+  frontend developed by STFC. Was added last, but is increasingly
+  becoming the first choice frontend, due to easy integration (no
+  Java) and active development and support (thanks Rupert!). Will
+  likely become the default once all necessary features required for
+  our demonstators are safely integrated and tested (soon!).
 
 * [OMNI](http://omni-compiler.org) - Part of the XOpenMP
   framework. Performs parser-specific pre-processing and inlines
@@ -104,72 +123,10 @@ We currently support two frontends:
   bases. Some other caveats: It inserts explicit lower bounds of `1`
   into array size declarations and lower-cases everything!
 
-#### SymPy integration
-
-Expressions (variables, calculations and logical conditions) are
-[SymPy](https://sympy.org) objects, which means that we can
-programmatically detect symbolic equivalence (eg. `2*(a + b) == 2*a +
-2*b`). This is a powerful tool that is useful for various types of
-advanced code analysis source manipulation, but it does introduce some
-complexity with regards to symbol caching and scoping (see
-`loki.expression.symbol_types`).
-
-In addition, recent versions of SymPy provide a range of code
-generation capabilities to nearly all relevant programming languages,
-which means we can utilize its `CodePrinter` API to create
-neat-looking source code in our backends.  This again comes with some
-caveats - SymPy's expression rewriter can easily introduce round-off
-error. To prevent this we use SymPy's `evaluate(False)` utility in
-various places, and care needs to be taken during expression
-replacement.
-
-#### API caveats due to SymPy (TL;DR) :
-* Source code variables are either of the type `Scalar` (a
-  `sympy.Symbol`) or `Array` (a `sympy.Function`). Both can be created
-  via the universal `Variable(name='f', dimensions=(x, y))`
-  constructor.
-
-* Variable instances are cached, either globally if created via
-  `Variable(name='f')` or on a kernel-specific context if created
-  via `routine.Variable(name='f')`. This caching means that meta-data,
-  like the data type of a variable or the shape of an `Array` are shared
-  between all instances (occurrences) of a variable within a kernel context.
-
-* Like all symbols in SymPy, variable instances are not meant to be
-  changed, but re-generated and substituted into expressions. To preserve
-  our context-sensitive caching we therefore provide a `variable.clone(...)`
-  method that re-generates all components of a variable that have not been
-  explicitly provided and re-generates the modified symbol in the same
-  caching context. A worked example, which removes the first dimension
-  of all arrays if it is the desired target dimensions:
-  ```
-  vmap = {}
-  target = <target dimension to replace>
-  for v in FindVariables().visit(routine.body):
-      if v.is_Array and v.dimensions[0] == target:
-          vmap[v] = v.clone(dimensions=v.dimensions[1:])
-  routine.body = SubstituteExpressions(vmap).visit(routine.body)
-  ```
-
-* SymPy will by default attempt to re-write certain expressions during
-  code generation.  These changes are numerically neutral, but may
-  introduce round-off error in complex expressions. There are a few
-  places in the package and some in the transformation script that
-  suppress this feature (`with evaulate(False):`).
-
-* The treatment of boolean logic in SymPy is fundamentally different
-  to numbers, so a variable can either be a boolean or a number. To get
-  around this, we have hidden special types for boolean variables. But(!)
-  for this trick to work we need to know the type on variable instantiation,
-  making it necessary for the `Subroutine` constructors to store the types
-  of local variables and pass them to the frontend when parsing the
-  routine body.
-
-#### Wishlist (more TL;DR):
-
-* "Smart" configuration dict that provides callbacks, understand env
-  variables and provides different codegen styles
-* Integration with the STFC `fparser` frontend (natively Python)
-* Closer integration of native SymPy types, expecially for data type handling
-* Introduce conceptual "dimensions" as a first-class concept; make handling
-  of array sizes and indices/index ranges more explicit and elegant.
+* [OFP](https://github.com/mbdevpl/open-fortran-parser-xml) - A
+  Python-wrapper by [mbdevpl](https://github.com/mbdevpl) around the
+  [Open Fortran
+  Parser](https://github.com/OpenFortranProject/open-fortran-parser)
+  (ROSE frontend). A little brittle in places and requires a few ugly
+  workarounds, but it does provide line numbers and is very good for
+  preserving the "look-and-feel" of original code.
