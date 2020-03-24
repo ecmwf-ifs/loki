@@ -6,7 +6,7 @@ from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 from loki.tools import as_tuple
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
-           'ExpressionCallbackMapper']
+           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
