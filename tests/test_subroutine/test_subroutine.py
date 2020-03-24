@@ -85,58 +85,60 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_variable_caching(frontend):
+def test_routine_arguments(testpath, frontend):
     """
-    Test that equivalent names in distinct routines don't cache.
+    A set of test to test internalisation and handling of arguments.
     """
-    fcode_real = """
-subroutine routine_real (x, y, scalar, vector, matrix)
+
+    fcode = """
+subroutine routine_arguments (x, y, vector, matrix)
+  ! Test internal argument handling
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
-  real(kind=jprb), intent(in) :: scalar
-  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
-  integer :: i
+  real(kind=jprb), dimension(x), intent(inout) :: vector
+  real(kind=jprb), intent(inout) :: matrix(x, y)
+
+  integer :: i, j
+  real(kind=jprb), dimension(x) :: local_vector
+  real(kind=jprb) :: local_matrix(x, y)
 
   do i=1, x
-     vector(i) = vector(i) + scalar
-     matrix(i, :) = i * vector(i)
+     local_vector(i) = i * 10.
+     do j=1, y
+        local_matrix(i, j) = local_vector(i) + j * 2.
+     end do
   end do
-end subroutine routine_real
+
+  vector(:) = local_vector(:)
+  matrix(:, :) = local_matrix(:, :)
+
+end subroutine routine_arguments
 """
 
-    fcode_int = """
-subroutine routine_simple_caching (x, y, scalar, vector, matrix)
-  ! A simple standard looking routine to test variable caching.
-  integer, parameter :: jpim = selected_int_kind(9)
-  integer, intent(in) :: x, y
-  ! The next two share names with `routine_simple`, but have different
-  ! dimensions or types, so that we can test variable caching.
-  integer(kind=jpim), intent(in) :: scalar
-  integer(kind=jpim), intent(inout) :: vector(y), matrix(x, y)
-  integer :: i
-
-  do i=1, y
-     vector(i) = vector(i) + scalar
-     matrix(:, i) = i * vector(i)
-  end do
-end subroutine routine_simple_caching
-"""
-
-    # Test the internals of the subroutine
-    routine = Subroutine.from_source(fcode_real, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
+                            'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'] \
+        or routine_vars == ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
+                            'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)']
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
-    assert routine.arguments[2].type.dtype == DataType.REAL
-    assert routine.arguments[3].type.dtype == DataType.REAL
+    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)']
 
-    routine = Subroutine.from_source(fcode_int, frontend=frontend)
-    routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)']
-    # Ensure that the types in the second routine have been picked up
-    assert routine.arguments[2].type.dtype == DataType.INTEGER
-    assert routine.arguments[3].type.dtype == DataType.INTEGER
+    # Generate code, compile and load
+    filename = 'routine_arguments_%s.f90' % frontend
+    source = SourceFile(routines=[routine], path=testpath/filename)
+    source.write(source=fgen(routine))
+    function = compile_and_load(source.path, cwd=testpath).routine_arguments
+
+    # Test results of the generated and compiled code
+    x, y = 2, 3
+    vector = np.zeros(x, order='F')
+    matrix = np.zeros((x, y), order='F')
+    function(x=x, y=y, vector=vector, matrix=matrix)
+    assert np.all(vector == [10., 20.])
+    assert np.all(matrix == [[12., 14., 16.],
+                             [22., 24., 26.]])
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -204,14 +206,11 @@ subroutine routine_variables_local (x, y, maximum)
 
   do i=1, x
      vector(i) = i * 10.
-  end do
-  do i=1, x
      do j=1, y
         matrix(i, j) = vector(i) + j * 2.
      end do
   end do
   maximum = matrix(x, y)
-
 end subroutine routine_variables_local
 """
 
@@ -233,61 +232,58 @@ end subroutine routine_variables_local
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_arguments(testpath, frontend):
+def test_routine_variable_caching(frontend):
     """
-    A set of test to test internalisation and handling of arguments.
+    Test that equivalent names in distinct routines don't cache.
     """
-    fcode = """
-subroutine routine_arguments (x, y, vector, matrix)
-  ! Test internal argument handling
+    fcode_real = """
+subroutine routine_real (x, y, scalar, vector, matrix)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
-  real(kind=jprb), dimension(x), intent(inout) :: vector
-  real(kind=jprb), intent(inout) :: matrix(x, y)
-
-  integer :: i, j
-  real(kind=jprb), dimension(x) :: local_vector
-  real(kind=jprb) :: local_matrix(x, y)
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i
 
   do i=1, x
-     local_vector(i) = i * 10.
+     vector(i) = vector(i) + scalar
+     matrix(i, :) = i * vector(i)
   end do
-  do i=1, x
-     do j=1, y
-        local_matrix(i, j) = local_vector(i) + j * 2.
-     end do
-  end do
-
-  vector(:) = local_vector(:)
-  matrix(:, :) = local_matrix(:, :)
-
-end subroutine routine_arguments
+end subroutine routine_real
 """
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
-                            'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'] \
-        or routine_vars == ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
-                            'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)']
+    fcode_int = """
+subroutine routine_simple_caching (x, y, scalar, vector, matrix)
+  ! A simple standard looking routine to test variable caching.
+  integer, parameter :: jpim = selected_int_kind(9)
+  integer, intent(in) :: x, y
+  ! The next two share names with `routine_simple`, but have different
+  ! dimensions or types, so that we can test variable caching.
+  integer(kind=jpim), intent(in) :: scalar
+  integer(kind=jpim), intent(inout) :: vector(y), matrix(x, y)
+  integer :: i
+
+  do i=1, y
+     vector(i) = vector(i) + scalar
+     matrix(:, i) = i * vector(i)
+  end do
+end subroutine routine_simple_caching
+"""
+
+    # Test the internals of the subroutine
+    routine = Subroutine.from_source(fcode_real, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine.arguments[2].type.dtype == DataType.REAL
+    assert routine.arguments[3].type.dtype == DataType.REAL
 
-    # Generate code, compile and load
-    filename = 'routine_arguments_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_arguments
-
-    # Test results of the generated and compiled code
-    x, y = 2, 3
-    vector = np.zeros(x, order='F')
-    matrix = np.zeros((x, y), order='F')
-    function(x=x, y=y, vector=vector, matrix=matrix)
-    assert np.all(vector == [10., 20.])
-    assert np.all(matrix == [[12., 14., 16.],
-                             [22., 24., 26.]])
+    routine = Subroutine.from_source(fcode_int, frontend=frontend)
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'] \
+        or routine_args == ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)']
+    # Ensure that the types in the second routine have been picked up
+    assert routine.arguments[2].type.dtype == DataType.INTEGER
+    assert routine.arguments[3].type.dtype == DataType.INTEGER
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -382,7 +378,7 @@ end subroutine routine_dim_shapes
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_shape_propagation(header_path, header_mod, frontend):
+def test_routine_variables_shape_propagation(header_path, header_mod, frontend):
     """
     Test for the correct identification and forward propagation of variable shapes
     from the subroutine declaration.
@@ -392,7 +388,7 @@ def test_routine_shape_propagation(header_path, header_mod, frontend):
 
     # Parse simple kernel routine to check plain array arguments
     routine = Subroutine.from_source(frontend=frontend, source="""
-subroutine routine_simple (x, y, scalar, vector, matrix)
+subroutine routine_shape(x, y, scalar, vector, matrix)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   real(kind=jprb), intent(in) :: scalar
@@ -403,7 +399,7 @@ subroutine routine_simple (x, y, scalar, vector, matrix)
      vector(i) = vector(i) + scalar
      matrix(i, :) = i * vector(i)
   end do
-end subroutine routine_simple
+end subroutine routine_shape
 """)
 
     # Check shapes on the internalized variable and argument lists
