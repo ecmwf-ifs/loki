@@ -1,4 +1,3 @@
-from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.symbol_types import Array
@@ -59,39 +58,6 @@ class ExpressionFinder(Visitor):
         Internal retrieval function used on expressions.
         """
         return self.retrieval_function(expr)
-
-    def _return(self, node, expressions):
-        """
-        Create the return value from the found expressions.
-        """
-        if not expressions:
-            return ()
-        if self.with_expression_root:
-            return (node, self.find_uniques(flatten(expressions)))
-        return self.find_uniques(expressions)
-
-    def flatten(self, expr_list):
-        # Flatten the (possibly nested) list
-        newlist = flatten(expr_list)
-        if self.with_expression_root:
-            # This did remove our tuples: restore them by running through the
-            # new list and collect everything behind a ``Node`` as its expressions
-            tuple_list = []
-            node = None
-            exprs = []
-            assert not newlist or isinstance(newlist[0], Node)
-            for el in newlist:
-                if isinstance(el, Node):
-                    if node and exprs:
-                        tuple_list += [(node, exprs)]
-                    node = el
-                    exprs = []
-                else:
-                    exprs.append(el)
-            if node and exprs:
-                tuple_list += [(node, exprs)]
-            newlist = tuple_list
-        return as_tuple(newlist)
 
     default_retval = tuple
 
