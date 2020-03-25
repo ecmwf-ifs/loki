@@ -1,6 +1,6 @@
 import re
 
-from loki import SourceFile, Module, Subroutine
+from loki import SourceFile, Module, Subroutine, DataType
 from loki.visitors import FindNodes
 from loki.expression import FindLiterals, IntLiteral, FloatLiteral
 import loki.ir as ir
@@ -188,14 +188,40 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         'name': 'Variables and constants must be declared with explicit kind'
     }
 
+    config = {
+        'allowed_type_kinds': {
+            'INTEGER': ['JPIM', 'JPIT', 'JPIB', 'JPIA', 'JPIS', 'JPIH'],
+            'REAL': ['JPRB', 'JPRM', 'JPRS', 'JPRT', 'JPRH', 'JPRD']
+        }
+    }
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check for explicit kind information in constants and
-        variable declarations.'''
-        for node, exprs in FindLiterals(unique=False, with_expression_root=True).visit(subroutine.ir):
+        variable declarations.
+        '''
+        int_kinds = config['allowed_type_kinds']['INTEGER']
+        real_kinds = config['allowed_type_kinds']['REAL']
+
+        for node, exprs in FindLiterals(
+                unique=False, with_expression_root=True).visit(subroutine.ir):
             for lit in exprs:
-                if isinstance(lit, (IntLiteral, FloatLiteral)) and not lit.kind:
-                    rule_report.add('"{}" without explicit kind declared.'.format(lit), node)
+                if isinstance(lit, (IntLiteral, FloatLiteral)):
+                    if not lit.kind:
+                        rule_report.add('"{}" without explicit KIND declared.'.format(lit), node)
+                    elif (isinstance(lit, IntLiteral) and lit.kind.upper() not in int_kinds) or \
+                            (isinstance(lit, FloatLiteral) and lit.kind.upper() not in real_kinds):
+                        rule_report.add('"{}" is not an allowed KIND value.'.format(lit.kind), node)
+
+        for var in subroutine.variables:
+            if var.type.dtype in (DataType.INTEGER, DataType.REAL):
+                if not var.type.kind:
+                    rule_report.add('"{}" without explicit KIND declared.'.format(var), subroutine)
+                elif (var.type.dtype == DataType.INTEGER and var.type.kind.upper() not in int_kinds) or \
+                        (var.type.dtype == DataType.REAL and var.type.kind.upper() not in real_kinds):
+                    rule_report.add(
+                        '"{}" is not an allowed KIND value for "{}".'.format(var.type.kind, var),
+                        subroutine)
 
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
