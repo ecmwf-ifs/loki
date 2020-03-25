@@ -1,10 +1,9 @@
-from pymbolic.primitives import Expression
-from pymbolic.mapper import IdentityMapper
-
+from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.symbol_types import Array
 from loki.expression.search import retrieve_expressions, retrieve_variables, retrieve_inline_calls
+from loki.expression.mappers import SubstituteExpressionsMapper
 
 __all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls',
            'SubstituteExpressions', 'ExpressionFinder', 'SubstituteExpressionsMapper']
@@ -60,6 +59,39 @@ class ExpressionFinder(Visitor):
         Internal retrieval function used on expressions.
         """
         return self.retrieval_function(expr)
+
+    def _return(self, node, expressions):
+        """
+        Create the return value from the found expressions.
+        """
+        if not expressions:
+            return ()
+        if self.with_expression_root:
+            return (node, self.find_uniques(flatten(expressions)))
+        return self.find_uniques(expressions)
+
+    def flatten(self, expr_list):
+        # Flatten the (possibly nested) list
+        newlist = flatten(expr_list)
+        if self.with_expression_root:
+            # This did remove our tuples: restore them by running through the
+            # new list and collect everything behind a ``Node`` as its expressions
+            tuple_list = []
+            node = None
+            exprs = []
+            assert not newlist or isinstance(newlist[0], Node)
+            for el in newlist:
+                if isinstance(el, Node):
+                    if node and exprs:
+                        tuple_list += [(node, exprs)]
+                    node = el
+                    exprs = []
+                else:
+                    exprs.append(el)
+            if node and exprs:
+                tuple_list += [(node, exprs)]
+            newlist = tuple_list
+        return as_tuple(newlist)
 
     default_retval = tuple
 
@@ -129,93 +161,6 @@ class FindInlineCalls(ExpressionFinder):
     See :class:`ExpressionFinder`
     """
     retrieval_function = staticmethod(retrieve_inline_calls)
-
-
-class LokiIdentityMapper(IdentityMapper):
-    """
-    A visitor which creates a copy of the expression tree.
-    """
-
-    def __init__(self):
-        super(LokiIdentityMapper, self).__init__()
-
-    map_logic_literal = IdentityMapper.map_constant
-    map_float_literal = IdentityMapper.map_constant
-    map_int_literal = IdentityMapper.map_constant
-    map_string_literal = IdentityMapper.map_constant
-
-    def map_scalar(self, expr, *args, **kwargs):
-        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
-                              initial=initial, source=expr.source)
-
-    def map_array(self, expr, *args, **kwargs):
-        if expr.dimensions:
-            dimensions = tuple(self.rec(d, *args, **kwargs) for d in expr.dimensions)
-        else:
-            dimensions = None
-        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
-                              dimensions=dimensions, initial=initial, source=expr.source)
-
-    map_inline_call = IdentityMapper.map_call_with_kwargs
-
-    def map_cast(self, expr, *args, **kwargs):
-        if isinstance(expr.kind, Expression):
-            kind = self.rec(expr.kind, *args, **kwargs)
-        else:
-            kind = expr.kind
-        return expr.__class__(self.rec(expr.function, *args, **kwargs),
-                              tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
-                              kind=kind)
-
-    def map_sum(self, expr, *args, **kwargs):
-        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
-
-    def map_product(self, expr, *args, **kwargs):
-        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
-
-    map_parenthesised_add = map_sum
-    map_parenthesised_mul = map_product
-    map_parenthesised_pow = IdentityMapper.map_power
-    map_string_concat = map_sum
-
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper is not None else None
-        step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
-        return expr.__class__(lower, upper, step)
-
-    def map_literal_list(self, expr, *args, **kwargs):
-        values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
-                       for v in expr.elements)
-        return expr.__class__(values)
-
-
-class SubstituteExpressionsMapper(LokiIdentityMapper):
-    """
-    A Pymbolic expression mapper (i.e., a visitor for the expression tree) that
-    defines on-the-fly handlers from a given substitution map.
-
-    It returns a copy of the expression tree with expressions substituted according
-    to the given `expr_map`.
-    """
-
-    def __init__(self, expr_map):
-        super(SubstituteExpressionsMapper, self).__init__()
-
-        self.expr_map = expr_map
-        for expr in self.expr_map.keys():
-            setattr(self, expr.mapper_method, self.map_from_expr_map)
-
-    def map_from_expr_map(self, expr, *args, **kwargs):
-        # We have to recurse here to make sure we are applying the substitution also to
-        # "hidden" places (such as dimension expressions inside an array).
-        # And we have to actually carry out the expression first before looking up the
-        # super()-method as the node type might change.
-        expr = self.expr_map.get(expr, expr)
-        map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
-        return map_fn(expr, *args, **kwargs)
 
 
 class SubstituteExpressions(Transformer):

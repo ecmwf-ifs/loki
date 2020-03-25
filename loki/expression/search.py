@@ -6,7 +6,7 @@ definitions.
 
 from pymbolic.primitives import Expression
 from loki.expression.symbol_types import InlineCall, Scalar, Array
-from loki.expression.visitors import ExpressionRetriever
+from loki.expression.mappers import ExpressionRetriever
 
 __all__ = ['retrieve_expressions', 'retrieve_variables']
 

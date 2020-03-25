@@ -7,7 +7,7 @@ nevertheless change code results.
 import pymbolic.primitives as pmbl
 from six.moves import intern
 
-from loki.expression.visitors import LokiStringifyMapper
+from loki.expression.mappers import LokiStringifyMapper
 from loki.expression.symbol_types import StringLiteral
 
 
