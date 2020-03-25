@@ -608,7 +608,7 @@ end subroutine routine_call_no_arg
 ])
 def test_pp_macros(testpath, frontend):
     from loki import FindNodes, Intrinsic
-    refpath = testpath/'subroutine_pp_macros.f90'
+    refpath = testpath/'subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
     visitor = FindNodes(Intrinsic)
     # We need to collect the intrinsics in multiple places because different frontends
