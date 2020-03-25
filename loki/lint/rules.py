@@ -71,12 +71,12 @@ class GenericRule(object):
         if isinstance(ast, (SourceFile, Module)):
             # If we have a source file or module, we call the routine for
             # each module and subroutine
-            if hasattr(ast, 'routines') and ast.routines is not None:
-                for subroutine in ast.routines:
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
                     cls.check_subroutine(subroutine, rule_report, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    for subroutine in module.routines or []:
+                    for subroutine in module.subroutines or []:
                         cls.check_subroutine(subroutine, rule_report, config)
         elif isinstance(ast, Subroutine):
             cls.check_subroutine(ast, rule_report, config)
