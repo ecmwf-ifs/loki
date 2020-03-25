@@ -91,7 +91,7 @@ def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
     ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
                  raw_source=raw_source, scope=scope).visit(ast)
 
-    # Perform soime minor sanitation tasks
+    # Perform some minor sanitation tasks
     ir = inline_comments(ir)
     ir = cluster_comments(ir)
     ir = inline_pragmas(ir)

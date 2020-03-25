@@ -21,7 +21,7 @@ from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType
 
 
-__all__ = ['parse_ofp_file', 'parse_ofp_source','parse_ofp_ast']
+__all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
 
 
 @timeit(log_level=DEBUG)
@@ -62,7 +62,7 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
         info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
         ir = rule.postprocess(ir, info)
 
-    # Perform soime minor sanitation tasks
+    # Perform some minor sanitation tasks
     ir = inline_comments(ir)
     ir = cluster_comments(ir)
     ir = inline_pragmas(ir)
@@ -299,7 +299,6 @@ class OFP2IR(GenericVisitor):
                                                 allocatable='ALLOCATABLE' in attrs,
                                                 source=t_source)
                         else:
-                            import pdb; pdb.set_trace()
                             _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
                                                kind=kind, pointer='POINTER' in attrs,
                                                allocatable='ALLOCATABLE' in attrs,
