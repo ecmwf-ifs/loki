@@ -73,11 +73,11 @@ transformation passes provided are:
 
 * **RAPS integration** - A special set of tools is provided that can
   bulk-transform large numbers of source files while honoring
-  dependencies due to Fortran module imports
-  (`scripts/scheduler`). This has been integrated with RAPS, which
-  requires an additional step to inject a modified "root" source file
-  into an IFS build from which a modified dependency tree (for example
-  in SCA format) is invoked.
+  dependencies due to Fortran module imports via the `Scheduler`. This
+  proof-of-concept demonstrator has been integrated with RAPS-17,
+  which requires an additional step to inject a modified "root" source
+  file into an IFS build from which a modified dependency tree (for
+  example in SCA format) is invoked.
 
 * **C transpilation** - A dedicated Fortran-to-C transpilation
   pipeline that converts Fortran source code into (column major,
