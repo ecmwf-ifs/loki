@@ -5,10 +5,10 @@ definitions.
 """
 
 from pymbolic.primitives import Expression
-from loki.expression.mappers import ExpressionRetriever
 from loki.expression.symbol_types import (
     InlineCall, Scalar, Array, FloatLiteral, IntLiteral, LogicLiteral,
     StringLiteral)
+from loki.expression.mappers import ExpressionRetriever
 
 __all__ = ['retrieve_expressions', 'retrieve_variables', 'retrieve_inline_calls',
            'retrieve_literals']

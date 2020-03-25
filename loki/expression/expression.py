@@ -1,6 +1,3 @@
-from pymbolic.primitives import Expression
-from pymbolic.mapper import IdentityMapper
-
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
@@ -85,7 +82,7 @@ class ExpressionFinder(Visitor):
         # Flatten the (possibly nested) list
         newlist = flatten(expr_list)
         if self.with_expression_root:
-            # This did remove our tuples: restore them by running through the 
+            # This did remove our tuples: restore them by running through the
             # new list and collect everything behind a ``Node`` as its expressions
             tuple_list = []
             node = None
