@@ -94,13 +94,24 @@ class LokiStringifyMapper(StringifyMapper):
 class ExpressionRetriever(WalkMapper):
     """
     A visitor for the expression tree that looks for entries specified by a query.
+
+    :param query: Function handle that is given each visited expression node and
+                  yields `True` or `False` depending on whether that expression
+                  should be included into the result.
+    :param recurse_query: Optional function handle that is given each visited
+                          expression node and yields `True` or `False` depending
+                          on whether that expression and its children should be
+                          visited.
     """
 
-    def __init__(self, query):
+    def __init__(self, query, recurse_query=None):
         super(ExpressionRetriever, self).__init__()
 
         self.query = query
         self.exprs = list()
+
+        if recurse_query is not None:
+            self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
 
     def post_visit(self, expr, *args, **kwargs):
         if self.query(expr):
@@ -109,7 +120,8 @@ class ExpressionRetriever(WalkMapper):
     map_scalar = WalkMapper.map_variable
 
     def map_array(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         if expr.dimensions:
             for d in expr.dimensions:
                 self.rec(d, *args, **kwargs)
@@ -122,7 +134,8 @@ class ExpressionRetriever(WalkMapper):
     map_inline_call = WalkMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         for p in expr.parameters:
             self.rec(p, *args, **kwargs)
         if isinstance(expr.kind, pmbl.Expression):
@@ -135,7 +148,8 @@ class ExpressionRetriever(WalkMapper):
     map_string_concat = WalkMapper.map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         if expr.lower:
             self.rec(expr.lower, *args, **kwargs)
         if expr.upper:
@@ -145,7 +159,8 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
     def map_literal_list(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         for elem in expr.elements:
             self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
