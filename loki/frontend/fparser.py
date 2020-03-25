@@ -29,9 +29,64 @@ from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
-__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_ast']
+
+__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
+
 
 _regex_ifndef = re.compile(r'#\s*if\b\s+[!]\s*defined\b\s*\(?([A-Za-z_]+)\)?')
+
+
+@timeit(log_level=DEBUG)
+def parse_fparser_file(filename):
+    """
+    Generate an internal IR from file via the fparser AST.
+    """
+    filepath = Path(filename)
+    try:
+        with filepath.open('r') as f:
+            fcode = f.read()
+    except UnicodeDecodeError as excinfo:
+        warning('Skipping bad character in input file "%s": %s',
+                str(filepath), str(excinfo))
+        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
+        with codecs.open(filepath, **kwargs) as f:
+            fcode = f.read()
+
+    return parse_fparser_source(source=fcode)
+
+
+@timeit(log_level=DEBUG)
+def parse_fparser_source(source):
+
+    # Comment out ``@PROCESS`` instructions
+    fcode = source.replace('@PROCESS', '! @PROCESS')
+
+    # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
+    # everything that looks like an in-line comment (i.e., anything from the
+    # letter '!' onwards).
+    fcode = _regex_ifndef.sub(r'#ifndef \1', fcode)
+
+    reader = FortranStringReader(fcode, ignore_comments=False)
+    f2008_parser = ParserFactory().create(std='f2008')
+
+    return f2008_parser(reader)
+
+
+@timeit(log_level=DEBUG)
+def parse_fparser_ast(ast, typedefs=None, scope=None):
+    """
+    Generate an internal IR from file via the fparser AST.
+    """
+
+    # Parse the raw FParser language AST into our internal IR
+    ir = FParser2IR(typedefs=typedefs, scope=scope).visit(ast)
+
+    # Perform soime minor sanitation tasks
+    ir = inline_comments(ir)
+    ir = cluster_comments(ir)
+    ir = inline_pragmas(ir)
+
+    return ir
 
 
 def node_sublist(nodelist, starttype, endtype):
@@ -875,50 +930,3 @@ class FParser2IR(GenericVisitor):
         body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
         source = kwargs.get('source', None)
         return Interface(spec=spec, body=body, source=source)
-
-
-@timeit(log_level=DEBUG)
-def parse_fparser_file(filename):
-    """
-    Generate an internal IR from file via the fparser AST.
-    """
-    filepath = Path(filename)
-    try:
-        with filepath.open('r') as f:
-            fcode = f.read()
-    except UnicodeDecodeError as excinfo:
-        warning('Skipping bad character in input file "%s": %s',
-                str(filepath), str(excinfo))
-        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
-        with codecs.open(filepath, **kwargs) as f:
-            fcode = f.read()
-
-    # Comment out ``@PROCESS`` instructions
-    fcode = fcode.replace('@PROCESS', '! @PROCESS')
-
-    # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
-    # everything that looks like an in-line comment (i.e., anything from the
-    # letter '!' onwards).
-    fcode = _regex_ifndef.sub(r'#ifndef \1', fcode)
-
-    reader = FortranStringReader(fcode, ignore_comments=False)
-    f2008_parser = ParserFactory().create(std='f2008')
-
-    return f2008_parser(reader)
-
-
-@timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, typedefs=None, scope=None):
-    """
-    Generate an internal IR from file via the fparser AST.
-    """
-
-    # Parse the raw FParser language AST into our internal IR
-    ir = FParser2IR(typedefs=typedefs, scope=scope).visit(ast)
-
-    # Perform soime minor sanitation tasks
-    ir = inline_comments(ir)
-    ir = cluster_comments(ir)
-    ir = inline_pragmas(ir)
-
-    return ir

@@ -3,9 +3,10 @@ from collections import OrderedDict
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend.omni import parse_omni_ast
-from loki.frontend.ofp import parse_ofp_ast
-from loki.frontend.fparser import parse_fparser_ast
+from loki.frontend import Frontend
+from loki.frontend.omni import parse_omni_ast, parse_omni_source
+from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
+from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
                      CallContext, Intrinsic, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
@@ -97,6 +98,38 @@ class Subroutine(object):
                 vtype = v.type.clone(shape=alloc_map[v.name.lower()])
                 smap[v] = v.clone(type=vtype)
         return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
+
+    @classmethod
+    def from_source(cls, source, typedefs=None, xmods=None, frontend=Frontend.FP):
+        """
+        Create ``Subroutine`` entry node from raw source string using given frontend.
+
+        :param source: Fortran source string
+        :param typdedefs: Derived-type definitions from external modules
+        :param xmods: Locations of "xmods" module directory for OMNI frontend
+        :param frontend: Choice of frontend to use for parsing source (default FP)
+        """
+        # TODO: Enable pre-processing on-the-fly
+
+        if frontend == Frontend.OMNI:
+            ast = parse_omni_source(source, xmods=xmods)
+            typetable = ast.find('typeTable')
+            f_ast = ast.find('globalDeclarations/FfunctionDefinition')
+            return cls.from_omni(ast=f_ast, raw_source=source,
+                                 typetable=typetable, typedefs=typedefs)
+
+        elif frontend == Frontend.OFP:
+            ast = parse_ofp_source(source)
+            f_ast = ast.find('file/subroutine')
+            return cls.from_ofp(ast=f_ast, raw_source=source, typedefs=typedefs)
+
+        elif frontend == Frontend.FP:
+            ast = parse_fparser_source(source)
+            f_ast = get_child(ast, Fortran2003.Subroutine_Subprogram)
+            return cls.from_fparser(f_ast, typedefs=typedefs)
+
+        else:
+            raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):

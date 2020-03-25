@@ -35,10 +35,10 @@ class SourceFile(object):
                   for all (derived) types defined within this module's scope.
     """
 
-    def __init__(self, filename, routines=None, modules=None, ast=None, symbols=None, types=None):
-        self.path = Path(filename)
-        self.routines = routines
-        self.modules = modules
+    def __init__(self, path, routines=None, modules=None, ast=None, symbols=None, types=None):
+        self.path = Path(path)
+        self._routines = routines
+        self._modules = modules
         self._ast = ast
         self.symbols = symbols if symbols is not None else TypeTable(None)
         self.types = types if types is not None else TypeTable(None)
@@ -191,8 +191,14 @@ class SourceFile(object):
         return '\n\n'.join(s.source for s in content)
 
     @property
+    def modules(self):
+        return as_tuple(self._modules)
+
+    @property
     def subroutines(self):
-        return as_tuple(self.routines + flatten(m.subroutines for m in self.modules))
+        routines = as_tuple(self._routines)
+        routines += as_tuple(flatten(m.subroutines for m in self.modules))
+        return routines
 
     def __getitem__(self, name):
         module_map = {m.name.lower(): m for m in self.modules}
