@@ -8,7 +8,7 @@ from pymbolic.primitives import Expression
 from loki.expression.symbol_types import InlineCall, Scalar, Array
 from loki.expression.mappers import ExpressionRetriever
 
-__all__ = ['retrieve_expressions', 'retrieve_variables']
+__all__ = ['retrieve_expressions', 'retrieve_variables', 'retrieve_inline_calls']
 
 
 def retrieve_expressions(expr):
