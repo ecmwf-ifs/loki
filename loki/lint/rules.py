@@ -397,6 +397,27 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
         cls.check_kind_literals(subroutine, types, allowed_type_kinds, rule_report)
 
+        # Use internal classes as keys and convert allowed type kinds to upper case
+        allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
+                              for name, kinds in config['allowed_type_kinds'].items()}
+
+        # Check constants for explicit KIND
+        types = tuple(type_map[name] for name in config['constant_types'])
+
+        def retrieve(expr):
+            retriever = ExpressionRetriever(
+                lambda e: isinstance(e, types),
+                recurse_query=lambda e: not isinstance(e, RangeIndex))
+            retriever(expr)
+            return retriever.exprs
+        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
+        for node, exprs in finder.visit(subroutine.ir):
+            for literal in exprs:
+                if not literal.kind:
+                    rule_report.add('"{}" without explicit KIND declared.'.format(literal), node)
+                elif literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
+                    rule_report.add('"{}" is not an allowed KIND value.'.format(literal.kind), node)
+
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
 
