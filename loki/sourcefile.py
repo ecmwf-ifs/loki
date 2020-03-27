@@ -11,7 +11,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, blacklist
+from loki.frontend import OMNI, OFP, FP, blacklist, read_file
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
@@ -52,7 +52,7 @@ class SourceFile:
         if frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         if frontend == FP:
-            return cls.from_fparser(filename, typedefs=typedefs)
+            return cls.from_fparser(filename, preprocess=preprocess, typedefs=typedefs)
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
@@ -104,14 +104,14 @@ class SourceFile:
         a `SourceFile` object.
         """
         file_path = Path(filename)
-        info_path = file_path.with_suffix('.pp.info')
+        info_path = file_path.with_suffix('.ofp.info')
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the OFP, as it will otherwise drop certain
         # terms due to advanced bugged-ness! :(
         if preprocess:
-            pp_path = file_path.with_suffix('.pp.F90')
-            cls.preprocess(file_path, pp_path, info_path)
+            pp_path = file_path.with_suffix('.ofp.F90')
+            cls.preprocess(OFP, file_path, pp_path, info_path)
             file_path = pp_path
 
         # Import and store the raw file content
@@ -150,8 +150,17 @@ class SourceFile:
         return obj
 
     @classmethod
-    def from_fparser(cls, filename, typedefs=None):
+    def from_fparser(cls, filename, preprocess=False, typedefs=None):
         file_path = Path(filename)
+        info_path = file_path.with_suffix('.fp.info')
+
+        # Unfortunately we need a pre-processing step to sanitize
+        # the input to the FP, as it will otherwise drop certain
+        # terms due to missing features in FP
+        if preprocess:
+            pp_path = file_path.with_suffix('.fp.F90')
+            cls.preprocess(FP, file_path, pp_path, info_path)
+            file_path = pp_path
 
         # Import and store the raw file content
         with file_path.open() as f:
@@ -221,13 +230,11 @@ class SourceFile:
                 # Already pre-processed this one, skip!
                 return
         info("Pre-processing %s => %s" % (file_path, pp_path))
-
-        with file_path.open() as f:
-            source = f.read()
+        source = read_file(file_path)
 
         # Apply preprocessing rules and store meta-information
         pp_info = OrderedDict()
-        for name, rule in blacklist.items():
+        for name, rule in blacklist[frontend].items():
             # Apply rule filter over source file
             rule.reset()
             new_source = ''

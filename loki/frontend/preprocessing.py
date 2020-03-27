@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from loki.visitors import FindNodes
 from loki.ir import Declaration
+from loki.frontend.util import OMNI, OFP, FP
 
 
 __all__ = ['blacklist', 'PPRule']
@@ -66,12 +67,24 @@ class PPRule:
 
 
 """
-A black list of Fortran features that cause bugs and failures in the OFP.
+A black list of Fortran features that cause bugs and failures in frontends.
 """
 blacklist = {
-    # Remove various IBM directives
-    'IBM_DIRECTIVES': PPRule(match=re.compile('(@PROCESS.*\n)'), replace='\n'),
+    OMNI: {},
+    OFP: {
+        # Remove various IBM directives
+        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
 
-    # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-    'CONTIGUOUS': PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
+        # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
+        'CONTIGUOUS': PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
+    },
+    FP: {
+        # Remove various IBM directives
+        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
+
+        'STRING_PP_DIRECTIVES': PPRule(match=re.compile(r'(?:__(FILE(?:NAME)?|DATE)__)'),
+                                       replace=r'\1'),
+
+        'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
+    }
 }

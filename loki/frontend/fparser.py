@@ -1,4 +1,3 @@
-import codecs
 from collections import OrderedDict
 import re
 from pathlib import Path
@@ -11,18 +10,20 @@ except ImportError:
     from fparser.two.utils import walk_ast as walk
 from fparser.two import Fortran2003
 from fparser.common.readfortran import FortranStringReader
+from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
+                                 LogicalAnd, LogicalOr)
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas
+    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file
 )
 import loki.ir as ir
 import loki.expression.symbol_types as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
-from loki.logging import DEBUG, warning
+from loki.logging import DEBU
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
@@ -30,40 +31,18 @@ from loki.types import DataType, SymbolType
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
 
 
-_regex_ifndef = re.compile(r'#\s*if\b\s+[!]\s*defined\b\s*\(?([A-Za-z_]+)\)?')
-
-
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
     """
     Generate an internal IR from file via the fparser AST.
     """
-    filepath = Path(filename)
-    try:
-        with filepath.open('r') as f:
-            fcode = f.read()
-    except UnicodeDecodeError as excinfo:
-        warning('Skipping bad character in input file "%s": %s',
-                str(filepath), str(excinfo))
-        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
-        with codecs.open(filepath, **kwargs) as f:
-            fcode = f.read()
-
+    fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
 
 
 @timeit(log_level=DEBUG)
 def parse_fparser_source(source):
-
-    # Comment out ``@PROCESS`` instructions
-    fcode = source.replace('@PROCESS', '! @PROCESS')
-
-    # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
-    # everything that looks like an in-line comment (i.e., anything from the
-    # letter '!' onwards).
-    fcode = _regex_ifndef.sub(r'#ifndef \1', fcode)
-
-    reader = FortranStringReader(fcode, ignore_comments=False)
+    reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
     return f2008_parser(reader)

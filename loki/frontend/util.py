@@ -1,5 +1,7 @@
 from itertools import groupby
 from enum import IntEnum
+from pathlib import Path
+import codecs
 
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaration, Pragma, Loop,
@@ -7,12 +9,13 @@ from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaratio
 from loki.types import DataType, SymbolType
 from loki.expression import Literal, Variable
 from loki.tools import as_tuple
+from loki.logging import warning
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
-           'inline_pragmas', 'process_dimension_pragmas']
+           'inline_pragmas', 'process_dimension_pragmas', 'read_file']
 
 
-class Frontend(IntEnum):
+class frontend(intenum):
     OMNI = 1
     OFP = 2
     FP = 3
@@ -191,3 +194,24 @@ def process_dimension_pragmas(typedef):
                             _type = SymbolType(DataType.INTEGER)
                             shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
                     v.type = v.type.clone(shape=as_tuple(shape))
+
+
+def read_file(file_path):
+    """
+    Reads a file and returns the content as string.
+
+    This convenience function is provided to catch read errors due to bad
+    character encodings in the file. It skips over these characters and
+    prints a warning for the first occurence of such a character.
+    """
+    filepath = Path(file_path)
+    try:
+        with filepath.open('r') as f:
+            source = f.read()
+    except UnicodeDecodeError as excinfo:
+        warning('Skipping bad character in input file "%s": %s',
+                str(filepath), str(excinfo))
+        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
+        with codecs.open(filepath, **kwargs) as f:
+            source = f.read()
+    return source
