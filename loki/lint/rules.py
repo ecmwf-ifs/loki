@@ -398,24 +398,31 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         cls.check_kind_literals(subroutine, types, allowed_type_kinds, rule_report)
 
         # Use internal classes as keys and convert allowed type kinds to upper case
-        allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
-                              for name, kinds in config['allowed_type_kinds'].items()}
+        if config.get('allowed_type_kinds'):
+            allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
+                                  for name, kinds in config['allowed_type_kinds'].items()}
 
         # Check constants for explicit KIND
         types = tuple(type_map[name] for name in config['constant_types'])
 
         def retrieve(expr):
+            # Custom retriever that yields the literal types specified in config and stops
+            # recursion on arrays and array subscripts (to avoid warnings about integer
+            # constants in array subscripts)
             retriever = ExpressionRetriever(
                 lambda e: isinstance(e, types),
-                recurse_query=lambda e: not isinstance(e, RangeIndex))
+                recurse_query=lambda e: not isinstance(e, (Array, RangeIndex)))
             retriever(expr)
             return retriever.exprs
         finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
+                if is_zero(literal) or str(literal) == '0':
+                    continue
                 if not literal.kind:
                     rule_report.add('"{}" without explicit KIND declared.'.format(literal), node)
-                elif literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
+                elif allowed_type_kinds.get(literal.__class__) and \
+                        literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
                     rule_report.add('"{}" is not an allowed KIND value.'.format(literal.kind), node)
 
 
