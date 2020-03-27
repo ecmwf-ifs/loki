@@ -6,6 +6,7 @@ from itertools import chain
 from logging import FileHandler
 from pathlib import Path
 from multiprocessing import Manager
+import yaml
 
 from loki.logging import logger, DEBUG, warning, info, debug
 from loki.sourcefile import SourceFile
@@ -74,10 +75,10 @@ def get_file_list(includes, excludes, basedir):
     return incl, excl
 
 
-def check_file(filename, linter, frontend=FP):
+def check_file(filename, linter, frontend=FP, preprocess=False):
     debug('[%s] Parsing...', filename)
     try:
-        source = SourceFile.from_file(filename, frontend=frontend)
+        source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
     except Exception as excinfo:
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
@@ -88,9 +89,9 @@ def check_file(filename, linter, frontend=FP):
 
 
 @click.group()
-@click.option('--debug/--no-debug', default=False,
+@click.option('--debug/--no-debug', default=False, show_default=True,
               help='Enable / disable debug mode. Includes more verbose output.')
-@click.option('--log', type=click.Path(),
+@click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
 @click.pass_context
 def cli(ctx, debug, log):
@@ -103,6 +104,20 @@ def cli(ctx, debug, log):
         logger.addHandler(file_handler)
 
 
+@cli.command(help='Get default configuration of linter and rules.')
+@click.option('--output-file', '-o', type=click.File(mode='w'),
+              help='Write default configuration to file.')
+@click.pass_context
+def default_config(ctx, output_file):
+    config = Linter.default_config()
+    config_str = yaml.dump(config, default_flow_style=False)
+
+    if output_file:
+        output_file.write(config_str)
+    else:
+        logger.info(config_str)
+
+
 @cli.command(help='Check for syntax errors and compliance to coding rules.')
 @click.option('--include', '-I', type=str, multiple=True,
               help=('File name or pattern for file names to be checked. '
@@ -112,17 +127,23 @@ def cli(ctx, debug, log):
                     'This allows to exclude files that were included by '
                     '--include.'))
 @click.option('--basedir', type=click.Path(exists=True, file_okay=False),
-              help=('(Default: current working directory) Base directory '
-                    'relative to which --include/--exclude patterns are '
-                    'interpreted.'))
-@click.option('--worker', type=int, default=4,
-              help=('(Default: 4) Number of worker processes to use. With '
-                    '--debug enabled this option is ignored and only one '
-                    'process is used.'))
+              default=Path.cwd(), show_default=True,
+              help=('Base directory relative to which --include/--exclude '
+                    'patterns are interpreted.'))
+@click.option('--config', '-c', type=click.File(),
+              help='Configuration file for behaviour of linter and rules.')
+@click.option('--worker', type=int, default=4, show_default=True,
+              help=('Number of worker processes to use. With --debug enabled '
+                    'this option is ignored and only one worker is used.'))
+@click.option('--preprocess/--no-preprocess', default=False, show_default=True,
+              help=('Enable preprocessing of files before parsing them. '
+                    'This applies some string replacements to work around '
+                    'frontend deficiencies and saves a copy of the modified '
+                    'source in a separate file.'))
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, worker, junitxml):
+def check(ctx, include, exclude, basedir, config, worker, preprocess, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -131,6 +152,8 @@ def check(ctx, include, exclude, basedir, worker, junitxml):
     for p in exclude:
         info('  - %s', p)
     info('')
+
+    config_values = yaml.safe_load(config) if config else {}
 
     debug('Searching for files using specified patterns...')
     files, excludes = get_file_list(include, exclude, basedir)
@@ -144,19 +167,19 @@ def check(ctx, include, exclude, basedir, worker, junitxml):
         junitxml_file = OutputFile(junitxml)
         handlers.append(JunitXmlHandler(target=junitxml_file.write))
 
-    linter = Linter(reporter=Reporter(handlers))
+    linter = Linter(reporter=Reporter(handlers), config=config_values)
 
     success_count = 0
     if worker == 1:
         for f in files:
-            success_count += check_file(f, linter)
+            success_count += check_file(f, linter, preprocess=preprocess)
     else:
         manager = Manager()
         linter.reporter.init_parallel(manager)
 
         with workqueue(workers=worker, logger=logger, manager=manager) as q:
-            q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue)
-                       for f in files]
+            q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue,
+                              preprocess=preprocess) for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
 

@@ -1,9 +1,10 @@
 import re
+from pymbolic.primitives import is_zero
 
 from loki import SourceFile, Module, Subroutine, DataType
 from loki.visitors import FindNodes
 from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiteral,
-                             RangeIndex, ExpressionFinder, ExpressionRetriever)
+                             Array, RangeIndex, ExpressionFinder, ExpressionRetriever)
 import loki.ir as ir
 
 
@@ -74,11 +75,13 @@ class GenericRule(object):
             # each module and subroutine
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for subroutine in ast.subroutines:
-                    cls.check_subroutine(subroutine, rule_report, config)
+                    if subroutine:
+                        cls.check_subroutine(subroutine, rule_report, config)
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
                     for subroutine in module.subroutines or []:
-                        cls.check_subroutine(subroutine, rule_report, config)
+                        if subroutine:
+                            cls.check_subroutine(subroutine, rule_report, config)
         elif isinstance(ast, Subroutine):
             cls.check_subroutine(ast, rule_report, config)
 
@@ -208,8 +211,10 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                     'LOGICAL': LogicLiteral, 'CHARACTER': StringLiteral}
 
         # Use data types as keys and convert allowed type kinds to upper case
-        allowed_type_kinds = {DataType.from_str(name): [kind.upper() for kind in kinds]
-                              for name, kinds in config['allowed_type_kinds'].items()}
+        allowed_type_kinds = {}
+        if config.get('allowed_type_kinds'):
+            allowed_type_kinds = {DataType.from_str(name): [kind.upper() for kind in kinds]
+                                  for name, kinds in config['allowed_type_kinds'].items()}
 
         # Check variable declarations for explicit KIND
         # TODO: Include actual declarations in reporting (instead of just the routine)
@@ -225,24 +230,31 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                         subroutine)
 
         # Use internal classes as keys and convert allowed type kinds to upper case
-        allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
-                              for name, kinds in config['allowed_type_kinds'].items()}
+        if config.get('allowed_type_kinds'):
+            allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
+                                  for name, kinds in config['allowed_type_kinds'].items()}
 
         # Check constants for explicit KIND
         types = tuple(type_map[name] for name in config['constant_types'])
 
         def retrieve(expr):
+            # Custom retriever that yields the literal types specified in config and stops
+            # recursion on arrays and array subscripts (to avoid warnings about integer
+            # constants in array subscripts)
             retriever = ExpressionRetriever(
                 lambda e: isinstance(e, types),
-                recurse_query=lambda e: not isinstance(e, RangeIndex))
+                recurse_query=lambda e: not isinstance(e, (Array, RangeIndex)))
             retriever(expr)
             return retriever.exprs
         finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
+                if is_zero(literal) or str(literal) == '0':
+                    continue
                 if not literal.kind:
                     rule_report.add('"{}" without explicit KIND declared.'.format(literal), node)
-                elif literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
+                elif allowed_type_kinds.get(literal.__class__) and \
+                        literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
                     rule_report.add('"{}" is not an allowed KIND value.'.format(literal.kind), node)
 
 
