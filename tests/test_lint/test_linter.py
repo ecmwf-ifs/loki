@@ -66,5 +66,5 @@ def test_linter_check():
     }
     reporter = Reporter(handlers=[TestHandler()])
     rule_list = [TestRule2, TestRule]
-    linter = Linter(reporter, config=config)
-    linter.check(SourceFile('test_file'), rules=rule_list)
+    linter = Linter(reporter, config=config, rules=rule_list)
+    linter.check(SourceFile('test_file'))

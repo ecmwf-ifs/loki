@@ -201,24 +201,12 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         }
     }
 
-    @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
-        '''Check for explicit kind information in constants and
-        variable declarations.
+    @staticmethod
+    def check_kind_declarations(subroutine, types, allowed_type_kinds, rule_report):
+        '''Helper function that carries out the check for explicit kind specification
+        on all declarations.
         '''
-        # Mapping from data type names to internal classes
-        type_map = {'INTEGER': IntLiteral, 'REAL': FloatLiteral,
-                    'LOGICAL': LogicLiteral, 'CHARACTER': StringLiteral}
-
-        # Use data types as keys and convert allowed type kinds to upper case
-        allowed_type_kinds = {}
-        if config.get('allowed_type_kinds'):
-            allowed_type_kinds = {DataType.from_str(name): [kind.upper() for kind in kinds]
-                                  for name, kinds in config['allowed_type_kinds'].items()}
-
-        # Check variable declarations for explicit KIND
         # TODO: Include actual declarations in reporting (instead of just the routine)
-        types = tuple(DataType.from_str(name) for name in config['declaration_types'])
         for var in subroutine.variables:
             if var.type.dtype in types:
                 if not var.type.kind:
@@ -229,14 +217,11 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                         '"{}" is not an allowed KIND value for "{}".'.format(var.type.kind, var),
                         subroutine)
 
-        # Use internal classes as keys and convert allowed type kinds to upper case
-        if config.get('allowed_type_kinds'):
-            allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
-                                  for name, kinds in config['allowed_type_kinds'].items()}
-
-        # Check constants for explicit KIND
-        types = tuple(type_map[name] for name in config['constant_types'])
-
+    @staticmethod
+    def check_kind_literals(subroutine, types, allowed_type_kinds, rule_report):
+        '''Helper function that carries out the check for explicit kind specification
+        on all literals.
+        '''
         def retrieve(expr):
             # Custom retriever that yields the literal types specified in config and stops
             # recursion on arrays and array subscripts (to avoid warnings about integer
@@ -246,7 +231,9 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                 recurse_query=lambda e: not isinstance(e, (Array, RangeIndex)))
             retriever(expr)
             return retriever.exprs
+
         finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
+
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
                 if is_zero(literal) or str(literal) == '0':
@@ -256,6 +243,40 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                 elif allowed_type_kinds.get(literal.__class__) and \
                         literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
                     rule_report.add('"{}" is not an allowed KIND value.'.format(literal.kind), node)
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for explicit kind information in constants and
+        variable declarations.
+        '''
+        # 1. Check variable declarations for explicit KIND
+        # When we check variable type information, we have instances of DataType to identify
+        # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses 
+        # the corresponding DataType values as keys to look up allowed kinds for each type.
+        # Since the case does not matter, we convert all allowed type kinds to upper case.
+        types = tuple(DataType.from_str(name) for name in config['declaration_types'])
+        allowed_type_kinds = {}
+        if config.get('allowed_type_kinds'):
+            allowed_type_kinds = {DataType.from_str(name): [kind.upper() for kind in kinds]
+                                  for name, kinds in config['allowed_type_kinds'].items()}
+
+        cls.check_kind_declarations(subroutine, types, allowed_type_kinds, rule_report)
+
+        # 2. Check constants for explicit KIND
+        # Mapping from data type names to internal classes
+        type_map = {'INTEGER': IntLiteral, 'REAL': FloatLiteral,
+                    'LOGICAL': LogicLiteral, 'CHARACTER': StringLiteral}
+
+        # Constants are represented by an instance of some Literal class, which directly
+        # gives us their type. Therefore, we create a map that uses the corresponding
+        # Literal types as keys to look up allowed kinds for each type. Again, we
+        # convert all allowed type kinds to upper case.
+        types = tuple(type_map[name] for name in config['constant_types'])
+        if config.get('allowed_type_kinds'):
+            allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
+                                  for name, kinds in config['allowed_type_kinds'].items()}
+
+        cls.check_kind_literals(subroutine, types, allowed_type_kinds, rule_report)
 
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
