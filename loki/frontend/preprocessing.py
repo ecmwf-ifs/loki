@@ -82,9 +82,16 @@ blacklist = {
         # Remove various IBM directives
         'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
 
-        'STRING_PP_DIRECTIVES': PPRule(match=re.compile(r'(?:__(FILE(?:NAME)?|DATE)__)'),
-                                       replace=r'\1'),
+        # Replace string CPP directives in Fortran source lines by strings
+        'STRING_PP_DIRECTIVES': PPRule(
+            match=re.compile(r'(^(?!\s*#).*)(__(?:FILE(?:NAME)?|DATE|VERSION)__)'),
+            replace=r'\1"\2"'),
 
+        # Replace integer CPP directives by 0
         'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
+
+        # Despite F2008 compatability, FP does not recognise the CONTIGUOUS keyword
+        'CONTIGUOUS': PPRule(match=re.compile(r',\s*CONTIGUOUS', re.I), replace='',
+                             postprocess=reinsert_contiguous),
     }
 }
