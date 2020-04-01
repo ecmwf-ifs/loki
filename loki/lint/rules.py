@@ -64,7 +64,7 @@ class GenericRule(object):
             # Then recurse for all modules and subroutines in that file
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    # Note: do not call `check` here to avoid visiting 
+                    # Note: do not call `check` here to avoid visiting
                     # subroutines twice
                     cls.check_module(module, rule_report, config)
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
@@ -90,12 +90,13 @@ class GenericRule(object):
                     cls.check(member, rule_report, config)
 
 
-class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
+class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
 
     type = 'suggestion'
 
     docs = {
-        'name': 'Subroutine length shall be limited'
+        'id': '2.2',
+        'title': 'Subroutines should have no more than {max_num_statements} executable statements.',
     }
 
     config = {
@@ -113,19 +114,20 @@ class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
         '''Count the number of nodes in the subroutine and check if they exceed
         a given maximum number.
         '''
-        num_nodes = len(FindNodes(SubroutineLengthRule.exec_nodes).visit(subroutine.ir))
+        num_nodes = len(FindNodes(cls.exec_nodes).visit(subroutine.ir))
         if num_nodes > config['max_num_statements']:
             fmt_string = 'Found {} executable statements (maximum allowed: {})'
             msg = fmt_string.format(num_nodes, config['max_num_statements'])
             rule_report.add(msg, subroutine)
 
 
-class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
+class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
 
     type = 'problem'
 
     docs = {
-        'name': 'Number of dummy arguments should be small'
+        'id': '3.6',
+        'title': 'Routines should have no more than {max_num_arguments} dummy arguments.',
     }
 
     config = {
@@ -144,12 +146,34 @@ class ArgumentNumberRule(GenericRule):  # Coding standards 3.6
             rule_report.add(msg, subroutine)
 
 
+class MplCdstringRule(GenericRule):  # Coding standards 3.12
+
+    type = 'problem'
+
+    docs = {
+        'id': '3.12',
+        'title': 'Calls to MPL subroutines should provide a "CDSTRING" identifying the caller.',
+    }
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check all calls to MPL subroutines for a CDSTRING.'''
+        for call in FindNodes(ir.CallStatement).visit(subroutine.ir):
+            if call.name.upper().startswith('MPL_'):
+                cdstring_arg = [arg for kw, arg in call.kwarguments if kw.upper() == 'CDSTRING']
+                if not cdstring_arg:
+                    fmt_string = 'No "CDSTRING" provided in call to {}'
+                    msg = fmt_string.format(call.name)
+                    rule_report.add(msg, call)
+
+
 class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
     type = 'problem'
 
     docs = {
-        'name': 'Implicit None is mandatory'
+        'id': '4.4',
+        'title': '"IMPLICIT NONE" is mandatory in all routines.',
     }
 
     _regex = re.compile(r'implicit\s+none\b', re.I)
@@ -188,7 +212,9 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
     type = 'problem'
 
     docs = {
-        'name': 'Variables and constants must be declared with explicit kind'
+        'id': '4.7',
+        'title': ('Variables and constants must be declared with explicit kind, using the kinds '
+                  'defined in "PARKIND1" and "PARKIND2".'),
     }
 
     config = {
@@ -283,7 +309,8 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
     type = 'problem'
 
     docs = {
-        'name': 'Some statements are banned'
+        'id': '4.11',
+        'title': 'Banned statements.',
     }
 
     config = {

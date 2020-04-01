@@ -16,6 +16,8 @@ def test_explicit_kind(refpath, frontend):
     handler = generate_report_handler()
     _ = generate_linter(refpath, [ExplicitKindRule], frontend=frontend, handlers=[handler])
     assert len(handler.target.messages) == 11
+    assert all('[4.7]' in msg for msg in handler.target.messages)
+    assert all('ExplicitKindRule' in msg for msg in handler.target.messages)
     # declarations
     assert 'routine "routine_not_okay"' in handler.target.messages[0] and \
         '"i"' in handler.target.messages[0]

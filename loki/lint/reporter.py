@@ -110,6 +110,8 @@ class DefaultHandler(GenericHandler):
         reports_list = []
         for rule_report in file_report.reports:
             rule = rule_report.rule.__name__
+            if rule_report.rule.docs and 'id' in rule_report.rule.docs:
+                rule = '[{}] '.format(rule_report.rule.docs['id']) + rule
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)
