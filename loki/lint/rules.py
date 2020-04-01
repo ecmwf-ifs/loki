@@ -431,7 +431,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''
         # 1. Check variable declarations for explicit KIND
         # When we check variable type information, we have instances of DataType to identify
-        # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses 
+        # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses
         # the corresponding DataType values as keys to look up allowed kinds for each type.
         # Since the case does not matter, we convert all allowed type kinds to upper case.
         types = tuple(DataType.from_str(name) for name in config['declaration_types'])
