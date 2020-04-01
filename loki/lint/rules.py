@@ -61,34 +61,33 @@ class GenericRule(object):
         if isinstance(ast, SourceFile):
             cls.check_file(ast, rule_report, config)
 
+            # Then recurse for all modules and subroutines in that file
+            if hasattr(ast, 'modules') and ast.modules is not None:
+                for module in ast.modules:
+                    # Note: do not call `check` here to avoid visiting 
+                    # subroutines twice
+                    cls.check_module(module, rule_report, config)
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
+                    cls.check(subroutine, rule_report, config)
+
         # Perform checks on module level
-        if isinstance(ast, SourceFile):
-            # If we have a source file, we call the routine for each module
-            for module in ast.modules:
-                cls.check_module(module, rule_report, config)
         elif isinstance(ast, Module):
             cls.check_module(ast, rule_report, config)
 
-        # Perform checks on subroutine level
-        if isinstance(ast, (SourceFile, Module)):
-            # If we have a source file or module, we call the routine for
-            # each module and subroutine
+            # Then recurse for all subroutines in that module
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for subroutine in ast.subroutines:
-                    if subroutine:
-                        cls.check_subroutine(subroutine, rule_report, config)
-            if hasattr(ast, 'modules') and ast.modules is not None:
-                for module in ast.modules:
-                    for subroutine in module.subroutines or []:
-                        if subroutine:
-                            cls.check_subroutine(subroutine, rule_report, config)
+                    cls.check(subroutine, rule_report, config)
+
+        # Peform checks on subroutine level
         elif isinstance(ast, Subroutine):
             cls.check_subroutine(ast, rule_report, config)
 
             # Recurse for any procedures contained in a subroutine
             if hasattr(ast, 'members') and ast.members is not None:
                 for member in ast.members:
-                    cls.check_subroutine(member, rule_report, config)
+                    cls.check(member, rule_report, config)
 
 
 class SubroutineLengthRule(GenericRule):  # Coding standards 2.2
@@ -251,7 +250,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''
         # 1. Check variable declarations for explicit KIND
         # When we check variable type information, we have instances of DataType to identify
-        # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses 
+        # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses
         # the corresponding DataType values as keys to look up allowed kinds for each type.
         # Since the case does not matter, we convert all allowed type kinds to upper case.
         types = tuple(DataType.from_str(name) for name in config['declaration_types'])
