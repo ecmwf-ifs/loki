@@ -69,13 +69,17 @@ class Reporter(object):
 
 class GenericHandler(object):
 
-    def __init__(self):
-        pass
+    def __init__(self, basedir=None):
+        self.basedir = basedir
 
-    @staticmethod
-    def format_location(filename, location):
+    def format_location(self, filename, location):
         if not filename:
             filename = get_filename_from_parent(location) or ''
+        if filename and self.basedir:
+            try:
+                filename = Path(filename).relative_to(self.basedir)
+            except ValueError:
+                pass
         line = ''
         if hasattr(location, '_source') and location._source:
             if location._source.lines[0] == location._source.lines[1]:
@@ -100,8 +104,8 @@ class DefaultHandler(GenericHandler):
 
     fmt_string = '{rule}: {location} - {msg}'
 
-    def __init__(self, target=logger.warning, immediate_output=True):
-        super().__init__()
+    def __init__(self, target=logger.warning, immediate_output=True, basedir=None):
+        super().__init__(basedir)
         self.target = target
         self.immediate_output = immediate_output
 
@@ -110,8 +114,9 @@ class DefaultHandler(GenericHandler):
         reports_list = []
         for rule_report in file_report.reports:
             rule = rule_report.rule.__name__
-            if rule_report.rule.docs and 'id' in rule_report.rule.docs:
-                rule = '[{}] '.format(rule_report.rule.docs['id']) + rule
+            if hasattr(rule_report.rule, 'docs') and rule_report.rule.docs:
+                if 'id' in rule_report.rule.docs:
+                    rule = '[{}] '.format(rule_report.rule.docs['id']) + rule
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)
@@ -131,8 +136,8 @@ class JunitXmlHandler(GenericHandler):
 
     fmt_string = '{location} - {msg}'
 
-    def __init__(self, target=logger.warning):
-        super().__init__()
+    def __init__(self, target=logger.warning, basedir=None):
+        super().__init__(basedir)
         self.target = target
 
     def handle(self, file_report):

@@ -1,3 +1,4 @@
+from enum import Enum
 import re
 from pymbolic.primitives import is_zero
 
@@ -27,6 +28,14 @@ def get_line_from_source(source):
     if source.lines[0] == source.lines[1]:
         return str(source.lines[0])
     return '{}-{}'.format(*source.lines)
+
+
+class RuleType(Enum):
+
+    INFO = 1
+    WARN = 2
+    STRICT = 3
+    ERROR = 4
 
 
 class GenericRule(object):
@@ -92,7 +101,7 @@ class GenericRule(object):
 
 class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
 
-    type = 'suggestion'
+    type = RuleType.WARN
 
     docs = {
         'id': '2.2',
@@ -123,7 +132,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
 
 class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
 
-    type = 'problem'
+    type = RuleType.INFO
 
     docs = {
         'id': '3.6',
@@ -148,7 +157,7 @@ class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
 
 class MplCdstringRule(GenericRule):  # Coding standards 3.12
 
-    type = 'problem'
+    type = RuleType.STRICT
 
     docs = {
         'id': '3.12',
@@ -169,7 +178,7 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
 
 class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
-    type = 'problem'
+    type = RuleType.STRICT
 
     docs = {
         'id': '4.4',
@@ -209,7 +218,7 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
 class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
-    type = 'problem'
+    type = RuleType.STRICT
 
     docs = {
         'id': '4.7',
@@ -306,7 +315,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
 class BannedStatementsRule(GenericRule):  # Coding standards 4.11
 
-    type = 'problem'
+    type = RuleType.WARN
 
     docs = {
         'id': '4.11',
