@@ -118,6 +118,34 @@ def default_config(ctx, output_file):
         logger.info(config_str)
 
 
+@cli.command(help='List all available rules.')
+@click.option('--with-title/--without-title', default=False, show_default=True,
+              help='With / without title and id from each rule\'s docs.')
+@click.pass_context
+def rules(ctx, with_title):
+    rule_list = Linter.lookup_rules()
+    rule_names = [rule.__name__ for rule in rule_list]
+    max_width_name = max(len(name) for name in rule_names)
+
+    if with_title:
+        rule_ids = [rule.docs.get('id', '') for rule in rule_list]
+        max_width_id = max(len(id_) for id_ in rule_ids)
+        rule_titles = [rule.docs.get('title', '').format(**rule.config)
+                       if rule.config else rule.docs.get('title', '')
+                       for rule in rule_list]
+
+        fmt_string = '{name:<{name_width}}  {id:^{id_width}}  {title}'
+        output_string = '\n'.join(
+            fmt_string.format(name=name, name_width=max_width_name,
+                              id=id_, id_width=max_width_id, title=title)
+            for name, id_, title in zip(rule_names, rule_ids, rule_titles))
+
+    else:
+        output_string = '\n'.join(rule_names)
+
+    logger.info(output_string)
+
+
 @cli.command(help='Check for syntax errors and compliance to coding rules.')
 @click.option('--include', '-I', type=str, multiple=True,
               help=('File name or pattern for file names to be checked. '
@@ -162,10 +190,10 @@ def check(ctx, include, exclude, basedir, config, worker, preprocess, junitxml):
     info('Using %d worker.', worker)
     info('')
 
-    handlers = [DefaultHandler()]
+    handlers = [DefaultHandler(basedir=basedir)]
     if junitxml:
         junitxml_file = OutputFile(junitxml)
-        handlers.append(JunitXmlHandler(target=junitxml_file.write))
+        handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
 
     linter = Linter(reporter=Reporter(handlers), config=config_values)
 
