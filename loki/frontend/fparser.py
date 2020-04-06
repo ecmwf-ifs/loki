@@ -613,12 +613,16 @@ class FParser2IR(GenericVisitor):
         body = as_tuple(self.visit(node, **kwargs) for node in body_nodes)
         return (*banter, Loop(variable=variable, body=body, bounds=bounds, source=source), )
 
+    visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
+
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
-        if o.items[1]:
-            variable, bounds = self.visit(o.items[1], **kwargs)
-        else:
-            variable, bounds = None, None
+        variable, bounds = None, None
+        loop_control = get_child(o, Fortran2003.Loop_Control)
+        if loop_control:
+            variable, bounds = self.visit(loop_control, **kwargs)
         return variable, bounds
+
+    visit_Label_Do_Stmt = visit_Nonlabel_Do_Stmt
 
     def visit_If_Construct(self, o, **kwargs):
         # The banter before the loop...
@@ -845,6 +849,8 @@ class FParser2IR(GenericVisitor):
     visit_Procedure_Stmt = visit_Goto_Stmt
     visit_Equivalence_Stmt = visit_Goto_Stmt
     visit_External_Stmt = visit_Goto_Stmt
+    visit_Common_Stmt = visit_Goto_Stmt
+    visit_Stop_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...
