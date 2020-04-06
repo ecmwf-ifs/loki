@@ -13,7 +13,7 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     if modulename:
         module = [m for m in source.modules if m.name == modulename][0]
         module.name += '_%s_%s' % (routinename, frontend)
-        for routine in source.subroutines:
+        for routine in source.all_subroutines:
             routine.name += '_%s' % frontend
             for call in FindNodes(CallStatement).visit(routine.body):
                 call.name += '_%s' % frontend
