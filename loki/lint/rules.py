@@ -9,27 +9,6 @@ from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiter
 import loki.ir as ir
 
 
-__all__ = ['GenericRule', 'ImplicitNoneRule']
-
-
-def get_filename_from_parent(obj):
-    parent = obj
-    while hasattr(parent, 'parent') and parent.parent:
-        # Go up until we are at SourceFile level
-        parent = parent.parent
-    if hasattr(parent, 'path'):
-        return parent.path
-    return 'Unknown file'
-
-
-def get_line_from_source(source):
-    if not source:
-        return '???'
-    if source.lines[0] == source.lines[1]:
-        return str(source.lines[0])
-    return '{}-{}'.format(*source.lines)
-
-
 class RuleType(Enum):
 
     INFO = 1
@@ -169,8 +148,10 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
         '''Check all calls to MPL subroutines for a CDSTRING.'''
         for call in FindNodes(ir.CallStatement).visit(subroutine.ir):
             if call.name.upper().startswith('MPL_'):
-                cdstring_arg = [arg for kw, arg in call.kwarguments if kw.upper() == 'CDSTRING']
-                if not cdstring_arg:
+                for kw, _ in call.kwarguments:
+                    if kw.upper() == 'CDSTRING':
+                        break
+                else:
                     fmt_string = 'No "CDSTRING" provided in call to {}'
                     msg = fmt_string.format(call.name)
                     rule_report.add(msg, call)
