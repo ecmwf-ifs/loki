@@ -704,6 +704,8 @@ class FParser2IR(GenericVisitor):
 
     visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
 
+    visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
+
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
         variable, bounds = None, None
         loop_control = get_child(o, Fortran2003.Loop_Control)
