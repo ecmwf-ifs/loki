@@ -5,7 +5,7 @@ from six.moves import intern
 
 from loki.tools import as_tuple
 from loki.types import DataType, SymbolType
-from loki.expression.visitors import LokiStringifyMapper
+from loki.expression.mappers import LokiStringifyMapper
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',

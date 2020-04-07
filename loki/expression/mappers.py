@@ -1,6 +1,6 @@
 import re
 import pymbolic.primitives as pmbl
-from pymbolic.mapper import Mapper, WalkMapper, CombineMapper
+from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 
 from loki.tools import as_tuple
@@ -94,13 +94,24 @@ class LokiStringifyMapper(StringifyMapper):
 class ExpressionRetriever(WalkMapper):
     """
     A visitor for the expression tree that looks for entries specified by a query.
+
+    :param query: Function handle that is given each visited expression node and
+                  yields `True` or `False` depending on whether that expression
+                  should be included into the result.
+    :param recurse_query: Optional function handle that is given each visited
+                          expression node and yields `True` or `False` depending
+                          on whether that expression and its children should be
+                          visited.
     """
 
-    def __init__(self, query):
+    def __init__(self, query, recurse_query=None):
         super(ExpressionRetriever, self).__init__()
 
         self.query = query
         self.exprs = list()
+
+        if recurse_query is not None:
+            self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
 
     def post_visit(self, expr, *args, **kwargs):
         if self.query(expr):
@@ -109,7 +120,8 @@ class ExpressionRetriever(WalkMapper):
     map_scalar = WalkMapper.map_variable
 
     def map_array(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         if expr.dimensions:
             for d in expr.dimensions:
                 self.rec(d, *args, **kwargs)
@@ -122,7 +134,8 @@ class ExpressionRetriever(WalkMapper):
     map_inline_call = WalkMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         for p in expr.parameters:
             self.rec(p, *args, **kwargs)
         if isinstance(expr.kind, pmbl.Expression):
@@ -135,7 +148,8 @@ class ExpressionRetriever(WalkMapper):
     map_string_concat = WalkMapper.map_sum
 
     def map_range_index(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         if expr.lower:
             self.rec(expr.lower, *args, **kwargs)
         if expr.upper:
@@ -145,7 +159,8 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
     def map_literal_list(self, expr, *args, **kwargs):
-        self.visit(expr)
+        if not self.visit(expr):
+            return
         for elem in expr.elements:
             self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
@@ -237,3 +252,90 @@ class ExpressionCallbackMapper(CombineMapper):
 
     def map_literal_list(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))
+
+
+class LokiIdentityMapper(IdentityMapper):
+    """
+    A visitor which creates a copy of the expression tree.
+    """
+
+    def __init__(self):
+        super(LokiIdentityMapper, self).__init__()
+
+    map_logic_literal = IdentityMapper.map_constant
+    map_float_literal = IdentityMapper.map_constant
+    map_int_literal = IdentityMapper.map_constant
+    map_string_literal = IdentityMapper.map_constant
+
+    def map_scalar(self, expr, *args, **kwargs):
+        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+                              initial=initial, source=expr.source)
+
+    def map_array(self, expr, *args, **kwargs):
+        if expr.dimensions:
+            dimensions = tuple(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+        else:
+            dimensions = None
+        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+                              dimensions=dimensions, initial=initial, source=expr.source)
+
+    map_inline_call = IdentityMapper.map_call_with_kwargs
+
+    def map_cast(self, expr, *args, **kwargs):
+        if isinstance(expr.kind, pmbl.Expression):
+            kind = self.rec(expr.kind, *args, **kwargs)
+        else:
+            kind = expr.kind
+        return expr.__class__(self.rec(expr.function, *args, **kwargs),
+                              tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
+                              kind=kind)
+
+    def map_sum(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    def map_product(self, expr, *args, **kwargs):
+        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+
+    map_parenthesised_add = map_sum
+    map_parenthesised_mul = map_product
+    map_parenthesised_pow = IdentityMapper.map_power
+    map_string_concat = map_sum
+
+    def map_range_index(self, expr, *args, **kwargs):
+        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
+        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper is not None else None
+        step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
+        return expr.__class__(lower, upper, step)
+
+    def map_literal_list(self, expr, *args, **kwargs):
+        values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
+                       for v in expr.elements)
+        return expr.__class__(values)
+
+
+class SubstituteExpressionsMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree) that
+    defines on-the-fly handlers from a given substitution map.
+
+    It returns a copy of the expression tree with expressions substituted according
+    to the given `expr_map`.
+    """
+
+    def __init__(self, expr_map):
+        super(SubstituteExpressionsMapper, self).__init__()
+
+        self.expr_map = expr_map
+        for expr in self.expr_map.keys():
+            setattr(self, expr.mapper_method, self.map_from_expr_map)
+
+    def map_from_expr_map(self, expr, *args, **kwargs):
+        # We have to recurse here to make sure we are applying the substitution also to
+        # "hidden" places (such as dimension expressions inside an array).
+        # And we have to actually carry out the expression first before looking up the
+        # super()-method as the node type might change.
+        expr = self.expr_map.get(expr, expr)
+        map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
+        return map_fn(expr, *args, **kwargs)
