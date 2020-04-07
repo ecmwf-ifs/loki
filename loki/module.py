@@ -63,9 +63,10 @@ class Module(object):
         spec = parse_ofp_ast(spec_ast, raw_source=raw_source, scope=obj)
 
         # TODO: Add routine parsing
-        routine_asts = ast.findall('members/subroutine')
         routines = tuple(Subroutine.from_ofp(ast, raw_source, parent=obj)
-                         for ast in routine_asts)
+                         for ast in ast.findall('members/subroutine'))
+        routines += tuple(Subroutine.from_ofp(ast, raw_source, parent=obj)
+                          for ast in ast.findall('members/function'))
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)
@@ -114,10 +115,10 @@ class Module(object):
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
+        routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
         if routines_ast is not None:
             routines = [Subroutine.from_fparser(ast=s, parent=obj)
-                        for s in routines_ast.content
-                        if isinstance(s, Fortran2003.Subroutine_Subprogram)]
+                        for s in routines_ast.content if isinstance(s, routine_types)]
 
         # Process pragmas to override deferred dimensions
         cls._process_pragmas(spec)

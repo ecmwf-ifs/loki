@@ -118,6 +118,9 @@ class SourceFile(object):
         routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
                                         parent=obj, pp_info=pp_info)
                     for r in ast.findall('file/subroutine')]
+        routines += [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
+                                         parent=obj, pp_info=pp_info)
+                     for r in ast.findall('file/function')]
         modules = [Module.from_ofp(ast=m, raw_source=raw_source, parent=obj)
                    for m in ast.findall('file/module')]
 
@@ -134,7 +137,8 @@ class SourceFile(object):
 
         obj = cls(filename, ast=ast)
 
-        routine_asts = [r for r in ast.content if isinstance(r, Fortran2003.Subroutine_Subprogram)]
+        routine_asts = [r for r in ast.content if isinstance(r, (Fortran2003.Subroutine_Subprogram,
+                                                                 Fortran2003.Function_Subprogram))]
         routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj) for r in routine_asts]
 
         # TODO: Do modules!
@@ -196,6 +200,10 @@ class SourceFile(object):
 
     @property
     def subroutines(self):
+        return as_tuple(self._routines)
+
+    @property
+    def all_subroutines(self):
         routines = as_tuple(self._routines)
         routines += as_tuple(flatten(m.subroutines for m in self.modules))
         return routines
@@ -205,7 +213,7 @@ class SourceFile(object):
         if name.lower() in module_map:
             return module_map[name.lower()]
 
-        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        subroutine_map = {s.name.lower(): s for s in self.all_subroutines}
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]
 

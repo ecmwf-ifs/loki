@@ -134,7 +134,8 @@ class Subroutine(object):
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
         name = name or ast.attrib['name']
-        obj = cls(name=name, ast=ast, typedefs=typedefs, parent=parent)
+        is_function = ast.tag == 'function'
+        obj = cls(name=name, ast=ast, typedefs=typedefs, parent=parent, is_function=is_function)
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
@@ -160,16 +161,19 @@ class Subroutine(object):
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        # Parse "member" subroutines recursively
+        # Parse "member" subroutines and functions recursively
         members = None
         if ast.find('members'):
             members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
                                            pp_info=pp_info, parent=obj)
                        for s in ast.findall('members/subroutine')]
+            members += [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
+                                            pp_info=pp_info, parent=obj)
+                        for s in ast.findall('members/function')]
 
         obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
                      members=members, ast=ast, typedefs=typedefs, symbols=obj.symbols,
-                     types=obj.types, parent=parent)
+                     types=obj.types, parent=parent, is_function=is_function)
         return obj
 
     @classmethod
@@ -179,7 +183,13 @@ class Subroutine(object):
         file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
-        obj = cls(name=name, parent=parent)
+
+        # Check if it is a function or a subroutine. There may be a better way to do
+        # this but OMNI does not seem to make it obvious, thus checking the return type
+        name_id = ast.find('name').attrib['type']
+        is_function = name_id in type_map and type_map[name_id].attrib['return_type'] != 'Fvoid'
+
+        obj = cls(name=name, parent=parent, is_function=is_function)
 
         # Get the names of dummy variables from the type_map
         fhash = ast.find('name').attrib['type']
@@ -222,15 +232,21 @@ class Subroutine(object):
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body,
-                     members=members, ast=ast, parent=parent, symbols=obj.symbols, types=obj.types)
+                     members=members, ast=ast, parent=parent, symbols=obj.symbols,
+                     types=obj.types, is_function=is_function)
         return obj
 
     @classmethod
     def from_fparser(cls, ast, name=None, typedefs=None, parent=None):
-        routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
-        name = name or routine_stmt.get_name().string
+        is_function = isinstance(ast, Fortran2003.Function_Subprogram)
+        if is_function:
+            routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
+            name = name or routine_stmt.items[1].tostr()
+        else:
+            routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
+            name = name or routine_stmt.get_name().string
 
-        obj = cls(name, parent=parent)
+        obj = cls(name, parent=parent, is_function=is_function)
 
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
