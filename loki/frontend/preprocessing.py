@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 
 from loki.visitors import FindNodes
-from loki.ir import Declaration
+from loki.ir import Declaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP
 
 
@@ -17,6 +17,22 @@ def reinsert_contiguous(ir, pp_info):
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
                 decl.type.contiguous = True
+    return ir
+
+
+def reinsert_convert_endian(ir, pp_info):
+    """
+    Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
+    into calls to OPEN.
+    """
+    if pp_info is not None:
+        for intr in FindNodes(Intrinsic).visit(ir):
+            match = pp_info.get(intr._source.lines[0], None)
+            if match is not None:
+                match = match[0]
+                intr.text = match['pre'] + match['convert'] + match['post']
+                if intr._source is not None:
+                    intr._source.string = intr.text
     return ir
 
 
@@ -90,8 +106,11 @@ blacklist = {
         # Replace integer CPP directives by 0
         'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
 
-        # Despite F2008 compatability, FP does not recognise the CONTIGUOUS keyword
-        'CONTIGUOUS': PPRule(match=re.compile(r',\s*CONTIGUOUS', re.I), replace='',
-                             postprocess=reinsert_contiguous),
+        # Replace CONVERT argument in OPEN calls
+        'CONVERT_ENDIAN': PPRule(match=re.compile(
+            (r'(?:^\s*)(?P<pre>OPEN\s*\(.*)'
+             r'(?P<convert>,\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
+             r'(?P<post>(?:,.*)?\))'), re.I),
+            replace=r'\g<pre>\g<post>', postprocess=reinsert_convert_endian),
     }
 }

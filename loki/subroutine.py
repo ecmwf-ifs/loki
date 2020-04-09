@@ -247,15 +247,16 @@ class Subroutine:
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         if spec_ast:
-            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj, raw_source=raw_source)
+            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, typedefs=typedefs, scope=obj,
+                                     raw_source=raw_source)
         else:
             spec = ()
         spec = Section(body=spec)
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
-            body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj,
-                                              raw_source=raw_source))
+            body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, typedefs=typedefs,
+                                              scope=obj, raw_source=raw_source))
         else:
             body = ()
         # body = Section(body=body)
@@ -271,7 +272,7 @@ class Subroutine:
         if contains_ast:
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
             members = [Subroutine.from_fparser(ast=s, raw_source=raw_source, typedefs=typedefs,
-                                               parent=obj)
+                                               pp_info=pp_info, parent=obj)
                        for s in walk(contains_ast, routine_types)]
 
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,

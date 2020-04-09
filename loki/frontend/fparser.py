@@ -16,7 +16,7 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file
+    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file, FP
 )
 import loki.ir as ir
 import loki.expression.symbol_types as sym
@@ -49,7 +49,7 @@ def parse_fparser_source(source):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, raw_source, typedefs=None, scope=None):
+def parse_fparser_ast(ast, raw_source, pp_info=None, typedefs=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
@@ -57,7 +57,13 @@ def parse_fparser_ast(ast, raw_source, typedefs=None, scope=None):
     # Parse the raw FParser language AST into our internal IR
     _ir = FParser2IR(raw_source=raw_source, typedefs=typedefs, scope=scope).visit(ast)
 
-    # Perform soime minor sanitation tasks
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    if pp_info is not None:
+        for r_name, rule in blacklist[FP].items():
+            info = pp_info.get(r_name, None)
+            _ir = rule.postprocess(_ir, info)
+
+    # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
     _ir = cluster_comments(_ir)
     _ir = inline_pragmas(_ir)

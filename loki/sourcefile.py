@@ -168,11 +168,17 @@ class SourceFile:
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_file(filename=str(file_path))
+
+        # Extract preprocessing replacements from file
+        pp_info = None
+        if info_path.exists():
+            with info_path.open('rb') as f:
+                pp_info = pickle.load(f)
         return cls._from_fparser_ast(path=file_path, ast=ast, typedefs=typedefs,
-                                     raw_source=raw_source)
+                                     pp_info=pp_info, raw_source=raw_source)
 
     @classmethod
-    def _from_fparser_ast(cls, ast, path=None, raw_source=None, typedefs=None):
+    def _from_fparser_ast(cls, ast, path=None, raw_source=None, typedefs=None, pp_info=None):
         """
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
@@ -180,7 +186,7 @@ class SourceFile:
 
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
         routine_asts = [r for r in ast.content if isinstance(r, routine_types)]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj,
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj, pp_info=pp_info,
                                             raw_source=raw_source)
                     for r in routine_asts]
 
