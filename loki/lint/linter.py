@@ -1,8 +1,10 @@
 import inspect
 import time
+from pathlib import Path
 
 from loki.lint.reporter import FileReport, RuleReport
 from loki.sourcefile import SourceFile
+from loki.backend import fgen
 
 
 class Linter(object):
@@ -71,5 +73,18 @@ class Linter(object):
         # Store the file report
         self.reporter.add_file_report(file_report)
 
-    def fix(self, ast):
-        pass
+    def fix(self, sourcefile):
+        if not isinstance(sourcefile, SourceFile):
+            raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
+        # TODO: Actually do any fixing
+        # ...
+        # Determine path for the fixed file
+        file_path = Path(sourcefile.path)
+        fixed_path = file_path.with_suffix('.fix' + file_path.suffix)
+
+        # Build the source string
+        # Note: this does not necessarily preserve the order of things in the file
+        # as it will first generate all modules and then all subroutines
+        source = [fgen(mod, conservative=True) for mod in sourcefile.modules]
+        source += [fgen(routine, conservative=True) for routine in sourcefile.subroutines]
+        SourceFile.to_file(source='\n\n'.join(source), path=fixed_path)
