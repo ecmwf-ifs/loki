@@ -61,6 +61,22 @@ def reinsert_open_newunit(ir, pp_info):
     return ir
 
 
+def reinsert_convert_endian(ir, pp_info):
+    """
+    Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
+    into calls to OPEN.
+    """
+    if pp_info is not None:
+        for intr in FindNodes(Intrinsic).visit(ir):
+            match = pp_info.get(intr._source.lines[0], None)
+            if match is not None:
+                match = match[0]
+                intr.text = match['pre'] + match['convert'] + match['post']
+                if intr._source is not None:
+                    intr._source.string = intr.text
+    return ir
+
+
 class PPRule:
 
     _empty_pattern = re.compile('')
