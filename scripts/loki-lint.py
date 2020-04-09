@@ -75,7 +75,7 @@ def get_file_list(includes, excludes, basedir):
     return incl, excl
 
 
-def check_file(filename, linter, frontend=FP, preprocess=False):
+def check_file(filename, linter, frontend=FP, preprocess=False, fix=False):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
@@ -84,7 +84,8 @@ def check_file(filename, linter, frontend=FP, preprocess=False):
         return False
     debug('[%s] Parsing completed without error.', filename)
     linter.check(source)
-    linter.fix(source)
+    if fix:
+        linter.fix(source)
     return True
 
 
@@ -160,6 +161,8 @@ def rules(ctx, with_title):
                     'patterns are interpreted.'))
 @click.option('--config', '-c', type=click.File(),
               help='Configuration file for behaviour of linter and rules.')
+@click.option('--fix/--no-fix', default=False, show_default=True,
+              help='Attempt to fix problems where possible.')
 @click.option('--worker', type=int, default=4, show_default=True,
               help=('Number of worker processes to use. With --debug enabled '
                     'this option is ignored and only one worker is used.'))
@@ -171,7 +174,7 @@ def rules(ctx, with_title):
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, worker, preprocess, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -200,14 +203,14 @@ def check(ctx, include, exclude, basedir, config, worker, preprocess, junitxml):
     success_count = 0
     if worker == 1:
         for f in files:
-            success_count += check_file(f, linter, preprocess=preprocess)
+            success_count += check_file(f, linter, preprocess=preprocess, fix=fix)
     else:
         manager = Manager()
         linter.reporter.init_parallel(manager)
 
         with workqueue(workers=worker, logger=logger, manager=manager) as q:
             q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue,
-                              preprocess=preprocess) for f in files]
+                              preprocess=preprocess, fix=fix) for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
 
