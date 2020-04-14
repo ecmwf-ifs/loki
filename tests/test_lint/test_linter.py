@@ -12,7 +12,7 @@ def test_linter_lookup_rules():
     rule_names = [r.__name__ for r in rule_list]
     all_rules = [r for r in rules.__dict__ if r.endswith('Rule')]
     diff = set(all_rules) - set(rule_names)
-    assert diff == {'GenericRule'}
+    assert not diff
 
 
 def test_linter_fail():

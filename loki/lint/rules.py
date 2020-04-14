@@ -1,81 +1,53 @@
-from enum import Enum
 import re
 from pymbolic.primitives import is_zero
 
-from loki import SourceFile, Module, Subroutine, DataType
+from loki import DataType
 from loki.visitors import FindNodes
 from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiteral,
                              Array, RangeIndex, ExpressionFinder, ExpressionRetriever)
+from loki.lint.utils import GenericRule, RuleType
 import loki.ir as ir
 
 
-class RuleType(Enum):
+class CodeBodyRule(GenericRule):  # Coding standards 1.3
 
-    INFO = 1
-    WARN = 2
-    STRICT = 3
-    ERROR = 4
+    type = RuleType.WARN
 
+    docs = {
+        'id': '1.3',
+        'title': ('Rules for Code Body: '
+                  'Nesting of conditional blocks should not be more than {max_nesting_depth} '
+                  'levels deep;',),
+    }
 
-class GenericRule(object):
-
-    type = None
-
-    docs = None
-
-    config = {}
-
-    fixable = False
-
-    deprecated = False
-
-    replaced_by = ()
-
-    @classmethod
-    def check_module(cls, module, rule_report, config):
-        pass
+    config = {
+        'max_nesting_depth': 3,
+    }
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
-        pass
+        '''Check the code body: Nesting of conditional blocks.'''
+        # Determine all conditionals inside each body of a conditional
+        # while max_nesting_depth is not yet reached
+        visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=True)
+        bodies = list(subroutine.ir)
+        for _ in range(config['max_nesting_depth']):
+            level_bodies, bodies = bodies, []
+            for body in level_bodies:
+                if body:
+                    for cond in visitor.visit(body):
+                        bodies += list(cond.bodies)
+                        if hasattr(cond, 'else_body'):
+                            bodies += [cond.else_body]
 
-    @classmethod
-    def check_file(cls, sourcefile, rule_report, config):
-        pass
-
-    @classmethod
-    def check(cls, ast, rule_report, config):
-        # Perform checks on source file level
-        if isinstance(ast, SourceFile):
-            cls.check_file(ast, rule_report, config)
-
-            # Then recurse for all modules and subroutines in that file
-            if hasattr(ast, 'modules') and ast.modules is not None:
-                for module in ast.modules:
-                    # Note: do not call `check` here to avoid visiting
-                    # subroutines twice
-                    cls.check_module(module, rule_report, config)
-            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                for subroutine in ast.subroutines:
-                    cls.check(subroutine, rule_report, config)
-
-        # Perform checks on module level
-        elif isinstance(ast, Module):
-            cls.check_module(ast, rule_report, config)
-
-            # Then recurse for all subroutines in that module
-            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
-                for subroutine in ast.subroutines:
-                    cls.check(subroutine, rule_report, config)
-
-        # Peform checks on subroutine level
-        elif isinstance(ast, Subroutine):
-            cls.check_subroutine(ast, rule_report, config)
-
-            # Recurse for any procedures contained in a subroutine
-            if hasattr(ast, 'members') and ast.members is not None:
-                for member in ast.members:
-                    cls.check(member, rule_report, config)
+        # If there are still conditionals inside the list of bodies, they are
+        # too deeply nested
+        fmt_string = 'Nesting of conditionals exceeds limit of {}'
+        msg = fmt_string.format(config['max_nesting_depth'])
+        visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=False)
+        for body in bodies:
+            for cond in visitor.visit(body):
+                rule_report.add(msg, cond)
 
 
 class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
@@ -136,7 +108,7 @@ class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
 
 class MplCdstringRule(GenericRule):  # Coding standards 3.12
 
-    type = RuleType.STRICT
+    type = RuleType.SERIOUS
 
     docs = {
         'id': '3.12',
@@ -159,7 +131,7 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
 
 class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
-    type = RuleType.STRICT
+    type = RuleType.SERIOUS
 
     docs = {
         'id': '4.4',
@@ -199,7 +171,7 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
 class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
-    type = RuleType.STRICT
+    type = RuleType.SERIOUS
 
     docs = {
         'id': '4.7',

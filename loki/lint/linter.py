@@ -27,8 +27,7 @@ class Linter(object):
             rules, lambda obj: inspect.isclass(obj) and obj.__name__.endswith('Rule'))
         if rule_names is not None:
             rule_list = [r for r in rule_list if r[0] in rule_names]
-        rule_list = [r[1] for r in rule_list if r[0] != 'GenericRule']
-        return rule_list
+        return [r[1] for r in rule_list]
 
     @staticmethod
     def default_config(rules=None):

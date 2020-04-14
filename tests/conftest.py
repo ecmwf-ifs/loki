@@ -178,8 +178,8 @@ def generate_linter(refpath, rules, config=None, frontend=FP, handlers=None):
     """
     source = SourceFile.from_file(refpath, frontend=frontend)
     reporter = Reporter(handlers)
-    linter = Linter(reporter, config)
-    linter.check(source, rules)
+    linter = Linter(reporter, rules=rules, config=config)
+    linter.check(source)
     return linter
 
 
