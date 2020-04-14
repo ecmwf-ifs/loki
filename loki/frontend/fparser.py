@@ -664,7 +664,6 @@ class FParser2IR(GenericVisitor):
         do_stmt_types = (Fortran2003.Nonlabel_Do_Stmt, Fortran2003.Label_Do_Stmt)
         # In the banter before the loop, Pragmas are hidden...
         banter = []
-        is_labeled = False
         for ch in o.content:
             if isinstance(ch, do_stmt_types):
                 do_stmt = ch
