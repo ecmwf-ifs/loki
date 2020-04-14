@@ -224,6 +224,7 @@ class FindNodes(Visitor):
     :param mode: Drive the search. Accepted values are: ::
         * 'type' (default): Collect all instances of type ``match``.
         * 'scope': Return the scope in which the object ``match`` appears.
+    :param greedy: Do not recurse for children of a matched node.
     """
 
     rules = {
@@ -231,10 +232,11 @@ class FindNodes(Visitor):
         'scope': lambda match, o: match in flatten(o.children)
     }
 
-    def __init__(self, match, mode='type'):
+    def __init__(self, match, mode='type', greedy=False):
         super(FindNodes, self).__init__()
         self.match = match
         self.rule = self.rules[mode]
+        self.greedy = greedy
 
     def visit_object(self, o, **kwargs):
         ret = kwargs.get('ret')
@@ -254,6 +256,8 @@ class FindNodes(Visitor):
             ret = self.default_retval()
         if self.rule(self.match, o):
             ret.append(o)
+            if self.greedy:
+                return ret
         for i in o.children:
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
