@@ -592,21 +592,26 @@ class FParser2IR(GenericVisitor):
         # In the banter before the loop, Pragmas are hidden...
         banter = []
         for ch in o.content:
-            if isinstance(ch, Fortran2003.Nonlabel_Do_Stmt):
+            if isinstance(ch, (Fortran2003.Nonlabel_Do_Stmt, Fortran2003.Label_Do_Stmt)):
+                do_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            do_stmt = get_child(o, Fortran2003.Nonlabel_Do_Stmt)
+            if not do_stmt:
+                do_stmt = get_child(o, Fortran2003.Label_Do_Stmt)
+        # TODO: Better handling of source object!
+        source = Source(lines=do_stmt.item.span)
         # Extract loop header and get stepping info
-        variable, bounds = self.visit(ch, **kwargs)
-        # TODO: Will need to handle labeled ones too at some point
+        variable, bounds = self.visit(do_stmt, **kwargs)
         if bounds and len(bounds) == 2:
             # Ensure we always have a step size
             bounds += (None,)
 
         # Extract and process the loop body
-        body_nodes = node_sublist(o.content, Fortran2003.Nonlabel_Do_Stmt, Fortran2003.End_Do_Stmt)
-        body = as_tuple(self.visit(node) for node in body_nodes)
-
-        return (*banter, Loop(variable=variable, body=body, bounds=bounds), )
+        body_nodes = node_sublist(o.content, do_stmt.__class__, Fortran2003.End_Do_Stmt)
+        body = as_tuple(self.visit(node, **kwargs) for node in body_nodes)
+        return (*banter, Loop(variable=variable, body=body, bounds=bounds, source=source), )
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
         if o.items[1]:
@@ -620,10 +625,15 @@ class FParser2IR(GenericVisitor):
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.If_Then_Stmt):
+                if_then_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            if_then_stmt = get_child(o, Fortran2003.If_Then_Stmt)
         # Start with the condition that is always there
-        conditions = [self.visit(get_child(o, Fortran2003.If_Then_Stmt), **kwargs)]
+        conditions = [self.visit(if_then_stmt, **kwargs)]
+        # TODO: Better handling of source object!
+        source = Source(lines=if_then_stmt.item.span)
         # Walk throught the if construct and collect statements for the if branch
         # Pick up any ELSE IF along the way and collect their statements as well
         bodies = []
@@ -639,8 +649,7 @@ class FParser2IR(GenericVisitor):
         bodies.append(as_tuple(body))
         assert len(conditions) == len(bodies)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
-        else_body = as_tuple(self.visit(a) for a in as_tuple(else_ast))
-        source = kwargs.get('source', None)
+        else_body = as_tuple(self.visit(a, **kwargs) for a in as_tuple(else_ast))
         return (*banter, Conditional(conditions=conditions, bodies=bodies,
                                      else_body=else_body, inline=False, source=source))
 
@@ -874,10 +883,15 @@ class FParser2IR(GenericVisitor):
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.Select_Case_Stmt):
+                select_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            select_stmt = get_child(o, Fortran2003.Select_Case_Stmt)
         # The SELECT argument
-        expr = self.visit(get_child(o, Fortran2003.Select_Case_Stmt), **kwargs)
+        expr = self.visit(select_stmt, **kwargs)
+        # TODO: Better handling of source object!
+        source = Source(lines=select_stmt.item.span)
         body_ast = node_sublist(o.children, Fortran2003.Select_Case_Stmt,
                                 Fortran2003.End_Select_Stmt)
         values = []
@@ -894,7 +908,6 @@ class FParser2IR(GenericVisitor):
                 body.append(node)
         bodies.append(as_tuple(body))
         assert len(values) == len(bodies)
-        source = kwargs.get('source', None)
         return (*banter, MultiConditional(expr, values, bodies, source=source))
 
     def visit_Select_Case_Stmt(self, o, **kwargs):
