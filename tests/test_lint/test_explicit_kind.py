@@ -14,7 +14,10 @@ def refpath():
 @pytest.mark.parametrize('frontend', [FP])
 def test_explicit_kind(refpath, frontend):
     handler = generate_report_handler()
-    _ = generate_linter(refpath, [ExplicitKindRule], frontend=frontend, handlers=[handler])
+    # Need to include INTEGER constants in config as (temporarily) removed from defaults
+    config = {'ExplicitKindRule': {'constant_types': ['REAL', 'INTEGER']}}
+    _ = generate_linter(refpath, [ExplicitKindRule], config=config,
+                        frontend=frontend, handlers=[handler])
     assert len(handler.target.messages) == 11
     assert all('[4.7]' in msg for msg in handler.target.messages)
     assert all('ExplicitKindRule' in msg for msg in handler.target.messages)

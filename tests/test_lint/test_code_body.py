@@ -24,8 +24,9 @@ def test_code_body_messages(refpath, frontend, nesting_depth, lines):
                         frontend=frontend, handlers=[handler])
 
     assert len(handler.target.messages) == len(lines)
+    assert all(all(keyword in msg for keyword in ('CodeBodyRule', '[1.3]'))
+               for msg in handler.target.messages)
 
     for msg, ref_line in zip(handler.target.messages, lines):
         assert 'limit of {}'.format(nesting_depth) in msg
         assert 'l. {}'.format(ref_line) in msg
-        assert 'CodeBodyRule' in msg

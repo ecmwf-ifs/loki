@@ -17,7 +17,7 @@ def test_dr_hook(refpath, frontend):
     _ = generate_linter(refpath, [DrHookRule], frontend=frontend, handlers=[handler])
 
     assert len(handler.target.messages) == 9
-    assert all(all(keyword in msg for keyword in ('DrHookRule', 'DR_HOOK'))
+    assert all(all(keyword in msg for keyword in ('DrHookRule', 'DR_HOOK', '[1.9]'))
                for msg in handler.target.messages)
 
     assert all('First executable statement must be call to DR_HOOK.' in handler.target.messages[i]
