@@ -1,9 +1,11 @@
 import re
 from pymbolic.primitives import is_zero
 
-from loki import DataType
+from loki import Subroutine
+from loki.types import DataType
+from loki.tools import flatten, as_tuple
 from loki.visitors import FindNodes
-from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiteral,
+from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiteral, Scalar,
                              Array, RangeIndex, ExpressionFinder, ExpressionRetriever)
 from loki.lint.utils import GenericRule, RuleType
 import loki.ir as ir
@@ -42,12 +44,99 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
 
         # If there are still conditionals inside the list of bodies, they are
         # too deeply nested
-        fmt_string = 'Nesting of conditionals exceeds limit of {}'
+        fmt_string = 'Nesting of conditionals exceeds limit of {}.'
         msg = fmt_string.format(config['max_nesting_depth'])
         visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=False)
         for body in bodies:
             for cond in visitor.visit(body):
                 rule_report.add(msg, cond)
+
+
+class DrHookRule(GenericRule):  # Coding standards 1.9
+
+    type = RuleType.SERIOUS
+
+    docs = {
+        'id': '1.9',
+        'title': 'Rules for DR_HOOK',
+    }
+
+    non_exec_nodes = (ir.Comment, ir.CommentBlock, ir.Pragma)
+
+    @classmethod
+    def _find_lhook_conditional(cls, ast, is_reversed=False):
+        cond = None
+        for node in reversed(ast) if is_reversed else ast:
+            if isinstance(node, ir.Conditional):
+                if isinstance(node.conditions[0], Scalar) and \
+                        node.conditions[0].name.upper() == 'LHOOK':
+                    cond = node
+                    break
+            elif not isinstance(node, cls.non_exec_nodes):
+                # Break if executable statement encountered
+                break
+        return cond
+
+    @classmethod
+    def _find_lhook_call(cls, cond, is_reversed=False):
+        call = None
+        if cond:
+            # We use as_tuple here because the conditional can be inline and then its body is not
+            # iterable but a single node (e.g., CallStatement)
+            body = reversed(as_tuple(cond.bodies[0])) if is_reversed else as_tuple(cond.bodies[0])
+            for node in body:
+                if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
+                    call = node
+                elif not isinstance(node, cls.non_exec_nodes):
+                    # Break if executable statement encountered
+                    break
+        return call
+
+    @staticmethod
+    def _check_lhook_call(call, subroutine, rule_report, pos='First'):
+        if call is None:
+            fmt_string = '{} executable statement must be call to DR_HOOK.'
+            msg = fmt_string.format(pos)
+            rule_report.add(msg, subroutine)
+        elif call.arguments:
+            string_arg = subroutine.name.upper()
+            if isinstance(subroutine.parent, Subroutine):
+                string_arg = subroutine.parent.name.upper() + '%' + string_arg
+            if not isinstance(call.arguments[0], StringLiteral) or \
+                    call.arguments[0].value.upper() != string_arg:
+                fmt_string = 'String argument to DR_HOOK call should be "{}".'
+                msg = fmt_string.format(string_arg)
+                rule_report.add(msg, call)
+            if not (len(call.arguments) > 1 and isinstance(call.arguments[1], IntLiteral) and \
+                    str(call.arguments[1].value) in ('0', '1')):
+                msg = 'Second argument to DR_HOOK call should be "0" or "1".'
+                rule_report.add(msg, call)
+            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], Scalar) and \
+                    call.arguments[2].name.upper() == 'ZHOOK_HANDLE'):
+                msg = 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".'
+                rule_report.add(msg, call)
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check that first and last executable statements in the subroutine
+        are conditionals with calls to DR_HOOK in their body and that the
+        correct arguments are given to the call.'''
+        # Extract the AST for the subroutine body
+        ast = subroutine.body
+        if isinstance(ast, ir.Section):
+            ast = ast.body
+        ast = flatten(ast)
+
+        # Look for conditionals in subroutine body
+        first_cond = cls._find_lhook_conditional(ast)
+        last_cond = cls._find_lhook_conditional(ast, is_reversed=True)
+
+        # Find calls to DR_HOOK
+        first_call = cls._find_lhook_call(first_cond)
+        last_call = cls._find_lhook_call(last_cond, is_reversed=True)
+
+        cls._check_lhook_call(first_call, subroutine, rule_report)
+        cls._check_lhook_call(last_call, subroutine, rule_report, pos='Last')
 
 
 class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
