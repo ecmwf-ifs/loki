@@ -116,3 +116,53 @@ print *, "Foo bar"
 if (lhook) call dr_hook('routine_contained_not_okay', 1, zhook_handle)
 end subroutine routine_contained_not_okay
 end subroutine routine_not_okay_e
+
+
+module some_mod
+
+contains
+
+subroutine mod_routine_okay
+use yomhook, only: lhook, dr_hook
+real(kind=jprb) :: zhook_handle
+
+if (lhook) call dr_hook('some_mod:mod_routine_okay', 0, zhook_handle)
+print *, "Foo bar"
+if (lhook) call dr_hook('some_mod:mod_routine_okay', 1, zhook_handle)
+
+contains
+
+subroutine mod_contained_routine_okay
+use yomhook, only: lhook, dr_hook
+real(kind=jprb) :: zhook_handle
+
+if (lhook) call dr_hook('some_mod:mod_routine_okay%mod_contained_routine_okay', 0, zhook_handle)
+print *, "Foo bar"
+if (lhook) call dr_hook('some_mod:mod_routine_okay%mod_contained_routine_okay', 1, zhook_handle)
+end subroutine mod_contained_routine_okay
+end subroutine mod_routine_okay
+
+subroutine mod_routine_not_okay
+use yomhook, only: lhook, dr_hook
+real(kind=jprb) :: zhook_handle
+
+! Error: String argument does not contain module name
+if (lhook) call dr_hook('mod_routine_okay', 0, zhook_handle)
+print *, "Foo bar"
+if (lhook) call dr_hook('some_mod:mod_routine_not_okay', 1, zhook_handle)
+
+contains
+
+subroutine mod_contained_routine_not_okay
+use yomhook, only: lhook, dr_hook
+real(kind=jprb) :: zhook_handle
+
+! Error: String argument does not contain module name
+if (lhook) call dr_hook('mod_routine_not_okay%mod_contained_routine_not_okay', 0, zhook_handle)
+print *, "Foo bar"
+! Error: String argument does not contain parent routine name
+! Error: Second argument is not 0 or 1
+if (lhook) call dr_hook('some_mod:mod_contained_routine_not_okay', 8, zhook_handle)
+end subroutine mod_contained_routine_not_okay
+end subroutine mod_routine_not_okay
+end module some_mod

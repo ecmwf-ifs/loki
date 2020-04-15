@@ -1,7 +1,7 @@
 import re
 from pymbolic.primitives import is_zero
 
-from loki import Subroutine
+from loki import Subroutine, Module
 from loki.types import DataType
 from loki.tools import flatten, as_tuple
 from loki.visitors import FindNodes
@@ -72,6 +72,10 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
                         node.conditions[0].name.upper() == 'LHOOK':
                     cond = node
                     break
+            elif isinstance(node, ir.Intrinsic) and node.text.lstrip().startswith('#'):
+                # Skip CPP directives
+                # TODO: Have a dedicated ir class for CPP directives and add it to non_exec_nodes
+                continue
             elif not isinstance(node, cls.non_exec_nodes):
                 # Break if executable statement encountered
                 break
@@ -87,21 +91,34 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             for node in body:
                 if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
                     call = node
+                elif isinstance(node, ir.Intrinsic) and node.text.lstrip().startswith('#'):
+                    # Skip CPP directives
+                    # TODO: Have dedicated ir class for CPP directives and add to non_exec_nodes
+                    continue
                 elif not isinstance(node, cls.non_exec_nodes):
                     # Break if executable statement encountered
                     break
         return call
 
     @staticmethod
-    def _check_lhook_call(call, subroutine, rule_report, pos='First'):
+    def _get_string_argument(scope):
+        string_arg = scope.name.upper()
+        while hasattr(scope, 'parent') and scope.parent:
+            scope = scope.parent
+            if isinstance(scope, Subroutine):
+                string_arg = scope.name.upper() + '%' + string_arg
+            elif isinstance(scope, Module):
+                string_arg = scope.name.upper() + ':' + string_arg
+        return string_arg
+
+    @classmethod
+    def _check_lhook_call(cls, call, subroutine, rule_report, pos='First'):
         if call is None:
             fmt_string = '{} executable statement must be call to DR_HOOK.'
             msg = fmt_string.format(pos)
             rule_report.add(msg, subroutine)
         elif call.arguments:
-            string_arg = subroutine.name.upper()
-            if isinstance(subroutine.parent, Subroutine):
-                string_arg = subroutine.parent.name.upper() + '%' + string_arg
+            string_arg = cls._get_string_argument(subroutine)
             if not isinstance(call.arguments[0], StringLiteral) or \
                     call.arguments[0].value.upper() != string_arg:
                 fmt_string = 'String argument to DR_HOOK call should be "{}".'
