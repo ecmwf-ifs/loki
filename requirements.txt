@@ -1,5 +1,4 @@
 numpy
-pytest
 click
 toml
 networkx
@@ -14,3 +13,9 @@ pymbolic
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/reuterbal/fparser.git@loki_integration
+
+# Fore tests
+pytest
+pytest-cov
+coverage2clover
+pylint
