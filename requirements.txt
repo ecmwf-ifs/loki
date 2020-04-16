@@ -19,3 +19,4 @@ pytest
 pytest-cov
 coverage2clover
 pylint
+pylint-exit
