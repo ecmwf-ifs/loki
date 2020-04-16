@@ -14,7 +14,7 @@ pymbolic
 git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/reuterbal/fparser.git@loki_integration
 
-# Fore tests
+# For tests
 pytest
 pytest-cov
 coverage2clover
