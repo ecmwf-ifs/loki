@@ -625,17 +625,17 @@ class OFP2IR(GenericVisitor):
                 expression = Quotient(numerator=expression, denominator=exprs.popleft())
             elif op == '**':
                 expression = Power(base=expression, exponent=exprs.popleft())
-            elif op == '==' or op == '.eq.':
+            elif op in ('==', '.eq.'):
                 expression = Comparison(expression, '==', exprs.popleft())
-            elif op == '/=' or op == '.ne.':
+            elif op in ('/=', '.ne.'):
                 expression = Comparison(expression, '!=', exprs.popleft())
-            elif op == '>' or op == '.gt.':
+            elif op in ('>', '.gt.'):
                 expression = Comparison(expression, '>', exprs.popleft())
-            elif op == '<' or op == '.lt.':
+            elif op in ('<', '.lt.'):
                 expression = Comparison(expression, '<', exprs.popleft())
-            elif op == '>=' or op == '.ge.':
+            elif op in ('>=', '.ge.'):
                 expression = Comparison(expression, '>=', exprs.popleft())
-            elif op == '<=' or op == '.le.':
+            elif op in ('<=', '.le.'):
                 expression = Comparison(expression, '<=', exprs.popleft())
             elif op == '.and.':
                 expression = LogicalAnd((expression, exprs.popleft()))
