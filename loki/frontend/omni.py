@@ -318,15 +318,15 @@ class OMNI2IR(GenericVisitor):
         return Statement(target=target, expr=expr, ptr=True, source=source)
 
     def visit_FdoWhileStatement(self, o, source=None):
-        assert (o.find('condition') is not None)
-        assert (o.find('body') is not None)
+        assert o.find('condition') is not None
+        assert o.find('body') is not None
         variable = self.visit(o.find('condition'))
         body = self.visit(o.find('body'))
         return Loop(variable=variable, body=body, bounds=None, source=source)
 
     def visit_FdoStatement(self, o, source=None):
-        assert (o.find('Var') is not None)
-        assert (o.find('body') is not None)
+        assert o.find('Var') is not None
+        assert o.find('body') is not None
         variable = self.visit(o.find('Var'))
         body = self.visit(o.find('body'))
         # TODO: What do we do with loop bounds? Tuple or Range?
