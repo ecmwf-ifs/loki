@@ -160,7 +160,7 @@ class OFP2IR(GenericVisitor):
         return MultiConditional(expr=expr, values=values, bodies=bodies)
 
     # TODO: Deal with line-continuation pragmas!
-    _re_pragma = re.compile('\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
+    _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
     def visit_comment(self, o, source=None):
         match_pragma = self._re_pragma.search(source.string)
@@ -440,7 +440,7 @@ class OFP2IR(GenericVisitor):
     def visit_directive(self, o, source=None):
         if '#include' in o.attrib['text']:
             # Straight pipe-through node for header includes (#include ...)
-            match = re.search('#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
+            match = re.search(r'#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
             module = match.groupdict()['module']
             return Import(module=module, c_import=True, source=source)
         return Intrinsic(text=source.string, source=source)

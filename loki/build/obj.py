@@ -11,11 +11,11 @@ from loki.build.header import Header
 __all__ = ['Obj']
 
 
-_re_use = re.compile('^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
-_re_include = re.compile('\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
+_re_use = re.compile(r'^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
+_re_include = re.compile(r'\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
 # Please note that the below regexes are fairly expensive due to .* with re.DOTALL
-_re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
-_re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
+_re_module = re.compile(r'module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
+_re_subroutine = re.compile(r'subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
 class Obj:

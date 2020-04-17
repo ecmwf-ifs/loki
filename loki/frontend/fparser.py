@@ -248,7 +248,7 @@ class FParser2IR(GenericVisitor):
                          source=kwargs.get('source', None))
 
     # TODO: Deal with line-continuation pragmas!
-    _re_pragma = re.compile('\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
+    _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
     def visit_Comment(self, o, **kwargs):
         source = kwargs.get('source', None)
