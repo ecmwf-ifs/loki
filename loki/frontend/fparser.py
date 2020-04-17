@@ -109,6 +109,7 @@ def node_sublist(nodelist, starttype, endtype):
 
 
 class FParser2IR(GenericVisitor):
+    # pylint: disable=no-self-use
 
     def __init__(self, typedefs=None, scope=None):
         super(FParser2IR, self).__init__()

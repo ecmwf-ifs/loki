@@ -73,6 +73,7 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
 
 
 class OFP2IR(GenericVisitor):
+    # pylint: disable=no-self-use
 
     def __init__(self, raw_source, typedefs=None, scope=None):
         super(OFP2IR, self).__init__()

@@ -67,7 +67,8 @@ class PatternFinder(Visitor):
     def default_retval(cls):
         return []
 
-    def match_indices(self, pattern, sequence):
+    @staticmethod
+    def match_indices(pattern, sequence):
         """ Return indices of matched patterns in sequence. """
         matches = []
         for i in range(len(sequence)):

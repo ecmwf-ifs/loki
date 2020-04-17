@@ -149,7 +149,8 @@ class Compiler:
         args = self.linker_args(objs=objs, target=target, shared=shared)
         execute(args, cwd=cwd)
 
-    def f90wrap_args(self, modname, source):
+    @staticmethod
+    def f90wrap_args(modname, source):
         """
         Generate arguments for the ``f90wrap`` utility invocation line.
         """
@@ -166,7 +167,8 @@ class Compiler:
         args = self.f90wrap_args(modname=modname, source=source)
         execute(args, cwd=cwd)
 
-    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None):
+    @staticmethod
+    def f2py_args(modname, source, libs=None, lib_dirs=None, incl_dirs=None):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """

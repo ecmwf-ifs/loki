@@ -22,7 +22,8 @@ class DummyQueue:
     main process.
     """
 
-    def execute(self, *args, **kwargs):
+    @staticmethod
+    def execute(*args, **kwargs):
         execute(*args, **kwargs)
 
 

@@ -115,7 +115,8 @@ class Visitor(GenericVisitor):
     def visit_Node(self, o, **kwargs):
         return self.visit(o.children, **kwargs)
 
-    def reuse(self, o, *args, **kwargs):
+    @staticmethod
+    def reuse(o, *args, **kwargs):
         """A visit method to reuse a node, ignoring children."""
         return o
 
@@ -259,6 +260,7 @@ class FindNodes(Visitor):
 
 
 class PrintAST(Visitor):
+    # pylint: disable=no-self-use
 
     _depth = 0
 

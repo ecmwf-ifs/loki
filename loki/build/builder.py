@@ -51,7 +51,8 @@ class Builder:
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
 
-    def get_dependency_graph(self, objs, depgen=None):
+    @staticmethod
+    def get_dependency_graph(objs, depgen=None):
         """
         Construct a :class:`networkx.DiGraph` that represents the dependency graph.
 

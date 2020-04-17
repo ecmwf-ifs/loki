@@ -137,6 +137,7 @@ class CCodegen(Visitor):
     """
     Tree visitor to generate standardized C code from IR.
     """
+    # pylint: disable=no-self-use
 
     def __init__(self, depth=0, linewidth=90, chunking=6):
         super(CCodegen, self).__init__()

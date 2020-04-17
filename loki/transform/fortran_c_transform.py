@@ -347,7 +347,8 @@ class FortranCTransformation(BasicTransformation):
 
         return kernel
 
-    def _resolve_vector_notation(self, kernel, **kwargs):
+    @staticmethod
+    def _resolve_vector_notation(kernel, **kwargs):
         """
         Resolve implicit vector notation by inserting explicit loops
         """
@@ -405,7 +406,8 @@ class FortranCTransformation(BasicTransformation):
         # Apply variable substitution
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
-    def _resolve_omni_size_indexing(self, kernel, **kwargs):
+    @staticmethod
+    def _resolve_omni_size_indexing(kernel, **kwargs):
         """
         Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
         """
@@ -419,7 +421,8 @@ class FortranCTransformation(BasicTransformation):
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
-    def _invert_array_indices(self, kernel, **kwargs):
+    @staticmethod
+    def _invert_array_indices(kernel, **kwargs):
         """
         Invert data/loop accesses from column to row-major
 
@@ -441,7 +444,8 @@ class FortranCTransformation(BasicTransformation):
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
-    def _shift_to_zero_indexing(self, kernel, **kwargs):
+    @staticmethod
+    def _shift_to_zero_indexing(kernel, **kwargs):
         """
         Shift each array indices to adjust to C indexing conventions
         """
@@ -452,7 +456,8 @@ class FortranCTransformation(BasicTransformation):
                 vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
-    def _replace_intrinsics(self, kernel, **kwargs):
+    @staticmethod
+    def _replace_intrinsics(kernel, **kwargs):
         """
         Replace known numerical intrinsic functions.
         """

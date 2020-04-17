@@ -16,6 +16,8 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
+    # pylint: disable=no-self-use
+
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
@@ -165,6 +167,7 @@ class ExpressionDimensionsMapper(Mapper):
     """
     A visitor for an expression that determines the dimensions of the expression.
     """
+    # pylint: disable=no-self-use
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         # pylint: disable=import-outside-toplevel

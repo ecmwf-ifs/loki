@@ -106,6 +106,7 @@ class FortranCodegen(Visitor):
     """
     Tree visitor to generate standardized Fortran code from IR.
     """
+    # pylint: disable=no-self-use
 
     def __init__(self, depth=0, linewidth=90, chunking=4, conservative=True):
         super(FortranCodegen, self).__init__()

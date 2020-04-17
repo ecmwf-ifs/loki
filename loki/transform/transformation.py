@@ -52,7 +52,8 @@ class BasicTransformation(AbstractTransformation):
         self.rename_calls(source, **kwargs)
         self.write_to_file(source, **kwargs)
 
-    def rename_routine(self, routine, **kwargs):
+    @staticmethod
+    def rename_routine(routine, **kwargs):
         """
         Appends a suffix to :class:`Subroutine` names to distinguish
         them from the original version, and updates all subroutine
@@ -65,7 +66,8 @@ class BasicTransformation(AbstractTransformation):
             # Rename the current subroutine
             routine.name += '_%s' % suffix
 
-    def rename_calls(self, routine, **kwargs):
+    @staticmethod
+    def rename_calls(routine, **kwargs):
         """
         Update calls to actively transformed subroutines.
         """
@@ -74,7 +76,8 @@ class BasicTransformation(AbstractTransformation):
             if call.context is not None and call.context.active:
                 call._update(name='%s_%s' % (call.name, suffix))
 
-    def write_to_file(self, routine, **kwargs):
+    @staticmethod
+    def write_to_file(routine, **kwargs):
         """
         Does what it says on the tin.
 
