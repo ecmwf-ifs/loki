@@ -13,15 +13,13 @@ __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 def c_intrinsic_type(_type):
     if _type.dtype == DataType.LOGICAL:
         return 'int'
-    elif _type.dtype == DataType.INTEGER:
+    if _type.dtype == DataType.INTEGER:
         return 'int'
-    elif _type.dtype == DataType.REAL:
+    if _type.dtype == DataType.REAL:
         if str(_type.kind) in ['real32']:
             return 'float'
-        else:
-            return 'double'
-    else:
-        raise ValueError(str(_type))
+        return 'double'
+    raise ValueError(str(_type))
 
 
 class CCodeMapper(LokiStringifyMapper):
@@ -41,8 +39,7 @@ class CCodeMapper(LokiStringifyMapper):
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
-        else:
-            return result
+        return result
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
@@ -53,8 +50,7 @@ class CCodeMapper(LokiStringifyMapper):
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
-        else:
-            return result
+        return result
 
     def map_string_literal(self, expr, *args, **kwargs):
         return '"%s"' % expr.value
@@ -73,8 +69,7 @@ class CCodeMapper(LokiStringifyMapper):
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
             return self.format('%s%s.%s', ptr, parent, expr.basename)
-        else:
-            return self.format('%s%s', ptr, expr.name)
+        return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, *args, **kwargs):
         dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
@@ -82,8 +77,7 @@ class CCodeMapper(LokiStringifyMapper):
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
-        else:
-            return self.format('%s%s', expr.basename, dims)
+        return self.format('%s%s', expr.basename, dims)
 
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
@@ -115,10 +109,8 @@ class CCodeMapper(LokiStringifyMapper):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return expr.children[1]
-                else:
-                    return Product(expr.children[1:])
-            else:
-                return None
+                return Product(expr.children[1:])
+            return None
 
         terms = []
         is_neg_term = []
@@ -254,8 +246,7 @@ class CCodegen(Visitor):
     def visit_SymbolType(self, o):
         if o.dtype == DataType.DERIVED_TYPE:
             return 'struct %s' % o.name
-        else:
-            return c_intrinsic_type(o)
+        return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o):
         self._depth += 1

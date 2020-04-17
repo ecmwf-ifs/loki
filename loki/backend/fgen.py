@@ -35,13 +35,12 @@ class FCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             return '%s_%s' % (str(expr.value), str(expr.kind))
-        else:
-            result = str(expr.value)
+
+        result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
                 and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
             return self.parenthesize(result)
-        else:
-            return result
+        return result
 
     map_int_literal = map_float_literal
 
@@ -81,10 +80,8 @@ class FCodeMapper(LokiStringifyMapper):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return '-', PREC_PRODUCT, expr.children[1]
-                else:
-                    return '-', PREC_PRODUCT, Product(expr.children[1:])
-            else:
-                return '+', PREC_SUM, expr
+                return '-', PREC_PRODUCT, Product(expr.children[1:])
+            return '+', PREC_SUM, expr
 
         terms = []
         for ch in expr.children:
@@ -147,12 +144,12 @@ class FortranCodegen(Visitor):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
             # Re-use original source associated with node
             return o._source.string
+
+        if hasattr(o, '_source') and o._source is not None and o._source.label:
+            label = '%d ' % o._source.label
         else:
-            if hasattr(o, '_source') and o._source is not None and o._source.label:
-                label = '%d ' % o._source.label
-            else:
-                label = ''
-            return '%s%s' % (label, super(FortranCodegen, self).visit(o))
+            label = ''
+        return '%s%s' % (label, super(FortranCodegen, self).visit(o))
 
     def visit_Node(self, o):
         return self.indent + '! <%s>' % o.__class__.__name__
@@ -205,8 +202,7 @@ class FortranCodegen(Visitor):
     def visit_Pragma(self, o):
         if o.content is not None:
             return '!$%s %s' % (o.keyword, o.content)
-        else:
-            return o._source.string
+        return o._source.string
 
     def visit_CommentBlock(self, o):
         comments = [self.visit(c) for c in o.comments]
@@ -229,11 +225,10 @@ class FortranCodegen(Visitor):
     def visit_Import(self, o):
         if o.c_import:
             return '#include "%s"' % o.module
-        elif o.f_include:
+        if o.f_include:
             return 'include "%s"' % o.module
-        else:
-            only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
-            return self.indent + 'USE %s%s' % (o.module, only)
+        only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
+        return self.indent + 'USE %s%s' % (o.module, only)
 
     def visit_Interface(self, o):
         self._depth += 1
@@ -270,22 +265,23 @@ class FortranCodegen(Visitor):
 
     def visit_Conditional(self, o):
         if o.inline:
+            # No indentation and only a single body node
             assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
             self._depth, indent_depth = 0, self._depth  # Suppress indentation
             body = self.visit(flatten(o.bodies)[0])
             self._depth = indent_depth
             cond = self.fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
-        else:
-            self._depth += 1
-            bodies = [self.visit(b) for b in o.bodies]
-            else_body = self.visit(o.else_body)
-            self._depth -= 1
-            headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
-            main_branch = ('\n%sELSE' % self.indent).join(
-                '%s\n%s' % (h, b) for h, b in zip(headers, bodies))
-            else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
-            return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+
+        self._depth += 1
+        bodies = [self.visit(b) for b in o.bodies]
+        else_body = self.visit(o.else_body)
+        self._depth -= 1
+        headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
+        main_branch = ('\n%sELSE' % self.indent).join(
+            '%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+        else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
+        return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o):
         expr = self.fsymgen(o.expr)

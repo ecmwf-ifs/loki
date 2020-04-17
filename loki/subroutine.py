@@ -118,18 +118,17 @@ class Subroutine:
             return cls.from_omni(ast=f_ast, raw_source=source,
                                  typetable=typetable, typedefs=typedefs)
 
-        elif frontend == Frontend.OFP:
+        if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             f_ast = ast.find('file/subroutine')
             return cls.from_ofp(ast=f_ast, raw_source=source, typedefs=typedefs)
 
-        elif frontend == Frontend.FP:
+        if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             f_ast = get_child(ast, Fortran2003.Subroutine_Subprogram)
             return cls.from_fparser(f_ast, typedefs=typedefs)
 
-        else:
-            raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):

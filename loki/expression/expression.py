@@ -50,8 +50,7 @@ class ExpressionFinder(Visitor):
         if self.unique:
             var_dict = {dict_key(var): var for var in variables}
             return set(var_dict.values())
-        else:
-            return variables
+        return variables
 
     def retrieve(self, expr):
         """

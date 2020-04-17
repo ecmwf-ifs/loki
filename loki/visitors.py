@@ -173,19 +173,16 @@ class Transformer(Visitor):
             if handle is None:
                 # None -> drop /o/
                 return None
-            elif isinstance(handle, Iterable):
+            if isinstance(handle, Iterable):
                 # Original implementation to extend o.children:
                 if not o.children:
                     raise ValueError
                 extended = (tuple(handle) + o.children[0],) + o.children[1:]
                 return o._rebuild(*extended, **o.args_frozen)
-            else:
-                ret = handle._rebuild(**handle.args)
-                return ret
-        else:
-            rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
-            ret = o._rebuild(*rebuilt, **o.args_frozen)
-            return ret
+            return handle._rebuild(**handle.args)
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return o._rebuild(*rebuilt, **o.args_frozen)
 
     def visit(self, o, *args, **kwargs):
         obj = super(Transformer, self).visit(o, *args, **kwargs)
@@ -206,13 +203,12 @@ class NestedTransformer(Transformer):
         if handle is None:
             # None -> drop /o/
             return None
-        elif isinstance(handle, Iterable):
+        if isinstance(handle, Iterable):
             if not o.children:
                 raise ValueError
             extended = [tuple(handle) + rebuilt[0]] + rebuilt[1:]
             return o._rebuild(*extended, **o.args_frozen)
-        else:
-            return handle._rebuild(*rebuilt, **handle.args_frozen)
+        return handle._rebuild(*rebuilt, **handle.args_frozen)
 
 
 class FindNodes(Visitor):

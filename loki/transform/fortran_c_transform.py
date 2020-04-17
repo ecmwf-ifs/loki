@@ -88,33 +88,27 @@ class FortranCTransformation(BasicTransformation):
     def iso_c_intrinsic_kind(_type):
         if _type.dtype == DataType.INTEGER:
             return 'c_int'
-        elif _type.dtype == DataType.REAL:
+        if _type.dtype == DataType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'c_float'
-            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'c_double'
-            else:
-                return None
-        else:
-            return None
+        return None
 
     @staticmethod
     def c_intrinsic_kind(_type):
         if _type.dtype == DataType.LOGICAL:
             return 'int'
-        elif _type.dtype == DataType.INTEGER:
+        if _type.dtype == DataType.INTEGER:
             return 'int'
-        elif _type.dtype == DataType.REAL:
+        if _type.dtype == DataType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'float'
-            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'double'
-            else:
-                return None
-        else:
-            return None
+        return None
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
         # Create initial object to have a scope

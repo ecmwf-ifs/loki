@@ -48,12 +48,11 @@ class SourceFile:
                   xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
             return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
-        elif frontend == OFP:
+        if frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
-        elif frontend == FP:
+        if frontend == FP:
             return cls.from_fparser(filename, typedefs=typedefs)
-        else:
-            raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None, includes=None):

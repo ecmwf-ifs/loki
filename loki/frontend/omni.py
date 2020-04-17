@@ -153,8 +153,7 @@ class OMNI2IR(GenericVisitor):
         tag = instance.tag.replace('-', '_')
         if tag in self._handlers:
             return self._handlers[tag]
-        else:
-            return super(OMNI2IR, self).lookup_method(instance)
+        return super(OMNI2IR, self).lookup_method(instance)
 
     def visit(self, o, **kwargs):
         """
@@ -173,8 +172,7 @@ class OMNI2IR(GenericVisitor):
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
-        else:
-            return children if len(children) > 0 else None
+        return children if len(children) > 0 else None
 
     visit_body = visit_Element
 
@@ -467,10 +465,8 @@ class OMNI2IR(GenericVisitor):
                 else:
                     kind = None
                 return Cast(o.find('name').text, expression=expr, kind=kind)
-            else:
-                return InlineCall(name, parameters=args, kw_parameters=kwargs)
-        else:
-            return CallStatement(name=name, arguments=args, kwarguments=kwargs)
+            return InlineCall(name, parameters=args, kw_parameters=kwargs)
+        return CallStatement(name=name, arguments=args, kwarguments=kwargs)
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
@@ -530,8 +526,7 @@ class OMNI2IR(GenericVisitor):
         name = o.attrib['name']
         if 'value' in o.attrib:
             return name, o.attrib['value']
-        else:
-            return name, self.visit(list(o)[0])
+        return name, self.visit(list(o)[0])
 
     def visit_plusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)

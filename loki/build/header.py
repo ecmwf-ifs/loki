@@ -58,8 +58,7 @@ class Header:
             with self.source_path.open(encoding='latin1') as f:
                 source = f.read()
             return source
-        else:
-            return None
+        return None
 
     @cached_property
     def uses(self):

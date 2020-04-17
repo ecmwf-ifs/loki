@@ -529,10 +529,9 @@ class RangeIndex(pmbl.AlgebraicLeaf):
     def __getinitargs__(self):
         if self._step:
             return (self._lower, self._upper, self._step)
-        elif self._lower:
+        if self._lower:
             return (self._lower, self._upper)
-        else:
-            return (self._upper,)
+        return (self._upper,)
 
     mapper_method = intern('map_range_index')
 

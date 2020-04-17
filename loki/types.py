@@ -176,8 +176,7 @@ class TypeTable(dict):
         value = super(TypeTable, self).get(name, None)
         if value is None and recursive and self.parent is not None:
             return self.parent._lookup(name, recursive)
-        else:
-            return value
+        return value
 
     def lookup(self, name, recursive=True):
         """

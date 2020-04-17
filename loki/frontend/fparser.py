@@ -133,8 +133,7 @@ class FParser2IR(GenericVisitor):
         children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
-        else:
-            return children if len(children) > 0 else None
+        return children if len(children) > 0 else None
 
     def visit_BlockBase(self, o, **kwargs):
         """
@@ -144,8 +143,7 @@ class FParser2IR(GenericVisitor):
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
-        else:
-            return children if len(children) > 0 else None
+        return children if len(children) > 0 else None
 
     def visit_Name(self, o, **kwargs):
         # This one is evil, as it is used flat in expressions,
@@ -259,8 +257,7 @@ class FParser2IR(GenericVisitor):
             # Found pragma, generate this instead
             gd = match_pragma.groupdict()
             return Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
-        else:
-            return Comment(text=o.tostr(), source=source)
+        return Comment(text=o.tostr(), source=source)
 
     def visit_Entity_Decl(self, o, **kwargs):
         dims = get_child(o, Fortran2003.Explicit_Shape_Spec_List)
@@ -379,6 +376,7 @@ class FParser2IR(GenericVisitor):
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
         # Do not recurse here to avoid treating function names as variables
         name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
+
         if name.upper() in ('REAL', 'INT'):
             args = walk(o.items, (Fortran2003.Actual_Arg_Spec_List,))[0]
             expr = self.visit(args.items[0])
@@ -391,15 +389,15 @@ class FParser2IR(GenericVisitor):
             else:
                 kind = None
             return Cast(name, expr, kind=kind)
+
+        args = self.visit(o.items[1], **kwargs) if o.items[1] else None
+        if args:
+            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
         else:
-            args = self.visit(o.items[1], **kwargs) if o.items[1] else None
-            if args:
-                kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-                arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-            else:
-                arguments = None
-                kwarguments = None
-            return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
+            arguments = None
+            kwarguments = None
+        return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
 
     visit_Function_Reference = visit_Intrinsic_Function_Reference
 
@@ -454,14 +452,15 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
+
         if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
             # This is (presumably) a function call
             return InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
-        else:
-            # This is an array access and the arguments define the dimension.
-            kwargs['dimensions'] = args
-            # Recurse down to visit_Name
-            return self.visit(o.items[0], **kwargs)
+
+        # This is an array access and the arguments define the dimension.
+        kwargs['dimensions'] = args
+        # Recurse down to visit_Name
+        return self.visit(o.items[0], **kwargs)
 
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
@@ -689,54 +688,53 @@ class FParser2IR(GenericVisitor):
         exprs = as_tuple(exprs)
         if op == '*':
             return Product(exprs)
-        elif op == '/':
+        if op == '/':
             return Quotient(numerator=exprs[0], denominator=exprs[1])
-        elif op == '+':
+        if op == '+':
             return Sum(exprs)
-        elif op == '-':
+        if op == '-':
             if len(exprs) > 1:
                 # Binary minus
                 return Sum((exprs[0], Product((-1, exprs[1]))))
-            else:
-                # Unary minus
-                return Product((-1, exprs[0]))
-        elif op == '**':
+            # Unary minus
+            return Product((-1, exprs[0]))
+        if op == '**':
             return Power(base=exprs[0], exponent=exprs[1])
-        elif op.lower() == '.and.':
+        if op.lower() == '.and.':
             return LogicalAnd(exprs)
-        elif op.lower() == '.or.':
+        if op.lower() == '.or.':
             return LogicalOr(exprs)
-        elif op == '==' or op.lower() == '.eq.':
+        if op == '==' or op.lower() == '.eq.':
             return Comparison(exprs[0], '==', exprs[1])
-        elif op == '/=' or op.lower() == '.ne.':
+        if op == '/=' or op.lower() == '.ne.':
             return Comparison(exprs[0], '!=', exprs[1])
-        elif op == '>' or op.lower() == '.gt.':
+        if op == '>' or op.lower() == '.gt.':
             return Comparison(exprs[0], '>', exprs[1])
-        elif op == '<' or op.lower() == '.lt.':
+        if op == '<' or op.lower() == '.lt.':
             return Comparison(exprs[0], '<', exprs[1])
-        elif op == '>=' or op.lower() == '.ge.':
+        if op == '>=' or op.lower() == '.ge.':
             return Comparison(exprs[0], '>=', exprs[1])
-        elif op == '<=' or op.lower() == '.le.':
+        if op == '<=' or op.lower() == '.le.':
             return Comparison(exprs[0], '<=', exprs[1])
-        elif op.lower() == '.not.':
+        if op.lower() == '.not.':
             return LogicalNot(exprs[0])
-        elif op.lower() == '.eqv.':
+        if op.lower() == '.eqv.':
             return LogicalOr((LogicalAnd(exprs), LogicalNot(LogicalOr(exprs))))
-        elif op.lower() == '.neqv.':
+        if op.lower() == '.neqv.':
             return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
-        elif op == '//':
+        if op == '//':
             return StringConcat(exprs)
-        else:
-            raise RuntimeError('FParser: Error parsing generic expression')
+        raise RuntimeError('FParser: Error parsing generic expression')
 
     def visit_Add_Operand(self, o, **kwargs):
         if len(o.items) > 2:
+            # Binary operand
             exprs = [self.visit(o.items[0], **kwargs)]
             exprs += [self.visit(o.items[2], **kwargs)]
             return self.visit_operation(op=o.items[1], exprs=exprs)
-        else:
-            exprs = [self.visit(o.items[1], **kwargs)]
-            return self.visit_operation(op=o.items[0], exprs=exprs)
+        # Unary operand
+        exprs = [self.visit(o.items[1], **kwargs)]
+        return self.visit_operation(op=o.items[0], exprs=exprs)
 
     visit_Mult_Operand = visit_Add_Operand
     visit_And_Operand = visit_Add_Operand

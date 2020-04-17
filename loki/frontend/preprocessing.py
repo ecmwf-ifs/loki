@@ -46,11 +46,10 @@ class PPRule:
             for info in self.match.finditer(line):
                 self._info[lineno] += [info.groupdict()]
             return self.match.sub(self.replace, line)
-        else:
-            # Apply a regular string replacement
-            if self.match in line:
-                self._info[lineno] += [(self.match, self.replace)]
-            return line.replace(self.match, self.replace)
+        # Apply a regular string replacement
+        if self.match in line:
+            self._info[lineno] += [(self.match, self.replace)]
+        return line.replace(self.match, self.replace)
 
     @property
     def info(self):
@@ -63,8 +62,7 @@ class PPRule:
     def postprocess(self, ir, info):
         if self._postprocess is not None:
             return self._postprocess(ir, info)
-        else:
-            return ir
+        return ir
 
 
 """
