@@ -82,11 +82,11 @@ def wait_and_check(task, timeout=DEFAULT_TIMEOUT, logger=None):
             error = task.exception(timeout=timeout)
 
             if error is not None:
-                logger.error('Failed compilation task: %s' % task)
+                logger.error('Failed compilation task: %s', task)
                 raise error
 
         except TimeoutError as e:
-            logger.error('Compilation task timed out: %s' % task)
+            logger.error('Compilation task timed out: %s', task)
             raise e
 
 

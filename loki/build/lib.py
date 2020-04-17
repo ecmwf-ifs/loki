@@ -45,7 +45,7 @@ class Lib:
             self.objs = [Obj(source_path=p) for p in obj_paths]
 
         if len(self.objs) == 0:
-            warning('%s:: Empty dependency list: %s' % (self, self.objs))
+            warning('%s:: Empty dependency list: %s', self, self.objs)
 
     def __repr__(self):
         return 'Lib<%s>' % self.name

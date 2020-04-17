@@ -45,7 +45,7 @@ class Header:
             self.source_path = Path(source_path or self.name)
 
             if not self.source_path.exists():
-                debug('Could not find source file for %s' % self)
+                debug('Could not find source file for %s', self)
                 self.source_path = None
 
     def __repr__(self):

@@ -117,7 +117,7 @@ class Builder:
 
     def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):
         item = self.get_item(filename)
-        self.logger.info("Building %s" % item)
+        self.logger.info("Building %s", item)
 
         build_dir = str(self.build_dir) if self.build_dir else None
 
@@ -132,7 +132,7 @@ class Builder:
             objs += ['%s.o' % dep.path.stem]
 
         if target is not None:
-            self.logger.info('Linking target: %s' % target)
+            self.logger.info('Linking target: %s', target)
             self.compiler.link(objs=objs, target=target, cwd=build_dir)
 
     def load_module(self, module):
@@ -170,7 +170,7 @@ class Builder:
                 self.build(item.path.name, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
-        self.logger.info('Python-wrapping %s' % items[0])
+        self.logger.info('Python-wrapping %s', items[0])
         sourcepaths = [str(i.path) for i in items]
         self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
 

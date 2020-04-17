@@ -51,7 +51,7 @@ class Task:
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
-                warning('Could not parse %s:' % path)
+                warning('Could not parse %s:', path)
                 if self.config['strict']:
                     raise e
                 else:
@@ -60,7 +60,7 @@ class Task:
         else:
             if self.graph:
                 self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
-            info("Could not find source file %s; skipping..." % name)
+            info("Could not find source file %s; skipping...", name)
 
     @property
     def children(self):

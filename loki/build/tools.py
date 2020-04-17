@@ -12,7 +12,7 @@ __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
 
 
 def execute(args, cwd=None):
-    debug('Executing: %s' % ' '.join(args))
+    debug('Executing: %s', ' '.join(args))
     cwd = cwd if cwd is None else str(cwd)
     try:
         run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
@@ -24,7 +24,7 @@ def execute(args, cwd=None):
 
 def delete(filename, force=False):
     filepath = Path(filename)
-    debug('Deleting %s' % filepath)
+    debug('Deleting %s', filepath)
     if force:
         shutil.rmtree('%s' % filepath, ignore_errors=True)
     else:
