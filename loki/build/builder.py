@@ -15,7 +15,7 @@ from loki.build.header import Header
 __all__ = ['Builder']
 
 
-class Builder(object):
+class Builder:
     """
     A :class:`Builder` that compiles binaries or libraries, while performing
     automated dependency discovery from one or more source paths.

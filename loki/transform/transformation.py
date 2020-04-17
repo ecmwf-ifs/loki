@@ -11,9 +11,9 @@ from loki.ir import CallStatement
 __all__ = ['AbstractTransformation', 'BasicTransformation']
 
 
-class AbstractTransformation(object):
+class AbstractTransformation:
     """
-    Abstract base class that encapsulates the worflow of a single
+    Abstract base class that encapsulates the workflow of a single
     pre-defined source code transformation.
     """
 

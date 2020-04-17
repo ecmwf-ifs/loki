@@ -13,7 +13,7 @@ from loki.build.logging import warning
 __all__ = ['Lib']
 
 
-class Lib(object):
+class Lib:
     """
     A library object linked from multiple compiled objects (:class:`Obj`).
 

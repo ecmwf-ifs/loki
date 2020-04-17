@@ -18,7 +18,7 @@ from operator import mul
 __all__ = ['StateDump']
 
 
-class StateDump(object):
+class StateDump:
     """
     Collection of variables and arrays to represent a dumped state
     as created by the `loki_debug::StateDump` utility.

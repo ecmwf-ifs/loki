@@ -16,7 +16,7 @@ _re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
 _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
-class Header(object):
+class Header:
 
     _ext = ['.intfb.h', '.h']
 

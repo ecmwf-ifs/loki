@@ -12,7 +12,7 @@ __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallCon
            'MultiConditional', 'Interface', 'Intrinsic']
 
 
-class Node(object):
+class Node:
 
     """
     :attr:`_traversable`. The traversable fields of the Node; that is, fields

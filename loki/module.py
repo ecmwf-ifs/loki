@@ -17,7 +17,7 @@ from loki.types import TypeTable, DataType, SymbolType
 __all__ = ['Module']
 
 
-class Module(object):
+class Module:
     """
     Class to handle and manipulate source modules.
 

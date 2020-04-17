@@ -76,7 +76,7 @@ class DataType(IntEnum):
         return type_map[value]
 
 
-class SymbolType(object):
+class SymbolType:
     """
     Representation of a symbols type.
 

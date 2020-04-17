@@ -18,7 +18,7 @@ _re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
 _re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
-class Obj(object):
+class Obj:
     """
     A single source object representing a single C or Fortran source file.
     """

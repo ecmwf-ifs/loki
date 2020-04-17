@@ -14,7 +14,7 @@ from loki import (as_tuple, info, warning, error, SourceFile,
 __all__ = ['Task', 'TaskScheduler']
 
 
-class Task(object):
+class Task:
     """
     A work item that represents a single source routine or module to
     be processed. Each :class:`Task` spawns new work items according
@@ -75,7 +75,7 @@ class Task(object):
         self.routine.enrich_calls(routines=routines)
 
 
-class TaskScheduler(object):
+class TaskScheduler:
     """
     Work queue manager to enqueue and process individual :class:`Task`
     routines/modules with a given kernel.

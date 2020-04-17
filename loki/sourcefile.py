@@ -21,7 +21,7 @@ from loki.types import TypeTable
 __all__ = ['SourceFile']
 
 
-class SourceFile(object):
+class SourceFile:
     """
     Class to handle and manipulate source files.
 

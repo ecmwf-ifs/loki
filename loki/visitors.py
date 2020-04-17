@@ -7,7 +7,7 @@ from loki.tools import flatten
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
 
-class GenericVisitor(object):
+class GenericVisitor:
 
     """
     A generic visitor class, shamelessly copied from:

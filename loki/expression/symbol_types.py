@@ -219,7 +219,7 @@ class Array(pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Variable(object):
+class Variable:
     """
     A symbolic object representing either a :class:`Scalar` or a :class:`Array`
     variable in arithmetic expressions.
@@ -373,7 +373,7 @@ class StringLiteral(pmbl.Leaf):
         return LokiStringifyMapper()
 
 
-class Literal(object):
+class Literal:
     """
     A factory class that instantiates the appropriate :class:`*Literal` type for
     a given value.

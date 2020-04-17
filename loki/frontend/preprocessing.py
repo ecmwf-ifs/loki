@@ -19,7 +19,7 @@ def reinsert_contiguous(ir, pp_info):
     return ir
 
 
-class PPRule(object):
+class PPRule:
 
     _empty_pattern = re.compile('')
 

@@ -75,7 +75,7 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):
     return import_module(filepath.stem)
 
 
-class Compiler(object):
+class Compiler:
     """
     Base class for specifying different compiler toolchains.
     """

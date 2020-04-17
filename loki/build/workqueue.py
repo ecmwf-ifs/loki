@@ -16,7 +16,7 @@ MEMORY_URL = 'memory://'
 DEFAULT_TIMEOUT = 60
 
 
-class DummyQueue(object):
+class DummyQueue:
     """
     Dummy queue object to funnel workqueue requests to the current
     main process.
@@ -90,7 +90,7 @@ def wait_and_check(task, timeout=DEFAULT_TIMEOUT, logger=None):
             raise e
 
 
-class ParallelQueue(object):
+class ParallelQueue:
     """
     Dummy queue object to funnel workqueue requests to the current
     main process.

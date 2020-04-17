@@ -18,7 +18,7 @@ from loki.types import TypeTable
 __all__ = ['Subroutine']
 
 
-class InterfaceBlock(object):
+class InterfaceBlock:
 
     def __init__(self, name, arguments, imports, declarations):
         self.name = name
@@ -27,7 +27,7 @@ class InterfaceBlock(object):
         self.declarations = declarations
 
 
-class Subroutine(object):
+class Subroutine:
     """
     Class to handle and manipulate a single subroutine.
 
