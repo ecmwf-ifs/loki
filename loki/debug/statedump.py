@@ -34,7 +34,7 @@ class StateDump:
         'int32': np.int32, 'float64': np.float64, 'logical': np.bool
     }
 
-    @classmethod
+    @staticmethod
     def template_dump_state(variables):
         """
         Generate boilerplate state_dump code from list of variables
@@ -46,7 +46,7 @@ class StateDump:
             vline += 'name=trim(name)//\'%%%s\'))' % vname.upper()
             print(vline)
 
-    @classmethod
+    @staticmethod
     def template_dump_derived_type(varname, derived):
         """
         Utility method to generate boilerplate code for the Fortran
