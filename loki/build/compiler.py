@@ -126,7 +126,10 @@ class Compiler:
         """
         Execute a build command for a given source.
         """
-        args = self.compile_args(source, target=target, include_dirs=include_dirs, use_c=use_c)
+        kwargs = {'target': target, 'include_dirs': include_dirs}
+        if use_c:
+            kwargs['mode'] = 'c'
+        args = self.compile_args(source, **kwargs)
         execute(args, cwd=cwd)
 
     def linker_args(self, objs, target, shared=True):
