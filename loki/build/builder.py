@@ -42,11 +42,11 @@ class Builder:
         # Populate _object_cache for everything in source_dirs
         for source_dir in self.source_dirs:
             for ext in Obj._ext:
-                [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+                _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
 
         for include_dir in self.include_dirs:
             for ext in Header._ext:
-                [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
+                _ = [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
