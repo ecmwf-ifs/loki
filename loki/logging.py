@@ -28,7 +28,7 @@ COLORS = {
 }
 
 
-def log(msg, level=INFO, *args, **kwargs):
+def log(msg, *args, level=INFO, **kwargs):
     """
     Wrapper of the main Python's logging function. Print 'msg % args' with
     the severity 'level'.
