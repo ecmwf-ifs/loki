@@ -26,9 +26,6 @@ class FCodeMapper(LokiStringifyMapper):
         ">": r">",
     }
 
-    def __init__(self, constant_mapper=None):
-        super(FCodeMapper, self).__init__(constant_mapper)
-
     def map_logic_literal(self, expr, *args, **kwargs):
         return '.true.' if expr.value else '.false.'
 

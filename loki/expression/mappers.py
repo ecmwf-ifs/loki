@@ -18,9 +18,6 @@ class LokiStringifyMapper(StringifyMapper):
     """
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
-    def __init__(self, constant_mapper=None):
-        super(LokiStringifyMapper, self).__init__(constant_mapper)
-
     def map_logic_literal(self, expr, *args, **kwargs):
         return str(expr.value)
 
@@ -168,9 +165,6 @@ class ExpressionDimensionsMapper(Mapper):
     A visitor for an expression that determines the dimensions of the expression.
     """
 
-    def __init__(self):
-        super(ExpressionDimensionsMapper, self).__init__()
-
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         from loki.expression.symbol_types import IntLiteral
         return as_tuple(IntLiteral(1))
@@ -257,9 +251,6 @@ class LokiIdentityMapper(IdentityMapper):
     """
     A visitor which creates a copy of the expression tree.
     """
-
-    def __init__(self):
-        super(LokiIdentityMapper, self).__init__()
 
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
