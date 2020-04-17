@@ -95,11 +95,12 @@ class CCodeMapper(LokiStringifyMapper):
         return self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
 
     def map_sum(self, expr, enclosing_prec, *args, **kwargs):
-        """
-        Since substraction and unary minus are mapped to multiplication with (-1), we are here
-        looking for such cases and determine the matching operator for the output.
-        """
         def get_neg_product(expr):
+            """
+            Since substraction and unary minus are mapped to multiplication with (-1), we are here
+            looking for such cases and determine the matching operator for the output.
+            """
+            # pylint: disable=import-outside-toplevel
             from pymbolic.primitives import is_zero, Product
 
             if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):

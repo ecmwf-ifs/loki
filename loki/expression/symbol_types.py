@@ -411,6 +411,7 @@ class Literal:
             obj = cls._from_literal(value, **kwargs)
         except KeyError:
             # Let Pymbolic figure our what we're dealing with
+            # pylint: disable=import-outside-toplevel
             from pymbolic import parse
             obj = parse(value)
 
