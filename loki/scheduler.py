@@ -47,7 +47,7 @@ class Task:
                 # TODO: Modules should be first-class items too
                 self.routine = self.file.subroutines[0]
 
-            except Exception as excinfo:
+            except Exception as excinfo:  # pylint: disable=broad-except
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
