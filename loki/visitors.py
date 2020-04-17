@@ -358,7 +358,8 @@ class PrintAST(Visitor):
 
     def visit_CommentBlock(self, o):
         body = ('\n%s' % self.indent).join([b._source.string for b in o.comments])
-        return self.indent + '<CommentBlock%s' % (('\n%s' % self.indent)+body+'>' if self.verbose else '>')
+        return self.indent + '<CommentBlock%s' % (
+            ('\n%s' % self.indent) + body + '>' if self.verbose else '>')
 
     def visit_Pragma(self, o):
         body = ' ::%s::' % o._source.string if self.verbose else ''

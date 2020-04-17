@@ -139,7 +139,8 @@ class SourceFile(object):
 
         routine_asts = [r for r in ast.content if isinstance(r, (Fortran2003.Subroutine_Subprogram,
                                                                  Fortran2003.Function_Subprogram))]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj) for r in routine_asts]
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj)
+                    for r in routine_asts]
 
         # TODO: Do modules!
         module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]

@@ -186,7 +186,8 @@ class FortranCTransformation(BasicTransformation):
                 isoctype = SymbolType(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
-                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)]
+                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols),
+                                        expr=v)]
 
                 getter.__init__(name=gettername, bind=gettername, spec=getterspec,
                                 body=getterbody, is_function=True, parent=obj,

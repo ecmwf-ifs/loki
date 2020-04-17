@@ -34,7 +34,7 @@ class FCodeMapper(LokiStringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            return '%s_%s' % (str(expr.value), str(expr.kind)) # self.rec(expr.kind, PREC_CALL, *args, **kwargs))
+            return '%s_%s' % (str(expr.value), str(expr.kind))
         else:
             result = str(expr.value)
         if not (result.startswith("(") and result.endswith(")")) \
@@ -256,7 +256,8 @@ class FortranCodegen(Visitor):
             header = ' while (%s)' % self.fsymgen(o.variable)
         else:
             header = ''
-        return pragma + self.indent + 'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
+        return pragma + self.indent + \
+            'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o):
         condition = self.fsymgen(o.condition)
@@ -281,7 +282,8 @@ class FortranCodegen(Visitor):
             else_body = self.visit(o.else_body)
             self._depth -= 1
             headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
-            main_branch = ('\n%sELSE' % self.indent).join('%s\n%s' % (h, b) for h, b in zip(headers, bodies))
+            main_branch = ('\n%sELSE' % self.indent).join(
+                '%s\n%s' % (h, b) for h, b in zip(headers, bodies))
             else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
             return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 

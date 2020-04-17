@@ -317,7 +317,8 @@ class OFP2IR(GenericVisitor):
                             deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [RangeIndex(lower=None, upper=None) for _ in range(dim_count)]
+                            dimensions = [RangeIndex(lower=None, upper=None)
+                                          for _ in range(dim_count)]
                         else:
                             dimensions = as_tuple(self.visit(c) for c in v)
                         dimensions = as_tuple(d for d in dimensions if d is not None)
