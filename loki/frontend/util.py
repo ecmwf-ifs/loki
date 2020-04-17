@@ -71,8 +71,8 @@ class PatternFinder(Visitor):
     def match_indices(pattern, sequence):
         """ Return indices of matched patterns in sequence. """
         matches = []
-        for i in range(len(sequence)):
-            if sequence[i] == pattern[0]:
+        for i, elem in enumerate(sequence):
+            if elem == pattern[0]:
                 if tuple(sequence[i:i+len(pattern)]) == tuple(pattern):
                     matches.append(i)
         return matches
