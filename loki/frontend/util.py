@@ -43,7 +43,7 @@ class SequenceFinder(Visitor):
             subgroups = self.visit(c)
             if subgroups is not None and len(subgroups) > 0:
                 groups += subgroups
-        for t, group in groupby(o, lambda o: type(o)):
+        for t, group in groupby(o, type):
             # ... then add new groups
             g = tuple(group)
             if t is self.node_type and len(g) > 1:
