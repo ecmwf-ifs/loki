@@ -133,7 +133,7 @@ class SymbolType:
         return tuple(args)
 
     def clone(self, **kwargs):
-        args = {k: v for k, v in self.__dict__.items()}
+        args = self.__dict__.copy()
         args.update(kwargs)
         dtype = args.pop('dtype')
         return self.__class__(dtype, **args)

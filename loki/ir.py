@@ -24,7 +24,7 @@ class Node:
     def __new__(cls, *args, **kwargs):
         obj = super(Node, cls).__new__(cls)
         argnames = inspect.getfullargspec(cls.__init__).args
-        obj._args = {k: v for k, v in zip(argnames[1:], args)}
+        obj._args = dict(zip(argnames[1:], args))
         obj._args.update(kwargs.items())
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
@@ -35,7 +35,7 @@ class Node:
     def _rebuild(self, *args, **kwargs):
         handle = self._args.copy()  # Original constructor arguments
         argnames = [i for i in self._traversable if i not in kwargs]
-        handle.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        handle.update(OrderedDict(zip(argnames, args)))
         handle.update(kwargs)
         return type(self)(**handle)
 
@@ -47,7 +47,7 @@ class Node:
         without rebuilding it. Use with care!
         """
         argnames = [i for i in self._traversable if i not in kwargs]
-        self._args.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        self._args.update(OrderedDict(zip(argnames, args)))
         self._args.update(kwargs)
         self.__init__(**self._args)
 
