@@ -114,7 +114,7 @@ class SymbolType:
         for k, v in self.__dict__.items():
             if k in ['dtype', 'source']:
                 continue
-            elif isinstance(v, bool):
+            if isinstance(v, bool):
                 if v:
                     parameters += [str(k)]
             elif k == 'parent' and v is not None:
@@ -129,8 +129,7 @@ class SymbolType:
         for k, v in self.__dict__.items():
             if k in ['dtype', 'source']:
                 continue
-            else:
-                args += [(k, v)]
+            args += [(k, v)]
         return tuple(args)
 
     def clone(self, **kwargs):
