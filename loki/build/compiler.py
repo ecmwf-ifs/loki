@@ -13,6 +13,8 @@ _test_base_dir = Path(__file__).parent.parent.parent/'tests'
 
 
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
+    # Stop complaints about `compile` in this function
+    # pylint: disable=redefined-builtin
     filepath = Path(filename)
     compiler = compiler or _default_compiler
     args = compiler.build_args(source=filepath.absolute(),

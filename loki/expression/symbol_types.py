@@ -26,6 +26,8 @@ class Scalar(pmbl.Variable):
     """
 
     def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Scalar, self).__init__(name)
 
         self._scope = weakref.ref(scope)
@@ -117,6 +119,8 @@ class Array(pmbl.Variable):
 
     def __init__(self, name, scope, type=None, parent=None, dimensions=None,
                  initial=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Array, self).__init__(name)
 
         self._scope = weakref.ref(scope)

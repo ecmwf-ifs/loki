@@ -363,8 +363,8 @@ class PrintAST(Visitor):
 
     def visit_Variable(self, o):
         dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
-        type = self.visit(o.type) if o.type is not None else ''
-        return self.indent + '<Var %s%s%s>' % (o.name, dimensions, type)
+        _type = self.visit(o.type) if o.type is not None else ''
+        return self.indent + '<Var %s%s%s>' % (o.name, dimensions, _type)
 
     def visit_BaseType(self, o):
         ptr = ', ptr' if o.pointer else ''

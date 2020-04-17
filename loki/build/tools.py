@@ -38,6 +38,9 @@ def as_tuple(item, type=None, length=None):
 
     Partly extracted from: https://github.com/OP2/PyOP2/.
     """
+    # Stop complaints about `type` in this function
+    # pylint: disable=redefined-builtin
+
     # Empty list if we get passed None
     if item is None:
         t = ()

@@ -291,6 +291,8 @@ class Declaration(Node):
 
     def __init__(self, variables, dimensions=None, type=None,
                  comment=None, pragma=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
 
         self.variables = variables

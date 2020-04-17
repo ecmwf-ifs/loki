@@ -210,13 +210,13 @@ class FortranCodegen(Visitor):
 
     def visit_Declaration(self, o):
         comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        type = self.visit(o.type)
+        _type = self.visit(o.type)
         if o.dimensions is None:
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
         variables = self.segment([self.visit(v) for v in o.variables])
-        return self.indent + '%s%s :: %s' % (type, dimensions, variables) + comment
+        return self.indent + '%s%s :: %s' % (_type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o):
         values = self.segment([str(v) for v in o.values], chunking=8)
