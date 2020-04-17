@@ -32,8 +32,8 @@ class Header:
         # TODO: We could make the path relative to a "cache path" here...
         return Header.__xnew_cached_(cls, name)
 
-    def __new_stage2_(cls, name):
-        obj = super(Header, cls).__new__(cls)
+    def __new_stage2_(self, name):
+        obj = super(Header, self).__new__(self)
         obj.name = name
         return obj
 
