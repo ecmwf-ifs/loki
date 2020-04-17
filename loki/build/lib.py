@@ -1,7 +1,7 @@
-import networkx as nx
 from operator import attrgetter
 from pathlib import Path
 from tqdm import tqdm
+import networkx as nx
 
 from loki.build.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler

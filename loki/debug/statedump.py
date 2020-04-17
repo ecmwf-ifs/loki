@@ -7,12 +7,12 @@ loaded into Python via the provided :class:`StateDump` class.
 Some utility routines to generate the boilerplate dumping code
 are also provided.
 """
-import numpy as np
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from csv import reader as CSVReader
 from functools import reduce
 from operator import mul
+import numpy as np
 
 
 __all__ = ['StateDump']

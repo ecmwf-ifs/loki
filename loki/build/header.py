@@ -1,6 +1,6 @@
+import re
 from pathlib import Path
 from cached_property import cached_property
-import re
 
 from loki.build.tools import cached_func
 from loki.build.logging import debug

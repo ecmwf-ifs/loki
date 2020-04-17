@@ -1,9 +1,9 @@
 import sys
 from pathlib import Path
-import networkx as nx
 from collections import deque
 from importlib import import_module
 from operator import attrgetter
+import networkx as nx
 
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler

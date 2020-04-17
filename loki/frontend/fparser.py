@@ -1,7 +1,10 @@
 import codecs
 from collections import OrderedDict
 import re
+from pathlib import Path
 
+from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
+                                 LogicalAnd, LogicalOr)
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child
 try:
@@ -10,9 +13,6 @@ except ImportError:
     from fparser.two.utils import walk_ast as walk
 from fparser.two import Fortran2003
 from fparser.common.readfortran import FortranStringReader
-from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
-                                 LogicalAnd, LogicalOr)
-from pathlib import Path
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source

@@ -1,7 +1,7 @@
 from pathlib import Path
 from collections import deque
-import networkx as nx
 import glob
+import networkx as nx
 try:
     import graphviz as gviz
 except ImportError:

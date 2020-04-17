@@ -1,9 +1,9 @@
+import os
+import shutil
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from collections import Iterable
 from pathlib import Path
 from fastcache import clru_cache
-import os
-import shutil
 
 from loki.build.logging import debug, error
 

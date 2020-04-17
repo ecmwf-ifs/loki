@@ -1,7 +1,8 @@
-import open_fortran_parser
 from collections import OrderedDict, deque, Iterable
 from pathlib import Path
 import re
+
+import open_fortran_parser
 from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
                                  LogicalAnd, LogicalOr)
 

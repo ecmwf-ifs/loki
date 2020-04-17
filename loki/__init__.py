@@ -1,3 +1,5 @@
+from pkg_resources import get_distribution, DistributionNotFound
+
 from loki.frontend import * # noqa
 from loki.sourcefile import * # noqa
 from loki.subroutine import * # noqa
@@ -14,7 +16,6 @@ from loki.build import * # noqa
 from loki.debug import * # noqa
 from loki.scheduler import * # noqa
 
-from pkg_resources import get_distribution, DistributionNotFound
 try:
     __version__ = get_distribution(__name__).version
 except DistributionNotFound:
