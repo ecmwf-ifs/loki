@@ -60,8 +60,8 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist.items():
-        info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-        ir = rule.postprocess(ir, info)
+        _info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
+        ir = rule.postprocess(ir, _info)
 
     # Perform some minor sanitation tasks
     ir = inline_comments(ir)

@@ -15,22 +15,22 @@ def FileLogger(name, filename, level=None, file_level=None, fmt=None,
     level = level or INFO
     file_level = file_level or level
 
-    logger = logging.getLogger(name)
-    logger.setLevel(level if level <= file_level else file_level)
+    _logger = logging.getLogger(name)
+    _logger.setLevel(level if level <= file_level else file_level)
 
     fmt = fmt or '%(asctime)s %(name)s[%(process)d] %(levelname)s %(message)s'
     fh = logging.FileHandler(str(filename), mode=mode)
     fh.setFormatter(logging.Formatter(fmt))
     fh.setLevel(file_level)
-    logger.addHandler(fh)
+    _logger.addHandler(fh)
 
     # Install the colored logging handlers
-    coloredlogs.install(level=level, logger=logger)
+    coloredlogs.install(level=level, logger=_logger)
 
     # TODO: For concurrent file writes, initialize queue and
     # main logging thread.
 
-    return logger
+    return _logger
 
 
 # Wrap the usual log level flags
