@@ -36,7 +36,7 @@ class SequenceFinder(Visitor):
     def default_retval(cls):
         return []
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         groups = []
         for c in o:
             # First recurse...
@@ -76,7 +76,7 @@ class PatternFinder(Visitor):
                     matches.append(i)
         return matches
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         matches = []
         for c in o:
             # First recurse...

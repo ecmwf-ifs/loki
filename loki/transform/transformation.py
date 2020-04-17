@@ -20,19 +20,19 @@ class AbstractTransformation:
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, source, **kwargs):
         return
 
-    def apply(self, routine, **kwargs):
+    def apply(self, source, **kwargs):
         """
         Perform a source-to-source transformation pass on the provided
-        :class:`Subroutine` according to the defined ``_pipeline`` and
-        any given runtime parameters.
+        :class:`Subroutine` or :class:`Module` according to the defined
+        ``_pipeline`` and any given runtime parameters.
 
-        :param routine: :class:`Subroutine` to transform.
-        :param routine: Parameter set to configure the transformation pass.
+        :param source: :class:`Subroutine` or :class:`Module` to transform.
+        :param kwargs: Parameter set to configure the transformation pass.
         """
-        self._pipeline(routine, **kwargs)
+        self._pipeline(source, **kwargs)
 
 
 class BasicTransformation(AbstractTransformation):
@@ -41,16 +41,16 @@ class BasicTransformation(AbstractTransformation):
     such as renaming or wrapping :class:`Subroutine` in :class:`Module`s.
     """
 
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, source, **kwargs):
         """
-        Simple example pipeline that renamses a :class:`Subroutine`,
+        Simple example pipeline that renames a :class:`Subroutine`,
         wraps it in a :class:`Module` object and writes the transformed
         module to file.
         """
 
-        self.rename_routine(routine, **kwargs)
-        self.rename_calls(routine, **kwargs)
-        self.write_to_file(routine, **kwargs)
+        self.rename_routine(source, **kwargs)
+        self.rename_calls(source, **kwargs)
+        self.write_to_file(source, **kwargs)
 
     def rename_routine(self, routine, **kwargs):
         """

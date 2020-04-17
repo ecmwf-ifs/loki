@@ -39,7 +39,7 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=header_modules)
-    f2c.apply(routine=routine, path=refpath.parent)
+    f2c.apply(source=routine, path=refpath.parent)
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
@@ -146,7 +146,7 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -191,7 +191,7 @@ def test_transpile_associates(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -232,7 +232,7 @@ def test_transpile_derived_type_array(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -264,7 +264,7 @@ def test_transpile_module_variables(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,

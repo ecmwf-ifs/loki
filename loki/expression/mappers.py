@@ -18,7 +18,7 @@ class LokiStringifyMapper(StringifyMapper):
     """
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
-    def map_logic_literal(self, expr, *args, **kwargs):
+    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return str(expr.value)
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
@@ -28,12 +28,12 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_int_literal = map_logic_literal
 
-    def map_string_literal(self, expr, *args, **kwargs):
+    def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
 
-    def map_scalar(self, expr, *args, **kwargs):
+    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
-            parent = self.rec(expr.parent, *args, **kwargs)
+            parent = self.rec(expr.parent, enclosing_prec, *args, **kwargs)
             return self.format('%s%%%s', parent, expr.basename)
         return expr.name
 
@@ -62,26 +62,27 @@ class LokiStringifyMapper(StringifyMapper):
             kind = ''
         return self.format('%s(%s%s)', name, expression, kind)
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
+    def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
+        lower = self.rec(expr.lower, enclosing_prec, *args, **kwargs) if expr.lower else ''
+        upper = self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
         if expr.step:
-            return '%s:%s:%s' % (lower, upper, self.rec(expr.step, *args, **kwargs))
+            step = self.rec(expr.step, enclosing_prec, *args, **kwargs)
+            return '%s:%s:%s' % (lower, upper, step)
         return '%s:%s' % (lower, upper)
 
-    def map_parenthesised_add(self, *args, **kwargs):
-        return self.parenthesize(self.map_sum(*args, **kwargs))
+    def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
 
-    def map_parenthesised_mul(self, *args, **kwargs):
-        return self.parenthesize(self.map_product(*args, **kwargs))
+    def map_parenthesised_mul(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_product(expr, enclosing_prec, *args, **kwargs))
 
-    def map_parenthesised_pow(self, *args, **kwargs):
-        return self.parenthesize(self.map_power(*args, **kwargs))
+    def map_parenthesised_pow(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_power(expr, enclosing_prec, *args, **kwargs))
 
-    def map_string_concat(self, expr, *args, **kwargs):
-        return ' // '.join(self.rec(c, *args, **kwargs) for c in expr.children)
+    def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
+        return ' // '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
-    def map_literal_list(self, expr, *args, **kwargs):
+    def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
 

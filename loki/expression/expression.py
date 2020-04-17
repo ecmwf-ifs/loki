@@ -60,7 +60,7 @@ class ExpressionFinder(Visitor):
 
     default_retval = tuple
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         variables = as_tuple(flatten(self.visit(c) for c in o))
         return self.find_uniques(variables)
 

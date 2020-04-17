@@ -155,7 +155,7 @@ class OMNI2IR(GenericVisitor):
             return self._handlers[tag]
         return super(OMNI2IR, self).lookup_method(instance)
 
-    def visit(self, o, **kwargs):
+    def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
         """
         Generic dispatch method that tries to generate meta-data from source.
         """

@@ -26,7 +26,7 @@ class FCodeMapper(LokiStringifyMapper):
         ">": r">",
     }
 
-    def map_logic_literal(self, expr, *args, **kwargs):
+    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return '.true.' if expr.value else '.false.'
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
@@ -92,7 +92,7 @@ class FCodeMapper(LokiStringifyMapper):
 
         return self.parenthesize_if_needed(self.join(' ', terms), enclosing_prec, PREC_SUM)
 
-    def map_literal_list(self, expr, *args, **kwargs):
+    def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
 
     def map_foreign(self, expr, *args, **kwargs):
@@ -137,7 +137,7 @@ class FortranCodegen(Visitor):
         args = list(chunks(list(arguments), chunking))
         return delim.join(', '.join(c) for c in args)
 
-    def visit(self, o):
+    def visit(self, o, *args, **kwargs):
         if self.conservative and hasattr(o, '_source') and o._source is not None:
             # Re-use original source associated with node
             return o._source.string
@@ -146,30 +146,30 @@ class FortranCodegen(Visitor):
             label = '%d ' % o._source.label
         else:
             label = ''
-        return '%s%s' % (label, super(FortranCodegen, self).visit(o))
+        return '%s%s' % (label, super(FortranCodegen, self).visit(o, **kwargs))
 
-    def visit_Node(self, o):
+    def visit_Node(self, o, **kwargs):
         return self.indent + '! <%s>' % o.__class__.__name__
 
-    def visit_Intrinsic(self, o):
+    def visit_Intrinsic(self, o, **kwargs):
         return str(o.text)
 
-    def visit_tuple(self, o):
-        return '\n'.join([self.visit(i) for i in o])
+    def visit_tuple(self, o, **kwargs):
+        return '\n'.join([self.visit(i, **kwargs) for i in o])
 
     visit_list = visit_tuple
 
-    def visit_Module(self, o):
+    def visit_Module(self, o, **kwargs):
         self._depth += 1
-        body = self.visit(o.routines)
-        spec = self.visit(o.spec)
+        body = self.visit(o.routines, **kwargs)
+        spec = self.visit(o.spec, **kwargs)
         self._depth -= 1
         header = 'MODULE %s \n\n' % o.name
         contains = '\ncontains\n\n'
         footer = '\nEND MODULE %s\n' % o.name
         return header + spec + contains + body + footer
 
-    def visit_Subroutine(self, o):
+    def visit_Subroutine(self, o, **kwargs):
         # Make sure declarations are re-inserted
         o._externalize()
 
@@ -179,47 +179,47 @@ class FortranCodegen(Visitor):
         bind_c = ' &\n%s & bind(c, name=\'%s\')' % (self.indent, o.bind) if o.bind else ''
         header = '%s %s%s%s\n' % (ftype, o.name, argument, bind_c)
         self._depth += 1
-        docstring = '%s\n\n' % self.visit(o.docstring) if o.docstring else ''
-        spec = '%s\n\n' % self.visit(o.spec) if o.spec else ''
-        body = self.visit(o.body) if o.body else ''
+        docstring = '%s\n\n' % self.visit(o.docstring, **kwargs) if o.docstring else ''
+        spec = '%s\n\n' % self.visit(o.spec, **kwargs) if o.spec else ''
+        body = self.visit(o.body, **kwargs) if o.body else ''
         self._depth -= 1
         footer = '\n%sEND %s %s\n' % (self.indent, ftype, o.name)
         if o.members is not None:
-            members = '\n\n'.join(self.visit(s) for s in o.members)
+            members = '\n\n'.join(self.visit(s, **kwargs) for s in o.members)
             contains = '\nCONTAINS\n\n'
         else:
             members = ''
             contains = ''
         return self.indent + header + docstring + spec + body + contains + members + footer
 
-    def visit_Comment(self, o):
+    def visit_Comment(self, o, **kwargs):
         text = o._source.string if o.text is None else o.text
         return self.indent + text
 
-    def visit_Pragma(self, o):
+    def visit_Pragma(self, o, **kwargs):
         if o.content is not None:
             return '!$%s %s' % (o.keyword, o.content)
         return o._source.string
 
-    def visit_CommentBlock(self, o):
-        comments = [self.visit(c) for c in o.comments]
+    def visit_CommentBlock(self, o, **kwargs):
+        comments = [self.visit(c, **kwargs) for c in o.comments]
         return '\n'.join(comments)
 
-    def visit_Declaration(self, o):
-        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        _type = self.visit(o.type)
+    def visit_Declaration(self, o, **kwargs):
+        comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
+        _type = self.visit(o.type, **kwargs)
         if o.dimensions is None:
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
-        variables = self.segment([self.visit(v) for v in o.variables])
+        variables = self.segment([self.visit(v, **kwargs) for v in o.variables])
         return self.indent + '%s%s :: %s' % (_type, dimensions, variables) + comment
 
-    def visit_DataDeclaration(self, o):
+    def visit_DataDeclaration(self, o, **kwargs):
         values = self.segment([str(v) for v in o.values], chunking=8)
         return self.indent + 'DATA %s/%s/' % (o.variable, values)
 
-    def visit_Import(self, o):
+    def visit_Import(self, o, **kwargs):
         if o.c_import:
             return '#include "%s"' % o.module
         if o.f_include:
@@ -227,19 +227,19 @@ class FortranCodegen(Visitor):
         only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
         return self.indent + 'USE %s%s' % (o.module, only)
 
-    def visit_Interface(self, o):
+    def visit_Interface(self, o, **kwargs):
         self._depth += 1
         spec = ' %s' % o.spec if o.spec else ''
         header = 'INTERFACE%s\n' % spec
-        body = ('\n%s' % self.indent).join(self.visit(ch) for ch in o.body)
+        body = ('\n%s' % self.indent).join(self.visit(ch, **kwargs) for ch in o.body)
         self._depth -= 1
         return self.indent + header + body + '\n%sEND INTERFACE\n' % self.indent
 
-    def visit_Loop(self, o):
-        pragma = (self.visit(o.pragma) + '\n') if o.pragma else ''
-        pragma_post = ('\n' + self.visit(o.pragma_post)) if o.pragma_post else ''
+    def visit_Loop(self, o, **kwargs):
+        pragma = (self.visit(o.pragma, **kwargs) + '\n') if o.pragma else ''
+        pragma_post = ('\n' + self.visit(o.pragma_post, **kwargs)) if o.pragma_post else ''
         self._depth += 1
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         self._depth -= 1
         if o.bounds:
             header = ' %s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
@@ -251,28 +251,28 @@ class FortranCodegen(Visitor):
         return pragma + self.indent + \
             'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
-    def visit_WhileLoop(self, o):
+    def visit_WhileLoop(self, o, **kwargs):
         condition = self.fsymgen(o.condition)
         self._depth += 1
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         self._depth -= 1
         header = 'DO WHILE (%s)\n' % condition
         footer = '\n' + self.indent + 'END DO'
         return self.indent + header + body + footer
 
-    def visit_Conditional(self, o):
+    def visit_Conditional(self, o, **kwargs):
         if o.inline:
             # No indentation and only a single body node
             assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
             self._depth, indent_depth = 0, self._depth  # Suppress indentation
-            body = self.visit(flatten(o.bodies)[0])
+            body = self.visit(flatten(o.bodies)[0], **kwargs)
             self._depth = indent_depth
             cond = self.fsymgen(o.conditions[0])
             return self.indent + 'IF (%s) %s' % (cond, body)
 
         self._depth += 1
-        bodies = [self.visit(b) for b in o.bodies]
-        else_body = self.visit(o.else_body)
+        bodies = [self.visit(b, **kwargs) for b in o.bodies]
+        else_body = self.visit(o.else_body, **kwargs)
         self._depth -= 1
         headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
         main_branch = ('\n%sELSE' % self.indent).join(
@@ -280,49 +280,49 @@ class FortranCodegen(Visitor):
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
-    def visit_MultiConditional(self, o):
+    def visit_MultiConditional(self, o, **kwargs):
         expr = self.fsymgen(o.expr)
         values = ['DEFAULT' if v is None
                   else (self.fsymgen(v) if isinstance(v, tuple) else '(%s)' % self.fsymgen(v))
                   for v in o.values]
         self._depth += 1
-        bodies = [self.visit(b) for b in o.bodies]
+        bodies = [self.visit(b, **kwargs) for b in o.bodies]
         self._depth -= 1
         header = self.indent + 'SELECT CASE (%s)\n' % expr
         footer = self.indent + 'END SELECT'
         cases = [self.indent + 'CASE %s\n' % v + b for v, b in zip(values, bodies)]
         return header + '\n'.join(cases) + '\n' + footer
 
-    def visit_Statement(self, o):
+    def visit_Statement(self, o, **kwargs):
         stmt = '%s = %s' % (self.fsymgen(o.target), self.fsymgen(o.expr))
         if o.ptr:
             # Manually force pointer assignment notation
             # ... Hack me baby, one more time ...
             stmt = stmt.replace(' = ', ' => ')
-        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
+        comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
         return self.indent + self.chunk(stmt) + comment
 
-    def visit_MaskedStatement(self, o):
+    def visit_MaskedStatement(self, o, **kwargs):
         condition = self.fsymgen(o.condition)
         self._depth += 1
-        body = self.visit(o.body)
-        default = self.visit(o.default)
+        body = self.visit(o.body, **kwargs)
+        default = self.visit(o.default, **kwargs)
         self._depth -= 1
         header = self.indent + 'WHERE (%s)\n' % condition
         footer = '\n' + self.indent + 'END WHERE'
         default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
         return header + body + default + footer
 
-    def visit_Section(self, o):
-        return self.visit(o.body)
+    def visit_Section(self, o, **kwargs):
+        return self.visit(o.body, **kwargs)
 
-    def visit_Scope(self, o):
+    def visit_Scope(self, o, **kwargs):
         associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
-    def visit_CallStatement(self, o):
+    def visit_CallStatement(self, o, **kwargs):
         if o.kwarguments is not None:
             kwargs = tuple('%s=%s' % (k, self.fsymgen(v)) for k, v in o.kwarguments)
             args = as_tuple(o.arguments) + kwargs
@@ -341,29 +341,31 @@ class FortranCodegen(Visitor):
                                   else str(a) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
-    def visit_Allocation(self, o):
-        source = '' if o.data_source is None else ', source=%s' % self.visit(o.data_source)
+    def visit_Allocation(self, o, **kwargs):
+        source = ''
+        if o.data_source is not None:
+            source = ', source=%s' % self.visit(o.data_source, **kwargs)
         variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
                              for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
-    def visit_Deallocation(self, o):
+    def visit_Deallocation(self, o, **kwargs):
         variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
                              for v in o.variables)
         return self.indent + 'DEALLOCATE(%s)' % variables
 
-    def visit_Nullify(self, o):
+    def visit_Nullify(self, o, **kwargs):
         if isinstance(o.variable, str):
             variable = o.variable
         else:
             variable = self.fsymgen(o.variable)
         return self.indent + 'NULLIFY(%s)' % variable
 
-    def visit_Expression(self, o):
+    def visit_Expression(self, o, **kwargs):
         # TODO: Expressions are currently purely treated as strings
         return str(o.expr)
 
-    def visit_Scalar(self, o):
+    def visit_Scalar(self, o, **kwargs):
         if o.initial is not None:
             # TODO: This is super-hacky! We need to find
             # a rigorous way to do this, but various corner
@@ -379,7 +381,7 @@ class FortranCodegen(Visitor):
 
     visit_Array = visit_Scalar
 
-    def visit_SymbolType(self, o):
+    def visit_SymbolType(self, o, **kwargs):
         if o.dtype == DataType.DERIVED_TYPE:
             tname = 'TYPE(%s)' % o.name
         else:
@@ -401,10 +403,10 @@ class FortranCodegen(Visitor):
             ', INTENT(%s)' % o.intent.upper() if o.intent else '',
         )
 
-    def visit_TypeDef(self, o):
+    def visit_TypeDef(self, o, **kwargs):
         bind_c = ', bind(c) ::' if o.bind_c else ''
         self._depth += 2
-        declarations = self.visit(o.declarations)
+        declarations = self.visit(o.declarations, **kwargs)
         self._depth -= 2
         header = self.indent + 'TYPE%s %s\n' % (bind_c, o.name)
         footer = '\n%sEND TYPE %s' % (self.indent, o.name)

@@ -213,7 +213,8 @@ class RapsGNUCompiler(GNUCompiler):
     LDFLAGS = ['-cr', '-g', '-fopenmp', '-fbacktrace', '-fconvert=big-endian',
                '-Wl,--as-needed' '-Wl,-export-dynamic', '-ffast-math']
 
-    def link(self, objs, target, shared=True, logger=None, cwd=None):
+    # pylint: disable=arguments-differ
+    def link(self, objs, target, shared=True, cwd=None, logger=None):
         """
         Overriding the link function, so as to emulate RAPS linkage.
         """
