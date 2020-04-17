@@ -16,6 +16,7 @@ class FCodeMapper(LokiStringifyMapper):
     A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
     expression to a string adhering to the Fortran standard.
     """
+    # pylint: disable=abstract-method
 
     COMPARISON_OP_TO_FORTRAN = {
         "==": r"==",

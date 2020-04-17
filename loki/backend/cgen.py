@@ -23,6 +23,7 @@ def c_intrinsic_type(_type):
 
 
 class CCodeMapper(LokiStringifyMapper):
+    # pylint: disable=abstract-method
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()

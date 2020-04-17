@@ -17,6 +17,7 @@ class LokiStringifyMapper(StringifyMapper):
     This is the default pretty printer for nodes in the expression tree.
     """
     # pylint: disable=no-self-use
+    # pylint: disable=abstract-method
 
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
@@ -100,6 +101,7 @@ class ExpressionRetriever(WalkMapper):
                           on whether that expression and its children should be
                           visited.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, query, recurse_query=None):
         super(ExpressionRetriever, self).__init__()
@@ -168,6 +170,7 @@ class ExpressionDimensionsMapper(Mapper):
     A visitor for an expression that determines the dimensions of the expression.
     """
     # pylint: disable=no-self-use
+    # pylint: disable=abstract-method
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         # pylint: disable=import-outside-toplevel
@@ -209,6 +212,7 @@ class ExpressionCallbackMapper(CombineMapper):
     """
     A visitor for expressions that returns the combined result of a specified callback function.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, callback, combine):
         super(ExpressionCallbackMapper, self).__init__()
@@ -257,6 +261,7 @@ class LokiIdentityMapper(IdentityMapper):
     """
     A visitor which creates a copy of the expression tree.
     """
+    # pylint: disable=abstract-method
 
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
@@ -319,6 +324,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     It returns a copy of the expression tree with expressions substituted according
     to the given `expr_map`.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, expr_map):
         super(SubstituteExpressionsMapper, self).__init__()

@@ -12,6 +12,8 @@ __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral
            'LiteralList', 'RangeIndex', 'InlineCall', 'Cast']
 
 
+# pylint: disable=abstract-method
+
 class Scalar(pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
