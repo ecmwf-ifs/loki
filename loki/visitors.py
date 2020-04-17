@@ -148,9 +148,9 @@ class Transformer(Visitor):
     all nodes in ``M[n]`` are inserted into the tuple containing ``n``.
     """
 
-    def __init__(self, mapper={}):
+    def __init__(self, mapper=None):
         super(Transformer, self).__init__()
-        self.mapper = mapper.copy()
+        self.mapper = mapper.copy() if mapper is not None else {}
         self.rebuilt = {}
 
     def visit_object(self, o, **kwargs):
