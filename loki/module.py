@@ -128,7 +128,7 @@ class Module:
         return obj
 
     @staticmethod
-    def _process_pragmas(self, spec):
+    def _process_pragmas(spec):
         """
         Process any '!$loki dimension' pragmas to override deferred dimensions
         """

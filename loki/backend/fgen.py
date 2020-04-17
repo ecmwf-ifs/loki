@@ -73,7 +73,7 @@ class FCodeMapper(LokiStringifyMapper):
         looking for such cases and determine the matching operator for the output.
         """
         def get_op_prec_expr(expr):
-            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return '-', PREC_PRODUCT, expr.children[1]

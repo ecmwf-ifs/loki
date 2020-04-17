@@ -102,7 +102,7 @@ class CCodeMapper(LokiStringifyMapper):
         def get_neg_product(expr):
             from pymbolic.primitives import is_zero, Product
 
-            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return expr.children[1]
