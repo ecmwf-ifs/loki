@@ -417,6 +417,7 @@ class CallContext(Node):
     """
 
     def __init__(self, routine, active):
+        super(CallContext, self).__init__()
         self.routine = routine
         self.active = active
 
