@@ -282,8 +282,9 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o):
         expr = self.fsymgen(o.expr)
-        values = ['DEFAULT' if v is None else (self.fsymgen(v) if isinstance(v, tuple)
-                  else '(%s)' % self.fsymgen(v)) for v in o.values]
+        values = ['DEFAULT' if v is None
+                  else (self.fsymgen(v) if isinstance(v, tuple) else '(%s)' % self.fsymgen(v))
+                  for v in o.values]
         self._depth += 1
         bodies = [self.visit(b) for b in o.bodies]
         self._depth -= 1
