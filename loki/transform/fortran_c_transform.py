@@ -300,7 +300,7 @@ class FortranCTransformation(BasicTransformation):
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
+                if isinstance(v, (Scalar, Array)) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
         kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
