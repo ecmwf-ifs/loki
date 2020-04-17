@@ -47,15 +47,14 @@ class Task:
                 # TODO: Modules should be first-class items too
                 self.routine = self.file.subroutines[0]
 
-            except Exception as e:
+            except Exception as excinfo:
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
                 warning('Could not parse %s:', path)
                 if self.config['strict']:
-                    raise e
-                else:
-                    error(e)
+                    raise excinfo
+                error(excinfo)
 
         else:
             if self.graph:
