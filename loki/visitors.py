@@ -1,5 +1,5 @@
 import inspect
-from collections import Iterable
+from collections.abc import Iterable
 
 from loki.ir import Node
 from loki.tools import flatten

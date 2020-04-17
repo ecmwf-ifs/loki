@@ -1,7 +1,7 @@
 import os
 import shutil
 from subprocess import run, PIPE, STDOUT, CalledProcessError
-from collections import Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from fastcache import clru_cache
 
