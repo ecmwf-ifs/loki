@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import gettempdir
-import click
 import shutil
+import click
 
 from loki.build import (Lib, Builder, clean, GNUCompiler, execute,
                         delete, default_logger, FileLogger, DEBUG, INFO)
@@ -92,16 +92,16 @@ def build_odb():
     """
     Super-custom way of building sub-packages...
     """
-    tmpdir = Path(gettempdir())
+    _tmpdir = Path(gettempdir())
     odbdir = rootdir/'odb/compiler'
 
     for ext in ['c', 'h', 'l', 'y']:
 
         for f in odbdir.glob('*.%s' % ext):
-            shutil.copy(str(f), str(tmpdir))
+            shutil.copy(str(f), str(_tmpdir))
 
-    execute(['bison', '--yacc', '-d', 'yacc.y'], cwd=tmpdir)
-    execute(['flex', 'lex.l'], cwd=tmpdir)
+    execute(['bison', '--yacc', '-d', 'yacc.y'], cwd=_tmpdir)
+    execute(['flex', 'lex.l'], cwd=_tmpdir)
 
 
 ################################
@@ -187,7 +187,8 @@ oopsldlibs = []
 
 
 fflags = ['-cpp', '-fno-second-underscore', '-fno-range-check', '-std=gnu']
-omp = ['-fopenmp', '-m64', '-I/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/include']
+omp = ['-fopenmp', '-m64',
+       '-I/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/include']
 fcopts = ['-O2', '-mavx']
 fcfree = ['-ffree-form', '-ffree-line-length-0']
 fcfixed = ['-ffixed-form']
@@ -211,7 +212,7 @@ class RapsGNUCompiler(GNUCompiler):
 
     LD = 'ar'
     LDFLAGS = ['-cr', '-g', '-fopenmp', '-fbacktrace', '-fconvert=big-endian',
-               '-Wl,--as-needed' '-Wl,-export-dynamic', '-ffast-math']
+               '-Wl,--as-needed', '-Wl,-export-dynamic', '-ffast-math']
 
     # pylint: disable=arguments-differ
     def link(self, objs, target, shared=True, cwd=None, logger=None):
@@ -297,8 +298,9 @@ def build_ifs(compiler, workers, force):
     link_cmd += ['-g', '-fopenmp', '-m64',
                  '-I/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/include',
                  '-fbacktrace', '-fconvert=big-endian']
-    link_cmd += ['-Wl,--as-needed', '-Wl,-export-dynamic', '-ffast-math',
-                 '-Wl,-Map,/var/tmp/tmpdir/naml/jtmp.1694/tmpdir.gnu.melchior.dp/ifsload.map.V36_ORCA']
+    link_cmd += [
+        '-Wl,--as-needed', '-Wl,-export-dynamic', '-ffast-math',
+        '-Wl,-Map,/var/tmp/tmpdir/naml/jtmp.1694/tmpdir.gnu.melchior.dp/ifsload.map.V36_ORCA']
 
     # Define core objects and output binary
     link_cmd += ['/tmp/naml/ifs-build-dev/ifs/programs/master.o',
@@ -310,22 +312,26 @@ def build_ifs(compiler, workers, force):
     link_cmd += ['-Wl,-rpath=%s' % (bmdir/'external/gnu.melchior/install/lib64'),
                  '-Wl,-rpath=%s' % (bmdir/'external/gnu.melchior/install/lib')]
     # TODO: Get everything built by loki-build, so that we can remove the top line.
-    link_cmd += ['-L/tmp/naml/ifs-build-dev/flexbuild/build',  # Prefer our versions of the libs...
-                 '-L/tmp/naml/ifs-build-dev/flexbuild',  # TODO: This brings in the leftovers; REMOVE!
-                 '-Wl,--start-group', '-lalgor', '-lbl', '-lecfftw', '-lenkf', '-lifsobs', '-lcrm',
-                 '-lifs', '-lifsaux', '-lodb', '-lradiation', '-lsatrad', '-lsurf', '-ltrans', '-lwam',
-                 '-lifsiodummy', '-loopsifs_unboosted', '-lnemogribcoup.V36_ORCA', '-Wl,--end-group']
+    link_cmd += [
+        '-L/tmp/naml/ifs-build-dev/flexbuild/build',  # Prefer our versions of the libs...
+        '-L/tmp/naml/ifs-build-dev/flexbuild',  # TODO: This brings in the leftovers; REMOVE!
+        '-Wl,--start-group', '-lalgor', '-lbl', '-lecfftw', '-lenkf', '-lifsobs', '-lcrm',
+        '-lifs', '-lifsaux', '-lodb', '-lradiation', '-lsatrad', '-lsurf', '-ltrans', '-lwam',
+        '-lifsiodummy', '-loopsifs_unboosted', '-lnemogribcoup.V36_ORCA', '-Wl,--end-group']
 
     # External linkages
-    link_cmd += ['-L/tmp/naml/ifs-build-dev/flexbuild/external/gnu.melchior/install/lib64',
-                 '-L/tmp/naml/ifs-build-dev/flexbuild/external/gnu.melchior/install/lib',
-                 '-Wl,--no-as-needed', '-latlas_f', '-latlas', '-lfckit', '-leccodes_f90', '-leccodes', '-lpthread',
-                 '-lmultio-fdb5', '-lmultio', '-lemosR64', '-lgfortran', '-lstdc++', '-lparmetis']
-    link_cmd += ['-Wl,-rpath=/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/lib/intel64',
-                 '-L/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/lib/intel64',
-                 '-Wl,--no-as-needed', '-lmkl_gf_lp64', '-lmkl_sequential', '-lmkl_core', '-lpthread', '-lm', '-ldl',
-                 '-lnetcdff', '-lnetcdf', '-lhdf5_hl', '-lhdf5hl_fortran', '-lhdf5', '-lz', '-lcurl',
-                 '-lm', '-lrt', '-ldl']
+    link_cmd += [
+        '-L/tmp/naml/ifs-build-dev/flexbuild/external/gnu.melchior/install/lib64',
+        '-L/tmp/naml/ifs-build-dev/flexbuild/external/gnu.melchior/install/lib',
+        '-Wl,--no-as-needed', '-latlas_f', '-latlas', '-lfckit', '-leccodes_f90', '-leccodes',
+        '-lpthread', '-lmultio-fdb5', '-lmultio', '-lemosR64', '-lgfortran', '-lstdc++',
+        '-lparmetis']
+    link_cmd += [
+        '-Wl,-rpath=/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/lib/intel64',
+        '-L/usr/local/apps/intel/16.0.3/compilers_and_libraries/linux/mkl/lib/intel64',
+        '-Wl,--no-as-needed', '-lmkl_gf_lp64', '-lmkl_sequential', '-lmkl_core', '-lpthread', '-lm',
+        '-ldl', '-lnetcdff', '-lnetcdf', '-lhdf5_hl', '-lhdf5hl_fortran', '-lhdf5', '-lz', '-lcurl',
+        '-lm', '-lrt', '-ldl']
 
     execute(link_cmd)
 

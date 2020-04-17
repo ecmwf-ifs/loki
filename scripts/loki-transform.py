@@ -5,11 +5,11 @@ Loki head script for source-to-source transformations concerning ECMWF
 physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
-import click
-import toml
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
+import click
+import toml
 
 from loki import (
     SourceFile, Transformer, TaskScheduler,
@@ -56,7 +56,8 @@ class DerivedArgsTransformation(AbstractTransformation):
         if role == 'kernel':
             self.flatten_derived_args_routine(source)
 
-    def _derived_type_arguments(self, routine):
+    @staticmethod
+    def _derived_type_arguments(routine):
         """
         Find all derived-type arguments used in a given routine.
 
@@ -108,7 +109,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                             new_dims = tuple(RangeIndex() for _ in type_var.type.shape or [])
                             new_type = type_var.type.clone(parent=d_arg)
                             new_arg = type_var.clone(dimensions=new_dims, type=new_type,
-                                                     parent=d_arg, scope=d_arg.scope)  # deepcopy(d_arg))
+                                                     parent=d_arg, scope=d_arg.scope)
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -170,7 +171,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
-class Dimension(object):
+class Dimension:
     """
     Dimension that defines a one-dimensional iteration space.
 
@@ -239,7 +240,8 @@ class SCATransformation(AbstractTransformation):
             for member in source.members:
                 self.apply(member, **kwargs)
 
-    def remove_dimension(self, routine, target):
+    @staticmethod
+    def remove_dimension(routine, target):
         """
         Remove all loops and variable indices of a given target dimension
         from the given routine.
@@ -295,7 +297,8 @@ class SCATransformation(AbstractTransformation):
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
 
-    def hoist_dimension_from_call(self, caller, target, wrap=True):
+    @staticmethod
+    def hoist_dimension_from_call(caller, target, wrap=True):
         """
         Remove all indices and variables of a target dimension from
         caller (driver) and callee (kernel) routines, and insert the
@@ -380,7 +383,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     Note: Must be run after generic SCA conversion.
     """
-    from loki import FortranCodegen
+    from loki import FortranCodegen  # pylint: disable=import-outside-toplevel
 
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
@@ -687,7 +690,7 @@ class RapsTransformation(BasicTransformation):
         # TODO: Need enrichment for Imports to get rid of this!
         processor = kwargs.get('processor', None)
 
-        info('Processing %s (role=%s, mode=%s)' % (source.name, role, mode))
+        info('Processing %s (role=%s, mode=%s)', source.name, role, mode)
 
         original = source.name
         if role == 'kernel':
@@ -719,7 +722,8 @@ class RapsTransformation(BasicTransformation):
                     new_intfb_path = Path(incl)/task.path.with_suffix('.%s%s' % (mode, ending)).name
                     SourceFile.to_file(source=fgen(source.interface), path=Path(new_intfb_path))
 
-    def adjust_imports(self, routine, mode, processor):
+    @staticmethod
+    def adjust_imports(routine, mode, processor):
         """
         Utility routine to rename all calls to relevant subroutines and
         adjust the relevant imports.
@@ -783,8 +787,10 @@ class RapsTransformation(BasicTransformation):
                     ok_path = h_path.with_suffix('.ok')
 
                     h_deps = deepcopy(self.raps_deps.content_map[str(ok_path)])
-                    h_deps.replace(str(h_path), str(h_path).replace(original, '%s.%s' % (original, mode)))
-                    h_deps.replace(str(ok_path), str(ok_path).replace(original, '%s.%s' % (original, mode)))
+                    h_deps.replace(str(h_path),
+                                   str(h_path).replace(original, '%s.%s' % (original, mode)))
+                    h_deps.replace(str(ok_path),
+                                   str(ok_path).replace(original, '%s.%s' % (original, mode)))
                     self.loki_deps.content += [h_deps]
 
         # Run through all previous dependencies and inject
