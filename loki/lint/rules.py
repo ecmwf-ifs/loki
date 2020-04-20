@@ -219,7 +219,7 @@ class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
         '''
         num_arguments = len(subroutine.arguments)
         if num_arguments > config['max_num_arguments']:
-            fmt_string = 'Found {} dummy arguments (maximum allowed: {})'
+            fmt_string = 'Subroutine has {} dummy arguments (should not have more than {})'
             msg = fmt_string.format(num_arguments, config['max_num_arguments'])
             rule_report.add(msg, subroutine)
 
