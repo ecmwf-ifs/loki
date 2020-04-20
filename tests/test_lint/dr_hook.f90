@@ -4,7 +4,10 @@ real(kind=jprb) :: zhook_handle
 
 ! Comments are non-executable statements
 
-if (lhook) call dr_hook('routine_okay', 0, zhook_handle)
+if (lhook) then
+#define foobar
+  call dr_hook('routine_okay', 0, zhook_handle)
+end if
 
 print *, "Foo bar"
 
@@ -17,11 +20,17 @@ contains
 subroutine routine_contained_okay
 real(kind=jprb) :: zhook_handle 
 
+! CPP directives should be ignored
+#ifndef _some_macro
+
 if (lhook) call dr_hook('routine_okay%routine_contained_okay', 0, zhook_handle)
 
 print *, "Foo bar"
 
 if (lhook) call dr_hook('routine_okay%routine_contained_okay', 1, zhook_handle)
+
+! CPP directives should be ignored
+#endif
 end subroutine routine_contained_okay
 end subroutine routine_okay
 
@@ -31,7 +40,8 @@ use yomhook, only: lhook, dr_hook
 real(kind=jprb) :: zhook_handle
 
 ! Error: no conditional IF(LHOOK)
-call dr_hook('routine_not_okay_a', 0, zhook_handle)
+! Error: no zhook_handle (Not detected because call not found)
+call dr_hook('routine_not_okay_a', 0)
 
 print *, "Foo bar"
 
@@ -67,9 +77,11 @@ if (lhook) call dr_hook('routine_not_okay_c', 2, zhook_handle)
 print *, "Foo bar"
 
 ! Error: Executable statement after call to dr_hook 
-if (lhook) call dr_hook('routine_not_okay_c', 1, zhook_handle)
+if (lhook) then
+  call dr_hook('routine_not_okay_c', 1, zhook_handle)
+  red_herring = 2.0
+end if
 
-red_herring = 2.0
 end subroutine routine_not_okay_c
 
 

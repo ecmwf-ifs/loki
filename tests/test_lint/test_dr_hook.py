@@ -26,18 +26,18 @@ def test_dr_hook(refpath, frontend):
                for i in [5, 7])
     assert all('String argument to DR_HOOK call should be "' in handler.target.messages[i]
                for i in [1, 8, 9, 10, 11])
-    assert all('Second argument to DR_HOOK call should be "0" or "1".' in handler.target.messages[i]
-               for i in [2, 12])
+    assert 'Second argument to DR_HOOK call should be "0".' in handler.target.messages[2]
+    assert 'Second argument to DR_HOOK call should be "1".' in handler.target.messages[12]
     assert 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".' in handler.target.messages[3]
 
-    assert '(l. 39)' in handler.target.messages[1]
-    assert '(l. 48)' in handler.target.messages[2]
-    assert '(l. 53)' in handler.target.messages[3]
-    assert '(l. 116)' in handler.target.messages[8]
-    assert '(l. 150)' in handler.target.messages[9]
-    assert '(l. 161)' in handler.target.messages[10]
-    assert '(l. 165)' in handler.target.messages[11]
-    assert '(l. 165)' in handler.target.messages[12]
+    assert '(l. 49)' in handler.target.messages[1]
+    assert '(l. 58)' in handler.target.messages[2]
+    assert '(l. 63)' in handler.target.messages[3]
+    assert '(l. 128)' in handler.target.messages[8]
+    assert '(l. 162)' in handler.target.messages[9]
+    assert '(l. 173)' in handler.target.messages[10]
+    assert '(l. 177)' in handler.target.messages[11]
+    assert '(l. 177)' in handler.target.messages[12]
 
     assert all('routine_not_okay_{}'.format(letter) in handler.target.messages[i]
                for letter, i in (('a', 0), ('c', 4), ('c', 5), ('d', 6), ('e', 7)))
