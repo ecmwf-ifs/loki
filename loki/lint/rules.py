@@ -249,9 +249,11 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
                 fmt_string = 'String argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(string_arg)
                 rule_report.add(msg, call)
+            second_arg = {'First': '0', 'Last': '1'}
             if not (len(call.arguments) > 1 and isinstance(call.arguments[1], IntLiteral) and \
-                    str(call.arguments[1].value) in ('0', '1')):
-                msg = 'Second argument to DR_HOOK call should be "0" or "1".'
+                    str(call.arguments[1].value) == second_arg[pos]):
+                fmt_string = 'Second argument to DR_HOOK call should be "{}".'
+                msg = fmt_string.format(second_arg[pos])
                 rule_report.add(msg, call)
             if not (len(call.arguments) > 2 and isinstance(call.arguments[2], Scalar) and \
                     call.arguments[2].name.upper() == 'ZHOOK_HANDLE'):
