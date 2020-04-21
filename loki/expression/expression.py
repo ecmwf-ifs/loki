@@ -21,6 +21,7 @@ class ExpressionFinder(Visitor):
     Note that :class:`FindXXX` classes are provided to find the most
     common sub-expression types, eg. symbols, functions and variables.
     """
+    # pylint: disable=unused-argument
 
     # By default we return nothing
     retrieval_function = lambda x: ()
@@ -134,6 +135,7 @@ class SubstituteExpressions(Transformer):
 
     :param expr_map: Expression mapping to apply to all expressions in a tree.
     """
+    # pylint: disable=unused-argument
 
     def __init__(self, expr_map):
         super(SubstituteExpressions, self).__init__()

@@ -16,8 +16,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
-    # pylint: disable=no-self-use
-    # pylint: disable=abstract-method
+    # pylint: disable=no-self-use,unused-argument,abstract-method
 
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
@@ -198,7 +197,7 @@ class ExpressionDimensionsMapper(Mapper):
         dims = [d for d in dims if d != IntLiteral(1)]
         return as_tuple(dims)
 
-    def map_range_index(self, expr, *args, **kwargs):
+    def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
         if expr.lower is None and expr.upper is None:
             # We have the full range
             return as_tuple(expr)

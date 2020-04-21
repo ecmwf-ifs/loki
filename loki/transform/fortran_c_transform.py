@@ -24,6 +24,7 @@ class FortranCTransformation(BasicTransformation):
     Fortran-to-C transformation that translates the given routine
     into C and generates the corresponding ISO-C wrappers.
     """
+    # pylint: disable=unused-argument
 
     def __init__(self, header_modules=None):
         # Fortran modules that can be imported as C headers

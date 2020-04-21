@@ -101,7 +101,7 @@ class GenericVisitor:
         meth = self.lookup_method(o)
         return meth(o, *args, **kwargs)
 
-    def visit_object(self, o, **kwargs):
+    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
         return self.default_retval()
 
 
@@ -116,7 +116,7 @@ class Visitor(GenericVisitor):
         return self.visit(o.children, **kwargs)
 
     @staticmethod
-    def reuse(o, *args, **kwargs):
+    def reuse(o, *args, **kwargs):  # pylint: disable=unused-argument
         """A visit method to reuse a node, ignoring children."""
         return o
 
@@ -260,7 +260,7 @@ class FindNodes(Visitor):
 
 
 class PrintAST(Visitor):
-    # pylint: disable=no-self-use
+    # pylint: disable=no-self-use,unused-argument
 
     _depth = 0
 

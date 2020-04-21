@@ -23,7 +23,7 @@ def c_intrinsic_type(_type):
 
 
 class CCodeMapper(LokiStringifyMapper):
-    # pylint: disable=abstract-method
+    # pylint: disable=abstract-method, unused-argument
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
@@ -230,7 +230,7 @@ class CCodegen(Visitor):
     def visit_Section(self, o, **kwargs):
         return self.visit(o.body, **kwargs) + '\n'
 
-    def visit_Import(self, o, **kwargs):
+    def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument
         return ('#include "%s"' % o.module) if o.c_import else ''
 
     def visit_Declaration(self, o, **kwargs):
@@ -243,7 +243,7 @@ class CCodegen(Visitor):
         variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
         return self.indent + '%s %s;' % (_type, variables) + comment
 
-    def visit_SymbolType(self, o, **kwargs):
+    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
         if o.dtype == DataType.DERIVED_TYPE:
             return 'struct %s' % o.name
         return c_intrinsic_type(o)
@@ -254,7 +254,7 @@ class CCodegen(Visitor):
         self._depth -= 1
         return 'struct %s {\n%s\n} ;' % (o.name.lower(), decls)
 
-    def visit_Comment(self, o, **kwargs):
+    def visit_Comment(self, o, **kwargs):  # pylint: disable=unused-argument
         text = o._source.string if o.text is None else o.text
         return self.indent + text.replace('!', '//')
 
@@ -292,7 +292,7 @@ class CCodegen(Visitor):
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + else_branch + '%s}\n' % self.indent
 
-    def visit_Intrinsic(self, o, **kwargs):
+    def visit_Intrinsic(self, o, **kwargs):  # pylint: disable=unused-argument
         return o.text
 
 

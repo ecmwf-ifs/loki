@@ -104,7 +104,9 @@ class SymbolType:
             object.__setattr__(self, name, value)
 
     def __getattr__(self, name):
-        return object.__getattr__(self, name) if name in dir(self) else None
+        if name not in dir(self):
+            return None
+        return object.__getattribute__(self, name)
 
     def __delattr__(self, name):
         object.__delattr__(self, name)

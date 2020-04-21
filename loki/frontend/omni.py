@@ -101,7 +101,8 @@ def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
 
 
 class OMNI2IR(GenericVisitor):
-    # pylint: disable=no-self-use
+    # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
+    # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     _omni_types = {
         'Fint': 'INTEGER',

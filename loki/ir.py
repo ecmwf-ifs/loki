@@ -13,6 +13,7 @@ __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallCon
 
 
 class Node:
+    # pylint: disable=no-member  # Stop reports about _args
 
     """
     :attr:`_traversable`. The traversable fields of the Node; that is, fields

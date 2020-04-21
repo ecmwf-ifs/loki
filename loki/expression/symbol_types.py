@@ -239,7 +239,7 @@ class Variable:
     the one that is most up-to-date.
     """
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, **kwargs):
         """
         1st-level variables creation with name injection via the object class
         """
@@ -343,7 +343,7 @@ class LogicLiteral(pmbl.Leaf):
     A boolean constant in an expression.
     """
 
-    def __init__(self, value, **kwargs):
+    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
         super(LogicLiteral, self).__init__()
 
         self.value = value.lower() in ('true', '.true.')
@@ -362,7 +362,7 @@ class StringLiteral(pmbl.Leaf):
     A string.
     """
 
-    def __init__(self, value, **kwargs):
+    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
         super(StringLiteral, self).__init__()
 
         if value[0] == value[-1] and value[0] in '"\'':
