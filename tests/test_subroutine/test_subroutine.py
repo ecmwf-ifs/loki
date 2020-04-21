@@ -1,20 +1,20 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from pathlib import Path
 
 from loki import (
-    clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables,
-    DataType, Array, Scalar, fgen
+    clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
+    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper
 )
 
 
-@pytest.fixture(scope='module')
-def header_path():
+@pytest.fixture(scope='module', name='header_path')
+def fixture_header_path():
     return Path(__file__).parent / 'header.f90'
 
 
-@pytest.fixture(scope='module')
-def header_mod(header_path):
+@pytest.fixture(scope='module', name='header_mod')
+def fixture_header_mod(header_path):
     """
     Compile and load the reference solution
     """
@@ -22,8 +22,8 @@ def header_mod(header_path):
     return compile_and_load(header_path, cwd=str(header_path.parent))
 
 
-@pytest.fixture(scope='module')
-def testpath():
+@pytest.fixture(scope='module', name='testpath')
+def fixture_testpath():
     return Path(__file__).parent
 
 
@@ -50,8 +50,8 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']  # OMNI
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])  # OMNI
 
     # Generate code, compile and load
     filename = 'routine_simple_%s.f90' % frontend
@@ -102,13 +102,13 @@ end subroutine routine_arguments
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars == ['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
-                            'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'] \
-        or routine_vars == ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
-                            'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)']
+    assert routine_vars in (['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
+                             'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'],
+                            ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
+                             'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)'])
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine_args in (['x', 'y', 'vector(x)', 'matrix(x,y)'],
+                            ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_arguments_%s.f90' % frontend
@@ -154,8 +154,8 @@ end subroutine routine_arguments_multiline
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_arguments_multiline_%s.f90' % frontend
@@ -202,8 +202,9 @@ end subroutine routine_variables_local
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)'] \
-        or routine_vars == ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine_vars in (
+        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)'],
+        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x,1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_variables_local_%s.f90' % frontend
@@ -257,15 +258,15 @@ end subroutine routine_simple_caching
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode_real, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)']
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])
     assert routine.arguments[2].type.dtype == DataType.REAL
     assert routine.arguments[3].type.dtype == DataType.REAL
 
     routine = Subroutine.from_source(fcode_int, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'] \
-        or routine_args == ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)']
+    assert routine_args in (['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'],
+                            ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)'])
     # Ensure that the types in the second routine have been picked up
     assert routine.arguments[2].type.dtype == DataType.INTEGER
     assert routine.arguments[3].type.dtype == DataType.INTEGER
@@ -341,34 +342,32 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
 
 end subroutine routine_dim_shapes
 """
-    from loki import FCodeMapper
     fsymgen = FCodeMapper()
 
     # TODO: Need a named subroutine lookup
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [fsymgen(arg) for arg in routine.arguments]
-    assert routine_args == ['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(1:v1,v2 - 1)'] \
-        or routine_args == ['v1', 'v2', 'v3(:)', 'v4(1:v1,1:v2)', 'v5(1:v1,1:v2 - 1)'] \
+    assert routine_args in (['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(1:v1,v2 - 1)'],
+                            ['v1', 'v2', 'v3(:)', 'v4(1:v1,1:v2)', 'v5(1:v1,1:v2 - 1)'])
 
     # Make sure variable/argument shapes on the routine work
     shapes = [fsymgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
-    assert shapes == ['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
-        or shapes == ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
+    assert shapes in (['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
+                      ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
     # Ensure shapes of body variables are ok
     b_shapes = [fsymgen(v.shape) for v in FindVariables(unique=False).visit(routine.ir)
                 if isinstance(v, Array)]
-    assert b_shapes == ['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'] \
-        or b_shapes == ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)']
+    assert b_shapes in (['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
+                        ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_variables_shape_propagation(header_path, header_mod, frontend):
+def test_routine_variables_shape_propagation(header_path, frontend):
     """
     Test for the correct identification and forward propagation of variable shapes
     from the subroutine declaration.
     """
-    from loki import FCodeMapper
     fsymgen = FCodeMapper()
 
     # Parse simple kernel routine to check plain array arguments
@@ -442,7 +441,7 @@ end subroutine routine_typedefs_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_type_propagation(header_path, header_mod, frontend):
+def test_routine_type_propagation(header_path, frontend):
     """
     Test for the forward propagation of derived-type information from
     a standalone module to a foreign subroutine via the :param typedef:
@@ -481,8 +480,7 @@ end subroutine routine_simple
 
     # Verify that all variable instances have type information
     variables = FindVariables().visit(routine.body)
-    assert all(v.type is not None for v in variables
-               if isinstance(v, Scalar) or isinstance(v, Array))
+    assert all(v.type is not None for v in variables if isinstance(v, (Scalar, Array)))
 
     vmap = {v.name: v for v in variables}
     assert vmap['x'].type.dtype == DataType.INTEGER
@@ -540,12 +538,10 @@ end subroutine routine_typedefs_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_call_arrays(header_path, header_mod, frontend):
+def test_routine_call_arrays(header_path, frontend):
     """
     Test that arrays passed down a subroutine call are treated as arrays.
     """
-    from loki import FindNodes, CallStatement, FCodeMapper, fgen
-
     fcode = """
 subroutine routine_call_caller(x, y, vector, matrix, item)
   ! Simple routine calling another routine
@@ -588,7 +584,6 @@ end subroutine routine_call_caller
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_call_no_arg(frontend):
-    from loki import CallStatement
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_call_no_arg()
   implicit none
@@ -607,7 +602,6 @@ end subroutine routine_call_no_arg
     FP
 ])
 def test_pp_macros(testpath, frontend):
-    from loki import FindNodes, Intrinsic
     refpath = testpath/'subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
     visitor = FindNodes(Intrinsic)

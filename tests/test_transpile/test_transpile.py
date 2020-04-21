@@ -1,24 +1,24 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from pathlib import Path
 
 from loki import SourceFile, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'transpile.f90'
 
 
-@pytest.fixture(scope='module')
-def builder(refpath):
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(refpath):
     path = refpath.parent
     return Builder(source_dirs=path, build_dir=path/'build')
 
 
-@pytest.fixture(scope='module')
-def reference(refpath, builder):
+@pytest.fixture(scope='module', name='reference')
+def fixture_reference(builder):
     """
     Compile and load the reference solution
     """
@@ -116,7 +116,8 @@ def test_transpile_arguments(refpath, reference, builder, frontend):
     b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
     c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
 
-    a, b, c = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc(n, array, array_io, a_io, b_io, c_io)
+    a, b, c = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc(n, array, array_io,
+                                                                         a_io, b_io, c_io)
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)

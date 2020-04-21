@@ -1,19 +1,23 @@
-import pytest
-import numpy as np
 from pathlib import Path
 import math
+import pytest
+import numpy as np
 
-from loki import (clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, Cast)
+from loki import (
+    clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, as_tuple,
+    Cast, Statement, Intrinsic, CallStatement, Nullify,
+    IntLiteral, FloatLiteral, InlineCall,
+    FindVariables, FindNodes, SubstituteExpressions)
 from conftest import generate_identity
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'expression.f90'
 
 
-@pytest.fixture(scope='module')
-def reference(refpath):
+@pytest.fixture(scope='module', name='reference')
+def fixture_reference(refpath):
     """
     Compile and load the reference solution
     """
@@ -74,7 +78,8 @@ def test_logical_expr(refpath, reference, frontend):
     vneq = 3 /= 4
     """
     # Test the reference solution
-    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = reference.logical_expr(True, False)
+    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = \
+        reference.logical_expr(True, False)
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
 
@@ -96,8 +101,6 @@ def test_literal_expr(refpath, reference, frontend):
     v5 = real(7, kind=jprb)
     v6 = int(3.5)
     """
-    from loki import SourceFile, FindNodes, Statement
-
     # Test the reference solution
     v1, v2, v3, v4, v5, v6 = reference.literal_expr()
     assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
@@ -114,7 +117,6 @@ def test_literal_expr(refpath, reference, frontend):
 
     # In addition to value testing, let's make sure
     # that we created the correct expression types
-    from loki.expression.symbol_types import IntLiteral, FloatLiteral
     source = SourceFile.from_file(refpath, frontend=frontend)
     stmts = FindNodes(Statement).visit(source['literal_expr'].body)
     assert isinstance(stmts[0].expr, IntLiteral)
@@ -180,7 +182,7 @@ def test_logical_array(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Precedence not honoured')),
     FP
 ])
-def test_parenthesis(refpath, reference, frontend):
+def test_parenthesis(refpath, frontend):
     """
     v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
 
@@ -204,7 +206,6 @@ def test_parenthesis(refpath, reference, frontend):
 
     # Now perform a simple substitutions on the expression
     # and make sure we are still parenthesising as we should!
-    from loki import SubstituteExpressions, FindVariables
     v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
     v4 = v2.clone(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
@@ -213,7 +214,7 @@ def test_parenthesis(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
-def test_commutativity(refpath, reference, frontend):
+def test_commutativity(refpath, frontend):
     """
     v3 = 1._jprb + v2*v1 - v2 - v3
 
@@ -230,7 +231,7 @@ def test_commutativity(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_index_ranges(refpath, reference, frontend):
+def test_index_ranges(refpath, frontend):
     """
     real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
     real(kind=jprb), intent(out) :: v5(1:dim)
@@ -249,7 +250,6 @@ def test_index_ranges(refpath, reference, frontend):
     assert str(vmap['v4']) == 'v4(dim)' or str(vmap['v4']) == 'v4(1:dim)'
     assert str(vmap['v5']) == 'v5(1:dim)'
 
-    from loki import FindVariables
     vmap_body = {v.name: v for v in FindVariables().visit(routine.body)}
     assert str(vmap_body['v1']) == 'v1(::2)'
     assert str(vmap_body['v2']) == 'v2(1:dim)'
@@ -258,7 +258,7 @@ def test_index_ranges(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_strings(refpath, reference, frontend):
+def test_strings(refpath, frontend):
     """
     character(len=64), intent(inout) :: str1
     character(len=8) :: str2
@@ -295,12 +295,10 @@ def test_very_long_statement(refpath, reference, frontend):
     OMNI,
     FP
 ])
-def test_intrinsics(refpath, reference, frontend):
+def test_intrinsics(refpath, frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
     """
-    from loki import Intrinsic, fgen
-
     source = SourceFile.from_file(refpath, frontend=frontend)
     routine = source['intrinsics']
 
@@ -321,7 +319,6 @@ def test_nested_call_inline_call(refpath, reference, frontend):
     The purpose of this test is to highlight the differences between calls in expression
     (such as `InlineCall`, `Cast`) and call nodes in the IR.
     """
-    from loki import fgen, FindNodes, CallStatement, as_tuple
     # Test the reference solution
     v2, v3 = reference.nested_call_inline_call(1)
     assert v2 == 8.
@@ -438,8 +435,6 @@ def test_pointer_nullify(refpath, reference, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
     """
-    from loki import FindNodes, Nullify, Statement, InlineCall
-
     # Execute the reference solution (does not return anything but should not fail
     reference.pointer_nullify()
 

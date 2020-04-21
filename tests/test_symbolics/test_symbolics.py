@@ -1,9 +1,10 @@
-#from sympy import symbols, simplify
+# from sympy import symbols, simplify
 import pytest
-
-from loki import Variable, Scalar, Array, Subroutine, InlineCall, FCodeMapper
+from loki import Variable, Scalar, Array, Subroutine, InlineCall
 
 pytestmark = pytest.mark.skip(reason="Symbolic equivalence no longer given without Sympy")
+# pylint: skip-file
+
 
 def test_symbolic_equivalence():
     """

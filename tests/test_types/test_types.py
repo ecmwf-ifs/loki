@@ -1,11 +1,12 @@
-import pytest
 from pathlib import Path
+from random import choice
+import pytest
 
-from loki import OFP, OMNI, FP, SourceFile
+from loki import OFP, OMNI, FP, SourceFile, DataType, SymbolType, FCodeMapper
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'types.f90'
 
 
@@ -13,9 +14,6 @@ def test_data_type():
     """
     Tests the conversion of strings to `DataType`.
     """
-    from loki.types import DataType
-    from random import choice
-
     fortran_type_map = {'LOGICAL': DataType.LOGICAL, 'INTEGER': DataType.INTEGER,
                         'REAL': DataType.REAL, 'CHARACTER': DataType.CHARACTER,
                         'COMPLEX': DataType.COMPLEX}
@@ -47,8 +45,6 @@ def test_symbol_type():
     Tests the attachment, lookup and deletion of arbitrary attributes from
     class:``SymbolType``
     """
-    from loki.types import SymbolType, DataType
-
     _type = SymbolType('integer', a='a', b=True, c=None)
     assert _type.dtype == DataType.INTEGER
     assert _type.a == 'a'
@@ -75,7 +71,6 @@ def test_pragmas(refpath, frontend):
     !$loki dimension(5,1,5)
     real(kind=jprb), dimension(:,:,:), pointer :: tensor
     """
-    from loki import FCodeMapper
     fsymgen = FCodeMapper()
 
     source = SourceFile.from_file(refpath, frontend=frontend)

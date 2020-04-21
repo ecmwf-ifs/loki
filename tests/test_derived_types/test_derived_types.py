@@ -1,18 +1,18 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from pathlib import Path
 
 from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
 from conftest import generate_identity
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'derived_types.f90'
 
 
-@pytest.fixture(scope='module')
-def reference(refpath):
+@pytest.fixture(scope='module', name='reference')
+def fixture_reference(refpath):
     """
     Compile and load the reference solution
     """
@@ -198,7 +198,7 @@ def test_associates(refpath, reference, frontend):
     item%vector(2) = vector(1)
     vector(3) = item%vector(1) + vector(2)
     """
-    from loki import FindVariables, IntLiteral, RangeIndex
+    from loki import FindVariables, IntLiteral, RangeIndex  # pylint: disable=import-outside-toplevel
 
     # Test the reference solution
     item = reference.explicit()
@@ -233,7 +233,7 @@ def test_associates(refpath, reference, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_associates_deferred(refpath, reference, frontend):
+def test_associates_deferred(refpath, frontend):
     """
     Verify that reading in subroutines with deferred external type definitions
     and associates working on that are supported.
@@ -250,7 +250,7 @@ SOME_VAR = 5
 END ASSOCIATE
 END SUBROUTINE
     '''
-    from loki import FindVariables, Scalar, DataType
+    from loki import FindVariables, Scalar, DataType  # pylint: disable=import-outside-toplevel
 
     filename = refpath.parent / ('associates_deferred_%s.f90' % frontend)
     with open(filename, 'w') as f:
