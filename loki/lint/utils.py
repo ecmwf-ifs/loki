@@ -86,9 +86,7 @@ class GenericRule:
             # Then recurse for all modules and subroutines in that file
             if hasattr(ast, 'modules') and ast.modules is not None:
                 for module in ast.modules:
-                    # Note: do not call `check` here to avoid visiting
-                    # subroutines twice
-                    cls.check_module(module, rule_report, config)
+                    cls.check(module, rule_report, config)
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 for subroutine in ast.subroutines:
                     cls.check(subroutine, rule_report, config)
