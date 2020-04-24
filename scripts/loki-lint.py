@@ -111,6 +111,8 @@ def cli(ctx, debug, log):
 @click.pass_context
 def default_config(ctx, output_file):
     config = Linter.default_config()
+    # Eliminate empty config dicts
+    config = {key: val for key, val in config.items() if val}
     config_str = yaml.dump(config, default_flow_style=False)
 
     if output_file:
@@ -122,9 +124,16 @@ def default_config(ctx, output_file):
 @cli.command(help='List all available rules.')
 @click.option('--with-title/--without-title', default=False, show_default=True,
               help='With / without title and id from each rule\'s docs.')
+@click.option('--sort-by', type=click.Choice(['title', 'id']), default='title',
+              show_default=True, help='Sort rules by a specific criterion.')
 @click.pass_context
-def rules(ctx, with_title):
+def rules(ctx, with_title, sort_by):
     rule_list = Linter.lookup_rules()
+
+    sort_keys = {'title': lambda rule: rule.__name__.lower(),
+                 'id': lambda rule: list(map(int, rule.docs.get('id').split('.')))}
+    rule_list.sort(key=sort_keys[sort_by])
+
     rule_names = [rule.__name__ for rule in rule_list]
     max_width_name = max(len(name) for name in rule_names)
 
