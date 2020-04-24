@@ -1,7 +1,8 @@
 import re
+from pathlib import Path
 from pymbolic.primitives import is_zero
 
-from loki import Subroutine, Module
+from loki import Subroutine, Module, SourceFile
 from loki.types import DataType
 from loki.tools import flatten, as_tuple
 from loki.visitors import FindNodes
@@ -19,7 +20,7 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
         'id': '1.3',
         'title': ('Rules for Code Body: '
                   'Nesting of conditional blocks should not be more than {max_nesting_depth} '
-                  'levels deep;',),
+                  'levels deep;'),
     }
 
     config = {
@@ -50,6 +51,32 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
         for body in bodies:
             for cond in visitor.visit(body):
                 rule_report.add(msg, cond)
+
+
+class ModuleNamingRule(GenericRule):  # Coding standards 1.5
+
+    type = RuleType.WARN
+
+    docs = {
+        'id': '1.5',
+        'title': ('Naming Schemes for Modules: All modules should end with "_mod". '
+                  'Module filename should match the name of the module it contains.'),
+    }
+
+    @classmethod
+    def check_module(cls, module, rule_report, config):
+        '''Check the module name and the name of the source file.'''
+        if not module.name.endswith('_mod'):
+            fmt_string = 'Name of module "{}" should end with "_mod".'
+            msg = fmt_string.format(module.name)
+            rule_report.add(msg, module)
+
+        if isinstance(module.parent, SourceFile):
+            path = Path(module.parent.path)
+            if module.name.lower() != path.stem.lower():
+                fmt_string = 'Module filename "{}" does not match module name "{}".'
+                msg = fmt_string.format(path.name, module.name)
+                rule_report.add(msg, module)
 
 
 class DrHookRule(GenericRule):  # Coding standards 1.9
