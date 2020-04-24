@@ -1,3 +1,4 @@
+import importlib
 import inspect
 import time
 from pathlib import Path
@@ -22,9 +23,9 @@ class Linter(object):
 
     @staticmethod
     def lookup_rules(rule_names=None):
-        import loki.lint.rules as rules
+        rules = importlib.import_module('loki.lint.rules')
         rule_list = inspect.getmembers(
-            rules, lambda obj: inspect.isclass(obj) and obj.__name__.endswith('Rule'))
+            rules, lambda obj: inspect.isclass(obj) and obj.__name__ in rules.__all__)
         if rule_names is not None:
             rule_list = [r for r in rule_list if r[0] in rule_names]
         return [r[1] for r in rule_list]

@@ -434,3 +434,7 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
                 if keyword.lower() in intr.text.lower():
                     msg = 'Banned keyword "{}"'.format(keyword)
                     rule_report.add(msg, intr)
+
+
+# Create the __all__ property of the module to contain only the rule names
+__all__ = tuple(name for name in dir() if name.endswith('Rule') and 'GenericRule' != name)
