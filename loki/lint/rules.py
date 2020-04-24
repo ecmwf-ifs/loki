@@ -177,6 +177,32 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         cls._check_lhook_call(last_call, subroutine, rule_report, pos='Last')
 
 
+class ModuleNamingRule(GenericRule):  # Coding standards 1.5
+
+    type = RuleType.WARN
+
+    docs = {
+        'id': '1.5',
+        'title': ('Naming Schemes for Modules: All modules should end with "_mod". '
+                  'Module filename should match the name of the module it contains.'),
+    }
+
+    @classmethod
+    def check_module(cls, module, rule_report, config):
+        '''Check the module name and the name of the source file.'''
+        if not module.name.endswith('_mod'):
+            fmt_string = 'Name of module "{}" should end with "_mod".'
+            msg = fmt_string.format(module.name)
+            rule_report.add(msg, module)
+
+        if isinstance(module.parent, SourceFile):
+            path = Path(module.parent.path)
+            if module.name.lower() != path.stem.lower():
+                fmt_string = 'Module filename "{}" does not match module name "{}".'
+                msg = fmt_string.format(path.name, module.name)
+                rule_report.add(msg, module)
+
+
 class DrHookRule(GenericRule):  # Coding standards 1.9
 
     type = RuleType.SERIOUS
