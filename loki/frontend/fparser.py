@@ -820,17 +820,17 @@ class FParser2IR(GenericVisitor):
             return sym.LogicalAnd(exprs, source=source)
         if op.lower() == '.or.':
             return sym.LogicalOr(exprs, source=source)
-        if op == '==' or op.lower() == '.eq.':
+        if op.lower() in ('==', '.eq.'):
             return sym.Comparison(exprs[0], '==', exprs[1], source=source)
-        if op == '/=' or op.lower() == '.ne.':
+        if op.lower() in ('/=', '.ne.'):
             return sym.Comparison(exprs[0], '!=', exprs[1], source=source)
-        if op == '>' or op.lower() == '.gt.':
+        if op.lower() in ('>', '.gt.'):
             return sym.Comparison(exprs[0], '>', exprs[1], source=source)
-        if op == '<' or op.lower() == '.lt.':
+        if op.lower() in ('<', '.lt.'):
             return sym.Comparison(exprs[0], '<', exprs[1], source=source)
-        if op == '>=' or op.lower() == '.ge.':
+        if op.lower() in ('>=', '.ge.'):
             return sym.Comparison(exprs[0], '>=', exprs[1], source=source)
-        if op == '<=' or op.lower() == '.le.':
+        if op.lower() in ('<=', '.le.'):
             return sym.Comparison(exprs[0], '<=', exprs[1], source=source)
         if op.lower() == '.not.':
             return sym.LogicalNot(exprs[0], source=source)

@@ -1,13 +1,16 @@
 import re
+from collections import defaultdict
 from pathlib import Path
-from pymbolic.primitives import is_zero
+from pymbolic.primitives import is_zero, Comparison
 
 from loki import Subroutine, Module, SourceFile
+from loki.logging import logger
 from loki.types import DataType
 from loki.tools import flatten, as_tuple
 from loki.visitors import FindNodes
-from loki.expression import (IntLiteral, FloatLiteral, StringLiteral, LogicLiteral, Scalar,
-                             Array, RangeIndex, ExpressionFinder, ExpressionRetriever)
+from loki.expression import (
+    IntLiteral, FloatLiteral, StringLiteral, LogicLiteral, Scalar, Array, RangeIndex,
+    ExpressionFinder, ExpressionRetriever, FindExpressions)
 from loki.lint.utils import GenericRule, RuleType
 import loki.ir as ir
 
@@ -434,6 +437,49 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
                 if keyword.lower() in intr.text.lower():
                     msg = 'Banned keyword "{}"'.format(keyword)
                     rule_report.add(msg, intr)
+
+
+class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
+
+    type = RuleType.WARN
+
+    docs = {
+        'id': '4.15',
+        'title': 'Use Fortran 90 comparison operators.'
+    }
+
+    _op_patterns = {
+        '==': re.compile(r'(?P<f77>\.eq\.)|(?P<f90>==)', re.I),
+        '!=': re.compile(r'(?P<f77>\.ne\.)|(?P<f90>/=)', re.I),
+        '>=': re.compile(r'(?P<f77>\.ge\.)|(?P<f90>>=)', re.I),
+        '<=': re.compile(r'(?P<f77>\.le\.)|(?P<f90><=)', re.I),
+        '>': re.compile(r'(?P<f77>\.gt\.)|(?P<f90>>(?!=))', re.I),
+        '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
+    }
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for the use of Fortran 90 comparison operators.'''
+        retriever = FindExpressions(unique=False, with_expression_root=True)
+        for node, expr_list in retriever.visit(subroutine.ir):
+            if node._source is None or node._source.string is None:
+                # Skip if we don't have source string information for this node
+                continue
+            source = node._source.string
+            # Count how often each comparison operator appears on this line
+            op_counts = defaultdict(int)
+            for op in filter(lambda expr: isinstance(expr, Comparison), expr_list):
+                op_counts[op.operator] += 1
+            for op, count in op_counts.items():
+                matches = cls._op_patterns[op].findall(source)
+                if len(matches) != count:
+                    logger.warning('Expected %s matches for operator %s, found %s',
+                                   count, op, len(matches))
+                    for f77, _ in matches:
+                        if f77:
+                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
+                            msg = fmt_string.format(op, f77)
+                            rule_report.add(node, msg)
 
 
 # Create the __all__ property of the module to contain only the rule names
