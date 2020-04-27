@@ -131,19 +131,25 @@ class SourceFile:
     def from_fparser(cls, filename, typedefs=None):
         file_path = Path(filename)
 
+        # Import and store the raw file content
+        with file_path.open() as f:
+            raw_source = f.read()
+
         # Parse the file content into a Fortran AST
         ast = parse_fparser_file(filename=str(file_path))
 
         obj = cls(filename, ast=ast)
 
-        routine_asts = [r for r in ast.content if isinstance(r, (Fortran2003.Subroutine_Subprogram,
-                                                                 Fortran2003.Function_Subprogram))]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj)
+        routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
+        routine_asts = [r for r in ast.content if isinstance(r, routine_types)]
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj,
+                                            raw_source=raw_source)
                     for r in routine_asts]
 
         # TODO: Do modules!
         module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
-        modules = [Module.from_fparser(ast=r, parent=obj) for r in module_asts]
+        modules = [Module.from_fparser(ast=r, raw_source=raw_source, parent=obj)
+                   for r in module_asts]
 
         obj.__init__(filename, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
                      types=obj.types)

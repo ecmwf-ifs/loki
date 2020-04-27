@@ -103,21 +103,21 @@ class Module:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, name=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, parent=None):
         name = name or ast.content[0].items[1].tostr()
-        obj = cls(name, ast=ast, parent=parent)
+        obj = cls(name, ast=ast, raw_source=raw_source, parent=parent)
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, scope=obj)
+            spec = parse_fparser_ast(spec_ast, raw_source=raw_source, scope=obj)
             spec = Section(body=spec)
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
         if routines_ast is not None:
-            routines = [Subroutine.from_fparser(ast=s, parent=obj)
+            routines = [Subroutine.from_fparser(ast=s, raw_source=raw_source, parent=obj)
                         for s in routines_ast.content if isinstance(s, routine_types)]
 
         # Process pragmas to override deferred dimensions
