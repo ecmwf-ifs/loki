@@ -2,6 +2,7 @@ import re from collections import defaultdict
 from pathlib import Path
 
 from loki import Subroutine, Module, SourceFile
+from loki.logging import logger
 from loki.types import DataType
 from loki.tools import flatten, as_tuple, strip_inline_comments
 from loki.visitors import FindNodes
