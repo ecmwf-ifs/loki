@@ -157,11 +157,15 @@ class WhileLoop(Node):
 
     _traversable = ['body']
 
-    def __init__(self, condition, body=None, source=None):
+    def __init__(self, condition, body=None, pragma=None, pragma_post=None,
+                 label=None, source=None):
         super(WhileLoop, self).__init__(source=source)
 
         self.condition = condition
         self.body = body
+        self.pragma = pragma
+        self.pragma_post = pragma_post
+        self.label = label
 
     @property
     def children(self):

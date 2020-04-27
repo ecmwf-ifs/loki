@@ -18,7 +18,7 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
-    Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
+    Comment, Declaration, Statement, Loop, WhileLoop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
     DataDeclaration, Nullify, Interface
 )
@@ -636,8 +636,12 @@ class FParser2IR(GenericVisitor):
         body = as_tuple(self.visit(node, **kwargs) for node in body_nodes)
         # Loop label for labeled do constructs
         label = str(do_stmt.items[1]) if isinstance(do_stmt, Fortran2003.Label_Do_Stmt) else None
-        return (*banter,
-                Loop(variable=variable, body=body, bounds=bounds, label=label, source=source), )
+        # Select loop type
+        if bounds:
+            obj = Loop(variable=variable, body=body, bounds=bounds, label=label, source=source)
+        else:
+            obj = WhileLoop(condition=variable, body=body, label=label, source=source)
+        return (*banter, obj, )
 
     visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
 

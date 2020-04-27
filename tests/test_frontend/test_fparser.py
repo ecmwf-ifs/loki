@@ -56,7 +56,7 @@ end subroutine routine_raw_source
     # Check the do loops
     loop_label_found = False  # Note: this is the construct name 'outer'
     labeled_do_found = False  # Note: this is the do label '6'
-    for node in FindNodes(ir.Loop).visit(routine.ir):
+    for node in FindNodes((ir.Loop, ir.WhileLoop)).visit(routine.ir):
         assert node._source is not None
         assert node._source.lines in ((4, 14), (6, 13))
         assert node._source.string in (''.join(fcode[3:14]), ''.join(fcode[5:13]))
