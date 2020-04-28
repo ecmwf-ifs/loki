@@ -927,10 +927,13 @@ class FParser2IR(GenericVisitor):
             banter += [self.visit(ch, **kwargs)]
         else:
             select_stmt = get_child(o, Fortran2003.Select_Case_Stmt)
+        # Extract source by looking at everything between SELECT and END SELECT
+        end_select_stmt = rget_child(o, Fortran2003.End_Select_Stmt)
+        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        source = Source(lines=lines, string=string, label=select_stmt.item.name)
         # The SELECT argument
         expr = self.visit(select_stmt, **kwargs)
-        # TODO: Better handling of source object!
-        source = Source(lines=select_stmt.item.span)
         body_ast = node_sublist(o.children, Fortran2003.Select_Case_Stmt,
                                 Fortran2003.End_Select_Stmt)
         values = []

@@ -37,6 +37,15 @@ end do outer
 check: if (ib > 0) then
   print *, ia
 end if check
+
+multicond: select case (ic)
+  case (10)
+    print *, ic
+  case (ia)
+    print *, ia
+  case default
+    print *, ib
+end select multicond
 end subroutine routine_raw_source
     """.strip()
     filename = testpath / ('routine_raw_source_%s.f90' % frontend)
@@ -48,18 +57,20 @@ end subroutine routine_raw_source
     fcode = fcode.splitlines(keepends=True)
 
     # Check the intrinsics
+    intrinsic_lines = (9, 11, 17, 22, 24, 26)
     for node in FindNodes(ir.Intrinsic).visit(routine.ir):
         assert node._source is not None
-        assert node._source.lines in ((9, 9), (11, 11), (17, 17))
-        assert node._source.string in (fcode[8], fcode[10], fcode[16])
+        assert node._source.lines in ((l, l) for l in intrinsic_lines)
+        assert node._source.string in (fcode[l-1] for l in intrinsic_lines)
 
     # Check the do loops
     loop_label_found = False  # Note: this is the construct name 'outer'
     labeled_do_found = False  # Note: this is the do label '6'
+    do_lines = ((4, 14), (6, 13))
     for node in FindNodes((ir.Loop, ir.WhileLoop)).visit(routine.ir):
         assert node._source is not None
-        assert node._source.lines in ((4, 14), (6, 13))
-        assert node._source.string in (''.join(fcode[3:14]), ''.join(fcode[5:13]))
+        assert node._source.lines in do_lines
+        assert node._source.string in (''.join(fcode[start-1:end]) for start, end in do_lines)
         if node._source.label:
             loop_label_found = ~loop_label_found  # This way to ensure it is found only once
             assert node._source.label == 'outer'
@@ -69,13 +80,14 @@ end subroutine routine_raw_source
     assert loop_label_found
     assert labeled_do_found
 
-    # Check the conditional
-    cond_label_found = False
-    for node in FindNodes(ir.Conditional).visit(routine.ir):
+    # Check the conditionals
+    cond_label_found = 0
+    cond_lines = ((8, 12), (16, 18), (20, 27))
+    for node in FindNodes((ir.Conditional, ir.MultiConditional)).visit(routine.ir):
         assert node._source is not None
-        assert node._source.lines in ((8, 12), (16, 18))
-        assert node._source.string in (''.join(fcode[7:12]), ''.join(fcode[15:18]))
+        assert node._source.lines in cond_lines
+        assert node._source.string in (''.join(fcode[start-1:end]) for start, end in cond_lines)
         if node._source.label:
-            cond_label_found = ~cond_label_found  # This way to make sure it is found only once
-            assert node._source.label == 'check'
-    assert cond_label_found
+            cond_label_found += 1
+            assert node._source.label in ('check', 'multicond')
+    assert cond_label_found == 2
