@@ -16,31 +16,28 @@ class LokiStringifyMapper(StringifyMapper):
 
     This is the default pretty printer for nodes in the expression tree.
     """
+    # pylint: disable=no-self-use,unused-argument,abstract-method
+
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
-    def __init__(self, constant_mapper=None):
-        super(LokiStringifyMapper, self).__init__(constant_mapper)
-
-    def map_logic_literal(self, expr, *args, **kwargs):
+    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return str(expr.value)
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             return '%s_%s' % (str(expr.value), str(expr.kind))
-        else:
-            return str(expr.value)
+        return str(expr.value)
 
     map_int_literal = map_logic_literal
 
-    def map_string_literal(self, expr, *args, **kwargs):
+    def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
 
-    def map_scalar(self, expr, *args, **kwargs):
+    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
-            parent = self.rec(expr.parent, *args, **kwargs)
+            parent = self.rec(expr.parent, enclosing_prec, *args, **kwargs)
             return self.format('%s%%%s', parent, expr.basename)
-        else:
-            return expr.name
+        return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
@@ -67,27 +64,27 @@ class LokiStringifyMapper(StringifyMapper):
             kind = ''
         return self.format('%s(%s%s)', name, expression, kind)
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
+    def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
+        lower = self.rec(expr.lower, enclosing_prec, *args, **kwargs) if expr.lower else ''
+        upper = self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
         if expr.step:
-            return '%s:%s:%s' % (lower, upper, self.rec(expr.step, *args, **kwargs))
-        else:
-            return '%s:%s' % (lower, upper)
+            step = self.rec(expr.step, enclosing_prec, *args, **kwargs)
+            return '%s:%s:%s' % (lower, upper, step)
+        return '%s:%s' % (lower, upper)
 
-    def map_parenthesised_add(self, *args, **kwargs):
-        return self.parenthesize(self.map_sum(*args, **kwargs))
+    def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
 
-    def map_parenthesised_mul(self, *args, **kwargs):
-        return self.parenthesize(self.map_product(*args, **kwargs))
+    def map_parenthesised_mul(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_product(expr, enclosing_prec, *args, **kwargs))
 
-    def map_parenthesised_pow(self, *args, **kwargs):
-        return self.parenthesize(self.map_power(*args, **kwargs))
+    def map_parenthesised_pow(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_power(expr, enclosing_prec, *args, **kwargs))
 
-    def map_string_concat(self, expr, *args, **kwargs):
-        return ' // '.join(self.rec(c, *args, **kwargs) for c in expr.children)
+    def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
+        return ' // '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
 
-    def map_literal_list(self, expr, *args, **kwargs):
+    def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
 
@@ -103,6 +100,7 @@ class ExpressionRetriever(WalkMapper):
                           on whether that expression and its children should be
                           visited.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, query, recurse_query=None):
         super(ExpressionRetriever, self).__init__()
@@ -170,11 +168,11 @@ class ExpressionDimensionsMapper(Mapper):
     """
     A visitor for an expression that determines the dimensions of the expression.
     """
-
-    def __init__(self):
-        super(ExpressionDimensionsMapper, self).__init__()
+    # pylint: disable=no-self-use
+    # pylint: disable=abstract-method
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
+        # pylint: disable=import-outside-toplevel
         from loki.expression.symbol_types import IntLiteral
         return as_tuple(IntLiteral(1))
 
@@ -185,31 +183,35 @@ class ExpressionDimensionsMapper(Mapper):
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions is None:
+            # We have the full array
             return expr.shape
-        else:
-            from loki.expression.symbol_types import RangeIndex, IntLiteral
-            dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
-            # Replace colon dimensions by the value from shape
-            shape = expr.shape or [None] * len(dims)
-            dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
-                    else d for d, s in zip(dims, shape)]
-            # Remove singleton dimensions
-            dims = [d for d in dims if d != IntLiteral(1)]
-            return as_tuple(dims)
 
-    def map_range_index(self, expr, *args, **kwargs):
+        # pylint: disable=import-outside-toplevel
+        from loki.expression.symbol_types import RangeIndex, IntLiteral
+        dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
+        # Replace colon dimensions by the value from shape
+        shape = expr.shape or [None] * len(dims)
+        dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
+                else d for d, s in zip(dims, shape)]
+        # Remove singleton dimensions
+        dims = [d for d in dims if d != IntLiteral(1)]
+        return as_tuple(dims)
+
+    def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
         if expr.lower is None and expr.upper is None:
+            # We have the full range
             return as_tuple(expr)
-        else:
-            lower = expr.lower.value - 1 if expr.lower is not None else 0
-            step = expr.step.value if expr.step is not None else 1
-            return as_tuple((expr.upper - lower) // step)
+
+        lower = expr.lower.value - 1 if expr.lower is not None else 0
+        step = expr.step.value if expr.step is not None else 1
+        return as_tuple((expr.upper - lower) // step)
 
 
 class ExpressionCallbackMapper(CombineMapper):
     """
     A visitor for expressions that returns the combined result of a specified callback function.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, callback, combine):
         super(ExpressionCallbackMapper, self).__init__()
@@ -258,9 +260,7 @@ class LokiIdentityMapper(IdentityMapper):
     """
     A visitor which creates a copy of the expression tree.
     """
-
-    def __init__(self):
-        super(LokiIdentityMapper, self).__init__()
+    # pylint: disable=abstract-method
 
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
@@ -323,6 +323,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     It returns a copy of the expression tree with expressions substituted according
     to the given `expr_map`.
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, expr_map):
         super(SubstituteExpressionsMapper, self).__init__()

@@ -1,6 +1,6 @@
-import pytest
+import pytest  # pylint: disable=unused-import
 
-from loki import SourceFile, fgen, OFP, compile_and_load, clean, FindNodes, CallStatement
+from loki import SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -26,7 +26,6 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
 
     if modulename:
-        modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
+        # modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
         return getattr(pymod, testname.stem)
-    else:
-        return pymod
+    return pymod

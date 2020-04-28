@@ -13,15 +13,28 @@ loki.egg-info/*
 
 # Explicit testing temporaries
 tests/**/*.f90.ofpast
+tests/**/*.F90.ofpast
 tests/**/*.omni.F90
 tests/**/*.omni.xml
 tests/**/*_ofp.f90
 tests/**/*_ofp.py
 tests/**/*_omni.f90
 tests/**/*_omni.py
+tests/**/*_fp.f90
+tests/**/*_fp.py
 tests/**/.f2py_f2cmap
+tests/**/f90wrap_*.f90
 
-# CMake oevrhead of hand-crafted test
+tests/test_expression/expression.py
+tests/test_derived_types/derived_types.py
+tests/test_control_flow/control_flow.py
+
+tests/**/build
+tests/test_transpile/transpile_*_c.c
+tests/test_transpile/transpile_*_c.h
+tests/test_transpile/transpile_*_fc.f90
+
+# CMake overhead of hand-crafted test
 tests/test_transpile/CMakeFiles/*
 tests/test_transpile/CMakeCache.txt
 tests/test_transpile/Makefile

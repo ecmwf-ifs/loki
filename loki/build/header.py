@@ -1,6 +1,6 @@
+import re
 from pathlib import Path
 from cached_property import cached_property
-import re
 
 from loki.build.tools import cached_func
 from loki.build.logging import debug
@@ -9,14 +9,14 @@ from loki.build.logging import debug
 __all__ = ['Header']
 
 
-_re_use = re.compile('^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
-_re_include = re.compile('\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
+_re_use = re.compile(r'^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
+_re_include = re.compile(r'\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
 # Please note that the below regexes are fairly expensive due to .* with re.DOTALL
-_re_module = re.compile('module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
-_re_subroutine = re.compile('subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
+_re_module = re.compile(r'module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
+_re_subroutine = re.compile(r'subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
 
 
-class Header(object):
+class Header:
 
     _ext = ['.intfb.h', '.h']
 
@@ -32,8 +32,8 @@ class Header(object):
         # TODO: We could make the path relative to a "cache path" here...
         return Header.__xnew_cached_(cls, name)
 
-    def __new_stage2_(cls, name):
-        obj = super(Header, cls).__new__(cls)
+    def __new_stage2_(self, name):
+        obj = super(Header, self).__new__(self)
         obj.name = name
         return obj
 
@@ -45,7 +45,7 @@ class Header(object):
             self.source_path = Path(source_path or self.name)
 
             if not self.source_path.exists():
-                debug('Could not find source file for %s' % self)
+                debug('Could not find source file for %s', self)
                 self.source_path = None
 
     def __repr__(self):
@@ -58,8 +58,7 @@ class Header(object):
             with self.source_path.open(encoding='latin1') as f:
                 source = f.read()
             return source
-        else:
-            return None
+        return None
 
     @cached_property
     def uses(self):

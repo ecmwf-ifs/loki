@@ -14,7 +14,7 @@ class Frontend(IntEnum):
     FP = 3
 
     def __str__(self):
-        return self.name.lower()
+        return self.name.lower()  # pylint: disable=no-member
 
 
 OMNI = Frontend.OMNI
@@ -36,14 +36,14 @@ class SequenceFinder(Visitor):
     def default_retval(cls):
         return []
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         groups = []
         for c in o:
             # First recurse...
             subgroups = self.visit(c)
             if subgroups is not None and len(subgroups) > 0:
                 groups += subgroups
-        for t, group in groupby(o, lambda o: type(o)):
+        for t, group in groupby(o, type):
             # ... then add new groups
             g = tuple(group)
             if t is self.node_type and len(g) > 1:
@@ -67,16 +67,17 @@ class PatternFinder(Visitor):
     def default_retval(cls):
         return []
 
-    def match_indices(self, pattern, sequence):
+    @staticmethod
+    def match_indices(pattern, sequence):
         """ Return indices of matched patterns in sequence. """
         matches = []
-        for i in range(len(sequence)):
-            if sequence[i] == pattern[0]:
+        for i, elem in enumerate(sequence):
+            if elem == pattern[0]:
                 if tuple(sequence[i:i+len(pattern)]) == tuple(pattern):
                     matches.append(i)
         return matches
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         matches = []
         for c in o:
             # First recurse...

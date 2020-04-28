@@ -76,7 +76,7 @@ class DataType(IntEnum):
         return type_map[value]
 
 
-class SymbolType(object):
+class SymbolType:
     """
     Representation of a symbols type.
 
@@ -104,7 +104,9 @@ class SymbolType(object):
             object.__setattr__(self, name, value)
 
     def __getattr__(self, name):
-        return object.__getattr__(self, name) if name in dir(self) else None
+        if name not in dir(self):
+            return None
+        return object.__getattribute__(self, name)
 
     def __delattr__(self, name):
         object.__delattr__(self, name)
@@ -114,7 +116,7 @@ class SymbolType(object):
         for k, v in self.__dict__.items():
             if k in ['dtype', 'source']:
                 continue
-            elif isinstance(v, bool):
+            if isinstance(v, bool):
                 if v:
                     parameters += [str(k)]
             elif k == 'parent' and v is not None:
@@ -129,12 +131,11 @@ class SymbolType(object):
         for k, v in self.__dict__.items():
             if k in ['dtype', 'source']:
                 continue
-            else:
-                args += [(k, v)]
+            args += [(k, v)]
         return tuple(args)
 
     def clone(self, **kwargs):
-        args = {k: v for k, v in self.__dict__.items()}
+        args = self.__dict__.copy()
         args.update(kwargs)
         dtype = args.pop('dtype')
         return self.__class__(dtype, **args)
@@ -176,8 +177,7 @@ class TypeTable(dict):
         value = super(TypeTable, self).get(name, None)
         if value is None and recursive and self.parent is not None:
             return self.parent._lookup(name, recursive)
-        else:
-            return value
+        return value
 
     def lookup(self, name, recursive=True):
         """

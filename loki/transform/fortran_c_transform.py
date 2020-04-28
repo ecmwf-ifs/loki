@@ -24,6 +24,7 @@ class FortranCTransformation(BasicTransformation):
     Fortran-to-C transformation that translates the given routine
     into C and generates the corresponding ISO-C wrappers.
     """
+    # pylint: disable=unused-argument
 
     def __init__(self, header_modules=None):
         # Fortran modules that can be imported as C headers
@@ -88,33 +89,27 @@ class FortranCTransformation(BasicTransformation):
     def iso_c_intrinsic_kind(_type):
         if _type.dtype == DataType.INTEGER:
             return 'c_int'
-        elif _type.dtype == DataType.REAL:
+        if _type.dtype == DataType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'c_float'
-            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'c_double'
-            else:
-                return None
-        else:
-            return None
+        return None
 
     @staticmethod
     def c_intrinsic_kind(_type):
         if _type.dtype == DataType.LOGICAL:
             return 'int'
-        elif _type.dtype == DataType.INTEGER:
+        if _type.dtype == DataType.INTEGER:
             return 'int'
-        elif _type.dtype == DataType.REAL:
+        if _type.dtype == DataType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'float'
-            elif kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
+            if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
                 return 'double'
-            else:
-                return None
-        else:
-            return None
+        return None
 
     def generate_iso_c_wrapper_routine(self, routine, c_structs):
         # Create initial object to have a scope
@@ -186,7 +181,8 @@ class FortranCTransformation(BasicTransformation):
                 isoctype = SymbolType(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
-                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)]
+                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols),
+                                        expr=v)]
 
                 getter.__init__(name=gettername, bind=gettername, spec=getterspec,
                                 body=getterbody, is_function=True, parent=obj,
@@ -305,7 +301,7 @@ class FortranCTransformation(BasicTransformation):
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if (isinstance(v, Scalar) or isinstance(v, Array)) and not v.name.islower()}
+                if isinstance(v, (Scalar, Array)) and not v.name.islower()}
         body = SubstituteExpressions(vmap).visit(body)
 
         kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
@@ -352,7 +348,8 @@ class FortranCTransformation(BasicTransformation):
 
         return kernel
 
-    def _resolve_vector_notation(self, kernel, **kwargs):
+    @staticmethod
+    def _resolve_vector_notation(kernel, **kwargs):
         """
         Resolve implicit vector notation by inserting explicit loops
         """
@@ -410,7 +407,8 @@ class FortranCTransformation(BasicTransformation):
         # Apply variable substitution
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
-    def _resolve_omni_size_indexing(self, kernel, **kwargs):
+    @staticmethod
+    def _resolve_omni_size_indexing(kernel, **kwargs):
         """
         Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
         """
@@ -424,7 +422,8 @@ class FortranCTransformation(BasicTransformation):
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
-    def _invert_array_indices(self, kernel, **kwargs):
+    @staticmethod
+    def _invert_array_indices(kernel, **kwargs):
         """
         Invert data/loop accesses from column to row-major
 
@@ -446,7 +445,8 @@ class FortranCTransformation(BasicTransformation):
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
-    def _shift_to_zero_indexing(self, kernel, **kwargs):
+    @staticmethod
+    def _shift_to_zero_indexing(kernel, **kwargs):
         """
         Shift each array indices to adjust to C indexing conventions
         """
@@ -457,7 +457,8 @@ class FortranCTransformation(BasicTransformation):
                 vmap[v] = v.clone(dimensions=new_dims)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
-    def _replace_intrinsics(self, kernel, **kwargs):
+    @staticmethod
+    def _replace_intrinsics(kernel, **kwargs):
         """
         Replace known numerical intrinsic functions.
         """

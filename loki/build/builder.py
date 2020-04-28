@@ -1,9 +1,9 @@
 import sys
 from pathlib import Path
-import networkx as nx
 from collections import deque
 from importlib import import_module
 from operator import attrgetter
+import networkx as nx
 
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
@@ -15,7 +15,7 @@ from loki.build.header import Header
 __all__ = ['Builder']
 
 
-class Builder(object):
+class Builder:
     """
     A :class:`Builder` that compiles binaries or libraries, while performing
     automated dependency discovery from one or more source paths.
@@ -42,16 +42,17 @@ class Builder(object):
         # Populate _object_cache for everything in source_dirs
         for source_dir in self.source_dirs:
             for ext in Obj._ext:
-                [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
+                _ = [Obj(source_path=f) for f in source_dir.glob('**/*%s' % ext)]
 
         for include_dir in self.include_dirs:
             for ext in Header._ext:
-                [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
+                _ = [Header(source_path=f) for f in include_dir.glob('**/*%s' % ext)]
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
 
-    def get_dependency_graph(self, objs, depgen=None):
+    @staticmethod
+    def get_dependency_graph(objs, depgen=None):
         """
         Construct a :class:`networkx.DiGraph` that represents the dependency graph.
 
@@ -117,7 +118,7 @@ class Builder(object):
 
     def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):
         item = self.get_item(filename)
-        self.logger.info("Building %s" % item)
+        self.logger.info("Building %s", item)
 
         build_dir = str(self.build_dir) if self.build_dir else None
 
@@ -132,7 +133,7 @@ class Builder(object):
             objs += ['%s.o' % dep.path.stem]
 
         if target is not None:
-            self.logger.info('Linking target: %s' % target)
+            self.logger.info('Linking target: %s', target)
             self.compiler.link(objs=objs, target=target, cwd=build_dir)
 
     def load_module(self, module):
@@ -170,7 +171,7 @@ class Builder(object):
                 self.build(item.path.name, target=target, shared=False)
 
         # Execute the first-level wrapper (f90wrap)
-        self.logger.info('Python-wrapping %s' % items[0])
+        self.logger.info('Python-wrapping %s', items[0])
         sourcepaths = [str(i.path) for i in items]
         self.compiler.f90wrap(modname=modname, source=sourcepaths, cwd=build_dir)
 

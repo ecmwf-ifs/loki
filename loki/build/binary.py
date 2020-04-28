@@ -3,7 +3,7 @@ from loki.build.tools import flatten
 __all__ = ['Binary']
 
 
-class Binary(object):
+class Binary:
     """
     A binary build target to generate executables.
     """

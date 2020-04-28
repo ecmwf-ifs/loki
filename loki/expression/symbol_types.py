@@ -12,6 +12,8 @@ __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral
            'LiteralList', 'RangeIndex', 'InlineCall', 'Cast']
 
 
+# pylint: disable=abstract-method
+
 class Scalar(pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
@@ -26,6 +28,8 @@ class Scalar(pmbl.Variable):
     """
 
     def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Scalar, self).__init__(name)
 
         self._scope = weakref.ref(scope)
@@ -117,6 +121,8 @@ class Array(pmbl.Variable):
 
     def __init__(self, name, scope, type=None, parent=None, dimensions=None,
                  initial=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Array, self).__init__(name)
 
         self._scope = weakref.ref(scope)
@@ -219,7 +225,7 @@ class Array(pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Variable(object):
+class Variable:
     """
     A symbolic object representing either a :class:`Scalar` or a :class:`Array`
     variable in arithmetic expressions.
@@ -233,7 +239,7 @@ class Variable(object):
     the one that is most up-to-date.
     """
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, **kwargs):
         """
         1st-level variables creation with name injection via the object class
         """
@@ -337,7 +343,7 @@ class LogicLiteral(pmbl.Leaf):
     A boolean constant in an expression.
     """
 
-    def __init__(self, value, **kwargs):
+    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
         super(LogicLiteral, self).__init__()
 
         self.value = value.lower() in ('true', '.true.')
@@ -356,7 +362,7 @@ class StringLiteral(pmbl.Leaf):
     A string.
     """
 
-    def __init__(self, value, **kwargs):
+    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
         super(StringLiteral, self).__init__()
 
         if value[0] == value[-1] and value[0] in '"\'':
@@ -373,7 +379,7 @@ class StringLiteral(pmbl.Leaf):
         return LokiStringifyMapper()
 
 
-class Literal(object):
+class Literal:
     """
     A factory class that instantiates the appropriate :class:`*Literal` type for
     a given value.
@@ -407,6 +413,7 @@ class Literal(object):
             obj = cls._from_literal(value, **kwargs)
         except KeyError:
             # Let Pymbolic figure our what we're dealing with
+            # pylint: disable=import-outside-toplevel
             from pymbolic import parse
             obj = parse(value)
 
@@ -529,10 +536,9 @@ class RangeIndex(pmbl.AlgebraicLeaf):
     def __getinitargs__(self):
         if self._step:
             return (self._lower, self._upper, self._step)
-        elif self._lower:
+        if self._lower:
             return (self._lower, self._upper)
-        else:
-            return (self._upper,)
+        return (self._upper,)
 
     mapper_method = intern('map_range_index')
 

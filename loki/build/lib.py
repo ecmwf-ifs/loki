@@ -1,7 +1,7 @@
-import networkx as nx
 from operator import attrgetter
 from pathlib import Path
 from tqdm import tqdm
+import networkx as nx
 
 from loki.build.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler
@@ -13,7 +13,7 @@ from loki.build.logging import warning
 __all__ = ['Lib']
 
 
-class Lib(object):
+class Lib:
     """
     A library object linked from multiple compiled objects (:class:`Obj`).
 
@@ -45,7 +45,7 @@ class Lib(object):
             self.objs = [Obj(source_path=p) for p in obj_paths]
 
         if len(self.objs) == 0:
-            warning('%s:: Empty dependency list: %s' % (self, self.objs))
+            warning('%s:: Empty dependency list: %s', self, self.objs)
 
     def __repr__(self):
         return 'Lib<%s>' % self.name

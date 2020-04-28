@@ -21,7 +21,7 @@ from loki.types import TypeTable
 __all__ = ['SourceFile']
 
 
-class SourceFile(object):
+class SourceFile:
     """
     Class to handle and manipulate source files.
 
@@ -48,12 +48,11 @@ class SourceFile(object):
                   xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
             return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
-        elif frontend == OFP:
+        if frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
-        elif frontend == FP:
+        if frontend == FP:
             return cls.from_fparser(filename, typedefs=typedefs)
-        else:
-            raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None, includes=None):
@@ -139,7 +138,8 @@ class SourceFile(object):
 
         routine_asts = [r for r in ast.content if isinstance(r, (Fortran2003.Subroutine_Subprogram,
                                                                  Fortran2003.Function_Subprogram))]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj) for r in routine_asts]
+        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj)
+                    for r in routine_asts]
 
         # TODO: Do modules!
         module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
@@ -239,27 +239,3 @@ class SourceFile(object):
         info("Writing %s" % path)
         with path.open('w') as f:
             f.write(source)
-
-    @property
-    def lines(self):
-        """
-        Sanitizes source content into long lines with continuous statements.
-
-        Note: This does not change the content of the file
-        """
-        return self._raw_source.splitlines(keepends=True)
-
-    @property
-    def longlines(self):
-        return self.body.longlines
-
-    def replace(self, mapping):
-        """
-        Performs a line-by-line string-replacement from a given mapping
-
-        Note: The replacement is performed on each raw line. Might
-        need to improve this later to unpick linebreaks in the search
-        keys.
-        """
-        for section in self.sections:
-            section.replace(mapping)

@@ -1,7 +1,7 @@
 from pathlib import Path
 from collections import deque
-import networkx as nx
 import glob
+import networkx as nx
 try:
     import graphviz as gviz
 except ImportError:
@@ -14,7 +14,7 @@ from loki import (as_tuple, info, warning, error, SourceFile,
 __all__ = ['Task', 'TaskScheduler']
 
 
-class Task(object):
+class Task:
     """
     A work item that represents a single source routine or module to
     be processed. Each :class:`Task` spawns new work items according
@@ -47,20 +47,19 @@ class Task(object):
                 # TODO: Modules should be first-class items too
                 self.routine = self.file.subroutines[0]
 
-            except Exception as e:
+            except Exception as excinfo:  # pylint: disable=broad-except
                 if self.graph:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
-                warning('Could not parse %s:' % path)
+                warning('Could not parse %s:', path)
                 if self.config['strict']:
-                    raise e
-                else:
-                    error(e)
+                    raise excinfo
+                error(excinfo)
 
         else:
             if self.graph:
                 self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
-            info("Could not find source file %s; skipping..." % name)
+            info("Could not find source file %s; skipping...", name)
 
     @property
     def children(self):
@@ -75,7 +74,7 @@ class Task(object):
         self.routine.enrich_calls(routines=routines)
 
 
-class TaskScheduler(object):
+class TaskScheduler:
     """
     Work queue manager to enqueue and process individual :class:`Task`
     routines/modules with a given kernel.

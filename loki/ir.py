@@ -12,7 +12,8 @@ __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallCon
            'MultiConditional', 'Interface', 'Intrinsic']
 
 
-class Node(object):
+class Node:
+    # pylint: disable=no-member  # Stop reports about _args
 
     """
     :attr:`_traversable`. The traversable fields of the Node; that is, fields
@@ -24,7 +25,7 @@ class Node(object):
     def __new__(cls, *args, **kwargs):
         obj = super(Node, cls).__new__(cls)
         argnames = inspect.getfullargspec(cls.__init__).args
-        obj._args = {k: v for k, v in zip(argnames[1:], args)}
+        obj._args = dict(zip(argnames[1:], args))
         obj._args.update(kwargs.items())
         obj._args.update({k: None for k in argnames[1:] if k not in obj._args})
         return obj
@@ -35,7 +36,7 @@ class Node(object):
     def _rebuild(self, *args, **kwargs):
         handle = self._args.copy()  # Original constructor arguments
         argnames = [i for i in self._traversable if i not in kwargs]
-        handle.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        handle.update(OrderedDict(zip(argnames, args)))
         handle.update(kwargs)
         return type(self)(**handle)
 
@@ -47,7 +48,7 @@ class Node(object):
         without rebuilding it. Use with care!
         """
         argnames = [i for i in self._traversable if i not in kwargs]
-        self._args.update(OrderedDict([(k, v) for k, v in zip(argnames, args)]))
+        self._args.update(OrderedDict(zip(argnames, args)))
         self._args.update(kwargs)
         self.__init__(**self._args)
 
@@ -291,6 +292,8 @@ class Declaration(Node):
 
     def __init__(self, variables, dimensions=None, type=None,
                  comment=None, pragma=None, source=None):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
 
         self.variables = variables
@@ -415,6 +418,7 @@ class CallContext(Node):
     """
 
     def __init__(self, routine, active):
+        super(CallContext, self).__init__()
         self.routine = routine
         self.active = active
 

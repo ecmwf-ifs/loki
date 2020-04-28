@@ -17,7 +17,7 @@ from loki.types import TypeTable, DataType, SymbolType
 __all__ = ['Module']
 
 
-class Module(object):
+class Module:
     """
     Class to handle and manipulate source modules.
 
@@ -127,8 +127,8 @@ class Module(object):
                      symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
-    @classmethod
-    def _process_pragmas(self, spec):
+    @staticmethod
+    def _process_pragmas(spec):
         """
         Process any '!$loki dimension' pragmas to override deferred dimensions
         """

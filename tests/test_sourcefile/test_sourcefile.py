@@ -1,11 +1,11 @@
-import pytest
 from pathlib import Path
+import pytest
 
 from loki import SourceFile, OFP, OMNI, FP
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'sourcefile.f90'
 
 

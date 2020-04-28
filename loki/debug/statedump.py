@@ -7,18 +7,18 @@ loaded into Python via the provided :class:`StateDump` class.
 Some utility routines to generate the boilerplate dumping code
 are also provided.
 """
-import numpy as np
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from csv import reader as CSVReader
 from functools import reduce
 from operator import mul
+import numpy as np
 
 
 __all__ = ['StateDump']
 
 
-class StateDump(object):
+class StateDump:
     """
     Collection of variables and arrays to represent a dumped state
     as created by the `loki_debug::StateDump` utility.
@@ -34,7 +34,7 @@ class StateDump(object):
         'int32': np.int32, 'float64': np.float64, 'logical': np.bool
     }
 
-    @classmethod
+    @staticmethod
     def template_dump_state(variables):
         """
         Generate boilerplate state_dump code from list of variables
@@ -46,7 +46,7 @@ class StateDump(object):
             vline += 'name=trim(name)//\'%%%s\'))' % vname.upper()
             print(vline)
 
-    @classmethod
+    @staticmethod
     def template_dump_derived_type(varname, derived):
         """
         Utility method to generate boilerplate code for the Fortran

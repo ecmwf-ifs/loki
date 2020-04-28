@@ -3,7 +3,7 @@
 __all = ['Source', 'extract_source']
 
 
-class Source(object):
+class Source:
 
     def __init__(self, lines, string=None, file=None, label=None):
         self.lines = lines

@@ -5,11 +5,11 @@ Loki head script for source-to-source transformations concerning ECMWF
 physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
-import click
-import toml
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from pathlib import Path
+import click
+import toml
 
 from loki import (
     SourceFile, Transformer, TaskScheduler,
@@ -46,17 +46,18 @@ class DerivedArgsTransformation(AbstractTransformation):
     depend on the accurate signatures and call arguments.
     """
 
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, source, **kwargs):
         # Determine role in bulk-processing use case
         task = kwargs.get('task', None)
         role = 'kernel' if task is None else task.config['role']
 
         # Apply argument transformation, caller first!
-        self.flatten_derived_args_caller(routine)
+        self.flatten_derived_args_caller(source)
         if role == 'kernel':
-            self.flatten_derived_args_routine(routine)
+            self.flatten_derived_args_routine(source)
 
-    def _derived_type_arguments(self, routine):
+    @staticmethod
+    def _derived_type_arguments(routine):
         """
         Find all derived-type arguments used in a given routine.
 
@@ -108,7 +109,7 @@ class DerivedArgsTransformation(AbstractTransformation):
                             new_dims = tuple(RangeIndex() for _ in type_var.type.shape or [])
                             new_type = type_var.type.clone(parent=d_arg)
                             new_arg = type_var.clone(dimensions=new_dims, type=new_type,
-                                                     parent=d_arg, scope=d_arg.scope)  # deepcopy(d_arg))
+                                                     parent=d_arg, scope=d_arg.scope)
                             new_args += [new_arg]
 
                         # Replace variable in dummy signature
@@ -170,7 +171,7 @@ class DerivedArgsTransformation(AbstractTransformation):
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
-class Dimension(object):
+class Dimension:
     """
     Dimension that defines a one-dimensional iteration space.
 
@@ -224,22 +225,23 @@ class SCATransformation(AbstractTransformation):
     def __init__(self, dimension):
         self.dimension = dimension
 
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, source, **kwargs):
         task = kwargs.get('task', None)
         role = kwargs['role'] if task is None else task.config['role']
 
         if role == 'driver':
-            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
+            self.hoist_dimension_from_call(source, target=self.dimension, wrap=True)
 
         elif role == 'kernel':
-            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
-            self.remove_dimension(routine, target=self.dimension)
+            self.hoist_dimension_from_call(source, target=self.dimension, wrap=False)
+            self.remove_dimension(source, target=self.dimension)
 
-        if routine.members is not None:
-            for member in routine.members:
+        if source.members is not None:
+            for member in source.members:
                 self.apply(member, **kwargs)
 
-    def remove_dimension(self, routine, target):
+    @staticmethod
+    def remove_dimension(routine, target):
         """
         Remove all loops and variable indices of a given target dimension
         from the given routine.
@@ -295,7 +297,8 @@ class SCATransformation(AbstractTransformation):
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
 
-    def hoist_dimension_from_call(self, caller, target, wrap=True):
+    @staticmethod
+    def hoist_dimension_from_call(caller, target, wrap=True):
         """
         Remove all indices and variables of a target dimension from
         caller (driver) and callee (kernel) routines, and insert the
@@ -380,7 +383,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     Note: Must be run after generic SCA conversion.
     """
-    from loki import FortranCodegen
+    from loki import FortranCodegen  # pylint: disable=import-outside-toplevel
 
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
@@ -457,14 +460,14 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
         OpenMP wrapping.
         """
 
-        def _pipeline(self, routine, **kwargs):
+        def _pipeline(self, source, **kwargs):
             # Define the horizontal dimension
             horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                                    variable='JL', iteration=('KIDIA', 'KFDIA'))
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(routine.body):
+                for loop in FindNodes(Loop).visit(source.body):
                     if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
@@ -473,8 +476,8 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
                         loop._update(pragma=pragma, pragma_post=pragma_nowait)
 
             # Perform necessary housekeeking tasks
-            self.rename_routine(routine, suffix='IDEM')
-            self.write_to_file(routine, **kwargs)
+            self.rename_routine(source, suffix='IDEM')
+            self.write_to_file(source, **kwargs)
 
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
@@ -611,7 +614,7 @@ def transpile(out_path, header, source, driver, xmod, include):
     typepaths = [Path(h) for h in header]
     typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
     for typemod in typemods:
-        FortranCTransformation().apply(routine=typemod, path=out_path)
+        FortranCTransformation().apply(source=typemod, path=out_path)
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation(header_modules=typemods)
@@ -631,13 +634,13 @@ class InferArgShapeTransformation(AbstractTransformation):
     the caller.
     """
 
-    def _pipeline(self, caller, **kwargs):
+    def _pipeline(self, source, **kwargs):
 
-        for call in FindNodes(CallStatement).visit(caller.body):
+        for call in FindNodes(CallStatement).visit(source.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
 
-                # Create a variable map with new shape information from caller
+                # Create a variable map with new shape information from source
                 vmap = {}
                 for arg, val in call.context.arg_iter(call):
                     if isinstance(arg, Array) and len(arg.shape) > 0:
@@ -680,21 +683,21 @@ class RapsTransformation(BasicTransformation):
         self.loki_deps = loki_deps
         self.basepath = basepath
 
-    def _pipeline(self, routine, **kwargs):
+    def _pipeline(self, source, **kwargs):
         task = kwargs.get('task')
         mode = task.config['mode']
         role = task.config['role']
         # TODO: Need enrichment for Imports to get rid of this!
         processor = kwargs.get('processor', None)
 
-        info('Processing %s (role=%s, mode=%s)' % (routine.name, role, mode))
+        info('Processing %s (role=%s, mode=%s)', source.name, role, mode)
 
-        original = routine.name
+        original = source.name
         if role == 'kernel':
-            self.rename_routine(routine, suffix=mode.upper())
+            self.rename_routine(source, suffix=mode.upper())
 
-        self.rename_calls(routine, suffix=mode.upper())
-        self.adjust_imports(routine, mode, processor)
+        self.rename_calls(source, suffix=mode.upper())
+        self.adjust_imports(source, mode, processor)
 
         filename = task.path.with_suffix('.%s.F90' % mode)
         modules = as_tuple(task.file.modules)
@@ -706,7 +709,7 @@ class RapsTransformation(BasicTransformation):
             module.name = ('%s_%s_MOD' % (modname, mode)).upper()
             self.write_to_file(modules, filename=filename, module_wrap=False)
         else:
-            self.write_to_file(routine, filename=filename, module_wrap=False)
+            self.write_to_file(source, filename=filename, module_wrap=False)
 
         self.adjust_dependencies(original=original, task=task, processor=processor)
 
@@ -717,9 +720,10 @@ class RapsTransformation(BasicTransformation):
                 intfb_path = Path(incl)/task.path.with_suffix(ending).name
                 if (intfb_path).exists():
                     new_intfb_path = Path(incl)/task.path.with_suffix('.%s%s' % (mode, ending)).name
-                    SourceFile.to_file(source=fgen(routine.interface), path=Path(new_intfb_path))
+                    SourceFile.to_file(source=fgen(source.interface), path=Path(new_intfb_path))
 
-    def adjust_imports(self, routine, mode, processor):
+    @staticmethod
+    def adjust_imports(routine, mode, processor):
         """
         Utility routine to rename all calls to relevant subroutines and
         adjust the relevant imports.
@@ -757,6 +761,8 @@ class RapsTransformation(BasicTransformation):
         and modified on-the-fly. This is required to get selective replication
         until we have some smarter dependency generation and globbing support.
         """
+        from raps_deps import Dependency  # pylint: disable=import-outside-toplevel
+
         mode = task.config['mode']
         whitelist = task.config['whitelist']
         original = original.lower()
@@ -783,8 +789,10 @@ class RapsTransformation(BasicTransformation):
                     ok_path = h_path.with_suffix('.ok')
 
                     h_deps = deepcopy(self.raps_deps.content_map[str(ok_path)])
-                    h_deps.replace(str(h_path), str(h_path).replace(original, '%s.%s' % (original, mode)))
-                    h_deps.replace(str(ok_path), str(ok_path).replace(original, '%s.%s' % (original, mode)))
+                    h_deps.replace(str(h_path),
+                                   str(h_path).replace(original, '%s.%s' % (original, mode)))
+                    h_deps.replace(str(ok_path),
+                                   str(ok_path).replace(original, '%s.%s' % (original, mode)))
                     self.loki_deps.content += [h_deps]
 
         # Run through all previous dependencies and inject
@@ -845,6 +853,8 @@ def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
     source-to-source transformations, such as the Single Column Abstraction (SCA),
     to large sets of interdependent subroutines.
     """
+    from raps_deps import RapsDependencyFile, Rule  # pylint: disable=import-outside-toplevel
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
 

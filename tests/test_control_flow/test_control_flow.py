@@ -1,18 +1,18 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from pathlib import Path
 
-from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
+from loki import clean, compile_and_load, OFP, OMNI, FP
 from conftest import generate_identity
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'control_flow.f90'
 
 
-@pytest.fixture(scope='module')
-def reference(refpath):
+@pytest.fixture(scope='module', name='reference')
+def fixture_reference(refpath):
     """
     Compile and load the reference solution
     """

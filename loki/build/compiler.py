@@ -13,6 +13,8 @@ _test_base_dir = Path(__file__).parent.parent.parent/'tests'
 
 
 def compile(filename, include_dirs=None, compiler=None, cwd=None):
+    # Stop complaints about `compile` in this function
+    # pylint: disable=redefined-builtin
     filepath = Path(filename)
     compiler = compiler or _default_compiler
     args = compiler.build_args(source=filepath.absolute(),
@@ -75,7 +77,7 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):
     return import_module(filepath.stem)
 
 
-class Compiler(object):
+class Compiler:
     """
     Base class for specifying different compiler toolchains.
     """
@@ -124,7 +126,10 @@ class Compiler(object):
         """
         Execute a build command for a given source.
         """
-        args = self.compile_args(source, target=target, include_dirs=include_dirs, use_c=use_c)
+        kwargs = {'target': target, 'include_dirs': include_dirs}
+        if use_c:
+            kwargs['mode'] = 'c'
+        args = self.compile_args(source, **kwargs)
         execute(args, cwd=cwd)
 
     def linker_args(self, objs, target, shared=True):
@@ -144,7 +149,8 @@ class Compiler(object):
         args = self.linker_args(objs=objs, target=target, shared=shared)
         execute(args, cwd=cwd)
 
-    def f90wrap_args(self, modname, source):
+    @staticmethod
+    def f90wrap_args(modname, source):
         """
         Generate arguments for the ``f90wrap`` utility invocation line.
         """
@@ -161,7 +167,8 @@ class Compiler(object):
         args = self.f90wrap_args(modname=modname, source=source)
         execute(args, cwd=cwd)
 
-    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None):
+    @staticmethod
+    def f2py_args(modname, source, libs=None, lib_dirs=None, incl_dirs=None):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """

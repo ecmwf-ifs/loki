@@ -1,9 +1,9 @@
-from subprocess import run, PIPE, STDOUT, CalledProcessError
-from collections import Iterable
-from pathlib import Path
-from fastcache import clru_cache
 import os
 import shutil
+from subprocess import run, PIPE, STDOUT, CalledProcessError
+from collections.abc import Iterable
+from pathlib import Path
+from fastcache import clru_cache
 
 from loki.build.logging import debug, error
 
@@ -12,7 +12,7 @@ __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
 
 
 def execute(args, cwd=None):
-    debug('Executing: %s' % ' '.join(args))
+    debug('Executing: %s', ' '.join(args))
     cwd = cwd if cwd is None else str(cwd)
     try:
         run(args, check=True, stdout=PIPE, stderr=STDOUT, cwd=cwd)
@@ -24,7 +24,7 @@ def execute(args, cwd=None):
 
 def delete(filename, force=False):
     filepath = Path(filename)
-    debug('Deleting %s' % filepath)
+    debug('Deleting %s', filepath)
     if force:
         shutil.rmtree('%s' % filepath, ignore_errors=True)
     else:
@@ -38,6 +38,9 @@ def as_tuple(item, type=None, length=None):
 
     Partly extracted from: https://github.com/OP2/PyOP2/.
     """
+    # Stop complaints about `type` in this function
+    # pylint: disable=redefined-builtin
+
     # Empty list if we get passed None
     if item is None:
         t = ()

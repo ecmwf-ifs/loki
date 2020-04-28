@@ -1,17 +1,16 @@
-import pytest
-import numpy as np
 from pathlib import Path
+import pytest
 
 from loki.build import Obj, Lib, Builder
 
 
-@pytest.fixture(scope='module')
-def path():
+@pytest.fixture(scope='module', name='path')
+def fixture_path():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module')
-def builder(path):
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(path):
     return Builder(source_dirs=path, build_dir=path/'build')
 
 
@@ -77,7 +76,7 @@ def test_build_lib_with_c(builder):
     builder.clean()
 
     # Create library with explicit dependencies
-    objects = ['wrapper.f90', 'c_util.c']
+    # objects = ['wrapper.f90', 'c_util.c']
     wrapper = Obj(source_path='wrapper.f90')
     c_util = Obj(source_path='c_util.c')
     lib = Lib(name='library', objs=[wrapper, c_util], shared=False)
@@ -103,4 +102,4 @@ def test_build_binary(builder):
     """
     Test basic binary compilation from objects and libs.
     """
-    pass
+    assert builder

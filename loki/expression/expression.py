@@ -21,6 +21,7 @@ class ExpressionFinder(Visitor):
     Note that :class:`FindXXX` classes are provided to find the most
     common sub-expression types, eg. symbols, functions and variables.
     """
+    # pylint: disable=unused-argument
 
     # By default we return nothing
     retrieval_function = lambda x: ()
@@ -50,8 +51,7 @@ class ExpressionFinder(Visitor):
         if self.unique:
             var_dict = {dict_key(var): var for var in variables}
             return set(var_dict.values())
-        else:
-            return variables
+        return variables
 
     def retrieve(self, expr):
         """
@@ -61,7 +61,7 @@ class ExpressionFinder(Visitor):
 
     default_retval = tuple
 
-    def visit_tuple(self, o):
+    def visit_tuple(self, o, **kwargs):
         variables = as_tuple(flatten(self.visit(c) for c in o))
         return self.find_uniques(variables)
 
@@ -135,6 +135,7 @@ class SubstituteExpressions(Transformer):
 
     :param expr_map: Expression mapping to apply to all expressions in a tree.
     """
+    # pylint: disable=unused-argument
 
     def __init__(self, expr_map):
         super(SubstituteExpressions, self).__init__()

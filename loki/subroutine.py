@@ -18,7 +18,7 @@ from loki.types import TypeTable
 __all__ = ['Subroutine']
 
 
-class InterfaceBlock(object):
+class InterfaceBlock:
 
     def __init__(self, name, arguments, imports, declarations):
         self.name = name
@@ -27,7 +27,7 @@ class InterfaceBlock(object):
         self.declarations = declarations
 
 
-class Subroutine(object):
+class Subroutine:
     """
     Class to handle and manipulate a single subroutine.
 
@@ -118,18 +118,17 @@ class Subroutine(object):
             return cls.from_omni(ast=f_ast, raw_source=source,
                                  typetable=typetable, typedefs=typedefs)
 
-        elif frontend == Frontend.OFP:
+        if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             f_ast = ast.find('file/subroutine')
             return cls.from_ofp(ast=f_ast, raw_source=source, typedefs=typedefs)
 
-        elif frontend == Frontend.FP:
+        if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             f_ast = get_child(ast, Fortran2003.Subroutine_Subprogram)
             return cls.from_fparser(f_ast, typedefs=typedefs)
 
-        else:
-            raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
@@ -403,8 +402,11 @@ class Subroutine(object):
         anames = [a.name for a in arguments]
         for decl in declarations:
             # Add potentially unkown TYPE and KIND symbols to 'undefined'
-            if decl.type.name.upper() not in BaseType._base_types:
-                undefined.add(decl.type.name)
+            # if decl.type.name.upper() not in BaseType._base_types:
+            #    undefined.add(decl.type.name)
+            if decl.type.name.upper():
+                # Nonsense-if to fool pylint
+                raise NotImplementedError()
             if decl.type.kind and not decl.type.kind.isdigit():
                 undefined.add(decl.type.kind)
             # Add (pure) variable dimensions that might be defined elsewhere

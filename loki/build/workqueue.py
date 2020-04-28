@@ -16,13 +16,14 @@ MEMORY_URL = 'memory://'
 DEFAULT_TIMEOUT = 60
 
 
-class DummyQueue(object):
+class DummyQueue:
     """
     Dummy queue object to funnel workqueue requests to the current
     main process.
     """
 
-    def execute(self, *args, **kwargs):
+    @staticmethod
+    def execute(*args, **kwargs):
         execute(*args, **kwargs)
 
 
@@ -82,15 +83,15 @@ def wait_and_check(task, timeout=DEFAULT_TIMEOUT, logger=None):
             error = task.exception(timeout=timeout)
 
             if error is not None:
-                logger.error('Failed compilation task: %s' % task)
+                logger.error('Failed compilation task: %s', task)
                 raise error
 
         except TimeoutError as e:
-            logger.error('Compilation task timed out: %s' % task)
+            logger.error('Compilation task timed out: %s', task)
             raise e
 
 
-class ParallelQueue(object):
+class ParallelQueue:
     """
     Dummy queue object to funnel workqueue requests to the current
     main process.

@@ -1,24 +1,24 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from pathlib import Path
 
 from loki import SourceFile, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'transpile.f90'
 
 
-@pytest.fixture(scope='module')
-def builder(refpath):
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(refpath):
     path = refpath.parent
     return Builder(source_dirs=path, build_dir=path/'build')
 
 
-@pytest.fixture(scope='module')
-def reference(refpath, builder):
+@pytest.fixture(scope='module', name='reference')
+def fixture_reference(builder):
     """
     Compile and load the reference solution
     """
@@ -39,7 +39,7 @@ def c_transpile(routine, refpath, builder, header_modules=None, objects=None, wr
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=header_modules)
-    f2c.apply(routine=routine, path=refpath.parent)
+    f2c.apply(source=routine, path=refpath.parent)
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
@@ -116,7 +116,8 @@ def test_transpile_arguments(refpath, reference, builder, frontend):
     b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
     c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
 
-    a, b, c = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc(n, array, array_io, a_io, b_io, c_io)
+    a, b, c = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc(n, array, array_io,
+                                                                         a_io, b_io, c_io)
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
@@ -146,7 +147,7 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -191,7 +192,7 @@ def test_transpile_associates(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -232,7 +233,7 @@ def test_transpile_derived_type_array(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
@@ -264,7 +265,7 @@ def test_transpile_module_variables(refpath, reference, builder, frontend):
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
     typemod = SourceFile.from_file(typepath)['transpile_type']
-    FortranCTransformation().apply(routine=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
     c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder,
