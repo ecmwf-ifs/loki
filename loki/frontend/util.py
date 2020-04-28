@@ -14,7 +14,7 @@ class Frontend(IntEnum):
     FP = 3
 
     def __str__(self):
-        return self.name.lower()
+        return self.name.lower()  # pylint: disable=no-member
 
 
 OMNI = Frontend.OMNI

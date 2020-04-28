@@ -330,7 +330,7 @@ class OFP2IR(GenericVisitor):
                         variables += [Variable(name=v_name, type=v_type, dimensions=dimensions,
                                                scope=typedef.symbols)]
 
-                    parent_type.variables.update([(v.basename, v) for v in variables])
+                    parent_type.variables.update([(v.basename, v) for v in variables])  # pylint: disable=no-member
                     declarations += [Declaration(variables=variables, type=_type, source=t_source)]
 
                 typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
@@ -479,7 +479,8 @@ class OFP2IR(GenericVisitor):
 
         def generate_variable(vname, indices, kwargs, parent, source):
             if vname.upper() == 'RESHAPE':
-                return reshape(indices[0], shape=indices[1])
+                # return reshape(indices[0], shape=indices[1])
+                raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return InlineCall(vname, parameters=indices)

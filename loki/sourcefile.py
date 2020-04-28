@@ -239,27 +239,3 @@ class SourceFile:
         info("Writing %s" % path)
         with path.open('w') as f:
             f.write(source)
-
-    @property
-    def lines(self):
-        """
-        Sanitizes source content into long lines with continuous statements.
-
-        Note: This does not change the content of the file
-        """
-        return self._raw_source.splitlines(keepends=True)
-
-    @property
-    def longlines(self):
-        return self.body.longlines
-
-    def replace(self, mapping):
-        """
-        Performs a line-by-line string-replacement from a given mapping
-
-        Note: The replacement is performed on each raw line. Might
-        need to improve this later to unpick linebreaks in the search
-        keys.
-        """
-        for section in self.sections:
-            section.replace(mapping)

@@ -402,8 +402,11 @@ class Subroutine:
         anames = [a.name for a in arguments]
         for decl in declarations:
             # Add potentially unkown TYPE and KIND symbols to 'undefined'
-            if decl.type.name.upper() not in BaseType._base_types:
-                undefined.add(decl.type.name)
+            # if decl.type.name.upper() not in BaseType._base_types:
+            #    undefined.add(decl.type.name)
+            if decl.type.name.upper():
+                # Nonsense-if to fool pylint
+                raise NotImplementedError()
             if decl.type.kind and not decl.type.kind.isdigit():
                 undefined.add(decl.type.kind)
             # Add (pure) variable dimensions that might be defined elsewhere

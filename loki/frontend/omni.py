@@ -204,7 +204,7 @@ class OMNI2IR(GenericVisitor):
                 tname = self.symbol_map[_type.name].find('name').text
                 variables = self._struct_type_variables(self.type_map[_type.name],
                                                         scope=self.scope.symbols, parent=name.text)
-                variables = OrderedDict([(v.basename, v) for v in variables])
+                variables = OrderedDict([(v.basename, v) for v in variables])  # pylint:disable=no-member
 
                 # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
                 _type = _type.clone(dtype=DataType.DERIVED_TYPE, name=tname, variables=variables)
@@ -236,7 +236,8 @@ class OMNI2IR(GenericVisitor):
                                                 typedef.symbols)
 
         # Remember that derived type
-        _type.variables.update([(v.basename, v) for v in variables])
+        _type.variables.update([(v.basename, v) for v in variables])  # pylint:disable=no-member
+
         self.scope.types[name.text] = _type
 
         # Build individual declarations for each member
