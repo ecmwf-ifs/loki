@@ -475,11 +475,11 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                 if len(matches) != count:
                     logger.warning('Expected %s matches for operator %s, found %s',
                                    count, op, len(matches))
-                    for f77, _ in matches:
-                        if f77:
-                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
-                            msg = fmt_string.format(op, f77)
-                            rule_report.add(node, msg)
+                for f77, _ in matches:
+                    if f77:
+                        fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
+                        msg = fmt_string.format(op if op != '!=' else '/=', f77)
+                        rule_report.add(msg, node)
 
 
 # Create the __all__ property of the module to contain only the rule names
