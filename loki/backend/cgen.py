@@ -274,6 +274,14 @@ class CCodegen(Visitor):
         header = 'for (%s=%s; %s%s%s; %s%s)' % (lvar, lower, lvar, criteria, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
+    def visit_WhileLoop(self, o, **kwargs):
+        condition = self._csymgen(o.condition)
+        self._depth += 1
+        body = self.visit(o.body, **kwargs)
+        self._depth -= 1
+        header = 'while (%s)' % condition
+        return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
+
     def visit_Statement(self, o, **kwargs):
         stmt = '%s = %s;' % (self._csymgen(o.target), self._csymgen(o.expr))
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''

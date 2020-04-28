@@ -104,7 +104,7 @@ class ExpressionFinder(Visitor):
     default_retval = tuple
 
     def visit_tuple(self, o, **kwargs):
-        variables = self.flatten(self.visit(c) for c in o)
+        variables = self.flatten(self.visit(c, **kwargs) for c in o)
         return self.find_uniques(variables)
 
     visit_list = visit_tuple
@@ -116,15 +116,20 @@ class ExpressionFinder(Visitor):
 
     def visit_Conditional(self, o, **kwargs):
         variables = as_tuple(flatten(self.retrieve(c) for c in o.conditions))
-        variables += as_tuple(flatten(self.visit(c) for c in o.bodies))
-        variables += as_tuple(self.visit(o.else_body))
+        variables += as_tuple(flatten(self.visit(c, **kwargs) for c in o.bodies))
+        variables += as_tuple(self.visit(o.else_body, **kwargs))
         return self._return(o, variables)
 
     def visit_Loop(self, o, **kwargs):
         variables = as_tuple(self.retrieve(o.variable)) if o.variable else ()
         variables += as_tuple(flatten(self.retrieve(c) for c in o.bounds or []
                                       if c is not None))
-        variables += as_tuple(flatten(self.visit(c) for c in o.body))
+        variables += as_tuple(flatten(self.visit(c, **kwargs) for c in o.body))
+        return self._return(o, variables)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        variables = as_tuple(self.retrieve(o.condition)) if o.condition else ()
+        variables += as_tuple(flatten(self.visit(c, **kwargs) for c in o.body))
         return self._return(o, variables)
 
     def visit_CallStatement(self, o, **kwargs):
@@ -201,15 +206,20 @@ class SubstituteExpressions(Transformer):
 
     def visit_Conditional(self, o, **kwargs):
         conditions = tuple(self.expr_mapper(e) for e in o.conditions)
-        bodies = self.visit(o.bodies)
-        else_body = self.visit(o.else_body)
+        bodies = self.visit(o.bodies, **kwargs)
+        else_body = self.visit(o.else_body, **kwargs)
         return o._rebuild(conditions=conditions, bodies=bodies, else_body=else_body)
 
     def visit_Loop(self, o, **kwargs):
         variable = self.expr_mapper(o.variable) if o.variable else None
         bounds = tuple(b if b is None else self.expr_mapper(b) for b in o.bounds or [])
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         return o._rebuild(variable=variable, bounds=bounds, body=body)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        condition = self.expr_mapper(o.condition) if o.condition else None
+        body = self.visit(o.body, **kwargs)
+        return o._rebuild(condition=condition, body=body)
 
     def visit_CallStatement(self, o, **kwargs):
         arguments = tuple(self.expr_mapper(a) for a in o.arguments)
@@ -230,5 +240,5 @@ class SubstituteExpressions(Transformer):
         return o._rebuild(dimensions=dimensions, variables=variables)
 
     def visit_TypeDef(self, o, **kwargs):
-        declarations = self.visit(o.declarations)
+        declarations = self.visit(o.declarations, **kwargs)
         return o._rebuild(declarations=declarations)

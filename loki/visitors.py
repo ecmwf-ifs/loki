@@ -280,19 +280,19 @@ class PrintAST(Visitor):
         return self.indent + '<%s>' % o.__class__.__name__
 
     def visit_tuple(self, o, **kwargs):
-        return '\n'.join([self.visit(i) for i in o])
+        return '\n'.join([self.visit(i, **kwargs) for i in o])
 
     visit_list = visit_tuple
 
     def visit_Block(self, o, **kwargs):
         self._depth += 2
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         self._depth -= 2
         return self.indent + "<Block>\n%s" % body
 
     def visit_Loop(self, o, **kwargs):
         self._depth += 2
-        body = self.visit(o.children)
+        body = self.visit(o.children, **kwargs)
         self._depth -= 2
         if self.verbose and o.bounds is not None:
             bounds = ' :: %s' % str(o.bounds)
@@ -300,16 +300,26 @@ class PrintAST(Visitor):
             bounds = ''
         return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)
 
+    def visit_WhileLoop(self, o, **kwargs):
+        self._depth += 2
+        body = self.visit(o.children, **kwargs)
+        self._depth -= 2
+        if self.verbose and o.condition is not None:
+            condition = ' :: %s' % str(o.condition)
+        else:
+            condition = ''
+        return self.indent + "<WhileLoop%s>\n%s" % (condition, body)
+
     def visit_Conditional(self, o, **kwargs):
         self._depth += 2
-        bodies = tuple(self.visit(b) for b in o.bodies)
+        bodies = tuple(self.visit(b, **kwargs) for b in o.bodies)
         self._depth -= 2
         out = self.indent + '<If %s>\n%s' % (o.conditions[0], bodies[0])
         for b, c in zip(bodies[1:], o.conditions[1:]):
             out += '\n%s' % self.indent + '<Else-If %s>\n%s' % (c, b)
         if o.else_body is not None:
             self._depth += 2
-            else_body = self.visit(o.else_body)
+            else_body = self.visit(o.else_body, **kwargs)
             self._depth -= 2
             out += '\n%s' % self.indent + '<Else>\n%s' % else_body
         return out
@@ -318,7 +328,7 @@ class PrintAST(Visitor):
         expr = (' => ' if o.ptr else ' = ') + str(o.expr) if self.verbose else ''
         if self.verbose and o.comment is not None:
             self._depth += 2
-            comment = '\n%s' % self.visit(o.comment)
+            comment = '\n%s' % self.visit(o.comment, **kwargs)
             self._depth -= 2
         else:
             comment = ''
@@ -326,7 +336,7 @@ class PrintAST(Visitor):
 
     def visit_Scope(self, o, **kwargs):
         self._depth += 2
-        body = self.visit(o.body)
+        body = self.visit(o.body, **kwargs)
         self._depth -= 2
         return self.indent + "<Scope>\n%s" % body
 
@@ -337,11 +347,11 @@ class PrintAST(Visitor):
 
         if self.verbose and o.comment is not None:
             self._depth += 2
-            comment = '\n%s' % self.visit(o.comment)
+            comment = '\n%s' % self.visit(o.comment, **kwargs)
             self._depth -= 2
         if self.verbose and o.pragma is not None:
             self._depth += 2
-            pragma = '\n%s' % self.visit(o.pragma)
+            pragma = '\n%s' % self.visit(o.pragma, **kwargs)
             self._depth -= 2
         return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
 
@@ -368,7 +378,7 @@ class PrintAST(Visitor):
 
     def visit_Variable(self, o, **kwargs):
         dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
-        _type = self.visit(o.type) if o.type is not None else ''
+        _type = self.visit(o.type, **kwargs) if o.type is not None else ''
         return self.indent + '<Var %s%s%s>' % (o.name, dimensions, _type)
 
     def visit_BaseType(self, o, **kwargs):
@@ -381,15 +391,15 @@ class PrintAST(Visitor):
         pragmas = ''
         if self.verbose:
             self._depth += 2
-            variables = '\n%s' % self.visit(o.variables)
+            variables = '\n%s' % self.visit(o.variables, **kwargs)
             self._depth -= 2
         if self.verbose and o.comments is not None:
             self._depth += 2
-            comments = '\n%s' % self.visit(o.comments)
+            comments = '\n%s' % self.visit(o.comments, **kwargs)
             self._depth -= 2
         if self.verbose and o.pragmas is not None:
             self._depth += 2
-            pragmas = '\n%s' % self.visit(o.pragmas)
+            pragmas = '\n%s' % self.visit(o.pragmas, **kwargs)
             self._depth -= 2
         return self.indent + '<DerivedType %s>%s%s%s' % (o.name, variables, pragmas, comments)
 
