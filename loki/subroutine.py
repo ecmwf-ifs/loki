@@ -231,7 +231,7 @@ class Subroutine:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
         is_function = isinstance(ast, Fortran2003.Function_Subprogram)
         if is_function:
             routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
