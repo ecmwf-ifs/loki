@@ -761,6 +761,8 @@ class RapsTransformation(BasicTransformation):
         and modified on-the-fly. This is required to get selective replication
         until we have some smarter dependency generation and globbing support.
         """
+        from raps_deps import Dependency  # pylint: disable=import-outside-toplevel
+
         mode = task.config['mode']
         whitelist = task.config['whitelist']
         original = original.lower()
@@ -851,6 +853,8 @@ def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
     source-to-source transformations, such as the Single Column Abstraction (SCA),
     to large sets of interdependent subroutines.
     """
+    from raps_deps import RapsDependencyFile, Rule  # pylint: disable=import-outside-toplevel
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
 
