@@ -26,6 +26,10 @@ class DummyQueue:
     def execute(*args, **kwargs):
         execute(*args, **kwargs)
 
+    @staticmethod
+    def call(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
 
 """
 A global flag to make worker initialization happen once only.

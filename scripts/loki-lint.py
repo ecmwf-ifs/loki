@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-import click
 from concurrent.futures import as_completed
 from itertools import chain
 from logging import FileHandler
 from pathlib import Path
 from multiprocessing import Manager
+import click
 import yaml
 
 from loki.logging import logger, DEBUG, warning, info, debug
@@ -15,7 +15,7 @@ from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
 
 
-class OutputFile(object):
+class OutputFile:
     '''Helper class to encapsulate opening and writing to a file.
     This exists because opening the file immediately and then passing
     its ``write`` function to a handler makes it impossible to pickle
@@ -79,7 +79,7 @@ def check_file(filename, linter, frontend=FP, preprocess=False, fix=False):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
-    except Exception as excinfo:
+    except Exception as excinfo:  # pylint: disable=broad-except
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
     debug('[%s] Parsing completed without error.', filename)
@@ -95,7 +95,7 @@ def check_file(filename, linter, frontend=FP, preprocess=False, fix=False):
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
 @click.pass_context
-def cli(ctx, debug, log):
+def cli(ctx, debug, log):  # pylint:disable=redefined-outer-name
     ctx.obj['DEBUG'] = debug
     if debug:
         logger.setLevel(DEBUG)
@@ -109,7 +109,7 @@ def cli(ctx, debug, log):
 @click.option('--output-file', '-o', type=click.File(mode='w'),
               help='Write default configuration to file.')
 @click.pass_context
-def default_config(ctx, output_file):
+def default_config(ctx, output_file):  # pylint: disable=unused-argument
     config = Linter.default_config()
     # Eliminate empty config dicts
     config = {key: val for key, val in config.items() if val}
@@ -127,7 +127,7 @@ def default_config(ctx, output_file):
 @click.option('--sort-by', type=click.Choice(['title', 'id']), default='title',
               show_default=True, help='Sort rules by a specific criterion.')
 @click.pass_context
-def rules(ctx, with_title, sort_by):
+def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
     rule_list = Linter.lookup_rules()
 
     sort_keys = {'title': lambda rule: rule.__name__.lower(),
@@ -183,7 +183,7 @@ def rules(ctx, with_title, sort_by):
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):  # pylint: disable=unused-argument
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -218,7 +218,8 @@ def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junit
         linter.reporter.init_parallel(manager)
 
         with workqueue(workers=worker, logger=logger, manager=manager) as q:
-            q_tasks = [q.call(check_file, f, linter, log_queue=q.log_queue,
+            log_queue = q.log_queue if hasattr(q, 'log_queue') else None  # pylint: disable=no-member
+            q_tasks = [q.call(check_file, f, linter, log_queue=log_queue,
                               preprocess=preprocess, fix=fix) for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
@@ -234,4 +235,4 @@ def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junit
 
 
 if __name__ == "__main__":
-    cli(obj={})
+    cli(obj={})  # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
