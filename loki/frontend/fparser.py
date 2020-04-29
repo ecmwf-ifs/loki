@@ -1,6 +1,5 @@
 from collections import OrderedDict
 import re
-from pathlib import Path
 
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child
@@ -10,11 +9,10 @@ except ImportError:
     from fparser.two.utils import walk_ast as walk
 from fparser.two import Fortran2003
 from fparser.common.readfortran import FortranStringReader
-from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
-                                 LogicalAnd, LogicalOr)
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
+from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
     inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file, FP
 )
@@ -23,7 +21,7 @@ import loki.expression.symbol_types as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
-from loki.logging import DEBU
+from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
@@ -643,12 +641,12 @@ class FParser2IR(GenericVisitor):
         for child in node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt):
             node = self.visit(child, **kwargs)
             if isinstance(child, Fortran2003.Else_If_Stmt):
-                bodies.append(as_tuple(body))
+                bodies.append(as_tuple(flatten(body)))
                 body = []
                 conditions.append(node)
             else:
                 body.append(node)
-        bodies.append(as_tuple(body))
+        bodies.append(as_tuple(flatten(body)))
         assert len(conditions) == len(bodies)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         else_body = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(else_ast)))
@@ -782,8 +780,8 @@ class FParser2IR(GenericVisitor):
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):
-        children = tuple(self.visit(c, **kwargs) for c in o.content)
-        children = tuple(c for c in children if c is not None)
+        children = [self.visit(c, **kwargs) for c in o.content]
+        children = as_tuple(flatten(c for c in children if c is not None))
         # Search for the ASSOCIATE statement and add all following items as its body
         assoc_index = [isinstance(ch, ir.Scope) for ch in children].index(True)
         children[assoc_index].body = children[assoc_index + 1:]
