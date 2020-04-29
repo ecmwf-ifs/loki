@@ -183,7 +183,7 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):  # pylint: disable=unused-argument
+def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -194,6 +194,8 @@ def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junit
     info('')
 
     config_values = yaml.safe_load(config) if config else {}
+    if ctx.obj['DEBUG']:
+        worker = 1
 
     debug('Searching for files using specified patterns...')
     files, excludes = get_file_list(include, exclude, basedir)
