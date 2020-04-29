@@ -1,8 +1,7 @@
 import inspect
-from collections.abc import Iterable
 
 from loki.ir import Node
-from loki.tools import flatten
+from loki.tools import flatten, is_iterable
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
 
@@ -160,7 +159,7 @@ class Transformer(Visitor):
         # For one-to-many mappings check iterables for the replacement
         # node and insert the sub-list/tuple into the list/tuple.
         for k, handle in self.mapper.items():
-            if k in o and isinstance(handle, Iterable):
+            if k in o and is_iterable(handle):
                 i = o.index(k)
                 o = o[:i] + tuple(handle) + o[i+1:]
         visited = tuple(self.visit(i, **kwargs) for i in o)
@@ -174,7 +173,7 @@ class Transformer(Visitor):
             if handle is None:
                 # None -> drop /o/
                 return None
-            if isinstance(handle, Iterable):
+            if is_iterable(handle):
                 # Original implementation to extend o.children:
                 if not o.children:
                     raise ValueError
@@ -204,7 +203,7 @@ class NestedTransformer(Transformer):
         if handle is None:
             # None -> drop /o/
             return None
-        if isinstance(handle, Iterable):
+        if is_iterable(handle):
             if not o.children:
                 raise ValueError
             extended = [tuple(handle) + rebuilt[0]] + rebuilt[1:]

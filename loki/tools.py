@@ -47,7 +47,8 @@ def is_iterable(o):
 
     This was added because :class:`pymbolic.primitives.Expression` provide an ``__iter__`` method
     that throws an exception to avoid being iterable. However, with that method defined it is
-    identified as a :class:`collections.Iterable` and thus this is a much more reliable test.
+    identified as a :class:`collections.Iterable` and thus this is a much more reliable test than
+    ``isinstance(obj, collections.Iterable)``.
     """
     try:
         iter(o)
