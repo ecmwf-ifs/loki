@@ -639,6 +639,14 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
     }
 
+    @staticmethod
+    def source_lines_to_range(node, offset=None):
+        '''Convenience helper function to ease the conversion of line number
+        tuples to line ranges.'''
+        if offset:
+            return range(node._source.lines[0] - offset, node._source.lines[1] - offset + 1)
+        return range(node._source.lines[0], node._source.lines[1] + 1)
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check for the use of Fortran 90 comparison operators.'''
