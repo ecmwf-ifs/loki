@@ -6,7 +6,7 @@ from pymbolic.primitives import is_zero, Comparison
 from loki import Subroutine, Module, SourceFile
 from loki.logging import logger
 from loki.types import DataType
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, is_iterable
 from loki.visitors import FindNodes
 from loki.expression import (
     IntLiteral, FloatLiteral, StringLiteral, LogicLiteral, Scalar, Array, RangeIndex,
@@ -457,6 +457,14 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
     }
 
+    @staticmethod
+    def source_lines_to_range(node, offset=None):
+        '''Convenience helper function to ease the conversion of line number
+        tuples to line ranges.'''
+        if offset:
+            return range(node._source.lines[0] - offset, node._source.lines[1] - offset + 1)
+        return range(node._source.lines[0], node._source.lines[1] + 1)
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check for the use of Fortran 90 comparison operators.'''
@@ -465,17 +473,53 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
             if node._source is None or node._source.string is None:
                 # Skip if we don't have source string information for this node
                 continue
-            source = node._source.string
+            # Build the source string to search for the operator. We are (in most cases) in
+            # the conditions of an IF or WHILE, thus we need to make sure we are not searching
+            # in the corresponding bodies. For that, we are looking at line numbers of the entire
+            # node and remove from those the line numbers of body statements to extract the
+            # relevant parts of the source string.
+            lines = set(cls.source_lines_to_range(node))
+            comments = []
+            bodies = node.bodies if hasattr(node, 'bodies') else ()
+            bodies += tuple(getattr(node, attr)
+                            for attr in ('body', 'else_body') if hasattr(node, attr))
+            for body in bodies:
+                if not is_iterable(body):
+                    # Skip single-statement bodies (e.g., inline IF)
+                    continue
+                for child in body:
+                    if hasattr(child, '_source') and child._source and child._source.lines:
+                        if isinstance(child, ir.Comment):
+                            comments.append(child)
+                        elif isinstance(child, ir.CommentBlock):
+                            comments.extend(child.comments)
+                        else:
+                            child_lines = set(cls.source_lines_to_range(child))
+                            lines -= child_lines
+            source_lines = node._source.string.splitlines(keepends=True)
+            # To handle inline comments correctly, we do not remove the corresponding lines but
+            # only remove the comments from the source string
+            for comment in comments:
+                for text, line in zip(comment.text.splitlines(keepends=True),
+                                      cls.source_lines_to_range(comment, node._source.lines[0])):
+                    source_lines[line] = source_lines[line].replace(text, '')
+            source = ''.join(source_lines[l - node._source.lines[0]] for l in sorted(lines))
             # Count how often each comparison operator appears on this line
             op_counts = defaultdict(int)
             for op in filter(lambda expr: isinstance(expr, Comparison), expr_list):
                 op_counts[op.operator] += 1
             for op, count in op_counts.items():
                 matches = cls._op_patterns[op].findall(source)
-                if len(matches) != count:
-                    logger.warning('Expected %s matches for operator %s, found %s',
-                                   count, op, len(matches))
-                for f77, _ in matches:
+                # TODO: There are two situations where len(matches) > count can happen:
+                # 1/ Inline comment after END statement with operator in the comment text;
+                # 2/ Statement in inline IF's body with operator.
+                # Both are harmless as they are guaranteed to appear after the operators in
+                # question for this rule.
+                if len(matches) < count:
+                    logger.warning('%s: Expected %s matches for operator %s, found %s in "%s"',
+                                   subroutine.name, count, op, len(matches), source)
+                    count = len(matches)
+                for f77, _ in matches[0:count]:
                     if f77:
                         fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
                         msg = fmt_string.format(op if op != '!=' else '/=', f77)

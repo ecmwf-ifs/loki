@@ -19,12 +19,16 @@ do while (ia >= 3 .or. ia <= -7)
   end if
 end do 
 
-! This should report 3 problems
-do while (ia >= 3 .or. ia .le. -7)
-  if (ib .gt. 5 .or. ib < -1) then
-    if (ic .eq. 4 .and. ib == -2) then
+! This should report 5 problems
+do while (ia >= 3 .or. ia .le. -7) ! This <= should not cause confusion
+  if (ib .gt. 5 .or. ib <= -1) then
+    if (ic .gt. 4 .and. ib == -2) then
       print *, 'Foo'
     end if
+  elseif (ib .eq. 5) then
+    print *, 'Bar'
+  else
+    if (ic .gt. 2) print *, 'Baz'
   end if
 end do 
 end subroutine test_routine
