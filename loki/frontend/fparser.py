@@ -18,7 +18,7 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
 from loki.ir import (
-    Comment, Declaration, Statement, Loop, Conditional, Allocation, Deallocation,
+    Comment, Declaration, Statement, Loop, WhileLoop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
     DataDeclaration, Nullify, Interface
 )
@@ -73,13 +73,13 @@ def parse_fparser_source(source):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, typedefs=None, scope=None):
+def parse_fparser_ast(ast, raw_source, typedefs=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    ir = FParser2IR(typedefs=typedefs, scope=scope).visit(ast)
+    ir = FParser2IR(raw_source=raw_source, typedefs=typedefs, scope=scope).visit(ast)
 
     # Perform soime minor sanitation tasks
     ir = inline_comments(ir)
@@ -108,12 +108,33 @@ def node_sublist(nodelist, starttype, endtype):
     return sublist
 
 
+def rget_child(node, node_type):
+    """
+    Searches for the last, immediate child of the supplied node that is of
+    the specified type.
+
+    :param node: the node whose children will be searched.
+    :type node: :py:class:`fparser.two.utils.Base`
+    :param node_type: the class(es) of child node to search for.
+    :type node_type: type or tuple of type
+
+    :returns: the last child node of type node_type that is encountered or None.
+    :rtype: py:class:`fparser.two.utils.Base`
+
+    """
+    for child in reversed(node.children):
+        if isinstance(child, node_type):
+            return child
+    return None
+
+
 class FParser2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, typedefs=None, scope=None):
+    def __init__(self, raw_source, typedefs=None, scope=None):
         super(FParser2IR, self).__init__()
+        self.raw_source = raw_source.splitlines(keepends=True)
         self.typedefs = typedefs
         self.scope = scope
 
@@ -124,8 +145,9 @@ class FParser2IR(GenericVisitor):
         source = kwargs.pop('source', None)
         if not isinstance(o, str) and o.item is not None:
             label = getattr(o.item, 'label', None)
-            string = getattr(o.item, 'line', None)
-            source = Source(lines=o.item.span, string=string, label=label)
+            lines = (o.item.span[0], o.item.span[1])
+            string = ''.join(self.raw_source[lines[0] - 1:lines[1]])
+            source = Source(lines=lines, string=string, label=label)
         return super(FParser2IR, self).visit(o, source=source, **kwargs)
 
     def visit_Base(self, o, **kwargs):
@@ -589,41 +611,66 @@ class FParser2IR(GenericVisitor):
     visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
+        do_stmt_types = (Fortran2003.Nonlabel_Do_Stmt, Fortran2003.Label_Do_Stmt)
         # In the banter before the loop, Pragmas are hidden...
         banter = []
         for ch in o.content:
-            if isinstance(ch, Fortran2003.Nonlabel_Do_Stmt):
+            if isinstance(ch, do_stmt_types):
+                do_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            do_stmt = get_child(o, do_stmt_types)
+        # Extract source by looking at everything between DO and END DO statements
+        end_do_stmt = rget_child(o, Fortran2003.End_Do_Stmt)
+        lines = (do_stmt.item.span[0], end_do_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        source = Source(lines=lines, string=string, label=do_stmt.item.name)
         # Extract loop header and get stepping info
-        variable, bounds = self.visit(ch, **kwargs)
-        # TODO: Will need to handle labeled ones too at some point
+        variable, bounds = self.visit(do_stmt, **kwargs)
         if bounds and len(bounds) == 2:
             # Ensure we always have a step size
             bounds += (None,)
-
         # Extract and process the loop body
-        body_nodes = node_sublist(o.content, Fortran2003.Nonlabel_Do_Stmt, Fortran2003.End_Do_Stmt)
-        body = as_tuple(self.visit(node) for node in body_nodes)
+        body_nodes = node_sublist(o.content, do_stmt.__class__, Fortran2003.End_Do_Stmt)
+        body = as_tuple(self.visit(node, **kwargs) for node in body_nodes)
+        # Loop label for labeled do constructs
+        label = str(do_stmt.items[1]) if isinstance(do_stmt, Fortran2003.Label_Do_Stmt) else None
+        # Select loop type
+        if bounds:
+            obj = Loop(variable=variable, body=body, bounds=bounds, label=label, source=source)
+        else:
+            obj = WhileLoop(condition=variable, body=body, label=label, source=source)
+        return (*banter, obj, )
 
-        return (*banter, Loop(variable=variable, body=body, bounds=bounds), )
+    visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
 
     def visit_Nonlabel_Do_Stmt(self, o, **kwargs):
-        if o.items[1]:
-            variable, bounds = self.visit(o.items[1], **kwargs)
-        else:
-            variable, bounds = None, None
+        variable, bounds = None, None
+        loop_control = get_child(o, Fortran2003.Loop_Control)
+        if loop_control:
+            variable, bounds = self.visit(loop_control, **kwargs)
         return variable, bounds
+
+    visit_Label_Do_Stmt = visit_Nonlabel_Do_Stmt
 
     def visit_If_Construct(self, o, **kwargs):
         # The banter before the loop...
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.If_Then_Stmt):
+                if_then_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            if_then_stmt = get_child(o, Fortran2003.If_Then_Stmt)
+        # Extract source by looking at everything between IF and END IF statements
+        end_if_stmt = rget_child(o, Fortran2003.End_If_Stmt)
+        lines = (if_then_stmt.item.span[0], end_if_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        source = Source(lines=lines, string=string, label=if_then_stmt.item.name)
         # Start with the condition that is always there
-        conditions = [self.visit(get_child(o, Fortran2003.If_Then_Stmt), **kwargs)]
+        conditions = [self.visit(if_then_stmt, **kwargs)]
         # Walk throught the if construct and collect statements for the if branch
         # Pick up any ELSE IF along the way and collect their statements as well
         bodies = []
@@ -639,8 +686,7 @@ class FParser2IR(GenericVisitor):
         bodies.append(as_tuple(body))
         assert len(conditions) == len(bodies)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
-        else_body = as_tuple(self.visit(a) for a in as_tuple(else_ast))
-        source = kwargs.get('source', None)
+        else_body = as_tuple(self.visit(a, **kwargs) for a in as_tuple(else_ast))
         return (*banter, Conditional(conditions=conditions, bodies=bodies,
                                      else_body=else_body, inline=False, source=source))
 
@@ -836,6 +882,8 @@ class FParser2IR(GenericVisitor):
     visit_Procedure_Stmt = visit_Goto_Stmt
     visit_Equivalence_Stmt = visit_Goto_Stmt
     visit_External_Stmt = visit_Goto_Stmt
+    visit_Common_Stmt = visit_Goto_Stmt
+    visit_Stop_Stmt = visit_Goto_Stmt
 
     def visit_Where_Construct(self, o, **kwargs):
         # The banter before the construct...
@@ -874,10 +922,18 @@ class FParser2IR(GenericVisitor):
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.Select_Case_Stmt):
+                select_stmt = ch
                 break
             banter += [self.visit(ch, **kwargs)]
+        else:
+            select_stmt = get_child(o, Fortran2003.Select_Case_Stmt)
+        # Extract source by looking at everything between SELECT and END SELECT
+        end_select_stmt = rget_child(o, Fortran2003.End_Select_Stmt)
+        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        source = Source(lines=lines, string=string, label=select_stmt.item.name)
         # The SELECT argument
-        expr = self.visit(get_child(o, Fortran2003.Select_Case_Stmt), **kwargs)
+        expr = self.visit(select_stmt, **kwargs)
         body_ast = node_sublist(o.children, Fortran2003.Select_Case_Stmt,
                                 Fortran2003.End_Select_Stmt)
         values = []
@@ -894,7 +950,6 @@ class FParser2IR(GenericVisitor):
                 body.append(node)
         bodies.append(as_tuple(body))
         assert len(values) == len(bodies)
-        source = kwargs.get('source', None)
         return (*banter, MultiConditional(expr, values, bodies, source=source))
 
     def visit_Select_Case_Stmt(self, o, **kwargs):

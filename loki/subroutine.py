@@ -126,7 +126,7 @@ class Subroutine:
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             f_ast = get_child(ast, Fortran2003.Subroutine_Subprogram)
-            return cls.from_fparser(f_ast, typedefs=typedefs)
+            return cls.from_fparser(ast=f_ast, raw_source=source, typedefs=typedefs)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
@@ -236,7 +236,7 @@ class Subroutine:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, name=None, typedefs=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, parent=None):
         is_function = isinstance(ast, Fortran2003.Function_Subprogram)
         if is_function:
             routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
@@ -252,14 +252,15 @@ class Subroutine:
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         if spec_ast:
-            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj)
+            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj, raw_source=raw_source)
         else:
             spec = ()
         spec = Section(body=spec)
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
-            body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj))
+            body = as_tuple(parse_fparser_ast(body_ast, typedefs=typedefs, scope=obj,
+                                              raw_source=raw_source))
         else:
             body = ()
         # body = Section(body=body)
@@ -273,8 +274,10 @@ class Subroutine:
         members = None
         contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
         if contains_ast:
-            members = [Subroutine.from_fparser(ast=s, typedefs=typedefs, parent=obj)
-                       for s in walk(contains_ast, Fortran2003.Subroutine_Subprogram)]
+            routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
+            members = [Subroutine.from_fparser(ast=s, raw_source=raw_source, typedefs=typedefs,
+                                               parent=obj)
+                       for s in walk(contains_ast, routine_types)]
 
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
                      members=members, symbols=obj.symbols, types=obj.types, parent=parent)
