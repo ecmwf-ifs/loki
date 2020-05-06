@@ -10,10 +10,10 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
                              Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper)
+                             SubstituteExpressionsMapper, LoopRange)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
-from loki.types import DataType, SymbolType
+from loki.types import DataType, SymbolType, TypeTable
 
 
 __all__ = ['FortranCTransformation']
@@ -74,16 +74,17 @@ class FortranCTransformation(BasicTransformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = '%s_c' % derived.name
-        obj = TypeDef(name=typename.lower(), bind_c=True, declarations=[])
+        symbols = TypeTable()
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
             variables = derived.variables.values()
+        declarations = []
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
-            vnew = v.clone(name=v.basename.lower(), scope=obj.symbols, type=ctype)
-            obj.declarations += [Declaration(variables=(vnew,), type=ctype)]
-        return obj
+            vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
+            declarations += (Declaration(variables=(vnew,), type=ctype),)
+        return TypeDef(name=typename.lower(), bind_c=True, declarations=declarations, symbols=symbols)
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -392,10 +393,10 @@ class FortranCTransformation(BasicTransformation):
                 for ivar in vdims:
                     irange = index_range_map[ivar]
                     if isinstance(irange, RangeIndex):
-                        bounds = (irange.lower or Literal(1), irange.upper, irange.step)
+                        bounds = LoopRange(RangeIndex.children)
                     else:
-                        bounds = (Literal(1), irange, Literal(1))
-                    loop = Loop(variable=ivar, body=body, bounds=bounds)
+                        bounds = LoopRange((Literal(1), irange, Literal(1)))
+                    loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                     body = loop
 
                 loop_map[stmt] = loop

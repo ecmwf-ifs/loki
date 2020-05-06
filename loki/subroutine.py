@@ -58,13 +58,13 @@ class Subroutine:
 
         self.symbols = symbols
         if self.symbols is None:
-            parent = self.parent.symbols if self.parent is not None else None
-            self.symbols = TypeTable(parent)
+            parent_symbols = self.parent.symbols if self.parent is not None else None
+            self.symbols = TypeTable(parent=parent_symbols)
 
         self.types = types
         if self.types is None:
-            parent = self.parent.types if self.parent is not None else None
-            self.types = TypeTable(parent)
+            parent_types = self.parent.types if self.parent is not None else None
+            self.types = TypeTable(parent=parent_types)
 
         self.docstring = docstring
         self.spec = spec

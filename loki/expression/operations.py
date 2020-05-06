@@ -8,10 +8,10 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.expression.mappers import LokiStringifyMapper
-from loki.expression.symbol_types import StringLiteral
+from loki.expression.symbol_types import StringLiteral, ExprMetadataMixin
 
 
-class ParenthesisedAdd(pmbl.Sum):
+class ParenthesisedAdd(ExprMetadataMixin, pmbl.Sum):
     """
     Specialised version of :class:`Sum` that always pretty-prints and
     code-generates with explicit parentheses.
@@ -23,7 +23,7 @@ class ParenthesisedAdd(pmbl.Sum):
         return LokiStringifyMapper()
 
 
-class ParenthesisedMul(pmbl.Product):
+class ParenthesisedMul(ExprMetadataMixin, pmbl.Product):
     """
     Specialised version of :class:`Product` that always pretty-prints and
     code-generates with explicit parentheses.
@@ -35,7 +35,7 @@ class ParenthesisedMul(pmbl.Product):
         return LokiStringifyMapper()
 
 
-class ParenthesisedPow(pmbl.Power):
+class ParenthesisedPow(ExprMetadataMixin, pmbl.Power):
     """
     Specialised version of :class:`Power` that always pretty-prints and
     code-generates with explicit parentheses.
@@ -47,7 +47,7 @@ class ParenthesisedPow(pmbl.Power):
         return LokiStringifyMapper()
 
 
-class StringConcat(pmbl._MultiChildExpression):
+class StringConcat(ExprMetadataMixin, pmbl._MultiChildExpression):
     """
     Implements string concatenation in a way similar to :class:`Sum`.
     """

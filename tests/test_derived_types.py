@@ -256,10 +256,10 @@ END SUBROUTINE
     with open(filename, 'w') as f:
         f.write(code)
 
-    routine = SourceFile.from_file(filename)['associates_deferred']
+    routine = SourceFile.from_file(filename, frontend=frontend)['associates_deferred']
     some_var = FindVariables().visit(routine.body).pop()
     assert isinstance(some_var, Scalar)
-    assert some_var.name == 'SOME_VAR'
+    assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == DataType.DEFERRED
 
 

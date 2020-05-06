@@ -9,12 +9,30 @@ from loki.expression.mappers import LokiStringifyMapper
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast']
+           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'Range', 'LoopRange']
 
 
 # pylint: disable=abstract-method
 
-class Scalar(pmbl.Variable):
+
+class ExprMetadataMixin:
+    """
+    Meta-data annotations for expression tree nodes.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._source = kwargs.pop('source', None)
+        super().__init__(*args, **kwargs)
+
+    def __getinitargs__(self):
+        return super().__getinitargs__() + (('source', self.source),)
+
+    @property
+    def source(self):
+        return self._source
+
+
+class Scalar(ExprMetadataMixin, pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
@@ -27,10 +45,10 @@ class Scalar(pmbl.Variable):
     the one that is most up-to-date.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, initial=None, source=None):
+    def __init__(self, name, scope, type=None, parent=None, initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Scalar, self).__init__(name)
+        super(Scalar, self).__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -45,7 +63,6 @@ class Scalar(pmbl.Variable):
             self.type = type.clone()
         self.parent = parent
         self.initial = initial
-        self.source = source
 
     @property
     def scope(self):
@@ -74,10 +91,10 @@ class Scalar(pmbl.Variable):
         self.scope[self.name] = value
 
     def __getinitargs__(self):
-        args = [self.name, ('scope', self.scope)]
+        args = [('scope', self.scope)]
         if self.parent:
             args += [('parent', self.parent)]
-        return tuple(args)
+        return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_scalar')
 
@@ -103,7 +120,7 @@ class Scalar(pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Array(pmbl.Variable):
+class Array(ExprMetadataMixin, pmbl.Variable):
     """
     Expression node for array variables.
 
@@ -120,10 +137,10 @@ class Array(pmbl.Variable):
     """
 
     def __init__(self, name, scope, type=None, parent=None, dimensions=None,
-                 initial=None, source=None):
+                 initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Array, self).__init__(name)
+        super(Array, self).__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -138,7 +155,6 @@ class Array(pmbl.Variable):
         self.parent = parent
         self.dimensions = dimensions
         self.initial = initial
-        self.source = source
 
     @property
     def scope(self):
@@ -189,12 +205,12 @@ class Array(pmbl.Variable):
         self.type.shape = value
 
     def __getinitargs__(self):
-        args = [self.name, ('scope', self.scope)]
+        args = [('scope', self.scope)]
         if self.dimensions:
             args += [('dimensions', self.dimensions)]
         if self.parent:
             args += [('parent', self.parent)]
-        return tuple(args)
+        return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_array')
 
@@ -243,22 +259,17 @@ class Variable:
         """
         1st-level variables creation with name injection via the object class
         """
-        name = kwargs.pop('name')
-        scope = kwargs.pop('scope')
-        dimensions = kwargs.pop('dimensions', None)
-        initial = kwargs.pop('initial', None)
-        _type = kwargs.get('type', scope.lookup(name))
-        parent = kwargs.pop('parent', None)
-        source = kwargs.get('source', None)
+        name = kwargs['name']
+        scope = kwargs['scope']
+        _type = kwargs.setdefault('type', scope.lookup(name))
 
+        dimensions = kwargs.pop('dimensions', None)
         shape = _type.shape if _type is not None else None
 
-        if dimensions is None and (shape is None or len(shape) == 0):
-            obj = Scalar(name=name, type=_type, scope=scope, parent=parent,
-                         initial=initial, source=source)
+        if dimensions is None and not shape:
+            obj = Scalar(**kwargs)
         else:
-            obj = Array(name=name, dimensions=dimensions, type=_type, scope=scope, parent=parent,
-                        initial=initial, source=source)
+            obj = Array(dimensions=dimensions, **kwargs)
 
         obj = cls.instantiate_derived_type_variables(obj)
         return obj
@@ -284,7 +295,17 @@ class Variable:
         return obj
 
 
-class FloatLiteral(pmbl.Leaf):
+class _Literal(pmbl.Leaf):
+    """
+    Helper base class for literals to overcome the problem of a disfunctional
+    __getinitargs__ in py:class:`pymbolic.primitives.Leaf`.
+    """
+
+    def __getinitargs__(self):
+        return ()
+
+
+class FloatLiteral(ExprMetadataMixin, _Literal):
     """
     A floating point constant in an expression.
 
@@ -293,18 +314,17 @@ class FloatLiteral(pmbl.Leaf):
     """
 
     def __init__(self, value, **kwargs):
-        super(FloatLiteral, self).__init__()
-
         # We store float literals as strings to make sure no information gets
         # lost in the conversion
         self.value = str(value)
-        self.kind = kwargs.get('kind', None)
+        self.kind = kwargs.pop('kind', None)
+        super(FloatLiteral, self).__init__(**kwargs)
 
     def __getinitargs__(self):
         args = [self.value]
         if self.kind:
             args += [('kind', self.kind)]
-        return tuple(args)
+        return tuple(args) + super().__getinitargs__()
 
     mapper_method = intern('map_float_literal')
 
@@ -312,7 +332,7 @@ class FloatLiteral(pmbl.Leaf):
         return LokiStringifyMapper()
 
 
-class IntLiteral(pmbl.Leaf):
+class IntLiteral(ExprMetadataMixin, _Literal):
     """
     An integer constant in an expression.
 
@@ -321,16 +341,15 @@ class IntLiteral(pmbl.Leaf):
     """
 
     def __init__(self, value, **kwargs):
-        super(IntLiteral, self).__init__()
-
         self.value = int(value)
-        self.kind = kwargs.get('kind', None)
+        self.kind = kwargs.pop('kind', None)
+        super(IntLiteral, self).__init__(**kwargs)
 
     def __getinitargs__(self):
         args = [self.value]
         if self.kind:
             args += [('kind', self.kind)]
-        return tuple(args)
+        return tuple(args) + super().__getinitargs__()
 
     mapper_method = intern('map_int_literal')
 
@@ -338,18 +357,17 @@ class IntLiteral(pmbl.Leaf):
         return LokiStringifyMapper()
 
 
-class LogicLiteral(pmbl.Leaf):
+class LogicLiteral(ExprMetadataMixin, _Literal):
     """
     A boolean constant in an expression.
     """
 
-    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
-        super(LogicLiteral, self).__init__()
-
+    def __init__(self, value, **kwargs):
         self.value = value.lower() in ('true', '.true.')
+        super(LogicLiteral, self).__init__(**kwargs)
 
     def __getinitargs__(self):
-        return (self.value,)
+        return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_logic_literal')
 
@@ -357,21 +375,22 @@ class LogicLiteral(pmbl.Leaf):
         return LokiStringifyMapper()
 
 
-class StringLiteral(pmbl.Leaf):
+class StringLiteral(ExprMetadataMixin, _Literal):
     """
     A string.
     """
 
-    def __init__(self, value, **kwargs):  # pylint: disable=unused-argument
-        super(StringLiteral, self).__init__()
-
+    def __init__(self, value, **kwargs):
+        # Remove quotation marks
         if value[0] == value[-1] and value[0] in '"\'':
             value = value[1:-1]
 
         self.value = value
 
+        super(StringLiteral, self).__init__(**kwargs)
+
     def __getinitargs__(self):
-        return (self.value,)
+        return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_string_literal')
 
@@ -394,7 +413,7 @@ class Literal:
         cls_map = {DataType.INTEGER: IntLiteral, DataType.REAL: FloatLiteral,
                    DataType.LOGICAL: LogicLiteral, DataType.CHARACTER: StringLiteral}
 
-        _type = kwargs.get('type', None)
+        _type = kwargs.pop('type', None)
         if _type is None:
             if isinstance(value, int):
                 _type = DataType.INTEGER
@@ -427,15 +446,14 @@ class Literal:
         return obj
 
 
-class LiteralList(pmbl.AlgebraicLeaf):
+class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
     """
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """
 
-    def __init__(self, values):
-        super(LiteralList, self).__init__()
-
+    def __init__(self, values, **kwargs):
         self.elements = values
+        super(LiteralList, self).__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
 
@@ -443,20 +461,53 @@ class LiteralList(pmbl.AlgebraicLeaf):
         return LokiStringifyMapper()
 
     def __getinitargs__(self):
-        return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
+        return ('[%s]' % (','.join(repr(c) for c in self.elements)),) + super().__getinitargs__()
 
 
-class InlineCall(pmbl.CallWithKwargs):
+class Sum(ExprMetadataMixin, pmbl.Sum):
+    """Representation of a sum."""
+
+
+class Product(ExprMetadataMixin, pmbl.Product):
+    """Representation of a product."""
+
+
+class Quotient(ExprMetadataMixin, pmbl.Quotient):
+    """Representation of a quotient."""
+
+
+class Power(ExprMetadataMixin, pmbl.Power):
+    """Representation of a power."""
+
+
+class Comparison(ExprMetadataMixin, pmbl.Comparison):
+    """Representation of a comparison operation."""
+
+
+class LogicalAnd(ExprMetadataMixin, pmbl.LogicalAnd):
+    """Representation of an 'and' in a logical expression."""
+
+
+class LogicalOr(ExprMetadataMixin, pmbl.LogicalOr):
+    """Representation of an 'or' in a logical expression."""
+
+
+class LogicalNot(ExprMetadataMixin, pmbl.LogicalNot):
+    """Representation of a negation in a logical expression."""
+
+
+class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
 
-    def __init__(self, function, parameters=None, kw_parameters=None):
+    def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
         function = pmbl.make_variable(function)
-        parameters = parameters or tuple()
+        parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
-        super(InlineCall, self).__init__(function, parameters, kw_parameters)
+        super().__init__(function=function, parameters=parameters,
+                         kw_parameters=kw_parameters, **kwargs)
 
     mapper_method = intern('map_inline_call')
 
@@ -468,14 +519,14 @@ class InlineCall(pmbl.CallWithKwargs):
         return self.function.name
 
 
-class Cast(pmbl.Call):
+class Cast(ExprMetadataMixin, pmbl.Call):
     """
     Internal representation of a data type cast.
     """
 
-    def __init__(self, name, expression, kind=None):
-        super(Cast, self).__init__(pmbl.make_variable(name), as_tuple(expression))
+    def __init__(self, name, expression, kind=None, **kwargs):
         self.kind = kind
+        super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
 
     mapper_method = intern('map_cast')
 
@@ -487,72 +538,42 @@ class Cast(pmbl.Call):
         return self.function.name
 
 
-class RangeIndex(pmbl.AlgebraicLeaf):
+class Range(ExprMetadataMixin, pmbl.Slice):
     """
-    Internal representation of a subscript range.
+    Internal representation of a loop or index range.
     """
 
-    @classmethod
-    def _args2bounds(cls, *args, **kwargs):
-        lower, upper, step = None, None, None
-        if len(args) == 1:
-            upper = args[0]
-        elif len(args) == 2:
-            lower = args[0]
-            upper = args[1]
-        elif len(args) == 3:
-            lower = args[0]
-            upper = args[1]
-            step = args[2]
+    def __init__(self, children, **kwargs):
+        assert len(children) in (2, 3)
+        if len(children) == 2:
+            children += (None,)
+        super().__init__(children, **kwargs)
 
-        lower = kwargs.get('lower', lower)
-        upper = kwargs.get('upper', upper)
-        step = kwargs.get('step', step)
-
-        return lower, upper, step
-
-    def __new__(cls, *args, **kwargs):
-        lower, upper, step = RangeIndex._args2bounds(*args, **kwargs)
-
-        # Short-circuit for direct indices
-        if upper is not None and lower is None and step is None:
-            return upper if isinstance(upper, pmbl.Expression) else Literal(upper)
-
-        obj = object.__new__(cls)
-        obj._lower = lower
-        obj._upper = upper
-        obj._step = step
-
-        return obj
-
-    def __init__(self, *args, **kwargs):
-        super(RangeIndex, self).__init__()
-
-        lower, upper, step = RangeIndex._args2bounds(*args, **kwargs)
-        self._lower = lower
-        self._upper = upper
-        self._step = step
-
-    def __getinitargs__(self):
-        if self._step:
-            return (self._lower, self._upper, self._step)
-        if self._lower:
-            return (self._lower, self._upper)
-        return (self._upper,)
-
-    mapper_method = intern('map_range_index')
+    mapper_method = intern('map_range')
 
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
     @property
     def lower(self):
-        return self._lower
+        return self.start
 
     @property
     def upper(self):
-        return self._upper
+        return self.stop
 
-    @property
-    def step(self):
-        return self._step
+
+class RangeIndex(Range):
+    """
+    Internal representation of a subscript range.
+    """
+
+    mapper_method = intern('map_range_index')
+
+
+class LoopRange(Range):
+    """
+    Internal representation of a loop range.
+    """
+
+    mapper_method = intern('map_loop_range')

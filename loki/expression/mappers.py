@@ -64,13 +64,15 @@ class LokiStringifyMapper(StringifyMapper):
             kind = ''
         return self.format('%s(%s%s)', name, expression, kind)
 
-    def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
-        lower = self.rec(expr.lower, enclosing_prec, *args, **kwargs) if expr.lower else ''
-        upper = self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
-        if expr.step:
-            step = self.rec(expr.step, enclosing_prec, *args, **kwargs)
-            return '%s:%s:%s' % (lower, upper, step)
-        return '%s:%s' % (lower, upper)
+    def map_range(self, expr, enclosing_prec, *args, **kwargs):
+        children = [self.rec(child, PREC_NONE, *args, **kwargs) if child is not None else ''
+                    for child in expr.children]
+        if expr.step is None:
+            children = children[:-1]
+        return self.parenthesize_if_needed(self.join(':', children), enclosing_prec, PREC_NONE)
+
+    map_range_index = map_range
+    map_loop_range = map_range
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
@@ -140,21 +142,14 @@ class ExpressionRetriever(WalkMapper):
             self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
+    map_range = WalkMapper.map_slice
+    map_range_index = WalkMapper.map_slice
+    map_loop_range = WalkMapper.map_slice
+
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
     map_parenthesised_pow = WalkMapper.map_power
     map_string_concat = WalkMapper.map_sum
-
-    def map_range_index(self, expr, *args, **kwargs):
-        if not self.visit(expr):
-            return
-        if expr.lower:
-            self.rec(expr.lower, *args, **kwargs)
-        if expr.upper:
-            self.rec(expr.upper, *args, **kwargs)
-        if expr.step:
-            self.rec(expr.step, *args, **kwargs)
-        self.post_visit(expr, *args, **kwargs)
 
     def map_literal_list(self, expr, *args, **kwargs):
         if not self.visit(expr):
@@ -303,11 +298,9 @@ class LokiIdentityMapper(IdentityMapper):
     map_parenthesised_pow = IdentityMapper.map_power
     map_string_concat = map_sum
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper is not None else None
-        step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
-        return expr.__class__(lower, upper, step)
+    map_range = IdentityMapper.map_slice
+    map_range_index = IdentityMapper.map_slice
+    map_loop_range = IdentityMapper.map_slice
 
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)

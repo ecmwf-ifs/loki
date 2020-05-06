@@ -155,11 +155,21 @@ class CCodegen(Visitor):
     def indent(self):
         return '  ' * self._depth
 
+    @property
+    def csymgen(self):
+        return self._csymgen
+
     def segment(self, arguments, chunking=None):
         chunking = chunking or self.chunking
         delim = ',\n%s  ' % self.indent
         args = list(chunks(list(arguments), chunking))
         return delim.join(', '.join(c) for c in args)
+
+    def visit_Expression(self, o, **kwargs):
+        return self.csymgen(o)
+
+    def visit_str(self, o, **kwargs):
+        return o
 
     def visit_Node(self, o, **kwargs):
         return self.indent + '// <%s>' % o.__class__.__name__
@@ -204,7 +214,7 @@ class CCodegen(Visitor):
             if isinstance(a, Array):
                 dtype = self.visit(a.type, **kwargs)
                 # str(d).lower() is a bad hack to ensure caps-alignment
-                outer_dims = ''.join('[%s]' % self._csymgen(d).lower() for d in a.dimensions[1:])
+                outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower() for d in a.dimensions[1:])
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 
@@ -236,12 +246,18 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o, **kwargs):
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
         _type = self.visit(o.type, **kwargs)
-        vstr = [self._csymgen(v) for v in o.variables]
-        vptr = [('*' if v.type.pointer or v.type.allocatable else '') for v in o.variables]
-        vinit = ['' if v.initial is None else (' = %s' % self._csymgen(v.initial))
-                 for v in o.variables]
-        variables = self.segment('%s%s%s' % (p, v, i) for v, p, i in zip(vstr, vptr, vinit))
+        variables = self.segment(self.visit(v, **kwargs) for v in o.variables)
         return self.indent + '%s %s;' % (_type, variables) + comment
+
+    def visit_Scalar(self, o, **kwargs):
+        var = self.csymgen(o)
+        if o.type.pointer or o.type.allocatable:
+            var = '*' + var
+        if o.initial:
+            var += ' = %s' % self.visit(o.initial)
+        return var
+
+    visit_Array = visit_Scalar
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
         if o.dtype == DataType.DERIVED_TYPE:
@@ -266,16 +282,16 @@ class CCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body, **kwargs)
         self._depth -= 1
-        increment = ('++' if o.bounds[2] is None else '+=%s' % o.bounds[2])
-        lvar = self._csymgen(o.variable)
-        lower = self._csymgen(o.bounds[0])
-        upper = self._csymgen(o.bounds[1])
-        criteria = '<=' if o.bounds[2] is None or eval(str(o.bounds[2])) > 0 else '>='
+        increment = '++' if o.bounds.step is None else '+=%s' % self.visit(o.bounds.step, **kwargs)
+        lvar = self.visit(o.variable, **kwargs)
+        lower = self.visit(o.bounds.start, **kwargs)
+        upper = self.visit(o.bounds.stop, **kwargs)
+        criteria = '<=' if o.bounds.step is None or eval(str(o.bounds.step)) > 0 else '>='
         header = 'for (%s=%s; %s%s%s; %s%s)' % (lvar, lower, lvar, criteria, upper, lvar, increment)
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_WhileLoop(self, o, **kwargs):
-        condition = self._csymgen(o.condition)
+        condition = self.visit(o.condition, **kwargs)
         self._depth += 1
         body = self.visit(o.body, **kwargs)
         self._depth -= 1
@@ -283,7 +299,7 @@ class CCodegen(Visitor):
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o, **kwargs):
-        stmt = '%s = %s;' % (self._csymgen(o.target), self._csymgen(o.expr))
+        stmt = '%s = %s;' % (self.csymgen(o.target), self.visit(o.expr, **kwargs))
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
         return self.indent + stmt + comment
 
@@ -295,7 +311,7 @@ class CCodegen(Visitor):
         if len(bodies) > 1:
             raise NotImplementedError('Multi-body conditionals not yet supported')
 
-        cond = self._csymgen(o.conditions[0])
+        cond = self.visit(o.conditions[0], **kwargs)
         main_branch = 'if (%s)\n%s{\n%s\n' % (cond, self.indent, bodies[0])
         else_branch = '%s} else {\n%s\n' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + else_branch + '%s}\n' % self.indent

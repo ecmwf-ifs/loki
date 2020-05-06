@@ -1,10 +1,10 @@
 from textwrap import wrap
 from pymbolic.primitives import Expression, is_zero, Product
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT)
+                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
 
 from loki.visitors import Visitor
-from loki.tools import chunks, flatten, as_tuple
+from loki.tools import chunks, flatten, as_tuple, is_iterable
 from loki.expression import LokiStringifyMapper
 from loki.types import DataType
 
@@ -102,6 +102,13 @@ class FCodeMapper(LokiStringifyMapper):
         except ValueError:
             return '! Not supported: %s\n' % str(expr)
 
+    def map_loop_range(self, expr, enclosing_prec, *args, **kwargs):
+        children = [self.rec(child, PREC_NONE, *args, **kwargs) if child is not None else ''
+                    for child in expr.children]
+        if expr.step is None:
+            children = children[:-1]
+        return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
+
 
 class FortranCodegen(Visitor):
     """
@@ -149,6 +156,12 @@ class FortranCodegen(Visitor):
         else:
             label = ''
         return '%s%s' % (label, super(FortranCodegen, self).visit(o, **kwargs))
+
+    def visit_Expression(self, o, **kwargs):
+        return self.fsymgen(o)
+
+    def visit_str(self, o, **kwargs):
+        return o
 
     def visit_Node(self, o, **kwargs):
         return self.indent + '! <%s>' % o.__class__.__name__
@@ -243,18 +256,12 @@ class FortranCodegen(Visitor):
         self._depth += 1
         body = self.visit(o.body, **kwargs)
         self._depth -= 1
-        if o.bounds:
-            header = ' %s=%s, %s%s' % (o.variable, o.bounds[0], o.bounds[1],
-                                       ', %s' % o.bounds[2] if o.bounds[2] is not None else '')
-        elif o.variable:
-            header = ' while (%s)' % self.fsymgen(o.variable)
-        else:
-            header = ''
+        header = ' %s=%s' % (self.visit(o.variable, **kwargs), self.visit(o.bounds, **kwargs))
         return pragma + self.indent + \
             'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
 
     def visit_WhileLoop(self, o, **kwargs):
-        condition = self.fsymgen(o.condition)
+        condition = self.visit(o.condition, **kwargs)
         self._depth += 1
         body = self.visit(o.body, **kwargs)
         self._depth -= 1
@@ -269,34 +276,39 @@ class FortranCodegen(Visitor):
             self._depth, indent_depth = 0, self._depth  # Suppress indentation
             body = self.visit(flatten(o.bodies)[0], **kwargs)
             self._depth = indent_depth
-            cond = self.fsymgen(o.conditions[0])
+            cond = self.visit(o.conditions[0], **kwargs)
             return self.indent + 'IF (%s) %s' % (cond, body)
 
         self._depth += 1
         bodies = [self.visit(b, **kwargs) for b in o.bodies]
         else_body = self.visit(o.else_body, **kwargs)
         self._depth -= 1
-        headers = ['IF (%s) THEN' % self.fsymgen(c) for c in o.conditions]
+        headers = ['IF (%s) THEN' % self.visit(c, **kwargs) for c in o.conditions]
         main_branch = ('\n%sELSE' % self.indent).join(
             '%s\n%s' % (h, b) for h, b in zip(headers, bodies))
         else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
         return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
 
     def visit_MultiConditional(self, o, **kwargs):
-        expr = self.fsymgen(o.expr)
-        values = ['DEFAULT' if v is None
-                  else (self.fsymgen(v) if isinstance(v, tuple) else '(%s)' % self.fsymgen(v))
+        expr = self.visit(o.expr, **kwargs)
+        values = ['(%s)' % ', '.join(self.visit(e, **kwargs)
+                                     for e in (v if is_iterable(v) else [v]))
                   for v in o.values]
+        if o.else_body:
+            values += ['DEFAULT']
         self._depth += 1
         bodies = [self.visit(b, **kwargs) for b in o.bodies]
+        if o.else_body:
+            bodies += [self.visit(o.else_body, **kwargs)]
         self._depth -= 1
+        assert len(values) == len(bodies)
         header = self.indent + 'SELECT CASE (%s)\n' % expr
         footer = self.indent + 'END SELECT'
         cases = [self.indent + 'CASE %s\n' % v + b for v, b in zip(values, bodies)]
         return header + '\n'.join(cases) + '\n' + footer
 
     def visit_Statement(self, o, **kwargs):
-        stmt = '%s = %s' % (self.fsymgen(o.target), self.fsymgen(o.expr))
+        stmt = '%s = %s' % (self.visit(o.target, **kwargs), self.visit(o.expr, **kwargs))
         if o.ptr:
             # Manually force pointer assignment notation
             # ... Hack me baby, one more time ...
@@ -305,7 +317,7 @@ class FortranCodegen(Visitor):
         return self.indent + self.chunk(stmt) + comment
 
     def visit_MaskedStatement(self, o, **kwargs):
-        condition = self.fsymgen(o.condition)
+        condition = self.visit(o.condition, **kwargs)
         self._depth += 1
         body = self.visit(o.body, **kwargs)
         default = self.visit(o.default, **kwargs)
@@ -319,15 +331,16 @@ class FortranCodegen(Visitor):
         return self.visit(o.body, **kwargs)
 
     def visit_Scope(self, o, **kwargs):
-        associates = ['%s=>%s' % (v, str(a)) for a, v in o.associations.items()]
+        associates = ['%s=>%s' % (self.visit(v, **kwargs), self.visit(a, **kwargs))
+                      for a, v in o.associations.items()]
         associates = self.segment(associates, chunking=3)
         body = self.visit(o.body, **kwargs)
         return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
 
     def visit_CallStatement(self, o, **kwargs):
         if o.kwarguments is not None:
-            kwargs = tuple('%s=%s' % (k, self.fsymgen(v)) for k, v in o.kwarguments)
-            args = as_tuple(o.arguments) + kwargs
+            kwarguments = tuple('%s=%s' % (k, self.visit(v, **kwargs)) for k, v in o.kwarguments)
+            args = as_tuple(o.arguments) + kwarguments
         else:
             args = o.arguments
         if len(args) > self.chunking:
@@ -335,47 +348,37 @@ class FortranCodegen(Visitor):
             # TODO: Temporary hack to force cloudsc_driver into the Fortran
             # line limit. The linewidth check should be made smarter to
             # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([self.fsymgen(a) if isinstance(a, Expression)
-                                      else a for a in args], chunking=3)
+            signature = self.segment([self.visit(a, **kwargs) for a in args], chunking=3)
             self._depth -= 2
         else:
-            signature = ', '.join(self.fsymgen(a) if isinstance(a, Expression)
-                                  else str(a) for a in args)
+            signature = ', '.join(self.visit(a, **kwargs) for a in args)
         return self.indent + 'CALL %s(%s)' % (o.name, signature)
 
     def visit_Allocation(self, o, **kwargs):
         source = ''
         if o.data_source is not None:
             source = ', source=%s' % self.visit(o.data_source, **kwargs)
-        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
+        variables = ','.join(v if isinstance(v, str) else self.visit(v, **kwargs)
                              for v in o.variables)
         return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
 
     def visit_Deallocation(self, o, **kwargs):
-        variables = ','.join(v if isinstance(v, str) else self.fsymgen(v)
+        variables = ','.join(v if isinstance(v, str) else self.visit(v, **kwargs)
                              for v in o.variables)
         return self.indent + 'DEALLOCATE(%s)' % variables
 
     def visit_Nullify(self, o, **kwargs):
-        if isinstance(o.variable, str):
-            variable = o.variable
-        else:
-            variable = self.fsymgen(o.variable)
-        return self.indent + 'NULLIFY(%s)' % variable
-
-    def visit_Expression(self, o, **kwargs):
-        # TODO: Expressions are currently purely treated as strings
-        return str(o.expr)
+        variables = ', '.join(self.visit(v, **kwargs) for v in o.variables)
+        return self.indent + 'NULLIFY(%s)' % variables
 
     def visit_Scalar(self, o, **kwargs):
+        stmt = self.fsymgen(o)
         if o.initial is not None:
             # TODO: This is super-hacky! We need to find
             # a rigorous way to do this, but various corner
             # cases around pointer assignments break the
             # shape verification in sympy.
-            stmt = '%s = %s' % (o, self.fsymgen(o.initial))
-        else:
-            stmt = self.fsymgen(o)
+            stmt += ' = %s' % self.fsymgen(o.initial)
         # Hack the pointer assignment (very ugly):
         if o.type.pointer:
             stmt = stmt.replace(' = ', ' => ')
