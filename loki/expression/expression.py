@@ -54,7 +54,7 @@ class ExpressionFinder(Visitor):
             if isinstance(var, (Scalar, Array)):
                 return (var.name,
                         var.parent.name if hasattr(var, 'parent') and var.parent else None,
-                        var.dimensions if isinstance(var, Array) else None)
+                        str(var.dimensions) if isinstance(var, Array) else None)
             return str(var)
 
         if self.unique:

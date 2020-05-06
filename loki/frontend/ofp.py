@@ -4,8 +4,6 @@ from pathlib import Path
 import re
 
 import open_fortran_parser
-from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
-                                 LogicalAnd, LogicalOr)
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
@@ -13,13 +11,11 @@ from loki.frontend.util import (
     inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas
 )
 from loki.visitors import GenericVisitor
-from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
-                     Pragma, Declaration, Allocation, Deallocation, Nullify,
-                     Import, Scope, Intrinsic, TypeDef, MaskedStatement,
-                     MultiConditional, WhileLoop, DataDeclaration, Section)
-from loki.expression import (Variable, Literal, RangeIndex, InlineCall, LiteralList, Cast, Array,
-                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
-                             ExpressionDimensionsMapper)
+import loki.ir as ir
+import loki.expression.symbol_types as sym
+from loki.expression.operations import (
+    ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
+from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash
 from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType
@@ -42,7 +38,7 @@ def parse_ofp_file(filename):
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_source(source, xmods=None):
+def parse_ofp_source(source, xmods=None):  # pylint: disable=unused-argument
     """
     Read and parse a source string using the Open Fortran Parser (OFP).
     """
@@ -59,20 +55,20 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
+    _ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist.items():
         _info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-        ir = rule.postprocess(ir, _info)
+        _ir = rule.postprocess(_ir, _info)
 
     # Perform some minor sanitation tasks
-    ir = inline_comments(ir)
-    ir = cluster_comments(ir)
-    ir = inline_pragmas(ir)
-    ir = inline_labels(ir)
+    _ir = inline_comments(_ir)
+    _ir = cluster_comments(_ir)
+    _ir = inline_pragmas(_ir)
+    _ir = inline_labels(_ir)
 
-    return ir
+    return _ir
 
 
 class OFP2IR(GenericVisitor):
@@ -133,22 +129,22 @@ class OFP2IR(GenericVisitor):
             # We are processing a while loop
             condition = self.visit(o.find('header'))
             body = as_tuple(self.visit(o.find('body')))
-            return WhileLoop(condition=condition, body=body, source=source)
+            return ir.WhileLoop(condition=condition, body=body, source=source)
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
-        variable = Variable(name=vname, scope=self.scope.symbols)
+        variable = sym.Variable(name=vname, scope=self.scope.symbols)
         lower = self.visit(o.find('header/index-variable/lower-bound'))
         upper = self.visit(o.find('header/index-variable/upper-bound'))
         step = None
         if o.find('header/index-variable/step') is not None:
             step = self.visit(o.find('header/index-variable/step'))
-        bounds = lower, upper, step
+        bounds = sym.LoopRange((lower, upper, step))
 
         body = as_tuple(self.visit(o.find('body')))
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return Loop(variable=variable, body=body, bounds=bounds, source=source)
+        return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
@@ -156,14 +152,21 @@ class OFP2IR(GenericVisitor):
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
         inline = o.find('if-then-stmt') is None
-        return Conditional(conditions=conditions, bodies=bodies[:ncond],
-                           else_body=else_body, inline=inline, source=source)
+        return ir.Conditional(conditions=conditions, bodies=bodies[:ncond],
+                              else_body=else_body, inline=inline, source=source)
 
     def visit_select(self, o, source=None):
         expr = self.visit(o.find('header'))
-        values = tuple(self.visit(h) for h in o.findall('body/case/header'))
-        bodies = tuple(self.visit(b) for b in o.findall('body/case/body'))
-        return MultiConditional(expr=expr, values=values, bodies=bodies)
+        values = [self.visit(h) for h in o.findall('body/case/header')]
+        bodies = [self.visit(b) for b in o.findall('body/case/body')]
+        if None in values:
+            else_index = values.index(None)
+            values.pop(else_index)
+            else_body = as_tuple(bodies.pop(else_index))
+        else:
+            else_body = ()
+        return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
+                                   else_body=else_body, source=source)
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
@@ -173,14 +176,14 @@ class OFP2IR(GenericVisitor):
         if match_pragma:
             # Found pragma, generate this instead
             gd = match_pragma.groupdict()
-            return Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
-        return Comment(text=o.attrib['text'], source=source)
+            return ir.Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
+        return ir.Comment(text=o.attrib['text'], source=source)
 
     def visit_statement(self, o, source=None):
         # TODO: Hacky pre-emption for special-case statements
         if o.find('name/nullify-stmt') is not None:
             variable = self.visit(o.find('name'))
-            return Nullify(variable=variable, source=source)
+            return ir.Nullify(variables=as_tuple(variable), source=source)
         if o.find('cycle') is not None:
             return self.visit(o.find('cycle'))
         if o.find('where-construct-stmt') is not None:
@@ -202,14 +205,14 @@ class OFP2IR(GenericVisitor):
                     body = w_children[1:]
                     default = ()
 
-                stmts += [MaskedStatement(condition=condition, body=body, default=default)]
+                stmts += [ir.MaskedStatement(condition=condition, body=body, default=default)]
                 children = children[iend+1:]
 
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
             return as_tuple(stmts)
         if o.find('goto-stmt') is not None:
             label = o.find('goto-stmt').attrib['target_label']
-            return Intrinsic(text='go to %s' % label, source=source)
+            return ir.Intrinsic(text='go to %s' % label, source=source)
         return self.visit_Element(o, source=source)
 
     def visit_elsewhere_stmt(self, o, source=None):
@@ -220,35 +223,32 @@ class OFP2IR(GenericVisitor):
         # Only used as a marker above
         return 'ENDWHERE_CONSTRUCT'
 
-    def visit_cycle(self, o, source=None):
-        return Intrinsic(text=source.string, source=source)
-
     def visit_assignment(self, o, source=None):
         expr = self.visit(o.find('value'))
         target = self.visit(o.find('target'))
-        return Statement(target=target, expr=expr, source=source)
+        return ir.Statement(target=target, expr=expr, source=source)
 
     def visit_pointer_assignment(self, o, source=None):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
-        return Statement(target=target, expr=expr, ptr=True, source=source)
+        return ir.Statement(target=target, expr=expr, ptr=True, source=source)
 
     def visit_specification(self, o, source=None):
         body = tuple(self.visit(c) for c in o)
         body = tuple(c for c in body if c is not None)
         # Wrap spec area into a separate Scope
-        return Section(body=body, source=source)
+        return ir.Section(body=body, source=source)
 
     def visit_declaration(self, o, source=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         if o.find('save-stmt') is not None:
-            return Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string, source=source)
         if o.find('implicit-stmt') is not None:
-            return Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string, source=source)
         if o.find('access-spec') is not None:
             # PUBLIC or PRIVATE declarations
-            return Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string, source=source)
         if o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
@@ -256,12 +256,12 @@ class OFP2IR(GenericVisitor):
 
                 # Process any associated comments or pragams
                 comments = [self.visit(c) for c in o.findall('comment')]
-                pragmas = [c for c in comments if isinstance(c, Pragma)]
-                comments = [c for c in comments if not isinstance(c, Pragma)]
+                pragmas = [c for c in comments if isinstance(c, ir.Pragma)]
+                comments = [c for c in comments if not isinstance(c, ir.Pragma)]
 
                 # Create the parent type...
-                typedef = TypeDef(name=derived_name, declarations=[],
-                                  pragmas=pragmas, comments=comments, source=source)
+                typedef = ir.TypeDef(name=derived_name, declarations=[],
+                                     pragmas=pragmas, comments=comments, source=source)
                 parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
                                          variables=OrderedDict(), source=source)
 
@@ -319,7 +319,7 @@ class OFP2IR(GenericVisitor):
                             deferred_shape = v.find('deferred-shape-spec-list')
                         if deferred_shape is not None:
                             dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [RangeIndex(lower=None, upper=None)
+                            dimensions = [sym.RangeIndex((None, None, None))
                                           for _ in range(dim_count)]
                         else:
                             dimensions = as_tuple(self.visit(c) for c in v)
@@ -328,12 +328,14 @@ class OFP2IR(GenericVisitor):
                         v_source = extract_source(v.attrib, self._raw_source)
                         v_type = _type.clone(shape=dimensions, source=v_source)
                         v_name = v.attrib['name']
+                        if dimensions:
+                            dimensions = sym.ArraySubscript(dimensions) if dimensions else None
 
-                        variables += [Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                               scope=typedef.symbols)]
+                        variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
+                                                   scope=typedef.symbols)]
 
                     parent_type.variables.update([(v.basename, v) for v in variables])  # pylint: disable=no-member
-                    declarations += [Declaration(variables=variables, type=_type, source=t_source)]
+                    declarations += [ir.Declaration(variables=variables, type=_type, source=t_source)]
 
                 typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
 
@@ -389,14 +391,10 @@ class OFP2IR(GenericVisitor):
             variables = [self.visit(v, type=_type, dimensions=dimensions)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
-            return Declaration(variables=variables, type=_type, dimensions=dimensions,
-                               source=source)
-        if o.attrib['type'] == 'implicit':
-            return Intrinsic(text=source.string, source=source)
-        if o.attrib['type'] == 'intrinsic':
-            return Intrinsic(text=source.string, source=source)
-        if o.attrib['type'] == 'parameter':
-            return Intrinsic(text=source.string, source=source)
+            return ir.Declaration(variables=variables, type=_type, dimensions=dimensions,
+                                  source=source)
+        if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
+            return ir.Intrinsic(text=source.string, source=source)
         if o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
@@ -412,7 +410,7 @@ class OFP2IR(GenericVisitor):
                     vals += [self.visit(lit)]
                     lit = lit.find('literal')
                 vals += [self.visit(lit)]
-                declarations += [DataDeclaration(variable=variable, values=vals, source=source)]
+                declarations += [ir.DataDeclaration(variable=variable, values=vals, source=source)]
             return as_tuple(declarations)
 
         raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
@@ -421,47 +419,50 @@ class OFP2IR(GenericVisitor):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
-            if isinstance(var, Array):
+            if isinstance(var, sym.Array):
                 shape = ExpressionDimensionsMapper()(var)
             else:
                 shape = None
             _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
-                                         source=source)
+            associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
+                                             source=source)
         body = self.visit(o.find('body'))
-        return Scope(body=as_tuple(body), associations=associations)
+        return ir.Scope(body=as_tuple(body), associations=associations)
 
     def visit_allocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return Allocation(variables=variables, source=source)
+        return ir.Allocation(variables=variables, source=source)
 
     def visit_deallocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return Deallocation(variables=variables, source=source)
+        return ir.Deallocation(variables=variables, source=source)
 
     def visit_use(self, o, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return Import(module=o.attrib['name'], symbols=symbols, source=source)
-
-    def visit_print(self, o, source=None):
-        return Intrinsic(text=source.string, source=source)
+        return ir.Import(module=o.attrib['name'], symbols=symbols, source=source)
 
     def visit_directive(self, o, source=None):
         if '#include' in o.attrib['text']:
             # Straight pipe-through node for header includes (#include ...)
             match = re.search(r'#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
             module = match.groupdict()['module']
-            return Import(module=module, c_import=True, source=source)
-        return Intrinsic(text=source.string, source=source)
+            return ir.Import(module=module, c_import=True, source=source)
+        return ir.Intrinsic(text=source.string, source=source)
 
     def visit_open(self, o, source=None):
-        return Intrinsic(text=source.string, source=source)
+        # return ir.Intrinsic(text=source.string, source=source)
+        assert o.tag.lower() in source.string.lower()
+        return ir.Intrinsic(text=source.string[source.string.lower().find(o.tag.lower()):], source=source)
 
     visit_close = visit_open
     visit_read = visit_open
     visit_write = visit_open
     visit_format = visit_open
+    visit_print = visit_open
+    visit_cycle = visit_open
+    visit_exit = visit_open
+    visit_return = visit_open
 
     def visit_call(self, o, source=None):
         # Need to re-think this: the 'name' node already creates
@@ -469,15 +470,16 @@ class OFP2IR(GenericVisitor):
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
         kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
-        return CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
+        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_argument(self, o, source=None):
         key = o.attrib['name']
         val = self.visit(o.find('name'))
         return key, val
 
-    def visit_exit(self, o, source=None):
-        return Intrinsic(text=source.string, source=source)
+    def visit_label(self, o, source=None):
+        source.label = int(o.attrib['lbl'])
+        return ir.Comment('__STATEMENT_LABEL__', source=source)
 
     # Expression parsing below; maye move to its own parser..?
 
@@ -489,13 +491,13 @@ class OFP2IR(GenericVisitor):
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return InlineCall(vname, parameters=indices)
+                return sym.InlineCall(vname, parameters=indices)
             if vname.upper() in ['REAL', 'INT']:
                 kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
-                return Cast(vname, expression=indices[0], kind=kind)
+                return sym.Cast(vname, expression=indices[0], kind=kind)
             if indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                return InlineCall(o.attrib['id'], parameters=indices)
+                return sym.InlineCall(o.attrib['id'], parameters=indices)
 
             if parent is not None:
                 basename = vname
@@ -509,8 +511,11 @@ class OFP2IR(GenericVisitor):
                 if parent.type.dtype == DataType.DERIVED_TYPE:
                     _type = parent.type.variables.get(basename)
 
-            var = Variable(name=vname, dimensions=indices, parent=parent,
-                           type=_type, scope=self.scope.symbols, source=source)
+            if indices:
+                indices = sym.ArraySubscript(indices)
+
+            var = sym.Variable(name=vname, dimensions=indices, parent=parent,
+                               type=_type, scope=self.scope.symbols, source=source)
             return var
 
         # Creating compound variables is a bit tricky, so let's first
@@ -550,26 +555,28 @@ class OFP2IR(GenericVisitor):
         if _type is not None:
             _type = _type.clone(shape=dimensions)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        return Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
-                        type=_type, initial=initial, source=source)
+        if dimensions:
+            dimensions = sym.ArraySubscript(dimensions)
+        return sym.Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
+                            type=_type, initial=initial, source=source)
 
     def visit_part_ref(self, o, source=None):
         # Return a pure string, as part of a variable name
         return o.attrib['id']
 
     def visit_literal(self, o, source=None):
+        kwargs = {'source': source}
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None
-        kind_param = o.find('kind-param')
-        kind = kind_param.attrib['kind'] if kind_param is not None else None
-        value = int(value) if type == 'int' else value
-        value = float(value) if type == 'real' else value
         if _type is not None:
             tmap = {'bool': DataType.LOGICAL, 'int': DataType.INTEGER,
                     'real': DataType.REAL, 'char': DataType.CHARACTER}
             _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
-        # Cast to the right type if given
-        return Literal(value=value, kind=kind, type=_type, source=source)
+            kwargs['type'] = _type
+        kind_param = o.find('kind-param')
+        if kind_param is not None:
+            kwargs['kind'] = kind_param.attrib['kind']
+        return sym.Literal(value, **kwargs)
 
     def visit_subscripts(self, o, source=None):
         return tuple(self.visit(c) for c in o
@@ -585,10 +592,10 @@ class OFP2IR(GenericVisitor):
                 upper = self.visit(o.find('range/upper-bound'))
             if o.find('range/step') is not None:
                 step = self.visit(o.find('range/step'))
-            return RangeIndex(lower=lower, upper=upper, step=step)
+            return sym.RangeIndex((lower, upper, step))
         if 'type' in o.attrib and o.attrib['type'] == "upper-bound-assumed-shape":
             lower = self.visit(o[0])
-            return RangeIndex(lower=lower, upper=None)
+            return sym.RangeIndex((lower, None, None))
         if o.find('name'):
             return self.visit(o.find('name'))
         if o.find('literal'):
@@ -597,14 +604,14 @@ class OFP2IR(GenericVisitor):
             return self.visit(o.find('operation'))
         if o.find('array-constructor-values'):
             return self.visit(o.find('array-constructor-values'))
-        return RangeIndex(lower=None, upper=None, step=None)
+        return sym.RangeIndex((None, None, None))
 
     visit_dimension = visit_subscript
 
     def visit_array_constructor_values(self, o, source=None):
         values = [self.visit(v) for v in o.findall('value')]
         values = [v for v in values if v is not None]  # Filter empy values
-        return LiteralList(values=values)
+        return sym.LiteralList(values=values)
 
     def visit_operation(self, o, source=None):
         """
@@ -621,44 +628,44 @@ class OFP2IR(GenericVisitor):
         for op in ops:
 
             if op == '+':
-                expression = Sum((expression, exprs.popleft()))
+                expression = sym.Sum((expression, exprs.popleft()))
             elif op == '-':
                 if len(exprs) > 0:
                     # Binary minus
-                    expression = Sum((expression, Product((-1, exprs.popleft()))))
+                    expression = sym.Sum((expression, sym.Product((-1, exprs.popleft()))))
                 else:
                     # Unary minus
-                    expression = Product((-1, expression))
+                    expression = sym.Product((-1, expression))
             elif op == '*':
-                expression = Product((expression, exprs.popleft()))
+                expression = sym.Product((expression, exprs.popleft()))
             elif op == '/':
-                expression = Quotient(numerator=expression, denominator=exprs.popleft())
+                expression = sym.Quotient(numerator=expression, denominator=exprs.popleft())
             elif op == '**':
-                expression = Power(base=expression, exponent=exprs.popleft())
+                expression = sym.Power(base=expression, exponent=exprs.popleft())
             elif op in ('==', '.eq.'):
-                expression = Comparison(expression, '==', exprs.popleft())
+                expression = sym.Comparison(expression, '==', exprs.popleft())
             elif op in ('/=', '.ne.'):
-                expression = Comparison(expression, '!=', exprs.popleft())
+                expression = sym.Comparison(expression, '!=', exprs.popleft())
             elif op in ('>', '.gt.'):
-                expression = Comparison(expression, '>', exprs.popleft())
+                expression = sym.Comparison(expression, '>', exprs.popleft())
             elif op in ('<', '.lt.'):
-                expression = Comparison(expression, '<', exprs.popleft())
+                expression = sym.Comparison(expression, '<', exprs.popleft())
             elif op in ('>=', '.ge.'):
-                expression = Comparison(expression, '>=', exprs.popleft())
+                expression = sym.Comparison(expression, '>=', exprs.popleft())
             elif op in ('<=', '.le.'):
-                expression = Comparison(expression, '<=', exprs.popleft())
+                expression = sym.Comparison(expression, '<=', exprs.popleft())
             elif op == '.and.':
-                expression = LogicalAnd((expression, exprs.popleft()))
+                expression = sym.LogicalAnd((expression, exprs.popleft()))
             elif op == '.or.':
-                expression = LogicalOr((expression, exprs.popleft()))
+                expression = sym.LogicalOr((expression, exprs.popleft()))
             elif op == '.not.':
-                expression = LogicalNot(expression)
+                expression = sym.LogicalNot(expression)
             elif op == '.eqv.':
                 e = (expression, exprs.popleft())
-                expression = LogicalOr((LogicalAnd(e), LogicalNot(LogicalOr(e))))
+                expression = sym.LogicalOr((sym.LogicalAnd(e), sym.LogicalNot(sym.LogicalOr(e))))
             elif op == '.neqv.':
                 e = (expression, exprs.popleft())
-                expression = LogicalAnd((LogicalNot(LogicalAnd(e)), LogicalOr(e)))
+                expression = sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(e)), sym.LogicalOr(e)))
             elif op == '//':
                 expression = StringConcat((expression, exprs.popleft()))
             else:
@@ -666,11 +673,11 @@ class OFP2IR(GenericVisitor):
 
         if o.find('parenthesized_expr') is not None:
             # Force explicitly parenthesised operations
-            if isinstance(expression, Sum):
+            if isinstance(expression, sym.Sum):
                 expression = ParenthesisedAdd(expression.children)
-            if isinstance(expression, Product):
+            if isinstance(expression, sym.Product):
                 expression = ParenthesisedMul(expression.children)
-            if isinstance(expression, Power):
+            if isinstance(expression, sym.Power):
                 expression = ParenthesisedPow(expression.base, expression.exponent)
 
         assert len(exprs) == 0
@@ -678,10 +685,3 @@ class OFP2IR(GenericVisitor):
 
     def visit_operator(self, o, source=None):
         return o.attrib['operator']
-
-    def visit_label(self, o, source=None):
-        source.label = int(o.attrib['lbl'])
-        return Comment('__STATEMENT_LABEL__', source=source)
-
-    def visit_return(self, o, source=None):
-        return Intrinsic(text='return', source=source)

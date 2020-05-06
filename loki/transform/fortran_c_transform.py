@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
                              Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper, LoopRange)
+                             SubstituteExpressionsMapper, LoopRange, ArraySubscript)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import DataType, SymbolType, TypeTable
@@ -367,7 +367,7 @@ class FortranCTransformation(BasicTransformation):
                     continue
 
                 ivar_basename = 'i_%s' % stmt.target.basename
-                for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
+                for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
                         vtype = SymbolType(DataType.INTEGER)
@@ -381,8 +381,8 @@ class FortranCTransformation(BasicTransformation):
 
                 # Add index variable to range replacement
                 new_dims = as_tuple(shape_index_map.get(s, d)
-                                    for d, s in zip(v.dimensions, v.shape))
-                vmap[v] = v.clone(dimensions=new_dims)
+                                    for d, s in zip(v.dimensions.index_tuple, v.shape))
+                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
 
             index_vars.update(list(vdims))
 
@@ -416,10 +416,9 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in kernel.variables:
             if isinstance(v, Array):
-                new_dims = as_tuple(d.upper if isinstance(d, RangeIndex) \
-                                    and d.lower == 1 and d.step is None else d
-                                    for d in v.dimensions)
-                vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = [d.upper if isinstance(d, RangeIndex) and d.lower == 1 and d.step is None
+                            else d for d in v.dimensions.index_tuple]
+                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)))
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
@@ -436,13 +435,15 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=True).visit(kernel.body):
             if isinstance(v, Array):
-                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+                rdim = as_tuple(reversed(v.dimensions.index_tuple))
+                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
         # Invert variable and argument dimensions for the automatic cast generation
         for v in kernel.variables:
             if isinstance(v, Array):
-                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+                rdim = as_tuple(reversed(v.dimensions.index_tuple))
+                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
@@ -454,8 +455,8 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=False).visit(kernel.body):
             if isinstance(v, Array):
-                new_dims = as_tuple(d - 1 for d in v.dimensions)
-                vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = as_tuple(d - 1 for d in v.dimensions.index_tuple)
+                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
     @staticmethod

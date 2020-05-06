@@ -9,7 +9,8 @@ from loki.expression.mappers import LokiStringifyMapper
 
 
 __all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'Range', 'LoopRange']
+           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'Range', 'LoopRange',
+           'ArraySubscript']
 
 
 # pylint: disable=abstract-method
@@ -26,6 +27,13 @@ class ExprMetadataMixin:
 
     def __getinitargs__(self):
         return super().__getinitargs__() + (('source', self.source),)
+
+    def __eq__(self, other):
+        return isinstance(other, ExprMetadataMixin) and super().__eq__(other)
+
+    def __hash__(self):
+        # pylint: disable=useless-super-delegation
+        return super().__hash__()
 
     @property
     def source(self):
@@ -577,3 +585,18 @@ class LoopRange(Range):
     """
 
     mapper_method = intern('map_loop_range')
+
+
+class ArraySubscript(ExprMetadataMixin, pmbl.Subscript):
+    """
+    Internal representation of an array subscript.
+    """
+
+    def __init__(self, index, **kwargs):
+        # TODO: have aggregate here?
+        super().__init__(None, index, **kwargs)
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+    mapper_method = intern('map_array_subscript')

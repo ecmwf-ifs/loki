@@ -1,9 +1,9 @@
 import re
-import pymbolic.primitives as pmbl
+from pymbolic.primitives import Expression
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper']
@@ -40,10 +40,9 @@ class LokiStringifyMapper(StringifyMapper):
         return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
-        if dims:
-            dims = '(' + dims + ')'
-        parent, initial = '', ''
+        dims, parent, initial = '', '', ''
+        if expr.dimensions:
+            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
         if expr.parent is not None:
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
         if expr.type is not None and expr.type.initial is not None:
@@ -56,7 +55,7 @@ class LokiStringifyMapper(StringifyMapper):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         if expr.kind:
-            if isinstance(expr.kind, pmbl.Expression):
+            if isinstance(expr.kind, Expression):
                 kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
             else:
                 kind = ', kind=' + str(expr.kind)
@@ -88,6 +87,10 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
+
+    def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
+        return '(%s)' % index_str
 
 
 class ExpressionRetriever(WalkMapper):
@@ -123,8 +126,13 @@ class ExpressionRetriever(WalkMapper):
         if not self.visit(expr):
             return
         if expr.dimensions:
-            for d in expr.dimensions:
-                self.rec(d, *args, **kwargs)
+            self.rec(expr.dimensions, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_array_subscript(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.rec(expr.index, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_logic_literal = WalkMapper.map_constant
@@ -138,7 +146,7 @@ class ExpressionRetriever(WalkMapper):
             return
         for p in expr.parameters:
             self.rec(p, *args, **kwargs)
-        if isinstance(expr.kind, pmbl.Expression):
+        if isinstance(expr.kind, Expression):
             self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -183,7 +191,7 @@ class ExpressionDimensionsMapper(Mapper):
 
         # pylint: disable=import-outside-toplevel
         from loki.expression.symbol_types import RangeIndex, IntLiteral
-        dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
+        dims = self.rec(expr.dimensions, *args, **kwargs)
         # Replace colon dimensions by the value from shape
         shape = expr.shape or [None] * len(dims)
         dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
@@ -191,6 +199,9 @@ class ExpressionDimensionsMapper(Mapper):
         # Remove singleton dimensions
         dims = [d for d in dims if d != IntLiteral(1)]
         return as_tuple(dims)
+
+    def map_array_subscript(self, expr, *args, **kwargs):
+        return flatten(tuple(self.rec(d, *args, **kwargs) for d in expr.index_tuple))
 
     def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
         if expr.lower is None and expr.upper is None:
@@ -223,13 +234,17 @@ class ExpressionCallbackMapper(CombineMapper):
     map_scalar = map_constant
     map_array = map_constant
 
+    def map_array_subscript(self, expr, *args, **kwargs):
+        dimensions = self.rec(expr.index_tuple, *args, **kwargs)
+        return self.combine(dimensions)
+
     def map_inline_call(self, expr, *args, **kwargs):
         parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.parameters)
         kw_parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.kw_parameters.values())
         return self.combine(parameters + kw_parameters)
 
     def map_cast(self, expr, *args, **kwargs):
-        if expr.kind and isinstance(expr.kind, pmbl.Expression):
+        if expr.kind and isinstance(expr.kind, Expression):
             kind = (self.rec(expr.kind, *args, **kwargs),)
         else:
             kind = tuple()
@@ -269,17 +284,20 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:
-            dimensions = tuple(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+            dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
         initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
         return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
                               dimensions=dimensions, initial=initial, source=expr.source)
 
+    def map_array_subscript(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.index, *args, **kwargs))
+
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if isinstance(expr.kind, pmbl.Expression):
+        if isinstance(expr.kind, Expression):
             kind = self.rec(expr.kind, *args, **kwargs)
         else:
             kind = expr.kind

@@ -70,12 +70,15 @@ class CCodeMapper(LokiStringifyMapper):
         return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = [self.rec(d, enclosing_prec, *args, **kwargs) for d in expr.dimensions]
-        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
+        dims = self.rec(expr.dimensions, enclosing_prec, *args, **kwargs)
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
         return self.format('%s%s', expr.basename, dims)
+
+    def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        index_str = self.join_rec('][', expr.index_tuple, PREC_NONE, *args, **kwargs)
+        return '[%s]' % index_str
 
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
@@ -214,7 +217,8 @@ class CCodegen(Visitor):
             if isinstance(a, Array):
                 dtype = self.visit(a.type, **kwargs)
                 # str(d).lower() is a bad hack to ensure caps-alignment
-                outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower() for d in a.dimensions[1:])
+                outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower()
+                                     for d in a.dimensions.index_tuple[1:])
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 

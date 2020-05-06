@@ -357,7 +357,8 @@ class DataDeclaration(Node):
     def __init__(self, variable, values, source=None):
         super(DataDeclaration, self).__init__(source=source)
 
-        assert isinstance(variable, Expression)
+        # TODO: This should only allow Expression instances but needs frontend changes
+        assert isinstance(variable, (Expression, str))
         assert is_iterable(values) and all(isinstance(val, Expression) for val in values)
 
         self.variable = variable

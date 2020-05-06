@@ -223,6 +223,9 @@ class FParser2IR(GenericVisitor):
         if shape is not None and dtype is not None and dtype.shape != shape:
             dtype = dtype.clone(shape=shape)
 
+        if dimensions:
+            dimensions = sym.ArraySubscript(dimensions)
+
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
                             parent=parent, initial=initial, source=source)
 
