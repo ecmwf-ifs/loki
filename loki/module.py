@@ -3,9 +3,10 @@ import weakref
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
 
-from loki.frontend.omni import parse_omni_ast
-from loki.frontend.ofp import parse_ofp_ast
-from loki.frontend.fparser import parse_fparser_ast
+from loki.frontend import Frontend
+from loki.frontend.omni import parse_omni_ast, parse_omni_source
+from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
+from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import TypeDef, Section
 from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
@@ -51,6 +52,34 @@ class Module:
 
         self._ast = ast
         self._raw_source = raw_source
+
+    @classmethod
+    def from_source(cls, source, xmods=None, frontend=Frontend.FP):
+        """
+        Create `Module` objectfrom raw source string using given frontend.
+
+        :param source: Fortran source string
+        :param xmods: Locations of "xmods" module directory for OMNI frontend
+        :param frontend: Choice of frontend to use for parsing source (default FP)
+        """
+
+        if frontend == Frontend.OMNI:
+            ast = parse_omni_source(source, xmods=xmods)
+            typetable = ast.find('typeTable')
+            f_ast = ast.find('globalDeclarations/FmoduleDefinition')
+            return cls.from_omni(ast=f_ast, raw_source=source, typetable=typetable)
+
+        if frontend == Frontend.OFP:
+            ast = parse_ofp_source(source)
+            m_ast = ast.find('file/module')
+            return cls.from_ofp(ast=m_ast, raw_source=source)
+
+        if frontend == Frontend.FP:
+            ast = parse_fparser_source(source)
+            m_ast = get_child(ast, Fortran2003.Module)
+            return cls.from_fparser(ast=m_ast, raw_source=source)
+
+        raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, parent=None):
