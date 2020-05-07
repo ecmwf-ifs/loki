@@ -3,7 +3,9 @@ import pytest
 
 from loki import OFP, OMNI, FP, SourceFile, fexprgen
 
-@pytest.mark.parametrize('frontend', [OFP, FP,
+@pytest.mark.parametrize('frontend', [
+    FP,
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Typedefs not yet supported in frontend')),
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
 ])
 def test_nested_types(frontend):
@@ -13,12 +15,14 @@ def test_nested_types(frontend):
     """
     here = Path(__file__).parent
 
-    # Check dimension annotation is honoured in sub_type
-    types = SourceFile.from_file(here/'types.f90', frontend=frontend)['types']
-    child = types.typedefs['sub_type']
+    # First, get the sub_type and check that the dimension annotation is honoured
+    subtypes = SourceFile.from_file(here/'sub_types.f90', frontend=frontend)['sub_types']
+    child = subtypes.typedefs['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
     # Check that dimension in sub_type has propagated to parent_type
+    types = SourceFile.from_file(here/'types.f90', typedefs=subtypes.typedefs,
+                                 frontend=frontend)['types']
     parent = types.typedefs['parent_type']
     x = parent.variables[1].type.variables['x']
     assert fexprgen(x.shape) == '(size,)'
