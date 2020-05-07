@@ -5,7 +5,7 @@ from loki.visitors import Visitor, NestedTransformer
 from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaration, Pragma, Loop,
                      Intrinsic)
 from loki.types import DataType, SymbolType
-from loki.expression import Variable
+from loki.expression import Literal, Variable
 from loki.tools import as_tuple
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
