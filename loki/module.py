@@ -98,9 +98,6 @@ class Module:
         routines += tuple(Subroutine.from_ofp(ast, raw_source, typedefs=typedefs, parent=obj)
                           for ast in ast.findall('members/function'))
 
-        # Process pragmas to override deferred dimensions
-        cls._process_pragmas(spec)
-
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source,
                      parent=parent, symbols=obj.symbols, types=obj.types)
         return obj
@@ -153,38 +150,9 @@ class Module:
                                                 raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]
 
-        # Process pragmas to override deferred dimensions
-        cls._process_pragmas(spec)
-
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast,
                      symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
-
-    @staticmethod
-    def _process_pragmas(spec):
-        """
-        Process any '!$loki dimension' pragmas to override deferred dimensions
-        """
-        for typedef in FindNodes(TypeDef).visit(spec):
-            pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
-            for decl in typedef.declarations:
-                # Map pragmas by declaration line, not var line
-                if decl._source.lines[0]-1 in pragmas:
-                    pragma = pragmas[decl._source.lines[0]-1]
-                    for v in decl.variables:
-                        if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
-                            # Found dimension override for variable
-                            dims = pragma.content.split('dimension(')[-1]
-                            dims = dims.split(')')[0].split(',')
-                            dims = [d.strip() for d in dims]
-                            shape = []
-                            for d in dims:
-                                if d.isnumeric():
-                                    shape += [Literal(value=int(d), type=DataType.INTEGER)]
-                                else:
-                                    _type = SymbolType(DataType.INTEGER)
-                                    shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
-                            v.type = v.type.clone(shape=as_tuple(shape))
 
     @property
     def typedefs(self):
