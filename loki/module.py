@@ -54,7 +54,7 @@ class Module:
         self._raw_source = raw_source
 
     @classmethod
-    def from_source(cls, source, xmods=None, frontend=Frontend.FP):
+    def from_source(cls, source, xmods=None, typedefs=None, frontend=Frontend.FP):
         """
         Create `Module` objectfrom raw source string using given frontend.
 
@@ -77,7 +77,7 @@ class Module:
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             m_ast = get_child(ast, Fortran2003.Module)
-            return cls.from_fparser(ast=m_ast, raw_source=source)
+            return cls.from_fparser(ast=m_ast, typedefs=typedefs, raw_source=source)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
@@ -132,21 +132,23 @@ class Module:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, parent=None):
         name = name or ast.content[0].items[1].tostr()
         obj = cls(name, ast=ast, raw_source=raw_source, parent=parent)
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, raw_source=raw_source, scope=obj)
+            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj,
+                                     raw_source=raw_source)
             spec = Section(body=spec)
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
         if routines_ast is not None:
-            routines = [Subroutine.from_fparser(ast=s, raw_source=raw_source, parent=obj)
+            routines = [Subroutine.from_fparser(ast=s, typedefs=typedefs, parent=obj,
+                                                raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]
 
         # Process pragmas to override deferred dimensions
