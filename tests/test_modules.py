@@ -136,3 +136,26 @@ end module type_mod
     arr = pt.type.variables ['array']
     assert arr.type.dtype == DataType.REAL
     fexprgen(arr.shape) == exptected_array_shape
+
+
+@pytest.mark.parametrize('frontend', [FP, OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
+])
+def test_dimension_pragmas(frontend):
+    """
+    Test that loki-specific dimension annotations are detected and
+    used to set shapes.
+    """
+
+    fcode = """
+module type_mod
+  implicit none
+  type mytype
+    !$loki dimension(size)
+    integer, pointer :: x(:)
+  end type mytype
+end module type_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    mytype = module.typedefs['mytype']
+    assert fexprgen(mytype.variables[0].shape) == '(size,)'
