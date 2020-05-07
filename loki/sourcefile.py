@@ -120,7 +120,7 @@ class SourceFile:
         routines += [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
                                          parent=obj, pp_info=pp_info)
                      for r in ast.findall('file/function')]
-        modules = [Module.from_ofp(ast=m, raw_source=raw_source, parent=obj)
+        modules = [Module.from_ofp(ast=m, typedefs=typedefs, parent=obj, raw_source=raw_source)
                    for m in ast.findall('file/module')]
 
         obj.__init__(filename, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
@@ -148,7 +148,8 @@ class SourceFile:
 
         # TODO: Do modules!
         module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
-        modules = [Module.from_fparser(ast=r, raw_source=raw_source, parent=obj)
+        modules = [Module.from_fparser(ast=r, typedefs=typedefs, parent=obj,
+                                       raw_source=raw_source)
                    for r in module_asts]
 
         obj.__init__(filename, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
