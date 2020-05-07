@@ -103,3 +103,36 @@ end module a_module
     pt_ext_arr = routine.body[0].target
     assert pt_ext_arr.type.dtype == DataType.REAL
     fexprgen(pt_ext_arr.shape) == exptected_array_shape
+
+
+@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+def test_module_nested_types(frontend):
+    """
+    Test that ensure that nested internal derived type definitions are
+    detected and connected correctly.
+    """
+
+    fcode = """
+module type_mod
+  integer, parameter :: x = 2
+  integer, parameter :: y = 3
+
+  type sub_type
+    real :: array(x, y)
+  end type sub_type
+
+  type parent_type
+    type(sub_type) :: pt
+  end type parent_type
+end module type_mod
+"""
+    # OMNI resolves explicit shape parameters in the frontend parser
+    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+
+    module = Module.from_source(fcode, frontend=frontend)
+    parent = module.typedefs['parent_type']
+    pt = parent.variables[0]
+    assert 'array' in pt.type.variables
+    arr = pt.type.variables ['array']
+    assert arr.type.dtype == DataType.REAL
+    fexprgen(arr.shape) == exptected_array_shape
