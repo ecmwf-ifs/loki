@@ -8,7 +8,7 @@ from loki.tools import chunks, flatten, as_tuple
 from loki.expression import LokiStringifyMapper
 from loki.types import DataType
 
-__all__ = ['fgen', 'FortranCodegen', 'FCodeMapper']
+__all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
 
 
 class FCodeMapper(LokiStringifyMapper):
@@ -421,3 +421,8 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
+
+"""
+Expose the expression generator for testing purposes.
+"""
+fexprgen = FCodeMapper()
