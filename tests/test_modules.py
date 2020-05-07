@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, Module, Declaration, TypeDef, DataType
+from loki import OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, DataType
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
@@ -33,7 +33,11 @@ end module a_module
     assert module.routines[0].name == 'my_routine'
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', [
+    FP,
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Typedefs not yet supported in frontend')),
+    OMNI
+])
 def test_module_external_typedefs(frontend):
     """
     Test that externally provided type information is correctly
@@ -76,13 +80,15 @@ end module a_module
     nested = module.typedefs['nested_type']
     ext = nested.variables[0]
 
+    # OMNI resolves explicit shape parameters in the frontend parser
+    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
     assert 'array' in ext.type.variables
     a = ext.type.variables['array']
     assert a.type.dtype == DataType.REAL
-    assert a.shape[0].name == 'x'
-    assert a.shape[1].name == 'y'
+    fexprgen(a.shape) == exptected_array_shape
 
     # Check the routine has got type and shape info too
     routine = module['my_routine']
@@ -91,11 +97,9 @@ end module a_module
     assert 'array' in pt_ext.type.variables
     pt_ext_a = pt_ext.type.variables['array']
     assert pt_ext_a.type.dtype == DataType.REAL
-    assert pt_ext_a.shape[0].name == 'x'
-    assert pt_ext_a.shape[1].name == 'y'
+    fexprgen(pt_ext_a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     pt_ext_arr = routine.body[0].target
     assert pt_ext_arr.type.dtype == DataType.REAL
-    assert pt_ext_arr.shape[0].name == 'x'
-    assert pt_ext_arr.shape[1].name == 'y'
+    fexprgen(pt_ext_arr.shape) == exptected_array_shape

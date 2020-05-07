@@ -67,12 +67,13 @@ class Module:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
             f_ast = ast.find('globalDeclarations/FmoduleDefinition')
-            return cls.from_omni(ast=f_ast, raw_source=source, typetable=typetable)
+            return cls.from_omni(ast=f_ast, raw_source=source,
+                                 typedefs=typedefs, typetable=typetable)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             m_ast = ast.find('file/module')
-            return cls.from_ofp(ast=m_ast, raw_source=source)
+            return cls.from_ofp(ast=m_ast, typedefs=typedefs, raw_source=source)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
@@ -82,19 +83,19 @@ class Module:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, parent=None):
+    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, parent=None):
         # Process module-level type specifications
         name = name or ast.attrib['name']
         obj = cls(name=name, ast=ast, raw_source=raw_source, parent=parent)
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, scope=obj)
+        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, typedefs=typedefs, scope=obj)
 
-        # TODO: Add routine parsing
-        routines = tuple(Subroutine.from_ofp(ast, raw_source, parent=obj)
+        # Parse member subroutines and functions
+        routines = tuple(Subroutine.from_ofp(ast, raw_source, typedefs=typedefs, parent=obj)
                          for ast in ast.findall('members/subroutine'))
-        routines += tuple(Subroutine.from_ofp(ast, raw_source, parent=obj)
+        routines += tuple(Subroutine.from_ofp(ast, raw_source, typedefs=typedefs, parent=obj)
                           for ast in ast.findall('members/function'))
 
         # Process pragmas to override deferred dimensions
@@ -105,7 +106,8 @@ class Module:
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, symbol_map=None, parent=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, typedefs=None,
+                  symbol_map=None, parent=None):
         name = name or ast.attrib['name']
 
         type_map = {t.attrib['type']: t for t in typetable}
@@ -114,15 +116,15 @@ class Module:
         obj = cls(name=name, ast=ast, raw_source=raw_source, parent=parent)
 
         # Generate spec, filter out external declarations and insert `implicit none`
-        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=obj)
+        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
+                              typedefs=typedefs, raw_source=raw_source, scope=obj)
         spec = Section(body=spec)
 
         # TODO: Parse member functions properly
         contains = ast.find('FcontainsStatement')
         routines = None
         if contains is not None:
-            routines = [Subroutine.from_omni(ast=s, typetable=typetable,
+            routines = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
                                              symbol_map=symbol_map,
                                              raw_source=raw_source, parent=obj)
                         for s in contains]
