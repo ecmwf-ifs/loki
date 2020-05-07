@@ -2,17 +2,14 @@ from subprocess import check_output, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
-from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, LogicalNot,
-                                 LogicalAnd, LogicalOr)
 
 
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
 from loki.visitors import GenericVisitor
-from loki.expression import (Variable, Literal, LiteralList, InlineCall, RangeIndex, Cast, Array,
-                             ExpressionDimensionsMapper, StringConcat)
-from loki.ir import (Scope, Statement, Conditional, CallStatement, Loop, Allocation, Deallocation,
-                     Import, Declaration, TypeDef, Intrinsic, Pragma, Comment)
+import loki.ir as ir
+import loki.expression.symbol_types as sym
+from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash
 from loki.types import DataType, SymbolType
@@ -88,16 +85,16 @@ def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
-                 raw_source=raw_source, scope=scope).visit(ast)
+    _ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
+                  raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform some minor sanitation tasks
-    ir = inline_comments(ir)
-    ir = cluster_comments(ir)
-    ir = inline_pragmas(ir)
-    ir = inline_labels(ir)
+    _ir = inline_comments(_ir)
+    _ir = cluster_comments(_ir)
+    _ir = inline_pragmas(_ir)
+    _ir = inline_labels(_ir)
 
-    return ir
+    return _ir
 
 
 class OMNI2IR(GenericVisitor):
@@ -145,7 +142,9 @@ class OMNI2IR(GenericVisitor):
                 typename = self._omni_types.get(t, t)
                 vtype = SymbolType(DataType.from_fortran_type(typename))
 
-            variables += [Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope)]
+            if dimensions:
+                dimensions = sym.ArraySubscript(dimensions)
+            variables += [sym.Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope)]
         return variables
 
     def lookup_method(self, instance):
@@ -180,11 +179,11 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FuseOnlyDecl(self, o, source=None):
         symbols = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
-        return Import(module=o.attrib['name'], symbols=symbols, c_import=False)
+        return ir.Import(module=o.attrib['name'], symbols=symbols, c_import=False)
 
     def visit_FinterfaceDecl(self, o, source=None):
         header = Path(o.attrib['file']).name
-        return Import(module=header, c_import=True)
+        return ir.Import(module=header, c_import=True)
 
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
@@ -220,13 +219,15 @@ class OMNI2IR(GenericVisitor):
         value = self.visit(o.find('value')) if o.find('value') is not None else None
         if _type is not None:
             _type.shape = dimensions
-        variable = Variable(name=name.text, dimensions=dimensions, type=_type,
-                            initial=value, scope=self.scope.symbols, source=source)
-        return Declaration(variables=as_tuple(variable), type=_type, source=source)
+        if dimensions:
+            dimensions = sym.ArraySubscript(dimensions)
+        variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
+                                initial=value, scope=self.scope.symbols, source=source)
+        return ir.Declaration(variables=as_tuple(variable), type=_type, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        typedef = TypeDef(name=name.text, declarations=[])
+        typedef = ir.TypeDef(name=name.text, declarations=[])
 
         # Create the derived type...
         _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
@@ -241,7 +242,7 @@ class OMNI2IR(GenericVisitor):
         self.scope.types[name.text] = _type
 
         # Build individual declarations for each member
-        declarations = as_tuple(Declaration(variables=(v, ), type=v.type)
+        declarations = as_tuple(ir.Declaration(variables=(v, ), type=v.type)
                                 for v in _type.variables.values())
         typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
         return typedef
@@ -291,60 +292,60 @@ class OMNI2IR(GenericVisitor):
         associations = OrderedDict()
         for i in o.findall('symbols/id'):
             var = self.visit(i.find('value'))
-            if isinstance(var, Array):
+            if isinstance(var, sym.Array):
                 shape = ExpressionDimensionsMapper()(var)
             else:
                 shape = None
             vname = i.find('name').text
             vtype = var.type.clone(name=None, parent=None, shape=shape)
-            associations[var] = Variable(name=vname, type=vtype, scope=self.scope.symbols,
-                                         source=source)
+            associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
+                                             source=source)
         body = self.visit(o.find('body'))
-        return Scope(body=as_tuple(body), associations=associations)
+        return ir.Scope(body=as_tuple(body), associations=associations)
 
     def visit_FcommentLine(self, o, source=None):
-        return Comment(text=o.text, source=source)
+        return ir.Comment(text=o.text, source=source)
 
     def visit_FpragmaStatement(self, o, source=None):
         keyword = o.text.split(' ')[0]
         content = ' '.join(o.text.split(' ')[1:])
-        return Pragma(keyword=keyword, content=content, source=source)
+        return ir.Pragma(keyword=keyword, content=content, source=source)
 
     def visit_FassignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return Statement(target=target, expr=expr, source=source)
+        return ir.Statement(target=target, expr=expr, source=source)
 
     def visit_FpointerAssignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return Statement(target=target, expr=expr, ptr=True, source=source)
+        return ir.Statement(target=target, expr=expr, ptr=True, source=source)
 
     def visit_FdoWhileStatement(self, o, source=None):
         assert o.find('condition') is not None
         assert o.find('body') is not None
-        variable = self.visit(o.find('condition'))
+        condition = self.visit(o.find('condition'))
         body = self.visit(o.find('body'))
-        return Loop(variable=variable, body=body, bounds=None, source=source)
+        return ir.WhileLoop(condition=condition, body=body, source=source)
 
     def visit_FdoStatement(self, o, source=None):
         assert o.find('Var') is not None
         assert o.find('body') is not None
         variable = self.visit(o.find('Var'))
-        body = self.visit(o.find('body'))
+        body = as_tuple(self.visit(o.find('body')))
         # TODO: What do we do with loop bounds? Tuple or Range?
         lower = self.visit(o.find('indexRange/lowerBound'))
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
-        bounds = lower, upper, step
-        return Loop(variable=variable, body=body, bounds=bounds, source=source)
+        bounds = sym.LoopRange((lower, upper, step))
+        return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_FifStatement(self, o, source=None):
         conditions = [self.visit(c) for c in o.findall('condition')]
         bodies = as_tuple([self.visit(o.find('then/body'))])
         else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return Conditional(conditions=as_tuple(conditions),
-                           bodies=(bodies, ), else_body=else_body)
+        return ir.Conditional(conditions=as_tuple(conditions),
+                              bodies=(bodies, ), else_body=else_body)
 
     def visit_FmemberRef(self, o, **kwargs):
         vname = o.attrib['member']
@@ -376,8 +377,10 @@ class OMNI2IR(GenericVisitor):
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
 
-        return Variable(name=vname, type=vtype, parent=parent, scope=self.scope.symbols,
-                        dimensions=dimensions, source=source)
+        if dimensions:
+            dimensions = sym.ArraySubscript(dimensions)
+        return sym.Variable(name=vname, type=vtype, parent=parent, scope=self.scope.symbols,
+                            dimensions=dimensions, source=source)
 
     def visit_Var(self, o, **kwargs):
         vname = o.text
@@ -401,8 +404,10 @@ class OMNI2IR(GenericVisitor):
             # derived type might have a different allocation size
             vtype = vtype.clone(shape=shape)
 
-        return Variable(name=vname, type=vtype, scope=self.scope.symbols,
-                        dimensions=dimensions, source=source)
+        if dimensions:
+            dimensions = sym.ArraySubscript(dimensions)
+        return sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
+                            dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):
         # Hack: Get variable components here and derive the dimensions
@@ -420,23 +425,23 @@ class OMNI2IR(GenericVisitor):
         upper = self.visit(ubound) if ubound is not None else None
         st = o.find('step')
         step = self.visit(st) if st is not None else None
-        return RangeIndex(lower=lower, upper=upper, step=step)
+        return sym.RangeIndex((lower, upper, step))
 
     def visit_FrealConstant(self, o, source=None):
-        return Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None))
+        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None))
 
     def visit_FlogicalConstant(self, o, source=None):
-        return Literal(value=o.text, type=DataType.LOGICAL)
+        return sym.Literal(value=o.text, type=DataType.LOGICAL)
 
     def visit_FcharacterConstant(self, o, source=None):
-        return Literal(value='"%s"' % o.text, type=DataType.CHARACTER)
+        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER)
 
     def visit_FintConstant(self, o, source=None):
-        return Literal(value=int(o.text), type=DataType.INTEGER)
+        return sym.Literal(value=int(o.text), type=DataType.INTEGER)
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
-        return LiteralList(values=values)
+        return sym.LiteralList(values=values)
 
     def visit_functionCall(self, o, source=None):
         if o.find('name') is not None:
@@ -467,9 +472,9 @@ class OMNI2IR(GenericVisitor):
                         kind = kind[1]  # Yuckk!
                 else:
                     kind = None
-                return Cast(o.find('name').text, expression=expr, kind=kind)
-            return InlineCall(name, parameters=args, kw_parameters=kwargs)
-        return CallStatement(name=name, arguments=args, kwarguments=kwargs)
+                return sym.Cast(o.find('name').text, expression=expr, kind=kind)
+            return sym.InlineCall(name, parameters=args, kw_parameters=kwargs)
+        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs)
 
     def visit_FallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
@@ -481,49 +486,49 @@ class OMNI2IR(GenericVisitor):
             dimensions = as_tuple(self.visit(i) for i in a[1:])
             dimensions = None if len(dimensions) == 0 else dimensions
             variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
-        return Allocation(variables=as_tuple(variables), data_source=data_source)
+        return ir.Allocation(variables=as_tuple(variables), data_source=data_source)
 
     def visit_FdeallocateStatement(self, o, source=None):
         allocs = o.findall('alloc')
         variables = as_tuple(self.visit(a[0]) for a in allocs)
-        return Deallocation(variables=variables, source=source)
+        return ir.Deallocation(variables=variables, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
-        return Intrinsic(text='cycle', source=source)
+        return ir.Intrinsic(text='cycle', source=source)
 
     def visit_FopenStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return Intrinsic(text='open(%s)' % nargs, source=source)
+        return ir.Intrinsic(text='open(%s)' % nargs, source=source)
 
     def visit_FcloseStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return Intrinsic(text='close(%s)' % nargs, source=source)
+        return ir.Intrinsic(text='close(%s)' % nargs, source=source)
 
     def visit_FreadStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         values = [self.visit(v) for v in o.find('valueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
         args = ', '.join('%s' % v for v in values)
-        return Intrinsic(text='read(%s) %s' % (nargs, args), source=source)
+        return ir.Intrinsic(text='read(%s) %s' % (nargs, args), source=source)
 
     def visit_FwriteStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
         values = [self.visit(v) for v in o.find('valueList')]
         nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
         args = ', '.join('%s' % v for v in values)
-        return Intrinsic(text='write(%s) %s' % (nargs, args), source=source)
+        return ir.Intrinsic(text='write(%s) %s' % (nargs, args), source=source)
 
     def visit_FprintStatement(self, o, source):
         values = [self.visit(v) for v in o.find('valueList')]
         args = ', '.join('%s' % v for v in values)
         fmt = o.attrib['format']
-        return Intrinsic(text='print %s, %s' % (fmt, args), source=source)
+        return ir.Intrinsic(text='print %s, %s' % (fmt, args), source=source)
 
     def visit_FformatDecl(self, o, source):
         fmt = 'FORMAT%s' % o.attrib['format']
-        return Intrinsic(text=fmt, source=source)
+        return ir.Intrinsic(text=fmt, source=source)
 
     def visit_namedValue(self, o, source):
         name = o.attrib['name']
@@ -534,85 +539,85 @@ class OMNI2IR(GenericVisitor):
     def visit_plusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Sum(exprs)
+        return sym.Sum(exprs)
 
     def visit_minusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Sum((exprs[0], Product((-1, exprs[1]))))
+        return sym.Sum((exprs[0], sym.Product((-1, exprs[1]))))
 
     def visit_mulExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Product(exprs)
+        return sym.Product(exprs)
 
     def visit_divExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Quotient(*exprs)
+        return sym.Quotient(*exprs)
 
     def visit_FpowerExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Power(base=exprs[0], exponent=exprs[1])
+        return sym.Power(base=exprs[0], exponent=exprs[1])
 
     def visit_unaryMinusExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 1
-        return Product((-1, exprs[0]))
+        return sym.Product((-1, exprs[0]))
 
     def visit_logOrExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
-        return LogicalOr(exprs)
+        return sym.LogicalOr(exprs)
 
     def visit_logAndExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
-        return LogicalAnd(exprs)
+        return sym.LogicalAnd(exprs)
 
     def visit_logNotExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 1
-        return LogicalNot(exprs[0])
+        return sym.LogicalNot(exprs[0])
 
     def visit_logLTExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '<', exprs[1])
+        return sym.Comparison(exprs[0], '<', exprs[1])
 
     def visit_logLEExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '<=', exprs[1])
+        return sym.Comparison(exprs[0], '<=', exprs[1])
 
     def visit_logGTExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '>', exprs[1])
+        return sym.Comparison(exprs[0], '>', exprs[1])
 
     def visit_logGEExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '>=', exprs[1])
+        return sym.Comparison(exprs[0], '>=', exprs[1])
 
     def visit_logEQExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '==', exprs[1])
+        return sym.Comparison(exprs[0], '==', exprs[1])
 
     def visit_logNEQExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return Comparison(exprs[0], '!=', exprs[1])
+        return sym.Comparison(exprs[0], '!=', exprs[1])
 
     def visit_logEQVExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return LogicalOr((LogicalAnd(exprs), LogicalNot(LogicalOr(exprs))))
+        return sym.LogicalOr((sym.LogicalAnd(exprs), sym.LogicalNot(sym.LogicalOr(exprs))))
 
     def visit_logNEQVExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
         assert len(exprs) == 2
-        return LogicalAnd((LogicalNot(LogicalAnd(exprs)), LogicalOr(exprs)))
+        return sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(exprs)), sym.LogicalOr(exprs)))
 
     def visit_FconcatExpr(self, o, source=None):
         exprs = tuple(self.visit(c) for c in o)
@@ -621,11 +626,11 @@ class OMNI2IR(GenericVisitor):
 
     def visit_gotoStatement(self, o, source=None):
         label = int(o.attrib['label_name'])
-        return Intrinsic(text='go to %d' % label, source=source)
+        return ir.Intrinsic(text='go to %d' % label, source=source)
 
     def visit_statementLabel(self, o, source=None):
         source.label = int(o.attrib['label_name'])
-        return Comment('__STATEMENT_LABEL__', source=source)
+        return ir.Comment('__STATEMENT_LABEL__', source=source)
 
     def visit_FreturnStatement(self, o, source=None):
-        return Intrinsic(text='return', source=source)
+        return ir.Intrinsic(text='return', source=source)

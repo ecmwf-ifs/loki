@@ -214,7 +214,7 @@ def test_associates(refpath, reference, frontend):
     routine = SourceFile.from_file(refpath, frontend=frontend)['associates']
     variables = FindVariables().visit(routine.body)
     if frontend == OMNI:
-        assert all([v.shape == (RangeIndex(IntLiteral(1), IntLiteral(3)),)
+        assert all([v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
                     for v in variables if v.name in ['vector', 'vector2']])
     else:
         assert all([isinstance(v.shape, tuple) and len(v.shape) == 1 and
@@ -233,7 +233,11 @@ def test_associates(refpath, reference, frontend):
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI fails to read without full module')),
+    FP
+])
 def test_associates_deferred(refpath, frontend):
     """
     Verify that reading in subroutines with deferred external type definitions

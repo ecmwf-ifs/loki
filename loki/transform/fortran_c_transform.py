@@ -393,7 +393,7 @@ class FortranCTransformation(BasicTransformation):
                 for ivar in vdims:
                     irange = index_range_map[ivar]
                     if isinstance(irange, RangeIndex):
-                        bounds = LoopRange(RangeIndex.children)
+                        bounds = LoopRange(irange.children)
                     else:
                         bounds = LoopRange((Literal(1), irange, Literal(1)))
                     loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
