@@ -8,11 +8,9 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import TypeDef, Section
-from loki.expression import Literal, Variable
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
-from loki.tools import as_tuple
-from loki.types import TypeTable, DataType, SymbolType
+from loki.types import TypeTable
 
 
 __all__ = ['Module']

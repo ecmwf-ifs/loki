@@ -33,7 +33,6 @@ def test_nested_types(frontend):
     pt_d = driver.routines[0].variables[0]
     x_d = pt_d.type.variables['type_member'].type.variables['x']
     assert fexprgen(x_d.shape) == '(size,)'
-    
 
     kernel = SourceFile.from_file(here/'kernel.f90', typedefs=types.typedefs,
                                   frontend=frontend)['kernel']

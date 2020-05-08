@@ -1,4 +1,3 @@
-from pathlib import Path
 import pytest
 
 from loki import OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, DataType
@@ -133,12 +132,14 @@ end module type_mod
     parent = module.typedefs['parent_type']
     pt = parent.variables[0]
     assert 'array' in pt.type.variables
-    arr = pt.type.variables ['array']
+    arr = pt.type.variables['array']
     assert arr.type.dtype == DataType.REAL
     assert fexprgen(arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP,
+@pytest.mark.parametrize('frontend', [
+    FP,
+    OFP,
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
 ])
 def test_dimension_pragmas(frontend):
@@ -161,7 +162,9 @@ end module type_mod
     assert fexprgen(mytype.variables[0].shape) == '(size,)'
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP,
+@pytest.mark.parametrize('frontend', [
+    FP,
+    OFP,
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
 ])
 def test_nested_types_dimension_pragmas(frontend):
