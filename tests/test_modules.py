@@ -88,7 +88,7 @@ end module a_module
     assert 'array' in ext.type.variables
     a = ext.type.variables['array']
     assert a.type.dtype == DataType.REAL
-    fexprgen(a.shape) == exptected_array_shape
+    assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the routine has got type and shape info too
     routine = module['my_routine']
@@ -97,12 +97,12 @@ end module a_module
     assert 'array' in pt_ext.type.variables
     pt_ext_a = pt_ext.type.variables['array']
     assert pt_ext_a.type.dtype == DataType.REAL
-    fexprgen(pt_ext_a.shape) == exptected_array_shape
+    assert fexprgen(pt_ext_a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     pt_ext_arr = routine.body[0].target
     assert pt_ext_arr.type.dtype == DataType.REAL
-    fexprgen(pt_ext_arr.shape) == exptected_array_shape
+    assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
@@ -135,7 +135,7 @@ end module type_mod
     assert 'array' in pt.type.variables
     arr = pt.type.variables ['array']
     assert arr.type.dtype == DataType.REAL
-    fexprgen(arr.shape) == exptected_array_shape
+    assert fexprgen(arr.shape) == exptected_array_shape
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP,
