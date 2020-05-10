@@ -1,5 +1,6 @@
 from pathlib import Path
 from importlib import import_module
+import sys
 
 from loki.logging import info
 from loki.build.tools import as_tuple, execute, flatten, delete
@@ -74,6 +75,9 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):
             f2py += [sourcefile]
     execute(f2py, cwd=cwd)
 
+    moddir = str(filepath.parent)
+    if not moddir in sys.path:
+        sys.path.append(moddir)
     return import_module(filepath.stem)
 
 

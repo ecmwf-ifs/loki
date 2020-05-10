@@ -1,6 +1,8 @@
 import pytest  # pylint: disable=unused-import
+from pathlib import Path
 
 from loki import SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
+from loki.tools import gettempdir, filehash
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -28,4 +30,27 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     if modulename:
         # modname = '_'.join(s.capitalize() for s in refpath.stem.split('_'))
         return getattr(pymod, testname.stem)
+    return pymod
+
+
+def jit_compile(source, filepath=None, objname=None):
+    """
+    Generate, Just-in-Time compile and load a given item (`Module` or
+    `Subroutine`) for interactive execution.
+    """
+    if isinstance(source, SourceFile):
+        source.write(filepath)
+        filepath = source.filepath if filepath is None else Path(filepath)
+    else:
+        source = fgen(source)
+        if filepath is None:
+            filepath = gettempdir()/filehash(source, prefix='', suffix='.f90')
+        else:
+            filepath = Path(filepath)
+        SourceFile(filepath).write(source)
+
+    pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True)
+
+    if objname:
+        return getattr(pymod, objname)
     return pymod
