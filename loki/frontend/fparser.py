@@ -16,7 +16,9 @@ from fparser.common.readfortran import FortranStringReader
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas
+from loki.frontend.util import (
+    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas
+)
 from loki.ir import (
     Comment, Declaration, Statement, Loop, WhileLoop, Conditional, Allocation, Deallocation,
     TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
@@ -600,6 +602,8 @@ class FParser2IR(GenericVisitor):
         typedef._update(declarations=declarations, symbols=typedef.symbols)
         for decl in typedef.declarations:
             dtype.variables.update([(v.basename, v) for v in decl.variables])
+        # Infer any additional shape information from `!$loki dimension` pragmas
+        process_dimension_pragmas(typedef)
         # Make type known in its scope's types table
         self.scope.types[name] = dtype
         return typedef

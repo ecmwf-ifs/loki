@@ -4,8 +4,12 @@ from enum import IntEnum
 from loki.visitors import Visitor, NestedTransformer
 from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaration, Pragma, Loop,
                      Intrinsic)
+from loki.types import DataType, SymbolType
+from loki.expression import Literal, Variable
+from loki.tools import as_tuple
 
-__all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'inline_pragmas']
+__all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
+           'inline_pragmas', 'process_dimension_pragmas']
 
 
 class Frontend(IntEnum):
@@ -162,3 +166,28 @@ def inline_labels(ir):
                 mapper[pair[0]] = None  # Mark for deletion
                 mapper[pair[1]] = pair[1]._rebuild(source=pair[0]._source)
     return NestedTransformer(mapper).visit(ir)
+
+
+def process_dimension_pragmas(typedef):
+    """
+    Process any '!$loki dimension' pragmas to override deferred dimensions
+    """
+    pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
+    for decl in typedef.declarations:
+        # Map pragmas by declaration line, not var line
+        if decl._source.lines[0]-1 in pragmas:
+            pragma = pragmas[decl._source.lines[0]-1]
+            for v in decl.variables:
+                if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
+                    # Found dimension override for variable
+                    dims = pragma.content.split('dimension(')[-1]
+                    dims = dims.split(')')[0].split(',')
+                    dims = [d.strip() for d in dims]
+                    shape = []
+                    for d in dims:
+                        if d.isnumeric():
+                            shape += [Literal(value=int(d), type=DataType.INTEGER)]
+                        else:
+                            _type = SymbolType(DataType.INTEGER)
+                            shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
+                    v.type = v.type.clone(shape=as_tuple(shape))

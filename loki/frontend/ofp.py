@@ -9,7 +9,9 @@ from pymbolic.primitives import (Sum, Product, Quotient, Power, Comparison, Logi
 
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
+from loki.frontend.util import (
+    inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas
+)
 from loki.visitors import GenericVisitor
 from loki.ir import (Loop, Statement, Conditional, CallStatement, Comment,
                      Pragma, Declaration, Allocation, Deallocation, Nullify,
@@ -334,6 +336,10 @@ class OFP2IR(GenericVisitor):
                     declarations += [Declaration(variables=variables, type=_type, source=t_source)]
 
                 typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
+
+                # Infer any additional shape information from `!$loki dimension` pragmas
+                process_dimension_pragmas(typedef)
+
                 # Make that derived type known in the types table
                 self.scope.types[derived_name] = parent_type
 
