@@ -22,22 +22,20 @@ class ExprMetadataMixin:
     """
 
     def __init__(self, *args, **kwargs):
-        self._source = kwargs.pop('source', None)
+        self._metadata = {
+            'source': kwargs.pop('source', None)
+        }
         super().__init__(*args, **kwargs)
 
-    def __getinitargs__(self):
-        return super().__getinitargs__() + (('source', self.source),)
+    def get_metadata(self):
+        return self._metadata.copy()
 
-    def __eq__(self, other):
-        return isinstance(other, ExprMetadataMixin) and super().__eq__(other)
-
-    def __hash__(self):
-        # pylint: disable=useless-super-delegation
-        return super().__hash__()
+    def update_metadata(self, data):
+        self._metadata.update(data)
 
     @property
     def source(self):
-        return self._source
+        return self._metadata['source']
 
 
 class Scalar(ExprMetadataMixin, pmbl.Variable):

@@ -272,6 +272,14 @@ class LokiIdentityMapper(IdentityMapper):
     """
     # pylint: disable=abstract-method
 
+    def __call__(self, expr, *args, **kwargs):
+        new_expr = super().__call__(expr, *args, **kwargs)
+        if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
+            new_expr.update_metadata(getattr(expr, 'get_metadata', dict)())
+        return new_expr
+
+    rec = __call__
+
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
