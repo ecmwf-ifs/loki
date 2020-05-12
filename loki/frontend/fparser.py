@@ -138,16 +138,22 @@ class FParser2IR(GenericVisitor):
         self.typedefs = typedefs
         self.scope = scope
 
-    def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
+    def get_source(self, o, source):
         """
-        Generic dispatch method that tries to generate meta-data from source.
+        Helper method that builds the source object for the node.
         """
-        source = kwargs.pop('source', None)
         if not isinstance(o, str) and o.item is not None:
             label = getattr(o.item, 'label', None)
             lines = (o.item.span[0], o.item.span[1])
             string = ''.join(self.raw_source[lines[0] - 1:lines[1]])
             source = Source(lines=lines, string=string, label=label)
+        return source
+
+    def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
+        """
+        Generic dispatch method that tries to generate meta-data from source.
+        """
+        source = self.get_source(o, kwargs.pop('source', None))
         return super(FParser2IR, self).visit(o, source=source, **kwargs)
 
     def visit_Base(self, o, **kwargs):
@@ -229,23 +235,26 @@ class FParser2IR(GenericVisitor):
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
                             parent=parent, initial=initial, source=source)
 
+    def visit_literal(self, val, _type, kind=None, **kwargs):
+        if kind is not None:
+            return sym.Literal(value=val, type=_type, kind=kind, source=kwargs.get('source'))
+        return sym.Literal(value=val, type=_type, source=kwargs.get('source'))
+
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return sym.Literal(value=str(o.items[0]), type=DataType.CHARACTER)
+        return self.visit_literal(str(o.items[0]), DataType.CHARACTER, **kwargs)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return sym.Literal(value=int(o.items[0]), type=DataType.INTEGER, kind=kind)
+        return self.visit_literal(int(o.items[0]), DataType.INTEGER, kind=kind, **kwargs)
 
-    def visit_Signed_Int_Literal_Constant(self, o, **kwargs):
-        kind = o.items[1] if o.items[1] is not None else None
-        return sym.Literal(value=int(o.items[0]), type=DataType.INTEGER, kind=kind)
+    isit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return sym.Literal(value=o.items[0], type=DataType.REAL, kind=kind)
+        return self.visit_literal(o.items[0], DataType.REAL, kind=kind, **kwargs)
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
-        return sym.Literal(value=o.items[0], type=DataType.LOGICAL)
+        return self.visit_literal(o.items[0], DataType.LOGICAL, **kwargs)
 
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
         return self.visit(o.items[1], **kwargs)
@@ -699,49 +708,52 @@ class FParser2IR(GenericVisitor):
 
     visit_Pointer_Assignment_Stmt = visit_Assignment_Stmt
 
-    def visit_operation(self, op, exprs):
+    def visit_operation(self, op, exprs, **kwargs):
         """
         Construct expressions from individual operations.
         """
+        source = kwargs.get('source')
         exprs = as_tuple(exprs)
         if op == '*':
-            return sym.Product(exprs)
+            return sym.Product(exprs, source=source)
         if op == '/':
-            return sym.Quotient(numerator=exprs[0], denominator=exprs[1])
+            return sym.Quotient(numerator=exprs[0], denominator=exprs[1], source=source)
         if op == '+':
-            return sym.Sum(exprs)
+            return sym.Sum(exprs, source=source)
         if op == '-':
             if len(exprs) > 1:
                 # Binary minus
-                return sym.Sum((exprs[0], sym.Product((-1, exprs[1]))))
+                return sym.Sum((exprs[0], sym.Product((-1, exprs[1]))), source=source)
             # Unary minus
-            return sym.Product((-1, exprs[0]))
+            return sym.Product((-1, exprs[0]), source=source)
         if op == '**':
-            return sym.Power(base=exprs[0], exponent=exprs[1])
+            return sym.Power(base=exprs[0], exponent=exprs[1], source=source)
         if op.lower() == '.and.':
-            return sym.LogicalAnd(exprs)
+            return sym.LogicalAnd(exprs, source=source)
         if op.lower() == '.or.':
-            return sym.LogicalOr(exprs)
+            return sym.LogicalOr(exprs, source=source)
         if op == '==' or op.lower() == '.eq.':
-            return sym.Comparison(exprs[0], '==', exprs[1])
+            return sym.Comparison(exprs[0], '==', exprs[1], source=source)
         if op == '/=' or op.lower() == '.ne.':
-            return sym.Comparison(exprs[0], '!=', exprs[1])
+            return sym.Comparison(exprs[0], '!=', exprs[1], source=source)
         if op == '>' or op.lower() == '.gt.':
-            return sym.Comparison(exprs[0], '>', exprs[1])
+            return sym.Comparison(exprs[0], '>', exprs[1], source=source)
         if op == '<' or op.lower() == '.lt.':
-            return sym.Comparison(exprs[0], '<', exprs[1])
+            return sym.Comparison(exprs[0], '<', exprs[1], source=source)
         if op == '>=' or op.lower() == '.ge.':
-            return sym.Comparison(exprs[0], '>=', exprs[1])
+            return sym.Comparison(exprs[0], '>=', exprs[1], source=source)
         if op == '<=' or op.lower() == '.le.':
-            return sym.Comparison(exprs[0], '<=', exprs[1])
+            return sym.Comparison(exprs[0], '<=', exprs[1], source=source)
         if op.lower() == '.not.':
-            return sym.LogicalNot(exprs[0])
+            return sym.LogicalNot(exprs[0], source=source)
         if op.lower() == '.eqv.':
-            return sym.LogicalOr((sym.LogicalAnd(exprs), sym.LogicalNot(sym.LogicalOr(exprs))))
+            return sym.LogicalOr((sym.LogicalAnd(exprs, source=source),
+                                  sym.LogicalNot(sym.LogicalOr(exprs, source=source))), source=source)
         if op.lower() == '.neqv.':
-            return sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(exprs)), sym.LogicalOr(exprs)))
+            return sym.LogicalAnd((sym.LogicalNot(sym.LogicalAnd(exprs, source=source)),
+                                   sym.LogicalOr(exprs, source=source)), source=source)
         if op == '//':
-            return StringConcat(exprs)
+            return StringConcat(exprs, source=source)
         raise RuntimeError('FParser: Error parsing generic expression')
 
     def visit_Add_Operand(self, o, **kwargs):
@@ -749,10 +761,10 @@ class FParser2IR(GenericVisitor):
             # Binary operand
             exprs = [self.visit(o.items[0], **kwargs)]
             exprs += [self.visit(o.items[2], **kwargs)]
-            return self.visit_operation(op=o.items[1], exprs=exprs)
+            return self.visit_operation(op=o.items[1], exprs=exprs, **kwargs)
         # Unary operand
         exprs = [self.visit(o.items[1], **kwargs)]
-        return self.visit_operation(op=o.items[0], exprs=exprs)
+        return self.visit_operation(op=o.items[0], exprs=exprs, **kwargs)
 
     visit_Mult_Operand = visit_Add_Operand
     visit_And_Operand = visit_Add_Operand
@@ -762,11 +774,11 @@ class FParser2IR(GenericVisitor):
     def visit_Level_2_Expr(self, o, **kwargs):
         e1 = self.visit(o.items[0], **kwargs)
         e2 = self.visit(o.items[2], **kwargs)
-        return self.visit_operation(op=o.items[1], exprs=(e1, e2))
+        return self.visit_operation(op=o.items[1], exprs=(e1, e2), **kwargs)
 
     def visit_Level_2_Unary_Expr(self, o, **kwargs):
         exprs = as_tuple(self.visit(o.items[1], **kwargs))
-        return self.visit_operation(op=o.items[0], exprs=exprs)
+        return self.visit_operation(op=o.items[0], exprs=exprs, **kwargs)
 
     visit_Level_3_Expr = visit_Level_2_Expr
     visit_Level_4_Expr = visit_Level_2_Expr
@@ -939,7 +951,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(flatten(self.visit(c) for c in o.items))
-        return self.visit_operation('*', exprs)
+        return self.visit_operation('*', exprs, **kwargs)
 
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:
