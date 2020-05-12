@@ -5,13 +5,10 @@ definitions.
 """
 
 from pymbolic.primitives import Expression
-from loki.expression.symbol_types import (
-    InlineCall, Scalar, Array, FloatLiteral, IntLiteral, LogicLiteral,
-    StringLiteral)
+from loki.expression.symbol_types import InlineCall, Scalar, Array
 from loki.expression.mappers import ExpressionRetriever
 
-__all__ = ['retrieve_expressions', 'retrieve_variables', 'retrieve_inline_calls',
-           'retrieve_literals']
+__all__ = ['retrieve_expressions', 'retrieve_variables', 'retrieve_inline_calls']
 
 
 def retrieve_expressions(expr):
@@ -28,12 +25,5 @@ def retrieve_variables(expr):
 
 def retrieve_inline_calls(expr):
     retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall))
-    retriever(expr)
-    return retriever.exprs
-
-
-def retrieve_literals(expr):
-    literal_types = (FloatLiteral, IntLiteral, LogicLiteral, StringLiteral)
-    retriever = ExpressionRetriever(lambda e: isinstance(e, literal_types))
     retriever(expr)
     return retriever.exprs
