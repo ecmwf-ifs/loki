@@ -55,12 +55,12 @@ end subroutine arithmetic_expr
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_intrinsics(here, frontend):
+def test_math_intrinsics(here, frontend):
     """
-    Test supported intrinsic functions (min, max, exp, abs, sqrt, log)
+    Test supported math intrinsic functions (min, max, exp, abs, sqrt, log)
     """
     fcode = """
-subroutine intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
+subroutine math_intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
   integer, parameter :: jprb = selected_real_kind(13,300)
   real(kind=jprb), intent(in) :: v1, v2
   real(kind=jprb), intent(out) :: vmin, vmax, vabs, vexp, vsqrt, vlog
@@ -71,11 +71,11 @@ subroutine intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
   vexp = exp(v1 + v2)
   vsqrt = sqrt(v1 + v2)
   vlog = log(v1 + v2)
-end subroutine intrinsics
+end subroutine math_intrinsics
 """
-    filepath = here/('expression_intrinsics_%s.f90' % frontend)
+    filepath = here/('expression_math_intrinsics_%s.f90' % frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='intrinsics')
+    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
@@ -108,6 +108,7 @@ end subroutine logicals
     filepath = here/('expression_logicals_%s.f90' % frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='logicals')
+
     vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = function(True, False)
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
@@ -136,6 +137,7 @@ end subroutine literals
     filepath = here/('expression_literals_%s.f90' % frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='literals')
+
     v1, v2, v3, v4, v5, v6 = function()
     assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
@@ -157,49 +159,67 @@ end subroutine literals
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_cast_expr(refpath, reference, frontend):
+def test_casts(here, frontend):
     """
-    v4 = real(v1, kind=jprb)
-    v5 = real(v1, kind=jprb) * max(v2, c3)
+    Test data type casting expressions.
     """
-    # Test the reference solution
-    v4, v5 = reference.cast_expr(2, 1., 4.)
-    assert v4 == 2. and v5 == 8.
+    fcode = """
+subroutine casts(v1, v2, v3, v4, v5)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(in) :: v2, v3
+  real(kind=jprb), intent(out) :: v4, v5
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'cast_expr', frontend=frontend)
-    function = getattr(test, 'cast_expr_%s' % frontend)
+  v4 = real(v1, kind=jprb)  ! Test a plain cast
+  v5 = real(v1, kind=jprb) * max(v2, v3)  ! Cast as part of expression
+end subroutine casts
+"""
+    filepath = here/('expression_casts_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='casts')
+
     v4, v5 = function(2, 1., 4.)
     assert v4 == 2. and v5 == 8.
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_logical_array(refpath, reference, frontend):
+def test_logical_array(here, frontend):
     """
-    mask(1:2) = .false.
-    mask(3:) = .true.
-
-    do i=1, dim
-      ! Use a logical array and a relational
-      ! containing an array in a single expression
-      if (mask(i) .and. in(i) > 1.) then
-        out(i) = 3.
-      else
-        out(i) = 1.
-      end if
-    end do
+    Test logical arrays for masking.
     """
-    # Test the reference solution
-    out = np.zeros(6)
-    reference.logical_array(6, [0., 2., -1., 3., 0., 2.], out)
-    assert (out == [1., 1., 1., 3., 1., 3.]).all()
+    fcode = """
+subroutine logical_array(dim, arr, out)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: dim
+  real(kind=jprb), intent(in) :: arr(dim)
+  real(kind=jprb), intent(out) :: out(dim)
+  logical :: mask(dim)
+  integer :: i
 
-    # Test the generated identity
+  mask(:) = .true.
+  mask(1) = .false.
+  mask(2) = .false.
+
+  do i=1, dim
+    ! Use a logical array and a relational
+    ! containing an array in a single expression
+    if (mask(i) .and. arr(i) > 1.) then
+      out(i) = 3.
+    else
+      out(i) = 1.
+    end if
+  end do
+end subroutine logical_array
+"""
+    filepath = here/('expression_logical_array_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='logical_array')
+
     out = np.zeros(6)
-    test = generate_identity(refpath, 'logical_array', frontend=frontend)
-    function = getattr(test, 'logical_array_%s' % frontend)
     function(6, [0., 2., -1., 3., 0., 2.], out)
     assert (out == [1., 1., 1., 3., 1., 3.]).all()
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -207,9 +227,9 @@ def test_logical_array(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Precedence not honoured')),
     FP
 ])
-def test_parenthesis(refpath, frontend):
+def test_parenthesis(frontend):
     """
-    v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - (v2**1.26_jprb))
+    Test explicit parethesis in provided source code.
 
     Note, that this test is very niche, as it ensures that mathematically
     insignificant (and hence sort of wrong) bracketing is still honoured.
@@ -220,8 +240,17 @@ def test_parenthesis(refpath, frontend):
     Also note, that the OMNI-frontend parser will resolve precedence and
     hence we cannot honour these precedence cases (for now).
     """
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = source['parenthesis']
+
+    fcode = """
+subroutine parenthesis(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(out) :: v3
+
+  v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - v2**1.26_jprb)
+end subroutine parenthesis
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     stmt = list(routine.body)[0]
 
     # Check that the reduntant bracket around the minus
@@ -239,15 +268,21 @@ def test_parenthesis(refpath, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
-def test_commutativity(refpath, frontend):
+def test_commutativity(frontend):
     """
-    v3 = 1._jprb + v2*v1 - v2 - v3
-
     Verifies the strict adherence to ordering of commutative terms,
     which can introduce round-off errors if not done conservatively.
     """
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = source['commutativity']
+    fcode = """
+subroutine commutativity(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), pointer, intent(in) :: v1(:), v2
+  real(kind=jprb), pointer, intent(out) :: v3(:)
+
+  v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)
+end subroutine commutativity
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     stmt = list(routine.body)[0]
 
     # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
@@ -256,15 +291,21 @@ def test_commutativity(refpath, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_index_ranges(refpath, frontend):
+def test_index_ranges(frontend):
     """
-    real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
-    real(kind=jprb), intent(out) :: v5(1:dim)
+    Test index range expressions for array accesses.
+    """
+    fcode = """
+subroutine index_ranges(dim, v1, v2, v3, v4, v5)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: dim
+  real(kind=jprb), intent(in) :: v1(:), v2(0:), v3(0:4), v4(dim)
+  real(kind=jprb), intent(out) :: v5(1:dim)
 
-    v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
-    """
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = source['index_ranges']
+  v5(:) = v2(1:dim)*v1(::2) - v3(0:4:2)
+end subroutine index_ranges
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     vmap = routine.variable_map
 
     assert str(vmap['v1']) == 'v1(:)'
@@ -283,7 +324,7 @@ def test_index_ranges(refpath, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_strings(refpath, frontend):
+def test_strings(here, frontend):
     """
     character(len=64), intent(inout) :: str1
     character(len=8) :: str2
@@ -291,28 +332,44 @@ def test_strings(refpath, frontend):
     str2 = " world!"
     str1 = str1 // str2
     """
+    fcode = """
+subroutine strings()
+  print *, 'Hello world!'
+  print *, "42!"
+end subroutine strings
+"""
+    filepath = here/('expression_strings_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='strings')
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'strings', frontend=frontend)
-    _ = getattr(test, 'strings_%s' % frontend)
+    function()
+    # TODO: Need a better way to capture output of this
     assert True
-
+    clean_test(filepath)
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_very_long_statement(refpath, reference, frontend):
+def test_very_long_statement(here, frontend):
     """
-    Some long statement with line breaks.
+    Test a long statement with line breaks.
     """
-    # Test the reference solution
-    scalar = 1
-    result = reference.very_long_statement(scalar)
-    assert result == 5
+    fcode = """
+subroutine very_long_statement(scalar, res)
+  integer, intent(in) :: scalar
+  integer, intent(out) :: res
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'very_long_statement', frontend=frontend)
-    function = getattr(test, 'very_long_statement_%s' % frontend)
+  res = 5 * scalar + scalar - scalar + scalar - scalar + (scalar - scalar &
+        + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
+        - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
+end subroutine very_long_statement
+"""
+    filepath = here/('expression_very_long_statement_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='very_long_statement')
+
+    scalar = 1
     result = function(scalar)
     assert result == 5
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -320,12 +377,25 @@ def test_very_long_statement(refpath, reference, frontend):
     OMNI,
     FP
 ])
-def test_intrinsics(refpath, frontend):
+def test_output_intrinsics(frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
     """
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = source['intrinsics']
+    fcode = """
+subroutine output_intrinsics
+     integer, parameter :: jprb = selected_real_kind(13,300)
+     integer :: numomp, ngptot
+     real(kind=jprb) :: tdiff
+
+     numomp = 1
+     ngptot = 2
+     tdiff = 1.2
+
+1002 format(1x, 2i10, 1x, i4, ' : ', i10)
+     write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)
+end subroutine output_intrinsics
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert isinstance(routine.body[-2], Intrinsic)
     assert isinstance(routine.body[-1], Intrinsic)
@@ -373,19 +443,28 @@ def test_nested_call_inline_call(refpath, reference, frontend):
     OMNI,
     FP
 ])
-def test_character_concat(refpath, reference, frontend):
+def test_character_concat(here, frontend):
     """
     Concatenation operator ``//``
     """
-    # Test the reference solution
-    ref = reference.character_concat()
-    assert ref == b'Hello world!'
+    fcode = """
+subroutine character_concat(string)
+  character(10) :: tmp_str1, tmp_str2
+  character(len=12), intent(out) :: string
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'character_concat', frontend=frontend)
-    function = getattr(test, 'character_concat_%s' % frontend)
+  tmp_str1 = "Hel" // "lo"
+  tmp_str2 = "wor" // "l" // "d"
+  string = trim(tmp_str1) // " " // trim(tmp_str2)
+  string = trim(string) // "!"
+end subroutine character_concat
+"""
+    filepath = here/('expression_character_concat_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='character_concat')
+
     result = function()
     assert result == b'Hello world!'
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -393,10 +472,34 @@ def test_character_concat(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     FP
 ])
-def test_masked_statements(refpath, reference, frontend):
+def test_masked_statements(here, frontend):
     """
     Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
     """
+    fcode = """
+subroutine masked_statements(length, vec1, vec2, vec3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: length
+  real(kind=jprb), intent(inout), dimension(length) :: vec1, vec2, vec3
+
+  where (vec1(:) > 5.0_jprb)
+    vec1(:) = 7.0_jprb
+    vec1(:) = 5.0_jprb
+  endwhere
+
+  where (vec2(:) < 0.d0)
+    vec2(:) = 0.0_jprb
+  elsewhere
+    vec2(:) = 1.0_jprb
+  endwhere
+
+  where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
+end subroutine masked_statements
+"""
+    filepath = here/('expression_masked_statements_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='masked_statements')
+
     # Reference solution
     length = 11
     ref1 = np.append(np.arange(0, 6, dtype=np.float64),
@@ -406,18 +509,6 @@ def test_masked_statements(refpath, reference, frontend):
     ref3 = np.append(np.arange(-2, 1, dtype=np.float64), np.ones(2, dtype=np.float64))
     ref3 = np.append(ref3, np.arange(3, length - 2, dtype=np.float64))
 
-    # Test the reference solution
-    vec1 = np.arange(0, length, dtype=np.float64)
-    vec2 = np.arange(-5, length - 5, dtype=np.float64)
-    vec3 = np.arange(-2, length - 2, dtype=np.float64)
-    reference.masked_statements(length, vec1, vec2, vec3)
-    assert np.all(ref1 == vec1)
-    assert np.all(ref2 == vec2)
-    assert np.all(ref3 == vec3)
-
-    # Test the generated identity
-    test = generate_identity(refpath, 'masked_statements', frontend=frontend)
-    function = getattr(test, 'masked_statements_%s' % frontend)
     vec1 = np.arange(0, length, dtype=np.float64)
     vec2 = np.arange(-5, length - 5, dtype=np.float64)
     vec3 = np.arange(-2, length - 2, dtype=np.float64)
@@ -425,6 +516,7 @@ def test_masked_statements(refpath, reference, frontend):
     assert np.all(ref1 == vec1)
     assert np.all(ref2 == vec2)
     assert np.all(ref3 == vec3)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -432,23 +524,38 @@ def test_masked_statements(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     FP
 ])
-def test_data_declaration(refpath, reference, frontend):
+def test_data_declaration(here, frontend):
     """
     Variable initialization with DATA statements
     """
+    fcode = """
+subroutine data_declaration(data_out)
+  implicit none
+  integer, dimension(5, 4), intent(out) :: data_out
+  integer, dimension(5, 4) :: data1, data2
+  integer, dimension(3) :: data3
+  integer :: i, j
+
+  data data1 /20*5/
+
+  data ((data2(i,j), i=1,5), j=1,4) /20*3/
+
+  data data3(1), data3(3), data3(2) /1, 2, 3/
+
+  data_out(:,:) = data1(:,:) + data2(:,:)
+  data_out(1:3,1) = data3
+end subroutine data_declaration
+"""
+    filepath = here/('expression_data_declaration_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='data_declaration')
+
     expected = np.ones(shape=(5, 4), dtype=np.int32, order='F') * 8
     expected[[0, 1, 2], 0] = [1, 3, 2]
-    # Test the reference solution
-    ref = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
-    reference.data_declaration(ref)
-    assert np.all(ref == expected)
-
-    # Test the generated identity
-    test = generate_identity(refpath, 'data_declaration', frontend=frontend)
-    function = getattr(test, 'data_declaration_%s' % frontend)
     result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
     function(result)
-    assert np.all(result == ref)
+    assert np.all(result == expected)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -456,17 +563,26 @@ def test_data_declaration(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     FP
 ])
-def test_pointer_nullify(refpath, reference, frontend):
+def test_pointer_nullify(here, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
     """
-    # Execute the reference solution (does not return anything but should not fail
-    reference.pointer_nullify()
-
-    # Create the AST and perform some checks
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine = source['pointer_nullify']
-    routine.name += '_%s' % frontend
+    fcode = """
+subroutine pointer_nullify()
+  implicit none
+  character(len=64), dimension(:), pointer :: charp => NULL()
+  character(len=64), pointer :: pp => NULL()
+  allocate(charp(3))
+  charp(:) = "_ptr_"
+  pp => charp(1)
+  pp = "_other_ptr_"
+  nullify(pp)
+  deallocate(charp)
+  charp => NULL()
+end subroutine pointer_nullify
+"""
+    filepath = here/('expression_pointer_nullify_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert np.all(v.type.pointer for v in routine.variables)
     assert np.all(isinstance(v.initial, InlineCall) and v.type.initial.name.lower() == 'null'
@@ -474,14 +590,10 @@ def test_pointer_nullify(refpath, reference, frontend):
     assert FindNodes(Nullify).visit(routine.body)[0].variable.name == 'pp'
     assert [stmt.ptr for stmt in FindNodes(Statement).visit(routine.body)].count(True) == 2
 
-    # Generate the identitiy
-    testname = refpath.parent / ('%s_pointer_nullify_%s.f90' % (refpath.stem, frontend))
-    source.write(source=fgen(routine), filename=testname)
-    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
-    function = getattr(pymod, 'pointer_nullify_%s' % frontend)
-
     # Execute the generated identity (to verify it is valid Fortran)
+    function = jit_compile(routine, filepath=filepath, objname='pointer_nullify')
     function()
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -489,15 +601,25 @@ def test_pointer_nullify(refpath, reference, frontend):
     OMNI,
     pytest.param(FP, marks=pytest.mark.xfail(reason='Order in spec not preserved')),
 ])
-def test_parameter_stmt(refpath, reference, frontend):
+def test_parameter_stmt(here, frontend):
     """
     PARAMETER(...) statement
     """
-    out1 = reference.parameter_stmt()
-    assert out1 == 2.0
+    fcode = """
+subroutine parameter_stmt(out1)
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb) :: param
+  parameter(param=2.0)
+  real(kind=jprb), intent(out) :: out1
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'parameter_stmt', frontend=frontend)
-    function = getattr(test, 'parameter_stmt_%s' % frontend)
+  out1 = param
+end subroutine parameter_stmt
+"""
+    filepath = here/('expression_parameter_stmt_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='parameter_stmt')
+
     out1 = function()
     assert out1 == 2.0
+    clean_test(filepath)
