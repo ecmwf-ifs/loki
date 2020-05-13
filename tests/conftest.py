@@ -42,8 +42,8 @@ def jit_compile(source, filepath=None, objname=None):
     `Subroutine`) for interactive execution.
     """
     if isinstance(source, SourceFile):
-        source.write(filepath)
         filepath = source.filepath if filepath is None else Path(filepath)
+        source.write(filename=filepath)
     else:
         source = fgen(source)
         if filepath is None:

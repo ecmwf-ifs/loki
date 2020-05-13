@@ -15,6 +15,7 @@ from loki.frontend import OMNI, OFP, FP, blacklist
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
+from loki.backend import fgen
 from loki.types import TypeTable
 
 
@@ -247,7 +248,7 @@ class SourceFile:
     @property
     def source(self):
         content = self.modules + self.subroutines
-        return '\n\n'.join(s.source for s in content)
+        return '\n\n'.join(fgen(s) for s in content)
 
     @property
     def modules(self):
