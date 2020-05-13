@@ -16,20 +16,6 @@ def here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='refpath')
-def fixture_refpath():
-    return Path(__file__).parent / 'expression.f90'
-
-
-@pytest.fixture(scope='module', name='reference')
-def fixture_reference(refpath):
-    """
-    Compile and load the reference solution
-    """
-    clean(filename=refpath)  # Delete parser cache
-    return compile_and_load(refpath, cwd=str(refpath.parent))
-
-
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_arithmetic(here, frontend):
     """
