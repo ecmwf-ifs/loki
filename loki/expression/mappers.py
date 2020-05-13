@@ -233,15 +233,13 @@ class ExpressionCallbackMapper(CombineMapper):
     map_string_literal = map_constant
     map_scalar = map_constant
     map_array = map_constant
+    map_variable = map_constant
 
     def map_array_subscript(self, expr, *args, **kwargs):
         dimensions = self.rec(expr.index_tuple, *args, **kwargs)
         return self.combine(dimensions)
 
-    def map_inline_call(self, expr, *args, **kwargs):
-        parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.parameters)
-        kw_parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.kw_parameters.values())
-        return self.combine(parameters + kw_parameters)
+    map_inline_call = CombineMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
         if expr.kind and isinstance(expr.kind, Expression):
@@ -251,11 +249,12 @@ class ExpressionCallbackMapper(CombineMapper):
         return self.combine((self.rec(expr.function, *args, **kwargs),
                              self.rec(expr.parameters[0])) + kind)
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = (self.rec(expr.lower, *args, **kwargs),) if expr.lower else tuple()
-        upper = (self.rec(expr.upper, *args, **kwargs),) if expr.upper else tuple()
-        step = (self.rec(expr.step, *args, **kwargs),) if expr.step else tuple()
-        return self.combine(lower + upper + step)
+    def map_range(self, expr, *args, **kwargs):
+        return self.combine(tuple(self.rec(c, *args, **kwargs)
+                                  for c in expr.children if c is not None))
+
+    map_range_index = map_range
+    map_loop_range = map_range
 
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product

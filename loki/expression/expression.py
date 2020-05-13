@@ -1,3 +1,5 @@
+from pymbolic.primitives import Expression
+
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
@@ -50,10 +52,11 @@ class ExpressionFinder(Visitor):
         - ``dimensions`` (for :class:`Array`)
         """
         def dict_key(var):
+            assert isinstance(var, Expression)
             if isinstance(var, (Scalar, Array)):
                 return (var.name,
                         var.parent.name if hasattr(var, 'parent') and var.parent else None,
-                        str(var.dimensions) if isinstance(var, Array) else None)
+                        var.dimensions if isinstance(var, Array) else None)
             return str(var)
 
         if self.unique:
@@ -74,37 +77,25 @@ class ExpressionFinder(Visitor):
         if not expressions:
             return ()
         if self.with_expression_root:
-            return (node, self.find_uniques(flatten(expressions)))
-        return self.find_uniques(flatten(expressions))
+            # A direct call to flatten() would destroy our tuples, thus we need to
+            # sort through the list and single out existing tuple-value pairs and
+            # plain expressions before finding uniques
+            is_leaf = lambda el: isinstance(el, tuple) and len(el) == 2 and isinstance(el[0], Node)
+            newlist = flatten(expressions, is_leaf=is_leaf)
+            tuple_list = [el for el in newlist if is_leaf(el)]
+            exprs = [el for el in newlist if not is_leaf(el)]
+            if exprs:
+                tuple_list += [(node, self.find_uniques(exprs))]
+            return as_tuple(tuple_list)
 
-    def flatten(self, expr_list):
         # Flatten the (possibly nested) list
-        newlist = flatten(expr_list)
-        if self.with_expression_root:
-            # This did remove our tuples: restore them by running through the
-            # new list and collect everything behind a ``Node`` as its expressions
-            tuple_list = []
-            node = None
-            exprs = []
-            assert not newlist or isinstance(newlist[0], Node)
-            for el in newlist:
-                if isinstance(el, Node):
-                    if node and exprs:
-                        tuple_list += [(node, exprs)]
-                    node = el
-                    exprs = []
-                else:
-                    exprs.append(el)
-            if node and exprs:
-                tuple_list += [(node, exprs)]
-            newlist = tuple_list
-        return as_tuple(newlist)
+        return self.find_uniques(as_tuple(flatten(expressions)))
 
     default_retval = tuple
 
     def visit_tuple(self, o, **kwargs):
-        expressions = self.flatten(self.visit(c, **kwargs) for c in o)
-        return self.find_uniques(expressions)
+        expressions = [self.visit(c, **kwargs) for c in o]
+        return self._return(o, as_tuple(expressions))
 
     visit_list = visit_tuple
 
@@ -112,8 +103,8 @@ class ExpressionFinder(Visitor):
         return as_tuple(self.retrieve(o))
 
     def visit_Node(self, o, **kwargs):
-        expressions = as_tuple(self.visit(c, **kwargs) for c in flatten(o.children))
-        return self._return(o, expressions)
+        expressions = [self.visit(c, **kwargs) for c in flatten(o.children)]
+        return self._return(o, as_tuple(expressions))
 
 
 class FindExpressions(ExpressionFinder):
