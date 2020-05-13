@@ -409,33 +409,52 @@ end subroutine output_intrinsics
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_nested_call_inline_call(refpath, reference, frontend):
+def test_nested_call_inline_call(here, frontend):
     """
     The purpose of this test is to highlight the differences between calls in expression
     (such as `InlineCall`, `Cast`) and call nodes in the IR.
     """
-    # Test the reference solution
-    v2, v3 = reference.nested_call_inline_call(1)
-    assert v2 == 8.
-    assert v3 == 40
+    fcode = """
+subroutine simple_expr(v1, v2, v3, v4, v5, v6)
+  ! simple floating point arithmetic
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2, v3, v4
+  real(kind=jprb), intent(out) :: v5, v6
 
-    # Test the generated identity
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    routine_names = ['nested_call_inline_call', 'simple_expr', 'very_long_statement']
-    routines = []
-    for routine in source.subroutines:
-        if routine.name in routine_names:
-            routine.name += '_%s' % frontend
-            for call in FindNodes(CallStatement).visit(routine.body):
-                call.name += '_%s' % frontend
-            routines.append(routine)
-    testname = refpath.parent / ('%s_nested_call_inline_call_%s.f90' % (refpath.stem, frontend))
-    source.write(source=fgen(as_tuple(routines)), filename=testname)
-    pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
-    function = getattr(pymod, 'nested_call_inline_call_%s' % frontend)
+  v5 = (v1 + v2) * (v3 - v4)
+  v6 = (v1 ** v2) - (v3 / v4)
+end subroutine simple_expr
+
+subroutine very_long_statement(scalar, res)
+  integer, intent(in) :: scalar
+  integer, intent(out) :: res
+
+  res = 5 * scalar + scalar - scalar + scalar - scalar + (scalar - scalar &
+        + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
+        - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
+end subroutine very_long_statement
+
+subroutine nested_call_inline_call(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(out) :: v2
+  integer, intent(out) :: v3
+  real(kind=jprb) :: tmp1, tmp2
+
+  tmp1 = real(1, kind=jprb)
+  call simple_expr(tmp1, abs(-2.0_jprb), 3.0_jprb, real(v1, jprb), v2, tmp2)
+  v2 = abs(tmp2 - v2)
+  call very_long_statement(int(v2), v3)
+end subroutine nested_call_inline_call
+"""
+    filepath = here/('expression_nested_call_inline_call_%s.f90' % frontend)
+    routine = SourceFile.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='nested_call_inline_call')
+
     v2, v3 = function(1)
     assert v2 == 8.
     assert v3 == 40
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
