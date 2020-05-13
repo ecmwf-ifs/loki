@@ -8,7 +8,7 @@ from conftest import generate_identity
 
 @pytest.fixture(scope='module', name='refpath')
 def fixture_refpath():
-    return Path(__file__).parent / 'derived_types.f90'
+    return Path(__file__).parent/'sources/derived_types.f90'
 
 
 @pytest.fixture(scope='module', name='reference')

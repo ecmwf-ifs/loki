@@ -1,7 +1,0 @@
-{
- 'real':     {'': 'float',
-              '4': 'float',
-              '8': 'double',
-              'jprb': 'double',
-              'JPRB': 'double'},
-}
