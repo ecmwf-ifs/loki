@@ -6,9 +6,14 @@ import numpy as np
 from loki import (
     clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, as_tuple,
     Cast, Statement, Intrinsic, CallStatement, Nullify,
-    IntLiteral, FloatLiteral, InlineCall,
+    IntLiteral, FloatLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions)
-from conftest import generate_identity
+from conftest import generate_identity, jit_compile, clean_test
+
+
+@pytest.fixture(scope='module', name='here')
+def here():
+    return Path(__file__).parent
 
 
 @pytest.fixture(scope='module', name='refpath')
@@ -26,99 +31,119 @@ def fixture_reference(refpath):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_simple_expr(refpath, reference, frontend):
+def test_arithmetic(here, frontend):
     """
-    v5 = (v1 + v2) * (v3 - v4)
-    v6 = (v1 ** v2) - (v3 / v4)
+    Test simple floating point arithmetic expressions (+,-,*,/,**).
     """
-    # Test the reference solution
-    v5, v6 = reference.simple_expr(2., 3., 10., 5.)
-    assert v5 == 25. and v6 == 6.
+    fcode = """
+subroutine arithmetic_expr(v1, v2, v3, v4, v5, v6)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2, v3, v4
+  real(kind=jprb), intent(out) :: v5, v6
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'simple_expr', frontend=frontend)
-    function = getattr(test, 'simple_expr_%s' % frontend)
+  v5 = (v1 + v2) * (v3 - v4)
+  v6 = (v1 ** v2) - (v3 / v4)
+end subroutine arithmetic_expr
+"""
+    filepath = here/('expression_arithmetic_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='arithmetic_expr')
+
     v5, v6 = function(2., 3., 10., 5.)
     assert v5 == 25. and v6 == 6.
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_intrinsic_functions(refpath, reference, frontend):
+def test_intrinsics(here, frontend):
     """
-    vmin = min(v1, v2)
-    vmax = max(v1, v2)
-    vabs = abs(v1 - v2)
-    vexp = exp(v1 + v2)
-    vsqrt = sqrt(v1 + v2)
-    vlog = log(v1 + v2)
+    Test supported intrinsic functions (min, max, exp, abs, sqrt, log)
     """
-    # Test the reference solution
-    vmin, vmax, vabs, vexp, vsqrt, vlog = reference.intrinsic_functions(2., 4.)
-    assert vmin == 2. and vmax == 4. and vabs == 2.
-    assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
+    fcode = """
+subroutine intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(out) :: vmin, vmax, vabs, vexp, vsqrt, vlog
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'intrinsic_functions', frontend=frontend)
-    function = getattr(test, 'intrinsic_functions_%s' % frontend)
+  vmin = min(v1, v2)
+  vmax = max(v1, v2)
+  vabs = abs(v1 - v2)
+  vexp = exp(v1 + v2)
+  vsqrt = sqrt(v1 + v2)
+  vlog = log(v1 + v2)
+end subroutine intrinsics
+"""
+    filepath = here/('expression_intrinsics_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='intrinsics')
+
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_logical_expr(refpath, reference, frontend):
+def test_logicals(here, frontend):
     """
-    vand_t = t .and. t
-    vand_f = t .and. f
-    vor_t = t .or. f
-    vor_f = f .or. f
-    vnot_t = .not. f
-    vnot_f = .not. t
-    veq = 3 == 4
-    vneq = 3 /= 4
+    Test logical expressions (and, or, not, tru, false, equal, not nequal).
     """
-    # Test the reference solution
-    vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = \
-        reference.logical_expr(True, False)
-    assert vand_t and vor_t and vnot_t and vtrue and vneq
-    assert not(vand_f and vor_f and vnot_f and vfalse and veq)
+    fcode = """
+subroutine logicals(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq)
+  logical, intent(in) :: t, f
+  logical, intent(out) :: vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'logical_expr', frontend=frontend)
-    function = getattr(test, 'logical_expr_%s' % frontend)
+  vand_t = t .and. t
+  vand_f = t .and. f
+  vor_t = t .or. f
+  vor_f = f .or. f
+  vnot_t = .not. f
+  vnot_f = .not. t
+  vtrue = .true.
+  vfalse = .false.
+  veq = 3 == 4
+  vneq = 3 /= 4
+end subroutine logicals
+"""
+    filepath = here/('expression_logicals_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='logicals')
     vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, vfalse, veq, vneq = function(True, False)
     assert vand_t and vor_t and vnot_t and vtrue and vneq
     assert not(vand_f and vor_f and vnot_f and vfalse and veq)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_literal_expr(refpath, reference, frontend):
+def test_literals(here, frontend):
     """
-    v1 = 1
-    v2 = 1.0
-    v3 = 2.3
-    v4 = 2.4_jprb
-    v5 = real(7, kind=jprb)
-    v6 = int(3.5)
     """
-    # Test the reference solution
-    v1, v2, v3, v4, v5, v6 = reference.literal_expr()
-    assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
-    # Fortran will default this to single precision
-    # so we need to give a significant range of error
-    assert math.isclose(v3, 2.3, abs_tol=1.e-6)
+    fcode = """
+subroutine literals(v1, v2, v3, v4, v5, v6)
+  ! simple literal values
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(out) :: v1, v2, v3, v4, v5, v6
 
-    # Test the generated identity
-    test = generate_identity(refpath, 'literal_expr', frontend=frontend)
-    function = getattr(test, 'literal_expr_%s' % frontend)
+  v1 = 66
+  v2 = 66.0
+  v3 = 2.3
+  v4 = 2.4_jprb
+  v5 = real(7, kind=jprb)
+  v6 = real(3.5,jprb)
+  v6 = int(3.5)
+end subroutine literals
+"""
+    filepath = here/('expression_literals_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='literals')
     v1, v2, v3, v4, v5, v6 = function()
     assert v1 == 66. and v2 == 66. and v4 == 2.4 and v5 == 7.0 and v6 == 3.0
     assert math.isclose(v3, 2.3, abs_tol=1.e-6)
+    clean_test(filepath)
 
     # In addition to value testing, let's make sure
     # that we created the correct expression types
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    stmts = FindNodes(Statement).visit(source['literal_expr'].body)
+    stmts = FindNodes(Statement).visit(routine.body)
     assert isinstance(stmts[0].expr, IntLiteral)
     assert isinstance(stmts[1].expr, FloatLiteral)
     assert isinstance(stmts[2].expr, FloatLiteral)
