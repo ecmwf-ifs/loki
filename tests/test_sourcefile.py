@@ -6,7 +6,7 @@ from loki import SourceFile, OFP, OMNI, FP
 
 @pytest.fixture(scope='module', name='refpath')
 def fixture_refpath():
-    return Path(__file__).parent / 'sourcefile.f90'
+    return Path(__file__).parent/'sources/sourcefile.f90'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
