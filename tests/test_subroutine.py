@@ -10,7 +10,7 @@ from loki import (
 
 @pytest.fixture(scope='module', name='header_path')
 def fixture_header_path():
-    return Path(__file__).parent / 'header.f90'
+    return Path(__file__).parent/'sources/header.f90'
 
 
 @pytest.fixture(scope='module', name='header_mod')
@@ -602,7 +602,7 @@ end subroutine routine_call_no_arg
     FP
 ])
 def test_pp_macros(testpath, frontend):
-    refpath = testpath/'subroutine_pp_macros.F90'
+    refpath = testpath/'sources/subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
     visitor = FindNodes(Intrinsic)
     # We need to collect the intrinsics in multiple places because different frontends
