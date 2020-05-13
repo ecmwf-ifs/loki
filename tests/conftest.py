@@ -1,8 +1,11 @@
 import pytest  # pylint: disable=unused-import
 from pathlib import Path
 
-from loki import SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
+from loki import clean, SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
 from loki.tools import gettempdir, filehash
+
+
+__all__ = ['ogenerate_identity', 'jit_compile', 'clean_test']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -54,3 +57,17 @@ def jit_compile(source, filepath=None, objname=None):
     if objname:
         return getattr(pymod, objname)
     return pymod
+
+
+def clean_test(filepath):
+    """
+    Clean test directory based on JIT'ed source file.
+    """
+    filepath.with_suffix('.f90').unlink()
+    filepath.with_suffix('.o').unlink()
+    filepath.with_suffix('.py').unlink()
+    f90wrap_toplevel = filepath.parent/'f90wrap_toplevel.f90'
+    if f90wrap_toplevel.exists():
+        f90wrap_toplevel.unlink()
+    for sofile in filepath.parent.glob('_%s.*.so' % filepath.stem):
+        sofile.unlink()
