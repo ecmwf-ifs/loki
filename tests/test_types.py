@@ -1,13 +1,7 @@
-from pathlib import Path
 from random import choice
 import pytest
 
 from loki import OFP, OMNI, FP, SourceFile, DataType, SymbolType, FCodeMapper
-
-
-@pytest.fixture(scope='module', name='refpath')
-def fixture_refpath():
-    return Path(__file__).parent / 'types.f90'
 
 
 def test_data_type():
@@ -64,16 +58,41 @@ def test_symbol_type():
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Segfault with pragmas in derived types')),
     FP
 ])
-def test_pragmas(refpath, frontend):
+def test_pragmas(frontend):
     """
+    Test detection of `!$loki dimension` pragmas to indicate intended shapes.
+    """
+    fcode = """
+module types
+
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type pragma_type
     !$loki dimension(3,3)
     real(kind=jprb), dimension(:,:), pointer :: matrix
-    !$loki dimension(5,1,5)
-    real(kind=jprb), dimension(:,:,:), pointer :: tensor
-    """
+    !$loki dimension(klon,klat,2)
+    real(kind=jprb), pointer :: tensor(:, :, :)
+  end type pragma_type
+
+contains
+
+  subroutine alloc_pragma_type(item)
+    type(pragma_type), intent(inout) :: item
+    allocate(item%matrix(5,5))
+    allocate(item%tensor(3,4,5))
+  end subroutine
+
+  subroutine free_pragma_type(item)
+    type(pragma_type), intent(inout) :: item
+    deallocate(item%matrix)
+    deallocate(item%tensor)
+  end subroutine
+
+end module types
+"""
     fsymgen = FCodeMapper()
 
-    source = SourceFile.from_file(refpath, frontend=frontend)
+    source = SourceFile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].types['pragma_type']
 
     assert fsymgen(pragma_type.variables['matrix'].shape) == '(3, 3)'
