@@ -4,8 +4,8 @@ import numpy as np
 
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, fexprgen,
-    StringLiteral, as_tuple
+    Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
+    SymbolType, StringLiteral, as_tuple, fgen, fexprgen
 )
 from conftest import jit_compile, clean_test
 
@@ -258,6 +258,72 @@ end subroutine routine_simple_caching
     # Ensure that the types in the second routine have been picked up
     assert routine.arguments[2].type.dtype == DataType.INTEGER
     assert routine.arguments[3].type.dtype == DataType.INTEGER
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_routine_variables_add_remove(here, frontend):
+    """
+    Test local variable addition and removal.
+    """
+    fcode = """
+subroutine routine_variables_add_remove(x, y, maximum)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(out) :: maximum
+  real(kind=jprb) :: vector(x), matrix(x, y)
+end subroutine routine_variables_add_remove
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert routine_vars in (
+        ['jprb', 'x', 'y', 'maximum', 'vector(x)', 'matrix(x, y)'],
+        ['jprb', 'x', 'y', 'maximum', 'vector(1:x)', 'matrix(1:x, 1:y)']
+    )
+
+    # Create a new set of variables and add to local routine variables
+    x = routine.variables[1]  # That's the symbol for variable 'x'
+    real_type = SymbolType('real', kind='jprb')
+    int_type = SymbolType('integer')
+    a = Scalar(name='a', type=real_type, scope=routine.symbols)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.symbols)
+    c = Variable(name='c', type=int_type, scope=routine.symbols)
+
+    # Add new variables and check that they are all in the routine spec
+    routine.variables += (a, b, c)
+    if frontend == OMNI:
+        # OMNI frontend inserts a few peculiarities
+        assert fgen(routine.spec).lower() == """
+implicit none
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer, intent(in) :: x
+integer, intent(in) :: y
+real(kind=selected_real_kind(13, 300)), intent(out) :: maximum
+real(kind=selected_real_kind(13, 300)) :: vector(1:x)
+real(kind=selected_real_kind(13, 300)) :: matrix(1:x, 1:y)
+real(kind=jprb) :: a
+real(kind=jprb) :: b(x)
+integer :: c
+""".strip().lower()
+
+    else:
+        assert fgen(routine.spec).lower() == """
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer, intent(in) :: x, y
+real(kind=jprb), intent(out) :: maximum
+real(kind=jprb) :: vector(x), matrix(x, y)
+real(kind=jprb) :: a
+real(kind=jprb) :: b(x)
+integer :: c
+""".strip().lower()
+
+    # Now remove the `maximum` variable and make sure it's gone
+    routine.variables = [v for v in routine.variables if v.name is not 'maximum']
+    assert 'maximum' not in fgen(routine.spec).lower()
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert routine_vars in (
+        ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
+        ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)','a', 'b(x)', 'c']
+    )
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

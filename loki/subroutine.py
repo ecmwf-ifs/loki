@@ -50,6 +50,7 @@ class Subroutine:
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
+        self._decl_map = {}  # Mapping of internal variables to original declarations
 
         self._parent = weakref.ref(parent) if parent is not None else None
 
@@ -71,6 +72,12 @@ class Subroutine:
 
         self.bind = bind
         self.is_function = is_function
+
+        # Set up the declaration map to keep track of internal
+        # variables that already have a `Declaration` object in the IR.
+        for decl in FindNodes(Declaration).visit(self.ir):
+            for v in decl.variables:
+                self._decl_map[v] = decl
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
@@ -280,7 +287,34 @@ class Subroutine:
 
     @property
     def variables(self):
-        return flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec))
+        """
+        Return the variables (including arguments) declared in this subroutine
+        """
+        return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
+
+    @variables.setter
+    def variables(self, variables):
+        """
+        Set the variables property and ensure that the internal declarations match.
+        """
+        for v in as_tuple(variables):
+            if v not in self._decl_map:
+                # By default, append new variables to the end of the spec
+                new_decl = Declaration(variables=[v], type=v.type)
+                self.spec.append(new_decl)
+                self._decl_map[v] = new_decl
+
+        # Run through existing declarations and check that all variables still exist
+        dmap = {}
+        for decl in FindNodes(Declaration).visit(self.spec):
+            new_vars = as_tuple(v for v in decl.variables if v in variables)
+            # from IPython import embed; embed()
+            if len(new_vars) > 0:
+                decl._update(variables=new_vars)
+            else:
+                dmap[decl] = None  # Mark for removal
+        # Remove all redundant declarations
+        self.spec = Transformer(dmap).visit(self.spec)
 
     @property
     def arguments(self):
