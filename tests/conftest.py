@@ -1,11 +1,15 @@
 from pathlib import Path
+import contextlib
+import os
+import io
 import pytest  # pylint: disable=unused-import
 
 from loki import SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
 from loki.tools import gettempdir, filehash
 
 
-__all__ = ['generate_identity', 'jit_compile', 'clean_test']
+__all__ = ['generate_identity', 'jit_compile', 'clean_test', 'stdchannel_redirected',
+           'stdchannel_is_captured']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -71,3 +75,74 @@ def clean_test(filepath):
         f90wrap_toplevel.unlink()
     for sofile in filepath.parent.glob('_%s.*.so' % filepath.stem):
         sofile.unlink()
+
+
+@contextlib.contextmanager
+def stdchannel_redirected(stdchannel, dest_filename):
+    """
+    A context manager to temporarily redirect stdout or stderr
+
+    e.g.:
+
+    ```
+    with stdchannel_redirected(sys.stderr, os.devnull):
+        if compiler.has_function('clock_gettime', libraries=['rt']):
+            libraries.append('rt')
+    ```
+
+    Source: https://stackoverflow.com/a/17753573
+
+    Note, that this only works when pytest is invoked with '--show-capture' (or '-s').
+    This can be checked using `stdchannel_is_captured(capsys)`.
+    Additionally, capturing of sys.stdout/sys.stderr needs to be disabled explicitly,
+    i.e., use the fixture `capsys` and wrap the above:
+
+    ```
+    with capsys.disabled():
+        with stdchannel_redirected(sys.stdout, 'stdout.log'):
+            function()
+    ```
+    """
+
+    def try_dup(fd):
+        try:
+            oldfd = os.dup(fd.fileno())
+        except io.UnsupportedOperation:
+            oldfd = None
+        return oldfd
+
+    def try_dup2(fd, fd2, fd_fileno=True):
+        try:
+            if fd_fileno:
+                os.dup2(fd.fileno(), fd2.fileno())
+            else:
+                os.dup2(fd, fd2.fileno())
+        except io.UnsupportedOperation:
+            pass
+
+    oldstdchannel, dest_file = None, None
+    try:
+        oldstdchannel = try_dup(stdchannel)
+        dest_file = open(dest_filename, 'w')
+        try_dup2(dest_file, stdchannel)
+
+        yield
+    finally:
+        if oldstdchannel is not None:
+            try_dup2(oldstdchannel, stdchannel, fd_fileno=False)
+        if dest_file is not None:
+            dest_file.close()
+
+
+def stdchannel_is_captured(capsys):
+    """
+    Utility function to verify if pytest captures stdout/stderr.
+
+    This hinders redirecting stdout/stderr for f2py/f90wrap functions.
+
+    :param capsys: the capsys fixture of the test.
+    :returns: True if pytest captures output, otherwise False.
+    """
+
+    capturemanager = capsys.request.config.pluginmanager.getplugin("capturemanager")
+    return capturemanager._global_capturing.out is not None

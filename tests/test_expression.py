@@ -1,5 +1,6 @@
 from pathlib import Path
 import math
+import sys
 import pytest
 import numpy as np
 
@@ -8,7 +9,8 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions
 )
-from conftest import jit_compile, clean_test
+from loki.tools import gettempdir, filehash
+from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 
 
 @pytest.fixture(scope='module', name='here')
@@ -310,10 +312,15 @@ end subroutine index_ranges
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_strings(here, frontend):
+def test_strings(here, frontend, capsys):
     """
     Test recognition of literal strings.
     """
+
+    # This tests works only if stdout/stderr is not captured by pytest
+    if stdchannel_is_captured(capsys):
+        pytest.skip('pytest executed without "--show-capture"/"-s"')
+
     fcode = """
 subroutine strings()
   print *, 'Hello world!'
@@ -322,12 +329,20 @@ end subroutine strings
 """
     filepath = here/('expression_strings_%s.f90' % frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='strings')
 
-    function()
-    # TODO: Need a better way to capture output of this
-    assert True
+    function = jit_compile(routine, filepath=filepath, objname='strings')
+    output_file = gettempdir()/filehash(str(filepath), prefix='', suffix='.log')
+    with capsys.disabled():
+        with stdchannel_redirected(sys.stdout, output_file):
+            function()
+
     clean_test(filepath)
+
+    with open(output_file, 'r') as f:
+        output_str = f.read()
+
+    assert output_str == ' Hello world!\n 42!\n'
+
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_very_long_statement(here, frontend):
