@@ -8,9 +8,10 @@ from loki.types import DataType, SymbolType
 from loki.expression.mappers import LokiStringifyMapper
 
 
-__all__ = ['Scalar', 'Array', 'Variable', 'Literal', 'IntLiteral', 'FloatLiteral', 'LogicLiteral',
-           'LiteralList', 'RangeIndex', 'InlineCall', 'Cast', 'Range', 'LoopRange',
-           'ArraySubscript']
+__all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
+           'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'Literal', 'LiteralList',
+           'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
+           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript']
 
 
 # pylint: disable=abstract-method

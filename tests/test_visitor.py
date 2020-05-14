@@ -3,9 +3,10 @@ from pymbolic.primitives import Expression
 
 from loki import (
     OFP, OMNI, FP,
-    Subroutine, Loop, Statement,
-    Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral,
-    FindVariables, ExpressionFinder, ExpressionCallbackMapper, ExpressionRetriever)
+    Subroutine, Loop, Statement, Conditional,
+    Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
+    FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
+    ExpressionCallbackMapper, ExpressionRetriever, retrieve_expressions)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -71,7 +72,7 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_expression_finder_with_root(frontend):
+def test_expression_finder_with_ir_node(frontend):
     """
     Test the expression finder's ability to yield the root node.
     """
@@ -93,7 +94,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables(unique=False, with_expression_root=True).visit(routine.ir)
+    variables = FindVariables(unique=False, with_ir_node=True).visit(routine.ir)
     assert len(variables) == 3
     assert all(isinstance(v, tuple) and len(v) == 2 for v in variables)
 
@@ -111,9 +112,9 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_expression_finder_unique_with_root(frontend):
+def test_expression_finder_unique_with_ir_node(frontend):
     """
-    Test the expression finder's ability to yield the root node combined with only unique
+    Test the expression finder's ability to yield the ir node combined with only unique
     variables.
     """
     fcode = """
@@ -134,7 +135,7 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    variables = FindVariables(with_expression_root=True).visit(routine.ir)
+    variables = FindVariables(with_ir_node=True).visit(routine.ir)
     assert len(variables) == 3
     assert all(isinstance(v, tuple) and len(v) == 2 for v in variables)
 
@@ -244,3 +245,66 @@ end subroutine routine_simple
     else:
         assert len(literals) == 2
         assert sorted([str(l) for l in literals]) == ['1.', '2']
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_find_expression_root(frontend):
+    """
+    Test basic functionality of FindExpressionRoot.
+    """
+    fcode = """
+subroutine routine_simple (x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i, j
+
+  do i=1, x
+    vector(i) = vector(i) + scalar
+    do j=1, y
+      if (j > i) then
+        matrix(i, j) = real(i * j, kind=jprb) + 1.
+      else
+        matrix(i, j) = i * vector(j)
+      end if
+    end do
+  end do
+end subroutine routine_simple
+"""
+
+    # Test the internals of the subroutine
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    exprs = FindExpressions().visit(routine.body)
+    assert len(exprs) == 25 if frontend == OMNI else 21  # OMNI substitutes jprb in the Cast
+
+    # Test ability to find root if searching for root
+    comps = [e for e in exprs if isinstance(e, Comparison)]
+    assert len(comps) == 1
+    comp_root = FindExpressionRoot(comps[0]).visit(routine.body)
+    assert len(comp_root) == 1
+    assert comp_root[0] is comps[0]
+
+    # Test ability to find root if searching for intermediate expression
+    casts = [e for e in exprs if isinstance(e, Cast)]
+    assert len(casts) == 1
+    cast_root = FindExpressionRoot(casts[0]).visit(routine.body)
+    assert len(cast_root) == 1
+    cond = FindNodes(Conditional).visit(routine.body).pop()
+    assert cast_root[0] is cond.bodies[0][0].expr
+
+    # Test ability to find root if searching for a leaf expression
+    literals = ExpressionFinder(
+        retrieve=lambda e: retrieve_expressions(e, lambda _e: isinstance(_e, FloatLiteral)),
+        with_ir_node=True).visit(routine.body)
+    assert len(literals) == 1
+    assert isinstance(literals[0][0], Statement) and literals[0][0]._source.lines == (13, 13)
+
+    literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
+    assert literal_root[0] is cast_root[0]
+
+    # Check source properties of expressions (for FP only)
+    if frontend == FP:
+        assert comp_root[0].source.lines == (12, 12)
+        assert cast_root[0].source.lines == (13, 13)

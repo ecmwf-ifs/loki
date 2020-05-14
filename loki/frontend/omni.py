@@ -162,6 +162,8 @@ class OMNI2IR(GenericVisitor):
         """
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
+        if lineno:
+            lineno = int(lineno)
         source = Source(lines=(lineno, lineno), file=file)
         return super(OMNI2IR, self).visit(o, source=source, **kwargs)
 

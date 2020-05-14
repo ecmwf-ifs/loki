@@ -3,11 +3,10 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.symbol_types import Array, Scalar
-from loki.expression.search import retrieve_expressions, retrieve_variables, retrieve_inline_calls
-from loki.expression.mappers import SubstituteExpressionsMapper
+from loki.expression.symbol_types import Array, Scalar, InlineCall
+from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
 
-__all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls',
+__all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls', 'FindExpressionRoot',
            'SubstituteExpressions', 'ExpressionFinder']
 
 
@@ -20,9 +19,9 @@ class ExpressionFinder(Visitor):
                      sub-expressions from an expression.
     :param unique: If ``True`` the visitor will return a set of unique sub-expression
                    instead of a list of possibly repeated instances.
-    :param with_expression_root: If ``True`` the visitor will return tuples which
-                                 contain the sub-expression and the corresponding
-                                 IR node in which the expression is contained.
+    :param with_ir_node: If ``True`` the visitor will return tuples which
+                         contain the sub-expression and the corresponding
+                         IR node in which the expression is contained.
 
     Note that :class:`FindXXX` classes are provided to find the most
     common sub-expression types, eg. symbols, functions and variables.
@@ -32,10 +31,10 @@ class ExpressionFinder(Visitor):
     # By default we return nothing
     retrieval_function = lambda x: ()
 
-    def __init__(self, unique=True, retrieve=None, with_expression_root=False):
+    def __init__(self, unique=True, retrieve=None, with_ir_node=False):
         super(ExpressionFinder, self).__init__()
         self.unique = unique
-        self.with_expression_root = with_expression_root
+        self.with_ir_node = with_ir_node
 
         # Use custom retrieval function or the class default
         # TODO: This is pretty hacky, isn't it..?
@@ -76,7 +75,7 @@ class ExpressionFinder(Visitor):
         """
         if not expressions:
             return ()
-        if self.with_expression_root:
+        if self.with_ir_node:
             # A direct call to flatten() would destroy our tuples, thus we need to
             # sort through the list and single out existing tuple-value pairs and
             # plain expressions before finding uniques
@@ -113,7 +112,8 @@ class FindExpressions(ExpressionFinder):
 
     See :class:`ExpressionFinder`
     """
-    retrieval_function = staticmethod(retrieve_expressions)
+    retrieval_function = staticmethod(
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, Expression)))
 
 
 class FindVariables(ExpressionFinder):
@@ -123,7 +123,8 @@ class FindVariables(ExpressionFinder):
 
     See :class:`ExpressionFinder`
     """
-    retrieval_function = staticmethod(retrieve_variables)
+    retrieval_function = staticmethod(
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (Scalar, Array))))
 
 
 class FindInlineCalls(ExpressionFinder):
@@ -132,7 +133,19 @@ class FindInlineCalls(ExpressionFinder):
 
     See :class:`ExpressionFinder`
     """
-    retrieval_function = staticmethod(retrieve_inline_calls)
+    retrieval_function = staticmethod(
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, InlineCall)))
+
+
+class FindExpressionRoot(ExpressionFinder):
+    """
+    A visitor to obtain the root node of the expression tree in which a given
+    py:class:`pymbolic.primitives.Expression` is located.
+    """
+
+    def __init__(self, expr):
+        super().__init__(unique=False, retrieve=(
+            lambda e: e if retrieve_expressions(e, lambda _e: _e is expr) else ()))
 
 
 class SubstituteExpressions(Transformer):

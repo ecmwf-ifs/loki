@@ -6,7 +6,7 @@ from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
-           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper']
+           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -165,6 +165,18 @@ class ExpressionRetriever(WalkMapper):
         for elem in expr.elements:
             self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
+
+
+def retrieve_expressions(expr, cond):
+    """
+    Utility function to retrieve all expressions satisfying condition `cond`.
+
+    Can be used with py:class:`ExpressionRetriever` to query the IR for
+    expression nodes using custom conditions.
+    """
+    retriever = ExpressionRetriever(cond)
+    retriever(expr)
+    return retriever.exprs
 
 
 class ExpressionDimensionsMapper(Mapper):
