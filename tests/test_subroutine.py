@@ -3,32 +3,25 @@ import pytest
 import numpy as np
 
 from loki import (
-    clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper, StringLiteral, as_tuple
+    SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
+    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, fexprgen,
+    StringLiteral, as_tuple
 )
+from conftest import jit_compile, clean_test
 
 
-@pytest.fixture(scope='module', name='header_path')
-def fixture_header_path():
-    return Path(__file__).parent/'sources/header.f90'
-
-
-@pytest.fixture(scope='module', name='header_mod')
-def fixture_header_mod(header_path):
-    """
-    Compile and load the reference solution
-    """
-    clean(filename=header_path)  # Delete parser cache
-    return compile_and_load(header_path, cwd=str(header_path.parent))
-
-
-@pytest.fixture(scope='module', name='testpath')
-def fixture_testpath():
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='header_path')
+def fixture_header_path(here):
+    return here/'sources/header.f90'
+
+
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_simple(testpath, frontend):
+def test_routine_simple(here, frontend):
     """
     A simple standard looking routine to test argument declarations.
     """
@@ -54,10 +47,8 @@ end subroutine routine_simple
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
 
     # Generate code, compile and load
-    filename = 'routine_simple_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_simple
+    filepath = here/('routine_simple_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_simple')
 
     # Test the generated identity results
     x, y = 2, 3
@@ -67,10 +58,11 @@ end subroutine routine_simple
     assert np.all(vector == 5.)
     assert np.all(matrix[0, :] == 5.)
     assert np.all(matrix[1, :] == 10.)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_arguments(testpath, frontend):
+def test_routine_arguments(here, frontend):
     """
     A set of test to test internalisation and handling of arguments.
     """
@@ -111,10 +103,8 @@ end subroutine routine_arguments
                             ['x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filename = 'routine_arguments_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_arguments
+    filepath = here/('routine_arguments_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_arguments')
 
     # Test results of the generated and compiled code
     x, y = 2, 3
@@ -124,10 +114,11 @@ end subroutine routine_arguments
     assert np.all(vector == [10., 20.])
     assert np.all(matrix == [[12., 14., 16.],
                              [22., 24., 26.]])
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_arguments_multiline(testpath, frontend):
+def test_routine_arguments_multiline(here, frontend):
     """
     Test argument declarations with comments interjectected between dummies.
     """
@@ -158,10 +149,8 @@ end subroutine routine_arguments_multiline
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filename = 'routine_arguments_multiline_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_arguments_multiline
+    filepath = here/('routine_arguments_multiline_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_arguments_multiline')
 
     # Test results of the generated and compiled code
     x, y = 2, 3
@@ -174,7 +163,7 @@ end subroutine routine_arguments_multiline
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_variables_local(testpath, frontend):
+def test_routine_variables_local(here, frontend):
     """
     Test local variables and types
     """
@@ -207,14 +196,13 @@ end subroutine routine_variables_local
         ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filename = 'routine_variables_local_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_variables_local
+    filepath = here/('routine_variables_local_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_variables_local')
 
     # Test results of the generated and compiled code
     maximum = function(x=3, y=4)
     assert np.all(maximum == 38.)  # 10*x + 2*y
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -342,21 +330,19 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
 
 end subroutine routine_dim_shapes
 """
-    fsymgen = FCodeMapper()
-
     # TODO: Need a named subroutine lookup
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine_args = [fsymgen(arg) for arg in routine.arguments]
+    routine_args = [fexprgen(arg) for arg in routine.arguments]
     assert routine_args in (['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)'],
                             ['v1', 'v2', 'v3(:)', 'v4(1:v1, 1:v2)', 'v5(1:v1, 1:v2 - 1)'])
 
     # Make sure variable/argument shapes on the routine work
-    shapes = [fsymgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
+    shapes = [fexprgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
     assert shapes in (['(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
                       ['(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
     # Ensure shapes of body variables are ok
-    b_shapes = [fsymgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
+    b_shapes = [fexprgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
                 if isinstance(v, Array)]
     assert b_shapes in (['(v1,)', '(v1,)', '(v1, v2)', '(1:v1, v2 - 1)'],
                         ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
@@ -368,7 +354,6 @@ def test_routine_variables_shape_propagation(header_path, frontend):
     Test for the correct identification and forward propagation of variable shapes
     from the subroutine declaration.
     """
-    fsymgen = FCodeMapper()
 
     # Parse simple kernel routine to check plain array arguments
     routine = Subroutine.from_source(frontend=frontend, source="""
@@ -391,16 +376,16 @@ end subroutine routine_shape
     # TODO: The string comparison here is due to the fact that shapes are actually
     # `RangeIndex(upper=Scalar)` objects, instead of the raw dimension variables.
     # This needs some more thorough conceptualisation of dimensions and indices!
-    assert fsymgen(routine.arguments[3].shape) in ['(x,)', '(1:x,)']
-    assert fsymgen(routine.arguments[4].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert fexprgen(routine.arguments[3].shape) in ['(x,)', '(1:x,)']
+    assert fexprgen(routine.arguments[4].shape) in ['(x, y)', '(1:x, 1:y)']
 
     # Verify that all variable instances have type and shape information
     variables = FindVariables().visit(routine.body)
     assert all(v.shape is not None for v in variables if isinstance(v, Array))
 
     vmap = {v.name: v for v in variables}
-    assert fsymgen(vmap['vector'].shape) in ['(x,)', '(1:x,)']
-    assert fsymgen(vmap['matrix'].shape) in ['(x, y)', '(1:x, 1:y)']
+    assert fexprgen(vmap['vector'].shape) in ['(x,)', '(1:x,)']
+    assert fexprgen(vmap['matrix'].shape) in ['(x, y)', '(1:x, 1:y)']
 
     # Parse kernel with external typedefs to test shape inferred from
     # external derived type definition
@@ -436,8 +421,8 @@ end subroutine routine_typedefs_simple
 
     # Verify shape info from imported derived type is propagated
     vmap = {v.name: v for v in variables}
-    assert fsymgen(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
-    assert fsymgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
+    assert fexprgen(vmap['item%vector'].shape) in ['(3,)', '(1:3,)']
+    assert fexprgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -574,10 +559,9 @@ end subroutine routine_call_caller
     assert isinstance(call.arguments[3], Array)
     assert isinstance(call.arguments[4], Array)
 
-    fsymgen = FCodeMapper()
-    assert fsymgen(call.arguments[2].shape) in ['(x,)', '(1:x,)']
-    assert fsymgen(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
-#    assert fsymgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
+    assert fexprgen(call.arguments[2].shape) in ['(x,)', '(1:x,)']
+    assert fexprgen(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
+#    assert fexprgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
 
@@ -642,8 +626,8 @@ end subroutine routine_call_args_kwargs
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
     FP
 ])
-def test_pp_macros(testpath, frontend):
-    refpath = testpath/'sources/subroutine_pp_macros.F90'
+def test_pp_macros(here, frontend):
+    refpath = here/'sources/subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
     visitor = FindNodes(Intrinsic)
     # We need to collect the intrinsics in multiple places because different frontends
@@ -672,7 +656,7 @@ end subroutine routine_empty_spec
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_member_procedures(testpath, frontend):
+def test_member_procedures(here, frontend):
     """
     Test member subroutine and function
     """
@@ -727,12 +711,11 @@ end subroutine routine_member_procedures
     assert routine.members[0].symbols.lookup('in1') is not routine.symbols.lookup('in1')
 
     # Generate code, compile and load
-    filename = 'routine_member_procedures_%s.f90' % frontend
-    source = SourceFile(routines=[routine], path=testpath/filename)
-    source.write(source=fgen(routine))
-    function = compile_and_load(source.path, cwd=testpath).routine_member_procedures
+    filepath = here/('routine_member_procedures_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_member_procedures')
 
     # Test results of the generated and compiled code
     out1, out2 = function(1, 2)
     assert out1 == 7
     assert out2 == 23
+    clean_test(filepath)
