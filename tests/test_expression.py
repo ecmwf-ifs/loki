@@ -4,15 +4,15 @@ import pytest
 import numpy as np
 
 from loki import (
-    clean, compile_and_load, OFP, OMNI, FP, SourceFile, fgen, as_tuple,
-    Cast, Statement, Intrinsic, CallStatement, Nullify,
-    IntLiteral, FloatLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions)
+    OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic,
+    Nullify, IntLiteral, FloatLiteral, InlineCall, Subroutine,
+    FindVariables, FindNodes, SubstituteExpressions
+)
 from conftest import generate_identity, jit_compile, clean_test
 
 
 @pytest.fixture(scope='module', name='here')
-def here():
+def fixture_here():
     return Path(__file__).parent
 
 
@@ -104,10 +104,10 @@ end subroutine logicals
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_literals(here, frontend):
     """
+    Test simple literal values.
     """
     fcode = """
 subroutine literals(v1, v2, v3, v4, v5, v6)
-  ! simple literal values
   integer, parameter :: jprb = selected_real_kind(13,300)
   real(kind=jprb), intent(out) :: v1, v2, v3, v4, v5, v6
 
@@ -312,11 +312,7 @@ end subroutine index_ranges
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_strings(here, frontend):
     """
-    character(len=64), intent(inout) :: str1
-    character(len=8) :: str2
-
-    str2 = " world!"
-    str1 = str1 // str2
+    Test recognition of literal strings.
     """
     fcode = """
 subroutine strings()
@@ -344,7 +340,7 @@ subroutine very_long_statement(scalar, res)
   integer, intent(out) :: res
 
   res = 5 * scalar + scalar - scalar + scalar - scalar + (scalar - scalar &
-        + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
+      & + scalar - scalar) - 1 + 2 - 3 + 4 - 5 + 6 - 7 + 8 - (9 + 10      &
         - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
 end subroutine very_long_statement
 """

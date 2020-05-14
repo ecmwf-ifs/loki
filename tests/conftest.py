@@ -1,11 +1,11 @@
-import pytest  # pylint: disable=unused-import
 from pathlib import Path
+import pytest  # pylint: disable=unused-import
 
-from loki import clean, SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
+from loki import SourceFile, fgen, OFP, compile_and_load, FindNodes, CallStatement
 from loki.tools import gettempdir, filehash
 
 
-__all__ = ['ogenerate_identity', 'jit_compile', 'clean_test']
+__all__ = ['generate_identity', 'jit_compile', 'clean_test']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):

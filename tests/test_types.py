@@ -1,4 +1,3 @@
-from pathlib import Path
 from random import choice
 import pytest
 

@@ -31,7 +31,7 @@ def test_subroutine_properties(refpath, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_subroutine_from_source(refpath, frontend):
+def test_subroutine_from_source(frontend):
     """
     Test the `from_source` constructor for `SourceFile` objects.
     """

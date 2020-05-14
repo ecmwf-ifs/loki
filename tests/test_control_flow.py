@@ -2,12 +2,12 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import clean, compile_and_load, OFP, OMNI, FP, Subroutine
-from conftest import generate_identity, jit_compile, clean_test
+from loki import OFP, OMNI, FP, Subroutine
+from conftest import jit_compile, clean_test
 
 
 @pytest.fixture(scope='module', name='here')
-def here():
+def fixture_here():
     return Path(__file__).parent
 
 
