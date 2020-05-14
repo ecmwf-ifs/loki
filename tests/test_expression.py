@@ -8,7 +8,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions
 )
-from conftest import generate_identity, jit_compile, clean_test
+from conftest import jit_compile, clean_test
 
 
 @pytest.fixture(scope='module', name='here')
