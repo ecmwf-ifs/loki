@@ -225,7 +225,7 @@ class OMNI2IR(GenericVisitor):
             dimensions = sym.ArraySubscript(dimensions)
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
                                 initial=value, scope=self.scope.symbols, source=source)
-        return ir.Declaration(variables=as_tuple(variable), type=_type, source=source)
+        return ir.Declaration(variables=as_tuple(variable), source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
@@ -244,8 +244,7 @@ class OMNI2IR(GenericVisitor):
         self.scope.types[name.text] = _type
 
         # Build individual declarations for each member
-        declarations = as_tuple(ir.Declaration(variables=(v, ), type=v.type)
-                                for v in _type.variables.values())
+        declarations = as_tuple(ir.Declaration(variables=(v, )) for v in _type.variables.values())
         typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
         return typedef
 

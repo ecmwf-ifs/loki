@@ -300,7 +300,7 @@ class Subroutine:
         for v in as_tuple(variables):
             if v not in self._decl_map:
                 # By default, append new variables to the end of the spec
-                new_decl = Declaration(variables=[v], type=v.type)
+                new_decl = Declaration(variables=[v])
                 self.spec.append(new_decl)
                 self._decl_map[v] = new_decl
 

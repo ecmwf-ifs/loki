@@ -339,7 +339,7 @@ class OFP2IR(GenericVisitor):
                                                    scope=typedef.symbols)]
 
                     parent_type.variables.update([(v.basename, v) for v in variables])  # pylint: disable=no-member
-                    declarations += [ir.Declaration(variables=variables, type=_type, source=t_source)]
+                    declarations += [ir.Declaration(variables=variables, source=t_source)]
 
                 typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
 
@@ -395,8 +395,7 @@ class OFP2IR(GenericVisitor):
             variables = [self.visit(v, type=_type, dimensions=dimensions)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
-            return ir.Declaration(variables=variables, type=_type, dimensions=dimensions,
-                                  source=source)
+            return ir.Declaration(variables=variables, dimensions=dimensions, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string, source=source)
         if o.attrib['type'] == 'data':

@@ -218,8 +218,14 @@ class FortranCodegen(Visitor):
         return '\n'.join(comments)
 
     def visit_Declaration(self, o, **kwargs):
+        assert len(o.variables) > 0
+        types = [v.type for v in o.variables]
+        # Ensure all variable types are equal, except for shape and dimension
+        ignore = ['shape', 'dimensions', 'source']
+        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        dtype = self.visit(types[0])
+
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
-        _type = self.visit(o.type, **kwargs)
         if o.dimensions is None:
             dimensions = ''
         else:
@@ -236,7 +242,7 @@ class FortranCodegen(Visitor):
                 stmt = stmt.replace(' = ', ' => ')
             variables += [stmt]
         variables = self.segment(variables)
-        return self.indent + '%s%s :: %s' % (_type, dimensions, variables) + comment
+        return self.indent + '%s%s :: %s' % (dtype, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o, **kwargs):
         values = self.segment([str(v) for v in o.values], chunking=8)
