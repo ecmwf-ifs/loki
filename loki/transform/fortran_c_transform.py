@@ -253,8 +253,9 @@ class FortranCTransformation(BasicTransformation):
                 for v in decl.variables:
                     # Note that we force lower-case on all struct variables
                     if isinstance(v, Array):
-                        new_dims = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
-                        variables += [v.clone(name=v.name.lower(), shape=new_dims)]
+                        new_shape = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
+                        new_type = v.type.clone(shape=new_shape)
+                        variables += [v.clone(name=v.name.lower(), type=new_type)]
                     else:
                         variables += [v.clone(name=v.name.lower())]
                 declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
