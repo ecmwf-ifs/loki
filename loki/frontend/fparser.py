@@ -17,14 +17,11 @@ from loki.frontend.source import Source
 from loki.frontend.util import (
     inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas
 )
-from loki.ir import (
-    Comment, Declaration, Statement, Loop, WhileLoop, Conditional, Allocation, Deallocation,
-    TypeDef, Import, Intrinsic, CallStatement, Scope, Pragma, MaskedStatement, MultiConditional,
-    DataDeclaration, Nullify, Interface
-)
-from loki.expression import (Variable, Literal, InlineCall, Array, RangeIndex, LiteralList, Cast,
-                             ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat,
-                             ExpressionDimensionsMapper)
+import loki.ir as ir
+import loki.expression.symbol_types as sym
+from loki.expression.operations import (
+    StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
+from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType

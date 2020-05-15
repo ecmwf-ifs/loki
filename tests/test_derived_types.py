@@ -217,8 +217,7 @@ def test_associates(refpath, reference, frontend):
         assert all([v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
                     for v in variables if v.name in ['vector', 'vector2']])
     else:
-        assert all([isinstance(v.shape, tuple) and len(v.shape) == 1 and
-                    isinstance(v.shape[0], IntLiteral) and v.shape[0].value == 3
+        assert all([v.shape == (IntLiteral(3),)
                     for v in variables if v.name in ['vector', 'vector2']])
 
     test = generate_identity(refpath, modulename='derived_types',
