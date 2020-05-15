@@ -227,7 +227,20 @@ class FortranCodegen(Visitor):
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
-        variables = self.segment([self.visit(v, **kwargs) for v in o.variables])
+        variables = []
+        for v in o.variables:
+            stmt = self.visit(v, **kwargs)
+            if v.initial is not None:
+                # TODO: This is super-hacky! We need to find
+                # a rigorous way to do this, but various corner
+                # cases around pointer assignments break the
+                # shape verification in sympy.
+                stmt += ' = %s' % self.visit(v.initial, **kwargs)
+            # Hack the pointer assignment (very ugly):
+            if v.type.pointer:
+                stmt = stmt.replace(' = ', ' => ')
+            variables += [stmt]
+        variables = self.segment(variables)
         return self.indent + '%s%s :: %s' % (_type, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o, **kwargs):
@@ -370,21 +383,6 @@ class FortranCodegen(Visitor):
     def visit_Nullify(self, o, **kwargs):
         variables = ', '.join(self.visit(v, **kwargs) for v in o.variables)
         return self.indent + 'NULLIFY(%s)' % variables
-
-    def visit_Scalar(self, o, **kwargs):
-        stmt = self.fsymgen(o)
-        if o.initial is not None:
-            # TODO: This is super-hacky! We need to find
-            # a rigorous way to do this, but various corner
-            # cases around pointer assignments break the
-            # shape verification in sympy.
-            stmt += ' = %s' % self.fsymgen(o.initial)
-        # Hack the pointer assignment (very ugly):
-        if o.type.pointer:
-            stmt = stmt.replace(' = ', ' => ')
-        return stmt
-
-    visit_Array = visit_Scalar
 
     def visit_SymbolType(self, o, **kwargs):
         if o.dtype == DataType.DERIVED_TYPE:

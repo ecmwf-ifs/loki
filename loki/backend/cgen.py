@@ -77,8 +77,12 @@ class CCodeMapper(LokiStringifyMapper):
         return self.format('%s%s', expr.basename, dims)
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
-        index_str = self.join_rec('][', expr.index_tuple, PREC_NONE, *args, **kwargs)
-        return '[%s]' % index_str
+        index_str = ''
+        for index in expr.index_tuple:
+            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+            if d:
+                index_str += self.format('[%s]', d)
+        return index_str
 
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
@@ -250,18 +254,16 @@ class CCodegen(Visitor):
     def visit_Declaration(self, o, **kwargs):
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
         _type = self.visit(o.type, **kwargs)
-        variables = self.segment(self.visit(v, **kwargs) for v in o.variables)
+        variables = []
+        for v in o.variables:
+            stmt = self.visit(v, **kwargs)
+            if v.initial is not None:
+                stmt += ' = %s' % self.visit(v.initial, **kwargs)
+            if v.type.pointer or v.type.allocatable:
+                stmt = '*' + stmt
+            variables += [stmt]
+        variables = self.segment(variables)
         return self.indent + '%s %s;' % (_type, variables) + comment
-
-    def visit_Scalar(self, o, **kwargs):
-        var = self.csymgen(o)
-        if o.type.pointer or o.type.allocatable:
-            var = '*' + var
-        if o.initial:
-            var += ' = %s' % self.visit(o.initial)
-        return var
-
-    visit_Array = visit_Scalar
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
         if o.dtype == DataType.DERIVED_TYPE:
