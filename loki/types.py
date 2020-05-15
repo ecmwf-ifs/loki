@@ -1,6 +1,6 @@
 import weakref
 from enum import IntEnum
-from loki.tools import flatten
+from loki.tools import flatten, as_tuple
 
 
 __all__ = ['DataType', 'SymbolType', 'TypeTable']
@@ -139,6 +139,15 @@ class SymbolType:
         args.update(kwargs)
         dtype = args.pop('dtype')
         return self.__class__(dtype, **args)
+
+    def compare(self, other, ignore=None):
+        """
+        Compare `SymbolType` objects while ignoring a set of select attributes.
+        """
+        ignore_attrs = as_tuple(ignore)
+        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(self.__dict__.keys()))
+        return all(self.__dict__[k] == other.__dict__[k]
+                   for k in keys if k not in ignore_attrs)
 
 
 class TypeTable(dict):

@@ -53,6 +53,22 @@ def test_symbol_type():
     assert _type.foo is None
 
 
+def test_symbol_type_compare():
+    """
+    Test dedicated `type.compare` methods that allows certain
+    attributes to be excluded from comparison.
+    """
+    someint = SymbolType('integer', a='a', b=True, c=None)
+    another = SymbolType('integer', a='a', b=False, c=None)
+    somereal = SymbolType('real', a='a', b=True, c=None)
+
+    assert not someint.compare(another)
+    assert not another.compare(someint)
+    assert someint.compare(another, ignore='b')
+    assert another.compare(someint, ignore=['b'])
+    assert not someint.compare(somereal)
+
+
 @pytest.mark.parametrize('frontend', [
     OFP,
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Segfault with pragmas in derived types')),
