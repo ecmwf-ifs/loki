@@ -163,6 +163,55 @@ end subroutine routine_arguments_multiline
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_routine_arguments_add_remove(here, frontend):
+    """
+    Test addition and removal of subroutine arguments.
+    """
+    fcode = """
+subroutine routine_arguments_add_remove(x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13, 300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+end subroutine routine_arguments_add_remove
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+
+    # Create a new set of variables and add to local routine variables
+    x = routine.variables[1]  # That's the symbol for variable 'x'
+    real_type = routine.symbols['scalar']  # Type of variable 'maximum'
+    a = Scalar(name='a', type=real_type, scope=routine.symbols)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.symbols)
+    c = Variable(name='c', type=x.type, scope=routine.symbols)
+
+    # Add new variables and check that they are all in the routine spec
+    routine.arguments += (a, b, c)
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args in (
+        ['a', 'b(x)', 'c', 'x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+        ['a', 'b(x)', 'c', 'x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)']
+    )
+    if not frontend == OMNI:
+        assert fgen(routine.spec).lower() == """
+real(kind=jprb), intent(in) :: a
+real(kind=jprb), intent(in) :: b(x)
+integer, intent(in) :: c
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer, intent(in) :: x, y
+real(kind=jprb), intent(in) :: scalar
+real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+""".strip().lower()
+
+    # Remove a select number of arguments
+    routine.arguments = [arg for arg in routine.arguments if 'x' not in str(arg)]
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args == ['a', 'c', 'y', 'scalar']
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_variables_local(here, frontend):
     """
     Test local variables and types

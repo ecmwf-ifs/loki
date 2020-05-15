@@ -320,6 +320,23 @@ class Subroutine:
     def arguments(self):
         return as_tuple(v for v in self.variables if v.name.lower() in self._dummies)
 
+    @arguments.setter
+    def arguments(self, arguments):
+        """
+        Set the arguments property and ensure that the internal declarations match.
+        """
+        arguments = as_tuple(arguments)
+        for arg in reversed(arguments):
+            if arg not in self._decl_map:
+                # By default, prepend new variables to the end of the spec
+                assert arg.type.intent is not None
+                new_decl = Declaration(variables=[arg])
+                self.spec.prepend(new_decl)
+                self._decl_map[arg] = new_decl
+
+        # Set new dummy list according to input
+        self._dummies = as_tuple(arg.name for arg in arguments)
+
     def enrich_calls(self, routines):
         """
         Attach target :class:`Subroutine` object to :class:`CallStatement`
