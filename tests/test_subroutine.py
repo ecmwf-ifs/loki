@@ -163,6 +163,29 @@ end subroutine routine_arguments_multiline
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_routine_arguments_order(here, frontend):
+    """
+    Test argument ordering honours singateu (dummy list) instead of
+    order of apearance in spec declarations.
+    """
+    fcode = """
+subroutine routine_arguments_order(x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x
+  real(kind=jprb), intent(inout) :: matrix(x, y)
+  real(kind=jprb), intent(in) :: scalar
+  integer, intent(in) :: y
+  real(kind=jprb), intent(inout) :: vector(x)
+  integer :: i
+end subroutine routine_arguments_order
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine_args = [str(arg) for arg in routine.arguments]
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_arguments_add_remove(here, frontend):
     """
     Test addition and removal of subroutine arguments.
