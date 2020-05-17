@@ -340,7 +340,7 @@ class Subroutine:
                 self._decl_map[arg] = new_decl
 
         # Set new dummy list according to input
-        self._dummies = as_tuple(arg.name for arg in arguments)
+        self._dummies = as_tuple(arg.name.lower() for arg in arguments)
 
     def enrich_calls(self, routines):
         """

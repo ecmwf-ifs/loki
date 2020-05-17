@@ -137,6 +137,8 @@ class DerivedArgsTransformation(AbstractTransformation):
         candidates = self._derived_type_arguments(routine)
 
         # Callee: Establish replacements for declarations and dummy arguments
+        new_arguments = list(routine.arguments)
+        new_variables = list(routine.variables)
         for arg, type_vars in candidates.items():
             new_vars = []
             for type_var in type_vars:
@@ -150,13 +152,17 @@ class DerivedArgsTransformation(AbstractTransformation):
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
-            i = routine.arguments.index(arg)
-            routine.arguments[i:i+1] = new_vars
+            i = new_arguments.index(arg)
+            new_arguments[i:i+1] = new_vars
 
             # Also replace the variable in the variable list to
             # trigger the re-generation of the according declaration.
-            i = routine.variables.index(arg)
-            routine.variables[i:i+1] = new_vars
+            i = new_variables.index(arg)
+            new_variables[i:i+1] = new_vars
+
+        # Apply replacements to routine by setting the properties
+        routine.arguments = new_arguments
+        routine.variables = new_variables
 
         # Create a variable substitution mapper and apply to body
         argnames = [arg.name.lower() for arg in candidates.keys()]
