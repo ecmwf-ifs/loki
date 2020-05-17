@@ -217,15 +217,28 @@ end subroutine routine_arguments_add_remove
         ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
         ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c', ]
     )
-    if not frontend == OMNI:
+    if frontend == OMNI:
         assert fgen(routine.spec).lower() == """
-real(kind=jprb), intent(in) :: a
-real(kind=jprb), intent(in) :: b(x)
+implicit none
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer, intent(in) :: x
+integer, intent(in) :: y
+real(kind=selected_real_kind(13, 300)), intent(in) :: scalar
+real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(1:x)
+real(kind=selected_real_kind(13, 300)), intent(inout) :: matrix(1:x, 1:y)
+real(kind=selected_real_kind(13, 300)), intent(in) :: a
+real(kind=selected_real_kind(13, 300)), intent(in) :: b(x)
 integer, intent(in) :: c
+""".strip().lower()
+    else:
+        assert fgen(routine.spec).lower() == """
 integer, parameter :: jprb = selected_real_kind(13, 300)
 integer, intent(in) :: x, y
 real(kind=jprb), intent(in) :: scalar
 real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+real(kind=jprb), intent(in) :: a
+real(kind=jprb), intent(in) :: b(x)
+integer, intent(in) :: c
 """.strip().lower()
 
     # Remove a select number of arguments

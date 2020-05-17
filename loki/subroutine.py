@@ -331,12 +331,12 @@ class Subroutine:
         Set the arguments property and ensure that the internal declarations match.
         """
         arguments = as_tuple(arguments)
-        for arg in reversed(arguments):
+        for arg in arguments:
             if arg not in self._decl_map:
-                # By default, prepend new variables to the end of the spec
+                # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
                 new_decl = Declaration(variables=[arg])
-                self.spec.prepend(new_decl)
+                self.spec.append(new_decl)
                 self._decl_map[arg] = new_decl
 
         # Set new dummy list according to input
