@@ -214,8 +214,8 @@ end subroutine routine_arguments_add_remove
     routine.arguments += (a, b, c)
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (
-        ['a', 'b(x)', 'c', 'x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
-        ['a', 'b(x)', 'c', 'x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)']
+        ['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
+        ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c', ]
     )
     if not frontend == OMNI:
         assert fgen(routine.spec).lower() == """
@@ -231,7 +231,7 @@ real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
     # Remove a select number of arguments
     routine.arguments = [arg for arg in routine.arguments if 'x' not in str(arg)]
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args == ['a', 'c', 'y', 'scalar']
+    assert routine_args == ['y', 'scalar', 'a', 'c', ]
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
