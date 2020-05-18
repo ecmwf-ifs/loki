@@ -549,7 +549,3 @@ class TypeDef(Node):
     @property
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
-
-#    @property
-#    def children(self):
-#        return (self.declarations,)
