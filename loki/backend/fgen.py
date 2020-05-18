@@ -231,10 +231,6 @@ class FortranCodegen(Visitor):
         for v in o.variables:
             stmt = self.visit(v, **kwargs)
             if v.initial is not None:
-                # TODO: This is super-hacky! We need to find
-                # a rigorous way to do this, but various corner
-                # cases around pointer assignments break the
-                # shape verification in sympy.
                 stmt += ' = %s' % self.visit(v.initial, **kwargs)
             # Hack the pointer assignment (very ugly):
             if v.type.pointer:
@@ -304,8 +300,7 @@ class FortranCodegen(Visitor):
 
     def visit_MultiConditional(self, o, **kwargs):
         expr = self.visit(o.expr, **kwargs)
-        values = ['(%s)' % ', '.join(self.visit(e, **kwargs)
-                                     for e in (v if is_iterable(v) else [v]))
+        values = ['(%s)' % ', '.join(self.visit(e, **kwargs) for e in as_tuple(v))
                   for v in o.values]
         if o.else_body:
             values += ['DEFAULT']

@@ -528,6 +528,8 @@ class TypeDef(Node):
     declarations without having them show up in the enclosing scope.
     """
 
+    _traversable = ['declarations']
+
     def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, source=None,
                  symbols=None):
         super(TypeDef, self).__init__(source=source)
@@ -547,3 +549,7 @@ class TypeDef(Node):
     @property
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
+
+#    @property
+#    def children(self):
+#        return (self.declarations,)

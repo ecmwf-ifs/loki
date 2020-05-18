@@ -451,7 +451,6 @@ class OFP2IR(GenericVisitor):
         return ir.Intrinsic(text=source.string, source=source)
 
     def visit_open(self, o, source=None):
-        # return ir.Intrinsic(text=source.string, source=source)
         assert o.tag.lower() in source.string.lower()
         return ir.Intrinsic(text=source.string[source.string.lower().find(o.tag.lower()):], source=source)
 
