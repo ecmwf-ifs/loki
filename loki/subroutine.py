@@ -50,7 +50,6 @@ class Subroutine:
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
-        self._decl_map = {}  # Mapping of internal variables to original declarations
 
         self._parent = weakref.ref(parent) if parent is not None else None
 
@@ -72,12 +71,6 @@ class Subroutine:
 
         self.bind = bind
         self.is_function = is_function
-
-        # Set up the declaration map to keep track of internal
-        # variables that already have a `Declaration` object in the IR.
-        for decl in FindNodes(Declaration).visit(self.ir):
-            for v in decl.variables:
-                self._decl_map[v] = decl
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
@@ -297,18 +290,20 @@ class Subroutine:
         """
         Set the variables property and ensure that the internal declarations match.
         """
+        # First map variables to existing declarations
+        declarations = FindNodes(Declaration).visit(self.spec)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+
         for v in as_tuple(variables):
-            if v not in self._decl_map:
+            if v not in decl_map:
                 # By default, append new variables to the end of the spec
                 new_decl = Declaration(variables=[v])
                 self.spec.append(new_decl)
-                self._decl_map[v] = new_decl
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
         for decl in FindNodes(Declaration).visit(self.spec):
             new_vars = as_tuple(v for v in decl.variables if v in variables)
-            # from IPython import embed; embed()
             if len(new_vars) > 0:
                 decl._update(variables=new_vars)
             else:
@@ -330,14 +325,17 @@ class Subroutine:
         """
         Set the arguments property and ensure that the internal declarations match.
         """
+        # First map variables to existing declarations
+        declarations = FindNodes(Declaration).visit(self.spec)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+
         arguments = as_tuple(arguments)
         for arg in arguments:
-            if arg not in self._decl_map:
+            if arg not in decl_map:
                 # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
                 new_decl = Declaration(variables=[arg])
                 self.spec.append(new_decl)
-                self._decl_map[arg] = new_decl
 
         # Set new dummy list according to input
         self._dummies = as_tuple(arg.name.lower() for arg in arguments)
