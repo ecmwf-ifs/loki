@@ -61,6 +61,13 @@ def extract_source(ast, text, label=None, full_lines=False):
         lines = lines[1:]
         lstart += 1
 
+    # Extract the label
+    if label is not None:
+        label = label.attrib['lbl']
+        # Move column index by length of the label
+        cstart += len(label)
+        cend += len(label)
+
     # TODO: The column indexes are still not right, so source strings
     # for sub-expressions are likely wrong!
     if lstart == lend:
@@ -68,9 +75,5 @@ def extract_source(ast, text, label=None, full_lines=False):
     else:
         lines[0] = lines[0][cstart:]
         lines[-1] = lines[-1][:cend]
-
-    # Extract the label
-    if label is not None:
-        label = label.attrib['lbl']
 
     return Source(string=''.join(lines), lines=(lstart, lend), label=label)
