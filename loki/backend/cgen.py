@@ -305,7 +305,7 @@ class CCodegen(Visitor):
         return self.indent + '%s {\n%s\n%s}\n' % (header, body, self.indent)
 
     def visit_Statement(self, o, **kwargs):
-        stmt = '%s = %s;' % (self.csymgen(o.target), self.visit(o.expr, **kwargs))
+        stmt = '%s = %s;' % (self.visit(o.target, **kwargs), self.visit(o.expr, **kwargs))
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
         return self.indent + stmt + comment
 
