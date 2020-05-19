@@ -459,8 +459,7 @@ class OMNI2IR(GenericVisitor):
         args = o.find('arguments') or tuple()
         args = as_tuple(self.visit(a) for a in args)
         # Separate keyrword argument from positional arguments
-        # kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
-        kwargs = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+        kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
         args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?

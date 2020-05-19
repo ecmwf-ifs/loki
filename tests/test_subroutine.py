@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper
+    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper, StringLiteral, as_tuple
 )
 
 
@@ -594,6 +594,47 @@ end subroutine routine_call_no_arg
     assert isinstance(routine.body[0], CallStatement)
     assert routine.body[0].arguments == ()
     assert routine.body[0].kwarguments == ()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_kwargs()
+  implicit none
+  integer :: kprocs
+
+  call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
+end subroutine routine_call_kwargs
+""")
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].name == 'mpl_init'
+
+    assert routine.body[0].arguments == ()
+    assert len(routine.body[0].kwarguments) == 2
+    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in routine.body[0].kwarguments)
+
+    assert routine.body[0].kwarguments[0][0] == 'kprocs'
+    assert (isinstance(routine.body[0].kwarguments[0][1], Scalar) and
+            routine.body[0].kwarguments[0][1].name == 'kprocs')
+
+    assert routine.body[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_args_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
+  implicit none
+  integer, intent(in) :: pbuf(:), ktag, kdest
+
+  call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
+end subroutine routine_call_args_kwargs
+""")
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].name == 'mpl_send'
+    assert len(routine.body[0].arguments) == 3
+    assert all(a.name == b.name for a, b in zip(routine.body[0].arguments, routine.arguments))
+    assert routine.body[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
 @pytest.mark.parametrize('frontend', [

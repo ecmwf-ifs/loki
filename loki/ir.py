@@ -472,8 +472,7 @@ class CallStatement(Node):
 
     _traversable = ['arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, context=None,
-                 pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, source=None):
         super(CallStatement, self).__init__(source=source)
 
         # TODO: Currently, also simple strings are allowed as arguments. This should be expressions
@@ -492,7 +491,7 @@ class CallStatement(Node):
 
     @property
     def children(self):
-        return tuple((self.arguments,) + as_tuple(a for _, a in self.kwarguments or []))
+        return tuple((self.arguments,) + (self.kwarguments,))
 
 
 class CallContext(Node):

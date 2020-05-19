@@ -473,7 +473,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_argument(self, o, source=None):
         key = o.attrib['name']
-        val = self.visit(o.find('name'))
+        val = self.visit(list(o)[0])
         return key, val
 
     def visit_label(self, o, source=None):

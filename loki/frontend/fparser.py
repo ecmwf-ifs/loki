@@ -188,7 +188,12 @@ class FParser2IR(GenericVisitor):
     visit_Allocate_Shape_Spec_List = visit_List
     visit_Ac_Value_List = visit_List
     visit_Section_Subscript_List = visit_List
-    visit_Actual_Arg_Spec_List = visit_List
+
+    def visit_Actual_Arg_Spec_List(self, o, **kwargs):
+        """
+        Needs special treatment to avoid flattening key-value-pair tuples.
+        """
+        return as_tuple(self.visit(i, **kwargs) for i in o.items)
 
     def visit_Name(self, o, **kwargs):
         # This one is evil, as it is used flat in expressions,
