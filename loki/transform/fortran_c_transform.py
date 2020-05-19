@@ -10,10 +10,10 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
                              Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper)
+                             SubstituteExpressionsMapper, LoopRange, ArraySubscript)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
-from loki.types import DataType, SymbolType
+from loki.types import DataType, SymbolType, TypeTable
 
 
 __all__ = ['FortranCTransformation']
@@ -74,16 +74,17 @@ class FortranCTransformation(BasicTransformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = '%s_c' % derived.name
-        obj = TypeDef(name=typename.lower(), bind_c=True, declarations=[])
+        symbols = TypeTable()
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
             variables = derived.variables.values()
+        declarations = []
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
-            vnew = v.clone(name=v.basename.lower(), scope=obj.symbols, type=ctype)
-            obj.declarations += [Declaration(variables=(vnew,), type=ctype)]
-        return obj
+            vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
+            declarations += (Declaration(variables=(vnew,), type=ctype),)
+        return TypeDef(name=typename.lower(), bind_c=True, declarations=declarations, symbols=symbols)
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -252,8 +253,9 @@ class FortranCTransformation(BasicTransformation):
                 for v in decl.variables:
                     # Note that we force lower-case on all struct variables
                     if isinstance(v, Array):
-                        new_dims = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
-                        variables += [v.clone(name=v.name.lower(), shape=new_dims)]
+                        new_shape = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
+                        new_type = v.type.clone(shape=new_shape)
+                        variables += [v.clone(name=v.name.lower(), type=new_type)]
                     else:
                         variables += [v.clone(name=v.name.lower())]
                 declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
@@ -366,7 +368,7 @@ class FortranCTransformation(BasicTransformation):
                     continue
 
                 ivar_basename = 'i_%s' % stmt.target.basename
-                for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
+                for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
                         vtype = SymbolType(DataType.INTEGER)
@@ -380,8 +382,8 @@ class FortranCTransformation(BasicTransformation):
 
                 # Add index variable to range replacement
                 new_dims = as_tuple(shape_index_map.get(s, d)
-                                    for d, s in zip(v.dimensions, v.shape))
-                vmap[v] = v.clone(dimensions=new_dims)
+                                    for d, s in zip(v.dimensions.index_tuple, v.shape))
+                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
 
             index_vars.update(list(vdims))
 
@@ -392,10 +394,10 @@ class FortranCTransformation(BasicTransformation):
                 for ivar in vdims:
                     irange = index_range_map[ivar]
                     if isinstance(irange, RangeIndex):
-                        bounds = (irange.lower or Literal(1), irange.upper, irange.step)
+                        bounds = LoopRange(irange.children)
                     else:
-                        bounds = (Literal(1), irange, Literal(1))
-                    loop = Loop(variable=ivar, body=body, bounds=bounds)
+                        bounds = LoopRange((Literal(1), irange, Literal(1)))
+                    loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                     body = loop
 
                 loop_map[stmt] = loop
@@ -415,10 +417,9 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in kernel.variables:
             if isinstance(v, Array):
-                new_dims = as_tuple(d.upper if isinstance(d, RangeIndex) \
-                                    and d.lower == 1 and d.step is None else d
-                                    for d in v.dimensions)
-                vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = [d.upper if isinstance(d, RangeIndex) and d.lower == 1 and d.step is None
+                            else d for d in v.dimensions.index_tuple]
+                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)))
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
@@ -435,13 +436,15 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=True).visit(kernel.body):
             if isinstance(v, Array):
-                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+                rdim = as_tuple(reversed(v.dimensions.index_tuple))
+                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
         # Invert variable and argument dimensions for the automatic cast generation
         for v in kernel.variables:
             if isinstance(v, Array):
-                vmap[v] = v.clone(dimensions=as_tuple(reversed(v.dimensions)))
+                rdim = as_tuple(reversed(v.dimensions.index_tuple))
+                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
         kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
@@ -453,8 +456,8 @@ class FortranCTransformation(BasicTransformation):
         vmap = {}
         for v in FindVariables(unique=False).visit(kernel.body):
             if isinstance(v, Array):
-                new_dims = as_tuple(d - 1 for d in v.dimensions)
-                vmap[v] = v.clone(dimensions=new_dims)
+                new_dims = as_tuple(d - 1 for d in v.dimensions.index_tuple)
+                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
     @staticmethod

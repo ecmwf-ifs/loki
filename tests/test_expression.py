@@ -538,7 +538,7 @@ end subroutine masked_statements
 @pytest.mark.parametrize('frontend', [
     pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
-    FP
+    pytest.param(FP, marks=pytest.mark.xfail(reason='Not implemented')),
 ])
 def test_data_declaration(here, frontend):
     """
@@ -603,7 +603,9 @@ end subroutine pointer_nullify
     assert np.all(v.type.pointer for v in routine.variables)
     assert np.all(isinstance(v.initial, InlineCall) and v.type.initial.name.lower() == 'null'
                   for v in routine.variables)
-    assert FindNodes(Nullify).visit(routine.body)[0].variable.name == 'pp'
+    nullify_stmts = FindNodes(Nullify).visit(routine.body)
+    assert len(nullify_stmts) == 1
+    assert nullify_stmts[0].variables[0].name == 'pp'
     assert [stmt.ptr for stmt in FindNodes(Statement).visit(routine.body)].count(True) == 2
 
     # Execute the generated identity (to verify it is valid Fortran)

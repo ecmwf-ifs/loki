@@ -146,7 +146,7 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
 
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath)['transpile_type']
+    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
@@ -191,7 +191,7 @@ def test_transpile_associates(refpath, reference, builder, frontend):
 
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath)['transpile_type']
+    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
@@ -232,7 +232,7 @@ def test_transpile_derived_type_array(refpath, reference, builder, frontend):
 
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath)['transpile_type']
+    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
@@ -264,7 +264,7 @@ def test_transpile_module_variables(refpath, reference, builder, frontend):
 
     # Translate the header module to expose parameters
     typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath)['transpile_type']
+    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])

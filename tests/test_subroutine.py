@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     clean, compile_and_load, SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper
+    Intrinsic, CallStatement, DataType, Array, Scalar, fgen, FCodeMapper, StringLiteral, as_tuple
 )
 
 
@@ -50,8 +50,8 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])  # OMNI
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
 
     # Generate code, compile and load
     filename = 'routine_simple_%s.f90' % frontend
@@ -102,13 +102,13 @@ end subroutine routine_arguments
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_vars = [str(arg) for arg in routine.variables]
-    assert routine_vars in (['jprb', 'x', 'y', 'vector(x)', 'matrix(x,y)',
-                             'i', 'j', 'local_vector(x)', 'local_matrix(x,y)'],
-                            ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)',
-                             'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x,1:y)'])
+    assert routine_vars in (['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
+                             'i', 'j', 'local_vector(x)', 'local_matrix(x, y)'],
+                            ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)',
+                             'i', 'j', 'local_vector(1:x)', 'local_matrix(1:x, 1:y)'])
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'vector(x)', 'matrix(x,y)'],
-                            ['x', 'y', 'vector(1:x)', 'matrix(1:x,1:y)'])
+    assert routine_args in (['x', 'y', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_arguments_%s.f90' % frontend
@@ -154,8 +154,8 @@ end subroutine routine_arguments_multiline
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_arguments_multiline_%s.f90' % frontend
@@ -203,8 +203,8 @@ end subroutine routine_variables_local
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_vars = [str(arg) for arg in routine.variables]
     assert routine_vars in (
-        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x,y)'],
-        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x,1:y)'])
+        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)'],
+        ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
     filename = 'routine_variables_local_%s.f90' % frontend
@@ -258,15 +258,15 @@ end subroutine routine_simple_caching
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode_real, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x,y)'],
-                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x,1:y)'])
+    assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
     assert routine.arguments[2].type.dtype == DataType.REAL
     assert routine.arguments[3].type.dtype == DataType.REAL
 
     routine = Subroutine.from_source(fcode_int, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
-    assert routine_args in (['x', 'y', 'scalar', 'vector(y)', 'matrix(x,y)'],
-                            ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x,1:y)'])
+    assert routine_args in (['x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)'],
+                            ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x, 1:y)'])
     # Ensure that the types in the second routine have been picked up
     assert routine.arguments[2].type.dtype == DataType.INTEGER
     assert routine.arguments[3].type.dtype == DataType.INTEGER
@@ -303,8 +303,8 @@ end subroutine routine_variables_find
     # Note, we are not counting declarations here
     assert sum(1 for s in vars_all if str(s) == 'i') == 6
     assert sum(1 for s in vars_all if str(s) == 'j') == 3
-    assert sum(1 for s in vars_all if str(s) == 'matrix(i,j)') == 1
-    assert sum(1 for s in vars_all if str(s) == 'matrix(x,y)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'matrix(i, j)') == 1
+    assert sum(1 for s in vars_all if str(s) == 'matrix(x, y)') == 1
     assert sum(1 for s in vars_all if str(s) == 'maximum') == 1
     assert sum(1 for s in vars_all if str(s) == 'vector(i)') == 2
     assert sum(1 for s in vars_all if str(s) == 'x') == 3
@@ -313,8 +313,8 @@ end subroutine routine_variables_find
     vars_unique = FindVariables(unique=True).visit(routine.ir)
     assert sum(1 for s in vars_unique if str(s) == 'i') == 1
     assert sum(1 for s in vars_unique if str(s) == 'j') == 1
-    assert sum(1 for s in vars_unique if str(s) == 'matrix(i,j)') == 1
-    assert sum(1 for s in vars_unique if str(s) == 'matrix(x,y)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(i, j)') == 1
+    assert sum(1 for s in vars_unique if str(s) == 'matrix(x, y)') == 1
     assert sum(1 for s in vars_unique if str(s) == 'maximum') == 1
     assert sum(1 for s in vars_unique if str(s) == 'vector(i)') == 1
     assert sum(1 for s in vars_unique if str(s) == 'x') == 1
@@ -347,8 +347,8 @@ end subroutine routine_dim_shapes
     # TODO: Need a named subroutine lookup
     routine = Subroutine.from_source(fcode, frontend=frontend)
     routine_args = [fsymgen(arg) for arg in routine.arguments]
-    assert routine_args in (['v1', 'v2', 'v3(:)', 'v4(v1,v2)', 'v5(1:v1,v2 - 1)'],
-                            ['v1', 'v2', 'v3(:)', 'v4(1:v1,1:v2)', 'v5(1:v1,1:v2 - 1)'])
+    assert routine_args in (['v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(1:v1, v2 - 1)'],
+                            ['v1', 'v2', 'v3(:)', 'v4(1:v1, 1:v2)', 'v5(1:v1, 1:v2 - 1)'])
 
     # Make sure variable/argument shapes on the routine work
     shapes = [fsymgen(v.shape) for v in routine.arguments if isinstance(v, Array)]
@@ -594,6 +594,47 @@ end subroutine routine_call_no_arg
     assert isinstance(routine.body[0], CallStatement)
     assert routine.body[0].arguments == ()
     assert routine.body[0].kwarguments == ()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_kwargs()
+  implicit none
+  integer :: kprocs
+
+  call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
+end subroutine routine_call_kwargs
+""")
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].name == 'mpl_init'
+
+    assert routine.body[0].arguments == ()
+    assert len(routine.body[0].kwarguments) == 2
+    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in routine.body[0].kwarguments)
+
+    assert routine.body[0].kwarguments[0][0] == 'kprocs'
+    assert (isinstance(routine.body[0].kwarguments[0][1], Scalar) and
+            routine.body[0].kwarguments[0][1].name == 'kprocs')
+
+    assert routine.body[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_call_args_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
+  implicit none
+  integer, intent(in) :: pbuf(:), ktag, kdest
+
+  call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
+end subroutine routine_call_args_kwargs
+""")
+    assert isinstance(routine.body[0], CallStatement)
+    assert routine.body[0].name == 'mpl_send'
+    assert len(routine.body[0].arguments) == 3
+    assert all(a.name == b.name for a, b in zip(routine.body[0].arguments, routine.arguments))
+    assert routine.body[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
 @pytest.mark.parametrize('frontend', [

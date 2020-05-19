@@ -58,13 +58,13 @@ class Subroutine:
 
         self.symbols = symbols
         if self.symbols is None:
-            parent = self.parent.symbols if self.parent is not None else None
-            self.symbols = TypeTable(parent)
+            parent_symbols = self.parent.symbols if self.parent is not None else None
+            self.symbols = TypeTable(parent=parent_symbols)
 
         self.types = types
         if self.types is None:
-            parent = self.parent.types if self.parent is not None else None
-            self.types = TypeTable(parent)
+            parent_types = self.parent.types if self.parent is not None else None
+            self.types = TypeTable(parent=parent_types)
 
         self.docstring = docstring
         self.spec = spec
@@ -86,7 +86,7 @@ class Subroutine:
         for alloc in FindNodes(Allocation).visit(body):
             for v in alloc.variables:
                 if isinstance(v, Array):
-                    alloc_map[v.name.lower()] = v.dimensions
+                    alloc_map[v.name.lower()] = v.dimensions.index_tuple
         vmap = {}
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:

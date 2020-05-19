@@ -115,14 +115,10 @@ class Module:
                               typedefs=typedefs, raw_source=raw_source, scope=obj)
         spec = Section(body=spec)
 
-        # TODO: Parse member functions properly
-        contains = ast.find('FcontainsStatement')
-        routines = None
-        if contains is not None:
-            routines = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
-                                             symbol_map=symbol_map,
-                                             raw_source=raw_source, parent=obj)
-                        for s in contains]
+        # Parse member functions
+        routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
+                                         typedefs=typedefs, raw_source=raw_source, parent=obj)
+                    for s in ast.findall('FcontainsStatement/FfunctionDefinition')]
 
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source,
                      parent=parent, symbols=obj.symbols, types=obj.types)

@@ -1,12 +1,12 @@
 import re
-import pymbolic.primitives as pmbl
+from pymbolic.primitives import Expression
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
 
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
-           'ExpressionCallbackMapper']
+           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -40,10 +40,9 @@ class LokiStringifyMapper(StringifyMapper):
         return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = ','.join(self.rec(d, PREC_NONE, *args, **kwargs) for d in expr.dimensions or [])
-        if dims:
-            dims = '(' + dims + ')'
-        parent, initial = '', ''
+        dims, parent, initial = '', '', ''
+        if expr.dimensions:
+            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
         if expr.parent is not None:
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
         if expr.type is not None and expr.type.initial is not None:
@@ -56,7 +55,7 @@ class LokiStringifyMapper(StringifyMapper):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         if expr.kind:
-            if isinstance(expr.kind, pmbl.Expression):
+            if isinstance(expr.kind, Expression):
                 kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
             else:
                 kind = ', kind=' + str(expr.kind)
@@ -64,13 +63,15 @@ class LokiStringifyMapper(StringifyMapper):
             kind = ''
         return self.format('%s(%s%s)', name, expression, kind)
 
-    def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
-        lower = self.rec(expr.lower, enclosing_prec, *args, **kwargs) if expr.lower else ''
-        upper = self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
-        if expr.step:
-            step = self.rec(expr.step, enclosing_prec, *args, **kwargs)
-            return '%s:%s:%s' % (lower, upper, step)
-        return '%s:%s' % (lower, upper)
+    def map_range(self, expr, enclosing_prec, *args, **kwargs):
+        children = [self.rec(child, PREC_NONE, *args, **kwargs) if child is not None else ''
+                    for child in expr.children]
+        if expr.step is None:
+            children = children[:-1]
+        return self.parenthesize_if_needed(self.join(':', children), enclosing_prec, PREC_NONE)
+
+    map_range_index = map_range
+    map_loop_range = map_range
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
@@ -86,6 +87,10 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
+
+    def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
+        return '(%s)' % index_str
 
 
 class ExpressionRetriever(WalkMapper):
@@ -121,8 +126,13 @@ class ExpressionRetriever(WalkMapper):
         if not self.visit(expr):
             return
         if expr.dimensions:
-            for d in expr.dimensions:
-                self.rec(d, *args, **kwargs)
+            self.rec(expr.dimensions, *args, **kwargs)
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_array_subscript(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.rec(expr.index, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_logic_literal = WalkMapper.map_constant
@@ -136,25 +146,18 @@ class ExpressionRetriever(WalkMapper):
             return
         for p in expr.parameters:
             self.rec(p, *args, **kwargs)
-        if isinstance(expr.kind, pmbl.Expression):
+        if isinstance(expr.kind, Expression):
             self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
+
+    map_range = WalkMapper.map_slice
+    map_range_index = WalkMapper.map_slice
+    map_loop_range = WalkMapper.map_slice
 
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
     map_parenthesised_pow = WalkMapper.map_power
     map_string_concat = WalkMapper.map_sum
-
-    def map_range_index(self, expr, *args, **kwargs):
-        if not self.visit(expr):
-            return
-        if expr.lower:
-            self.rec(expr.lower, *args, **kwargs)
-        if expr.upper:
-            self.rec(expr.upper, *args, **kwargs)
-        if expr.step:
-            self.rec(expr.step, *args, **kwargs)
-        self.post_visit(expr, *args, **kwargs)
 
     def map_literal_list(self, expr, *args, **kwargs):
         if not self.visit(expr):
@@ -162,6 +165,18 @@ class ExpressionRetriever(WalkMapper):
         for elem in expr.elements:
             self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
+
+
+def retrieve_expressions(expr, cond):
+    """
+    Utility function to retrieve all expressions satisfying condition `cond`.
+
+    Can be used with py:class:`ExpressionRetriever` to query the IR for
+    expression nodes using custom conditions.
+    """
+    retriever = ExpressionRetriever(cond)
+    retriever(expr)
+    return retriever.exprs
 
 
 class ExpressionDimensionsMapper(Mapper):
@@ -188,7 +203,7 @@ class ExpressionDimensionsMapper(Mapper):
 
         # pylint: disable=import-outside-toplevel
         from loki.expression.symbol_types import RangeIndex, IntLiteral
-        dims = [self.rec(d, *args, **kwargs)[0] for d in expr.dimensions]
+        dims = self.rec(expr.dimensions, *args, **kwargs)
         # Replace colon dimensions by the value from shape
         shape = expr.shape or [None] * len(dims)
         dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
@@ -196,6 +211,9 @@ class ExpressionDimensionsMapper(Mapper):
         # Remove singleton dimensions
         dims = [d for d in dims if d != IntLiteral(1)]
         return as_tuple(dims)
+
+    def map_array_subscript(self, expr, *args, **kwargs):
+        return flatten(tuple(self.rec(d, *args, **kwargs) for d in expr.index_tuple))
 
     def map_range_index(self, expr, *args, **kwargs):  # pylint: disable=unused-argument
         if expr.lower is None and expr.upper is None:
@@ -227,25 +245,28 @@ class ExpressionCallbackMapper(CombineMapper):
     map_string_literal = map_constant
     map_scalar = map_constant
     map_array = map_constant
+    map_variable = map_constant
 
-    def map_inline_call(self, expr, *args, **kwargs):
-        parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.parameters)
-        kw_parameters = tuple(self.rec(ch, *args, **kwargs) for ch in expr.kw_parameters.values())
-        return self.combine(parameters + kw_parameters)
+    def map_array_subscript(self, expr, *args, **kwargs):
+        dimensions = self.rec(expr.index_tuple, *args, **kwargs)
+        return self.combine(dimensions)
+
+    map_inline_call = CombineMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if expr.kind and isinstance(expr.kind, pmbl.Expression):
+        if expr.kind and isinstance(expr.kind, Expression):
             kind = (self.rec(expr.kind, *args, **kwargs),)
         else:
             kind = tuple()
         return self.combine((self.rec(expr.function, *args, **kwargs),
                              self.rec(expr.parameters[0])) + kind)
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = (self.rec(expr.lower, *args, **kwargs),) if expr.lower else tuple()
-        upper = (self.rec(expr.upper, *args, **kwargs),) if expr.upper else tuple()
-        step = (self.rec(expr.step, *args, **kwargs),) if expr.step else tuple()
-        return self.combine(lower + upper + step)
+    def map_range(self, expr, *args, **kwargs):
+        return self.combine(tuple(self.rec(c, *args, **kwargs)
+                                  for c in expr.children if c is not None))
+
+    map_range_index = map_range
+    map_loop_range = map_range
 
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product
@@ -262,6 +283,14 @@ class LokiIdentityMapper(IdentityMapper):
     """
     # pylint: disable=abstract-method
 
+    def __call__(self, expr, *args, **kwargs):
+        new_expr = super().__call__(expr, *args, **kwargs)
+        if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
+            new_expr.update_metadata(getattr(expr, 'get_metadata', dict)())
+        return new_expr
+
+    rec = __call__
+
     map_logic_literal = IdentityMapper.map_constant
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
@@ -274,17 +303,20 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:
-            dimensions = tuple(self.rec(d, *args, **kwargs) for d in expr.dimensions)
+            dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
         initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
         return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
                               dimensions=dimensions, initial=initial, source=expr.source)
 
+    def map_array_subscript(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.index, *args, **kwargs))
+
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if isinstance(expr.kind, pmbl.Expression):
+        if isinstance(expr.kind, Expression):
             kind = self.rec(expr.kind, *args, **kwargs)
         else:
             kind = expr.kind
@@ -303,11 +335,9 @@ class LokiIdentityMapper(IdentityMapper):
     map_parenthesised_pow = IdentityMapper.map_power
     map_string_concat = map_sum
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower is not None else None
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper is not None else None
-        step = self.rec(expr.step, *args, **kwargs) if expr.step is not None else None
-        return expr.__class__(lower, upper, step)
+    map_range = IdentityMapper.map_slice
+    map_range_index = IdentityMapper.map_slice
+    map_loop_range = IdentityMapper.map_slice
 
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)

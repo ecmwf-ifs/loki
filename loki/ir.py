@@ -2,7 +2,9 @@ from collections import OrderedDict
 from itertools import chain
 import inspect
 
-from loki.tools import flatten, as_tuple
+from pymbolic.primitives import Expression
+
+from loki.tools import flatten, as_tuple, is_iterable
 from loki.types import TypeTable
 
 
@@ -124,18 +126,21 @@ class Loop(Node):
     Internal representation of a loop in source code.
 
     Importantly, this object will carry around an exact copy of the
-    source string that defines it's body.
+    source string that defines its body.
     """
 
-    _traversable = ['body']
+    _traversable = ['variable', 'bounds', 'body']
 
     def __init__(self, variable, body=None, bounds=None, pragma=None,
                  pragma_post=None, label=None, source=None):
         super(Loop, self).__init__(source=source)
 
+        assert isinstance(variable, Expression)
+        assert isinstance(bounds, Expression)
+        assert is_iterable(body)
+
         self.variable = variable
         self.body = as_tuple(body)
-        # Ensure three-entry tuple
         self.bounds = bounds
         self.pragma = pragma
         self.pragma_post = pragma_post
@@ -144,7 +149,7 @@ class Loop(Node):
     @property
     def children(self):
         # Note: Needs to be one tuple per `traversable`
-        return tuple([self.body])
+        return tuple((self.variable,) + (self.bounds,) + (self.body,))
 
 
 class WhileLoop(Node):
@@ -155,14 +160,16 @@ class WhileLoop(Node):
     have a dedicated loop variable with bounds.
     """
 
-    _traversable = ['body']
+    _traversable = ['condition', 'body']
 
     def __init__(self, condition, body=None, pragma=None, pragma_post=None,
                  label=None, source=None):
         super(WhileLoop, self).__init__(source=source)
 
+        assert isinstance(condition, Expression)
+
         self.condition = condition
-        self.body = body
+        self.body = as_tuple(body)
         self.pragma = pragma
         self.pragma_post = pragma_post
         self.label = label
@@ -170,7 +177,7 @@ class WhileLoop(Node):
     @property
     def children(self):
         # Note: Needs to be one tuple per `traversable`
-        return tuple([self.body])
+        return tuple((self.condition,) + (self.body,))
 
 
 class Conditional(Node):
@@ -183,7 +190,10 @@ class Conditional(Node):
     def __init__(self, conditions, bodies, else_body, inline=False, source=None):
         super(Conditional, self).__init__(source=source)
 
-        self.conditions = conditions
+        assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
+        assert is_iterable(bodies) and len(bodies) == len(conditions)
+
+        self.conditions = as_tuple(conditions)
         self.bodies = as_tuple(bodies)
         self.else_body = as_tuple(else_body)
         self.inline = inline
@@ -199,31 +209,47 @@ class MultiConditional(Node):
     Internal representation of a multi-value conditional (eg. SELECT)
     """
 
-    _traversable = ['bodies']
+    _traversable = ['expr', 'values', 'bodies', 'else_body']
 
-    def __init__(self, expr, values, bodies, source=None):
+    def __init__(self, expr, values, bodies, else_body, source=None):
         super(MultiConditional, self).__init__(source=source)
 
+        assert isinstance(expr, Expression)
+        assert is_iterable(values) and all(isinstance(v, Expression) for v in flatten(values))
+        assert is_iterable(bodies)
+        assert is_iterable(else_body)
+
         self.expr = expr
-        self.values = values
-        self.bodies = bodies
+        self.values = as_tuple(values)
+        self.bodies = as_tuple(bodies)
+        self.else_body = as_tuple(else_body)
 
     @property
     def children(self):
-        return tuple([self.bodies])
+        return tuple((self.expr,) + (self.values,) + (self.bodies,) + (self.else_body,))
 
 
 class Statement(Node):
     """
     Internal representation of a variable assignment
     """
+
+    _traversable = ['target', 'expr']
+
     def __init__(self, target, expr, ptr=False, comment=None, source=None):
         super(Statement, self).__init__(source=source)
+
+        assert isinstance(target, Expression)
+        assert isinstance(expr, Expression)
 
         self.target = target
         self.expr = expr
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
+
+    @property
+    def children(self):
+        return tuple((self.target,) + (self.expr,))
 
     def __repr__(self):
         return 'Stmt:: %s = %s' % (self.target, self.expr)
@@ -234,18 +260,22 @@ class MaskedStatement(Node):
     Internal representation of a masked array assignment (WHERE clause).
     """
 
-    _traversable = ['body', 'default']
+    _traversable = ['condition', 'body', 'default']
 
     def __init__(self, condition, body, default, source=None):
         super(MaskedStatement, self).__init__(source=source)
 
+        assert isinstance(condition, Expression)
+        assert is_iterable(body)
+        assert is_iterable(default)
+
         self.condition = condition
-        self.body = body
-        self.default = default  # The ELSEWHERE stmt
+        self.body = as_tuple(body)
+        self.default = as_tuple(default)  # The ELSEWHERE stmt
 
     @property
     def children(self):
-        return tuple([as_tuple(self.body), as_tuple(self.default)])
+        return tuple((self.condition,) + (self.body,) + (self.default,))
 
 
 class Section(Node):
@@ -293,7 +323,7 @@ class Declaration(Node):
     Internal representation of a variable declaration
     """
 
-    _traversable = ['variables']
+    _traversable = ['variables', 'dimensions']
 
     def __init__(self, variables, dimensions=None, type=None,
                  comment=None, pragma=None, source=None):
@@ -301,8 +331,12 @@ class Declaration(Node):
         # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
 
-        self.variables = variables
-        self.dimensions = dimensions
+        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        assert dimensions is None or (is_iterable(dimensions) and
+                                      all(isinstance(d, Expression) for d in dimensions))
+
+        self.variables = as_tuple(variables)
+        self.dimensions = as_tuple(dimensions) if dimensions else None
         self.type = type
 
         self.comment = comment
@@ -310,18 +344,29 @@ class Declaration(Node):
 
     @property
     def children(self):
-        return tuple([self.variables])
+        return tuple((self.variables,) + (self.dimensions or [],))
 
 
 class DataDeclaration(Node):
     """
     Internal representation of a DATA declaration for explicit array value lists.
     """
+
+    _traversable = ['variable', 'values']
+
     def __init__(self, variable, values, source=None):
         super(DataDeclaration, self).__init__(source=source)
 
+        # TODO: This should only allow Expression instances but needs frontend changes
+        assert isinstance(variable, (Expression, str))
+        assert is_iterable(values) and all(isinstance(val, Expression) for val in values)
+
         self.variable = variable
-        self.values = values
+        self.values = as_tuple(values)
+
+    @property
+    def children(self):
+        return tuple((self.variable,) + (self.values,))
 
 
 class Import(Node):
@@ -348,11 +393,20 @@ class Interface(Node):
     """
     Internal representation of a Fortran interface block.
     """
+
+    _traversable = ['body']
+
     def __init__(self, spec=None, body=None, source=None):
         super(Interface, self).__init__(source=source)
 
+        assert is_iterable(body)
+
         self.spec = spec
         self.body = as_tuple(body)
+
+    @property
+    def children(self):
+        return tuple((self.body,))
 
 
 class Allocation(Node):
@@ -360,8 +414,12 @@ class Allocation(Node):
     Internal representation of a variable allocation
     """
 
+    _traversable = ['variables']
+
     def __init__(self, variables, data_source=None, source=None):
         super(Allocation, self).__init__(source=source)
+
+        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
 
         self.variables = as_tuple(variables)
         self.data_source = data_source  # Argh, Fortran...!
@@ -375,20 +433,36 @@ class Deallocation(Node):
     """
     Internal representation of a variable deallocation
     """
+
+    _traversable = ['variables']
+
     def __init__(self, variables, source=None):
         super(Deallocation, self).__init__(source=source)
 
-        self.variables = variables
+        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        self.variables = as_tuple(variables)
+
+    @property
+    def children(self):
+        return tuple([self.variables])
 
 
 class Nullify(Node):
     """
     Internal representation of a pointer nullification
     """
-    def __init__(self, variable, source=None):
+
+    _traversable = ['variables']
+
+    def __init__(self, variables, source=None):
         super(Nullify, self).__init__(source=source)
 
-        self.variable = variable
+        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        self.variables = as_tuple(variables)
+
+    @property
+    def children(self):
+        return tuple([self.variables])
 
 
 class CallStatement(Node):
@@ -398,20 +472,26 @@ class CallStatement(Node):
 
     _traversable = ['arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, context=None,
-                 pragma=None, source=None):
+    def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, source=None):
         super(CallStatement, self).__init__(source=source)
 
+        # TODO: Currently, also simple strings are allowed as arguments. This should be expressions
+        arg_types = (Expression, str)
+        assert is_iterable(arguments) and all(isinstance(arg, arg_types) for arg in arguments)
+        assert kwarguments is None or (
+            is_iterable(kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
+                                             isinstance(a[1], arg_types) for a in kwarguments))
+
         self.name = name
-        self.arguments = arguments
-        # kwarguments if kept as a list of tuples!
-        self.kwarguments = kwarguments
+        self.arguments = as_tuple(arguments)
+        # kwarguments is kept as a list of tuples!
+        self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
         self.context = context
         self.pragma = pragma
 
     @property
     def children(self):
-        return tuple([as_tuple(self.arguments), as_tuple(self.kwarguments)])
+        return tuple((self.arguments,) + (self.kwarguments,))
 
 
 class CallContext(Node):
@@ -453,9 +533,13 @@ class TypeDef(Node):
                  symbols=None):
         super(TypeDef, self).__init__(source=source)
 
+        assert is_iterable(declarations) and all(isinstance(d, Declaration) for d in declarations)
+        assert comments is None or (is_iterable(comments) and
+                                    all(isinstance(c, (Comment, CommentBlock)) for c in comments))
+
         self.name = name
-        self.declarations = declarations
-        self.comments = comments
+        self.declarations = as_tuple(declarations)
+        self.comments = as_tuple(comments) if comments else None
         self.pragmas = pragmas
         self.bind_c = bind_c
 

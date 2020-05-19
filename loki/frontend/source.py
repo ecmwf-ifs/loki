@@ -12,9 +12,10 @@ class Source:
         self.label = label
 
     def __repr__(self):
-        label = ', label %d' % self.label if self.label else ''
-        line_end = '-%s' % self.lines[1] if self.lines[1] else ''
-        return 'Source<line %s%s%s>' % (self.lines[0], line_end, label)
+        label = ', label {}'.format(self.label) if self.label else ''
+        line_end = '-{}'.format(self.lines[1]) if self.lines[1] else ''
+        return 'Source<line {start}{end}{label}>'.format(
+            start=self.lines[0], end=line_end, label=label)
 
 
 def extract_source(ast, text, full_lines=False):

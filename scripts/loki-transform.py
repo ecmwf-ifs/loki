@@ -16,9 +16,8 @@ from loki import (
     FindNodes, FindVariables, SubstituteExpressions,
     info, as_tuple, Loop, Variable,
     Array, CallStatement, Pragma, DataType,
-    SymbolType, Import, RangeIndex,
-    AbstractTransformation, BasicTransformation,
-    FortranCTransformation, FCodeMapper,
+    SymbolType, Import, RangeIndex, ArraySubscript, LoopRange,
+    AbstractTransformation, BasicTransformation, FortranCTransformation,
     Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper
 )
 
@@ -106,7 +105,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                         new_args = []
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
-                            new_dims = tuple(RangeIndex() for _ in type_var.type.shape or [])
+                            new_dims = tuple(RangeIndex((None, None)) for _ in type_var.type.shape or [])
+                            new_dims = ArraySubscript(new_dims)
                             new_type = type_var.type.clone(parent=d_arg)
                             new_arg = type_var.clone(dimensions=new_dims, type=new_type,
                                                      parent=d_arg, scope=d_arg.scope)
@@ -144,7 +144,8 @@ class DerivedArgsTransformation(AbstractTransformation):
                 new_type = SymbolType(type_var.type.dtype, kind=type_var.type.kind,
                                       intent=arg.type.intent, shape=type_var.type.shape)
                 new_name = '%s_%s' % (arg.name, type_var.basename)
-                new_var = Variable(name=new_name, type=new_type, dimensions=new_type.shape,
+                new_dimensions = ArraySubscript(new_type.shape) if new_type.shape else None
+                new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions,
                                    scope=routine.symbols)
                 new_vars += [new_var]
 
@@ -274,16 +275,16 @@ class SCATransformation(AbstractTransformation):
         shape_map = {v.name: v.shape for v in variables}
 
         # Now generate a mapping of old to new variable symbols
-        fsymgen = FCodeMapper()
         vmap = {}
         for v in variables:
             old_shape = shape_map[v.name]
-            new_shape = as_tuple(s for s in old_shape if fsymgen(s).upper() not in size_expressions)
-            new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
-                                if fsymgen(s).upper() not in size_expressions)
-            new_dims = None if len(new_dims) == 0 else new_dims
+            new_shape = as_tuple(s for s in old_shape if fgen(s).upper() not in size_expressions)
+            new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
+                                if fgen(s).upper() not in size_expressions)
+            new_dims = None if len(new_dims) == 0 else ArraySubscript(new_dims)
             if len(old_shape) != len(new_shape):
-                vmap[v] = v.clone(dimensions=new_dims, shape=new_shape)
+                new_type = v.type.clone(shape=new_shape)
+                vmap[v] = v.clone(dimensions=new_dims, type=new_type)
 
         # Apply vmap to variable and argument list and subroutine body
         routine.arguments = [vmap.get(v, v) for v in routine.arguments]
@@ -325,19 +326,18 @@ class SCATransformation(AbstractTransformation):
                     new_dims = None
 
                     # Insert ':' for all missing dimensions in argument
-                    if arg.shape is not None and len(val.dimensions) == 0:
-                        new_dims = tuple(RangeIndex() for _ in arg.shape)
-
-                    v_dims = val.dimensions if len(val.dimensions) > 0 else new_dims
+                    if arg.shape is not None and len(val.dimensions.index_tuple) == 0:
+                        new_dims = tuple(RangeIndex((None, None)) for _ in arg.shape)
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
+                        v_dims = val.dimensions.index_tuple or new_dims
                         new_dims = tuple(Variable(name=target.variable, scope=caller.symbols)
                                          if str(tdim).upper() in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
-                        argmap[val] = val.clone(dimensions=new_dims)
+                        argmap[val] = val.clone(dimensions=ArraySubscript(new_dims))
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]
@@ -362,7 +362,7 @@ class SCATransformation(AbstractTransformation):
                 # Create and insert new loop over target dimension
                 if wrap:
                     loop = Loop(variable=Variable(name=target.variable, scope=caller.symbols),
-                                bounds=(dim_lower, dim_upper, None),
+                                bounds=LoopRange((dim_lower, dim_upper, None)),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
                 else:
@@ -539,7 +539,7 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
 
     if mode == 'claw':
         claw_scalars = [v.name.lower() for v in routine.variables
-                        if isinstance(v, Array) and len(v.dimensions) == 1]
+                        if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
 
     # Debug addition: detect calls to `ref_save` and replace with `ref_error`
     for call in FindNodes(CallStatement).visit(routine.body):

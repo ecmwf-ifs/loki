@@ -57,14 +57,20 @@ def is_iterable(o):
         return True
 
 
-def flatten(l):
+def flatten(l, is_leaf=None):
     """
     Flatten a hierarchy of nested lists into a plain list.
+
+    :param callable is_leaf: Optional function that gets called for each iterable element
+                             to decide if it is to be considered as a leaf that does not
+                             need further flattening.
     """
+    if is_leaf is None:
+        is_leaf = lambda el: False
     newlist = []
     for el in l:
-        if is_iterable(el) and not isinstance(el, (str, bytes)):
-            for sub in flatten(el):
+        if is_iterable(el) and not (isinstance(el, (str, bytes)) or is_leaf(el)):
+            for sub in flatten(el, is_leaf):
                 newlist.append(sub)
         else:
             newlist.append(el)
