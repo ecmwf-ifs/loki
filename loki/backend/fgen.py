@@ -152,7 +152,7 @@ class FortranCodegen(Visitor):
             return o._source.string
 
         if hasattr(o, '_source') and o._source is not None and o._source.label:
-            label = '%d ' % o._source.label
+            label = '{} '.format(o._source.label)
         else:
             label = ''
         return '%s%s' % (label, super(FortranCodegen, self).visit(o, **kwargs))

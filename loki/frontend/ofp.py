@@ -102,7 +102,7 @@ class OFP2IR(GenericVisitor):
             return super(OFP2IR, self).visit(o, **kwargs)
 
         try:
-            source = extract_source(o.attrib, self._raw_source)
+            source = extract_source(o.attrib, self._raw_source, label=o.find('label'))
         except KeyError:
             source = None
         return super(OFP2IR, self).visit(o, source=source, **kwargs)

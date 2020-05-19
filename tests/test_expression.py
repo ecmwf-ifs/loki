@@ -369,11 +369,7 @@ end subroutine very_long_statement
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Format stmt labels not implemented')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_output_intrinsics(frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.

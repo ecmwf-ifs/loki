@@ -18,7 +18,7 @@ class Source:
             start=self.lines[0], end=line_end, label=label)
 
 
-def extract_source(ast, text, full_lines=False):
+def extract_source(ast, text, label=None, full_lines=False):
     """
     Extract the marked string from source text.
     """
@@ -69,4 +69,8 @@ def extract_source(ast, text, full_lines=False):
         lines[0] = lines[0][cstart:]
         lines[-1] = lines[-1][:cend]
 
-    return Source(string=''.join(lines), lines=(lstart, lend))
+    # Extract the label
+    if label is not None:
+        label = label.attrib['lbl']
+
+    return Source(string=''.join(lines), lines=(lstart, lend), label=label)
