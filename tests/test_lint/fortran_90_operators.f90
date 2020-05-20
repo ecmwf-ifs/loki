@@ -20,7 +20,8 @@ do while (ia >= 3 .or. ia <= -7)
 end do 
 
 ! This should report 5 problems
-do while (ia >= 3 .or. ia .le. -7) ! This <= should not cause confusion
+do while (ia >= 3 .or. & ! This <= should not cause confusion
+          ia .le. -7)
   if (ib .gt. 5 .or. ib <= -1) then
     if (ic .gt. 4 .and. ib == -2) then
       print *, 'Foo'

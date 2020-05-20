@@ -1,5 +1,5 @@
-import pytest
 from pathlib import Path
+import pytest
 
 from conftest import generate_report_handler, generate_linter
 from loki.lint.rules import Fortran90OperatorsRule
@@ -22,12 +22,12 @@ def test_fortran_90_operators(refpath, frontend):
                                                   'Use Fortran 90 comparison operator'))
                for msg in handler.target.messages)
 
-    f77_f90_line = (('.ge.', '>=', '5'), ('.le.', '<=', '5'),
-                    ('.gt.', '>', '6'), ('.lt.', '<', '6'),
-                    ('.eq.', '==', '7'), ('.ne.', '/=', '7'),
-                    ('.le.', '<=', '23'),
-                    ('.gt.', '>', '24'), ('.eq.', '==', '24-32'),
-                    ('.gt.', '>', '25'), ('.gt.', '>', '31'))
+    f77_f90_line = (('.ne.', '/=', '7'), ('.eq.', '==', '7'),
+                    ('.lt.', '<', '6'), ('.gt.', '>', '6'),
+                    ('.le.', '<=', '5'), ('.ge.', '>=', '5'),
+                    ('.gt.', '>', '26'), ('.gt.', '>', '32'),
+                    ('.gt.', '>', '25'), ('.eq.', '==', '29'),
+                    ('.le.', '<=', '23-24'))
 
     for keywords, message in zip(f77_f90_line, handler.target.messages):
-        assert all(str(keyword) in message for keyword in keywords)
+        assert all([str(keyword) in message for keyword in keywords])

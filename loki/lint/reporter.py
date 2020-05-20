@@ -81,11 +81,12 @@ class GenericHandler(object):
             except ValueError:
                 pass
         line = ''
-        if hasattr(location, '_source') and location._source:
-            if location._source.lines[0] == location._source.lines[1]:
-                line = ' (l. {})'.format(location._source.lines[0])
+        source = getattr(location, '_source', getattr(location, 'source', None))
+        if source is not None:
+            if source.lines[0] == source.lines[1]:
+                line = ' (l. {})'.format(source.lines[0])
             else:
-                line = ' (ll. {}-{})'.format(*location._source.lines)
+                line = ' (ll. {}-{})'.format(*source.lines)
         scope = ''
         if isinstance(location, Subroutine):
             scope = ' in routine "{}"'.format(location.name)

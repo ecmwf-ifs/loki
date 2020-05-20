@@ -12,7 +12,7 @@ from loki.logging import log, info, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
-           'filehash', 'truncate_string', 'JoinableStringList']
+           'filehash', 'truncate_string', 'JoinableStringList'', 'strip_inline_comments']
 
 
 def as_tuple(item, type=None, length=None):
@@ -355,3 +355,64 @@ class JoinableStringList:
         Convert to a string.
         """
         return self._to_str()[0]
+
+
+def strip_inline_comments(source, comment_char='!', str_delim='"\''):
+    """
+    Strip inline comments from a source string and return the modified string.
+
+    Note: this does only work reliably for Fortran strings at the moment (where quotation
+    marks are escaped by double quotes and thus the string status is kept correct automatically).
+
+    :param str source: the source line(s) to be stripped.
+    :param str comment_char: the character that marks the beginning of a comment.
+    :param str str_delim: one or multiple characters that are valid string delimiters.
+    """
+    if comment_char not in source:
+        # No comment, we can bail out early
+        return source
+
+    # Split the string into lines and look for the start of comments
+    source_lines = source.splitlines()
+
+    def update_str_delim(open_str_delim, string):
+        """Run through the string and update the string status."""
+        for ch in string:
+            if ch in str_delim:
+                if open_str_delim == '':
+                    # This opens a string
+                    open_str_delim = ch
+                elif open_str_delim == ch:
+                    # TODO: Handle escaping of quotes in general. Fortran just works (TM)
+                    # This closes a string
+                    open_str_delim = ''
+                # else: character is string delimiter but we are inside an open string
+                # with a different character used => ignored
+        return open_str_delim
+
+    # If we are inside a string this holds the delimiter character that was used
+    # to open the current string environment:
+    #  '': if not inside a string
+    #  'x':  inside a string with x being the opening string delimiter
+    open_str_delim = ''
+
+    # Run through lines to strip inline comments
+    clean_lines = []
+    for line in source_lines:
+        end = line.find(comment_char)
+        open_str_delim = update_str_delim(open_str_delim, line[:end])
+
+        while end != -1:
+            if not open_str_delim:
+                # We have found the start of the inline comment, add the line up until there
+                clean_lines += [line[:end].rstrip()]
+                break
+            # We are inside an open string, idx does not mark the start of a comment
+            start, end = end, line.find(comment_char, end + 1)
+            open_str_delim = update_str_delim(open_str_delim, line[start:end])
+        else:
+            # No comment char found in current line, keep original line
+            clean_lines += [line]
+            open_str_delim = update_str_delim(open_str_delim, line[end:])
+
+    return '\n'.join(clean_lines)

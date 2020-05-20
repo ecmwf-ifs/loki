@@ -1,18 +1,17 @@
 import re
 from collections import defaultdict
 from pathlib import Path
-from pymbolic.primitives import is_zero, Comparison
+from pymbolic.primitives import is_zero
 
 from loki import Subroutine, Module, SourceFile
-from loki.logging import logger
 from loki.types import DataType
-from loki.tools import flatten, as_tuple, is_iterable
+from loki.tools import flatten, as_tuple, strip_inline_comments
 from loki.visitors import FindNodes
 from loki.expression import (
-    IntLiteral, FloatLiteral, StringLiteral, LogicLiteral, Scalar, Array, RangeIndex,
-    ExpressionFinder, ExpressionRetriever, FindExpressions)
+    ExpressionFinder, ExpressionRetriever, FindExpressionRoot, retrieve_expressions)
 from loki.lint.utils import GenericRule, RuleType
 import loki.ir as ir
+from loki.expression import symbol_types as sym
 
 
 class CodeBodyRule(GenericRule):  # Coding standards 1.3
@@ -98,7 +97,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         cond = None
         for node in reversed(ast) if is_reversed else ast:
             if isinstance(node, ir.Conditional):
-                if isinstance(node.conditions[0], Scalar) and \
+                if isinstance(node.conditions[0], sym.Scalar) and \
                         node.conditions[0].name.upper() == 'LHOOK':
                     cond = node
                     break
@@ -149,18 +148,18 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             rule_report.add(msg, subroutine)
         elif call.arguments:
             string_arg = cls._get_string_argument(subroutine)
-            if not isinstance(call.arguments[0], StringLiteral) or \
+            if not isinstance(call.arguments[0], sym.StringLiteral) or \
                     call.arguments[0].value.upper() != string_arg:
                 fmt_string = 'String argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(string_arg)
                 rule_report.add(msg, call)
             second_arg = {'First': '0', 'Last': '1'}
-            if not (len(call.arguments) > 1 and isinstance(call.arguments[1], IntLiteral) and \
+            if not (len(call.arguments) > 1 and isinstance(call.arguments[1], sym.IntLiteral) and
                     str(call.arguments[1].value) == second_arg[pos]):
                 fmt_string = 'Second argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(second_arg[pos])
                 rule_report.add(msg, call)
-            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], Scalar) and \
+            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], sym.Scalar) and
                     call.arguments[2].name.upper() == 'ZHOOK_HANDLE'):
                 msg = 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".'
                 rule_report.add(msg, call)
@@ -359,15 +358,15 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''
         def retrieve(expr):
             # Custom retriever that yields the literal types specified in config and stops
-            # recursion on arrays and array subscripts (to avoid warnings about integer
-            # constants in array subscripts)
-            retriever = ExpressionRetriever(
-                lambda e: isinstance(e, types),
-                recurse_query=lambda e: not isinstance(e, (Array, RangeIndex)))
+            # recursion on loop ranges and array subscripts (to avoid warnings about integer
+            # constants in these cases
+            excl_types = (sym.ArraySubscript, sym.Range)
+            retriever = ExpressionRetriever(lambda e: isinstance(e, types),
+                                            recurse_query=lambda e: not isinstance(e, excl_types))
             retriever(expr)
             return retriever.exprs
 
-        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
+        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_ir_node=True)
 
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
@@ -399,8 +398,8 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
         # 2. Check constants for explicit KIND
         # Mapping from data type names to internal classes
-        type_map = {'INTEGER': IntLiteral, 'REAL': FloatLiteral,
-                    'LOGICAL': LogicLiteral, 'CHARACTER': StringLiteral}
+        type_map = {'INTEGER': sym.IntLiteral, 'REAL': sym.FloatLiteral,
+                    'LOGICAL': sym.LogicLiteral, 'CHARACTER': sym.StringLiteral}
 
         # Constants are represented by an instance of some Literal class, which directly
         # gives us their type. Therefore, we create a map that uses the corresponding
@@ -468,62 +467,34 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check for the use of Fortran 90 comparison operators.'''
-        retriever = FindExpressions(unique=False, with_expression_root=True)
+        # Retrieve all comparisons together with the IR node in which they are located
+        q_comp = lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, sym.Comparison))
+        retriever = ExpressionFinder(unique=False, retrieve=q_comp, with_ir_node=True)
         for node, expr_list in retriever.visit(subroutine.ir):
-            if node._source is None or node._source.string is None:
-                # Skip if we don't have source string information for this node
-                continue
-            # Build the source string to search for the operator. We are (in most cases) in
-            # the conditions of an IF or WHILE, thus we need to make sure we are not searching
-            # in the corresponding bodies. For that, we are looking at line numbers of the entire
-            # node and remove from those the line numbers of body statements to extract the
-            # relevant parts of the source string.
-            lines = set(cls.source_lines_to_range(node))
-            comments = []
-            bodies = node.bodies if hasattr(node, 'bodies') else ()
-            bodies += tuple(getattr(node, attr)
-                            for attr in ('body', 'else_body') if hasattr(node, attr))
-            for body in bodies:
-                if not is_iterable(body):
-                    # Skip single-statement bodies (e.g., inline IF)
-                    continue
-                for child in body:
-                    if hasattr(child, '_source') and child._source and child._source.lines:
-                        if isinstance(child, ir.Comment):
-                            comments.append(child)
-                        elif isinstance(child, ir.CommentBlock):
-                            comments.extend(child.comments)
-                        else:
-                            child_lines = set(cls.source_lines_to_range(child))
-                            lines -= child_lines
-            source_lines = node._source.string.splitlines(keepends=True)
-            # To handle inline comments correctly, we do not remove the corresponding lines but
-            # only remove the comments from the source string
-            for comment in comments:
-                for text, line in zip(comment.text.splitlines(keepends=True),
-                                      cls.source_lines_to_range(comment, node._source.lines[0])):
-                    source_lines[line] = source_lines[line].replace(text, '')
-            source = ''.join(source_lines[l - node._source.lines[0]] for l in sorted(lines))
-            # Count how often each comparison operator appears on this line
-            op_counts = defaultdict(int)
-            for op in filter(lambda expr: isinstance(expr, Comparison), expr_list):
-                op_counts[op.operator] += 1
-            for op, count in op_counts.items():
-                matches = cls._op_patterns[op].findall(source)
-                # TODO: There are two situations where len(matches) > count can happen:
-                # 1/ Inline comment after END statement with operator in the comment text;
-                # 2/ Statement in inline IF's body with operator.
-                # Both are harmless as they are guaranteed to appear after the operators in
-                # question for this rule.
-                if len(matches) < count:
-                    logger.warning('%s: Expected %s matches for operator %s, found %s in "%s"',
-                                   subroutine.name, count, op, len(matches), source)
-                    count = len(matches)
-                for f77, _ in matches[0:count]:
-                    if f77:
-                        fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
-                        msg = fmt_string.format(op if op != '!=' else '/=', f77)
-                        rule_report.add(msg, node)
+            # First, we group all the expressions found in this node by their expression root
+            # (This is mostly required for Conditionals/MultiConditionals, where the different
+            #  if-elseif-cases or select values are on different source lines)
+            root_expr_map = defaultdict(list)
+            for expr in expr_list:
+                expr_root = FindExpressionRoot(expr).visit(node)[0]
+                if expr_root.source and expr_root.source.string:
+                    # Include only if we have source string information for this node
+                    root_expr_map[expr_root] += [expr]
+
+            # Then we look at the comparison operators for each expression root and match
+            # them directly in the source string
+            for expr_root, exprs in root_expr_map.items():
+                # Collect all operators present in this expression
+                ops_present = {op.operator for op in exprs if isinstance(expr, sym.Comparison)}
+                # For each comparison operator, check if F90 or F77 operators are matched
+                for op in sorted(ops_present):
+                    source_string = strip_inline_comments(expr_root.source.string)
+                    matches = cls._op_patterns[op].findall(source_string)
+                    for f77, _ in matches:
+                        if f77:
+                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
+                            msg = fmt_string.format(op if op != '!=' else '/=', f77)
+                            rule_report.add(msg, expr_root)
 
 
 # Create the __all__ property of the module to contain only the rule names
