@@ -101,8 +101,12 @@ class OFP2IR(GenericVisitor):
         if isinstance(o, Iterable):
             return super(OFP2IR, self).visit(o, **kwargs)
 
+        label = o.find('label')
+        if label is not None:
+            label = label.attrib['lbl']
+
         try:
-            source = extract_source(o.attrib, self._raw_source, label=o.find('label'))
+            source = extract_source(o.attrib, self._raw_source, label=label)
         except KeyError:
             source = None
         return super(OFP2IR, self).visit(o, source=source, **kwargs)

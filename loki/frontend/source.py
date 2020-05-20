@@ -61,10 +61,8 @@ def extract_source(ast, text, label=None, full_lines=False):
         lines = lines[1:]
         lstart += 1
 
-    # Extract the label
+    # Move column index by length of the label if given
     if label is not None:
-        label = label.attrib['lbl']
-        # Move column index by length of the label
         cstart += len(label)
         cend += len(label)
 
