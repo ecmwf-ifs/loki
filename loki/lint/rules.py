@@ -2,7 +2,6 @@ import re from collections import defaultdict
 from pathlib import Path
 
 from loki import Subroutine, Module, SourceFile
-from loki.logging import logger
 from loki.types import DataType
 from loki.tools import flatten, as_tuple, strip_inline_comments
 from loki.visitors import FindNodes
@@ -220,7 +219,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         cond = None
         for node in reversed(ast) if is_reversed else ast:
             if isinstance(node, ir.Conditional):
-                if isinstance(node.conditions[0], Scalar) and \
+                if isinstance(node.conditions[0], sym.Scalar) and \
                         node.conditions[0].name.upper() == 'LHOOK':
                     cond = node
                     break
@@ -271,18 +270,18 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             rule_report.add(msg, subroutine)
         elif call.arguments:
             string_arg = cls._get_string_argument(subroutine)
-            if not isinstance(call.arguments[0], StringLiteral) or \
+            if not isinstance(call.arguments[0], sym.StringLiteral) or \
                     call.arguments[0].value.upper() != string_arg:
                 fmt_string = 'String argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(string_arg)
                 rule_report.add(msg, call)
             second_arg = {'First': '0', 'Last': '1'}
-            if not (len(call.arguments) > 1 and isinstance(call.arguments[1], IntLiteral) and \
+            if not (len(call.arguments) > 1 and isinstance(call.arguments[1], sym.IntLiteral) and
                     str(call.arguments[1].value) == second_arg[pos]):
                 fmt_string = 'Second argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(second_arg[pos])
                 rule_report.add(msg, call)
-            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], Scalar) and \
+            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], sym.Scalar) and
                     call.arguments[2].name.upper() == 'ZHOOK_HANDLE'):
                 msg = 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".'
                 rule_report.add(msg, call)
@@ -537,15 +536,15 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''
         def retrieve(expr):
             # Custom retriever that yields the literal types specified in config and stops
-            # recursion on arrays and array subscripts (to avoid warnings about integer
-            # constants in array subscripts)
-            retriever = ExpressionRetriever(
-                lambda e: isinstance(e, types),
-                recurse_query=lambda e: not isinstance(e, (Array, RangeIndex)))
+            # recursion on loop ranges and array subscripts (to avoid warnings about integer
+            # constants in these cases
+            excl_types = (sym.ArraySubscript, sym.Range)
+            retriever = ExpressionRetriever(lambda e: isinstance(e, types),
+                                            recurse_query=lambda e: not isinstance(e, excl_types))
             retriever(expr)
             return retriever.exprs
 
-        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_expression_root=True)
+        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_ir_node=True)
 
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
@@ -577,8 +576,8 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
 
         # 2. Check constants for explicit KIND
         # Mapping from data type names to internal classes
-        type_map = {'INTEGER': IntLiteral, 'REAL': FloatLiteral,
-                    'LOGICAL': LogicLiteral, 'CHARACTER': StringLiteral}
+        type_map = {'INTEGER': sym.IntLiteral, 'REAL': sym.FloatLiteral,
+                    'LOGICAL': sym.LogicLiteral, 'CHARACTER': sym.StringLiteral}
 
         # Constants are represented by an instance of some Literal class, which directly
         # gives us their type. Therefore, we create a map that uses the corresponding
