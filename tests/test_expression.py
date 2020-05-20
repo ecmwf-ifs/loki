@@ -369,11 +369,7 @@ end subroutine very_long_statement
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Format stmt labels not implemented')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_output_intrinsics(frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
@@ -396,11 +392,11 @@ end subroutine output_intrinsics
 
     assert isinstance(routine.body[-2], Intrinsic)
     assert isinstance(routine.body[-1], Intrinsic)
-    assert routine.body[-2].text.strip('\n').lower() in ["format(1x, 2i10, 1x, i4, ' : ', i10)",
-                                                         'format(1x, 2i10, 1x, i4, " : ", i10)']
+    assert routine.body[-2].text.lower() in ["format(1x, 2i10, 1x, i4, ' : ', i10)",
+                                             'format(1x, 2i10, 1x, i4, " : ", i10)']
     assert fgen(routine.body[-2]).lower() in ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)",
                                               '1002 format(1x, 2i10, 1x, i4, " : ", i10)']
-    assert routine.body[-1].text.strip('\n').lower() in \
+    assert routine.body[-1].text.lower() in \
         ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
          'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']
 

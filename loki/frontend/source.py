@@ -18,7 +18,7 @@ class Source:
             start=self.lines[0], end=line_end, label=label)
 
 
-def extract_source(ast, text, full_lines=False):
+def extract_source(ast, text, label=None, full_lines=False):
     """
     Extract the marked string from source text.
     """
@@ -61,6 +61,11 @@ def extract_source(ast, text, full_lines=False):
         lines = lines[1:]
         lstart += 1
 
+    # Move column index by length of the label if given
+    if label is not None:
+        cstart += len(label)
+        cend += len(label)
+
     # TODO: The column indexes are still not right, so source strings
     # for sub-expressions are likely wrong!
     if lstart == lend:
@@ -69,4 +74,4 @@ def extract_source(ast, text, full_lines=False):
         lines[0] = lines[0][cstart:]
         lines[-1] = lines[-1][:cend]
 
-    return Source(string=''.join(lines), lines=(lstart, lend))
+    return Source(string=''.join(lines), lines=(lstart, lend), label=label)

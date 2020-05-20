@@ -101,8 +101,12 @@ class OFP2IR(GenericVisitor):
         if isinstance(o, Iterable):
             return super(OFP2IR, self).visit(o, **kwargs)
 
+        label = o.find('label')
+        if label is not None:
+            label = label.attrib['lbl']
+
         try:
-            source = extract_source(o.attrib, self._raw_source)
+            source = extract_source(o.attrib, self._raw_source, label=label)
         except KeyError:
             source = None
         return super(OFP2IR, self).visit(o, source=source, **kwargs)
@@ -451,8 +455,9 @@ class OFP2IR(GenericVisitor):
         return ir.Intrinsic(text=source.string, source=source)
 
     def visit_open(self, o, source=None):
-        assert o.tag.lower() in source.string.lower()
-        return ir.Intrinsic(text=source.string[source.string.lower().find(o.tag.lower()):], source=source)
+        cstart = source.string.lower().find(o.tag.lower())
+        assert cstart != -1
+        return ir.Intrinsic(text=source.string[cstart:].strip('\n'), source=source)
 
     visit_close = visit_open
     visit_read = visit_open
