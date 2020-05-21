@@ -1,4 +1,5 @@
 subroutine routine_okay
+use some_type_module, only : jpim, jprb
 integer(kind=jpim) :: i, j
 real(kind=jprb) :: a(3), b
 
@@ -6,6 +7,9 @@ i = 1_JPIM + 7_JPIM
 j = 2_JPIM
 a(1:3) = 3._JPRB
 b = 4.0_JPRB
+do j=1,3
+    a(j) = real(j)
+end do
 end subroutine routine_okay
 
 subroutine routine_not_okay

@@ -1,14 +1,12 @@
 import re
 from collections import defaultdict
 from pathlib import Path
-from pymbolic.primitives import is_zero
 
 from loki import Subroutine, Module, SourceFile
 from loki.types import DataType
 from loki.tools import flatten, as_tuple, strip_inline_comments
 from loki.visitors import FindNodes
-from loki.expression import (
-    ExpressionFinder, ExpressionRetriever, FindExpressionRoot, retrieve_expressions)
+from loki.expression import ExpressionFinder, FindExpressionRoot, retrieve_expressions
 from loki.lint.utils import GenericRule, RuleType
 import loki.ir as ir
 from loki.expression import symbol_types as sym
@@ -52,7 +50,8 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
         visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=False)
         for body in bodies:
             for cond in visitor.visit(body):
-                rule_report.add(msg, cond)
+                if not getattr(cond, 'inline', False):
+                    rule_report.add(msg, cond)
 
 
 class ModuleNamingRule(GenericRule):  # Coding standards 1.5
@@ -340,43 +339,38 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''Helper function that carries out the check for explicit kind specification
         on all declarations.
         '''
-        # TODO: Include actual declarations in reporting (instead of just the routine)
         for var in subroutine.variables:
             if var.type.dtype in types:
                 if not var.type.kind:
-                    rule_report.add('"{}" without explicit KIND declared.'.format(var), subroutine)
+                    rule_report.add('"{}" without explicit KIND declared.'.format(var), var)
                 elif allowed_type_kinds.get(var.type.dtype) and \
                         var.type.kind.upper() not in allowed_type_kinds[var.type.dtype]:
                     rule_report.add(
                         '"{}" is not an allowed KIND value for "{}".'.format(var.type.kind, var),
-                        subroutine)
+                        var)
 
     @staticmethod
     def check_kind_literals(subroutine, types, allowed_type_kinds, rule_report):
         '''Helper function that carries out the check for explicit kind specification
         on all literals.
         '''
-        def retrieve(expr):
-            # Custom retriever that yields the literal types specified in config and stops
-            # recursion on loop ranges and array subscripts (to avoid warnings about integer
-            # constants in these cases
-            excl_types = (sym.ArraySubscript, sym.Range)
-            retriever = ExpressionRetriever(lambda e: isinstance(e, types),
-                                            recurse_query=lambda e: not isinstance(e, excl_types))
-            retriever(expr)
-            return retriever.exprs
-
-        finder = ExpressionFinder(unique=False, retrieve=retrieve, with_ir_node=True)
+        # Custom retriever that yields the literal types specified in config and stops
+        # recursion on loop ranges and array subscripts (to avoid warnings about integer
+        # constants in these cases
+        excl_types = (sym.ArraySubscript, sym.Range)
+        q_lit = lambda expr: retrieve_expressions(
+            expr, lambda e: isinstance(e, types), recurse_cond=lambda e: not isinstance(e, excl_types))
+        finder = ExpressionFinder(unique=False, retrieve=q_lit, with_ir_node=True)
 
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
-                if is_zero(literal) or str(literal) == '0':
-                    continue
                 if not literal.kind:
-                    rule_report.add('"{}" without explicit KIND declared.'.format(literal), node)
+                    rule_report.add('"{}" without explicit KIND declared.'.format(literal), literal)
                 elif allowed_type_kinds.get(literal.__class__) and \
                         literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
-                    rule_report.add('"{}" is not an allowed KIND value.'.format(literal.kind), node)
+                    rule_report.add(
+                        '"{}" is not an allowed KIND value for "{}".'.format(literal.kind, literal),
+                        literal)
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
@@ -384,7 +378,8 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         variable declarations.
         '''
         # 1. Check variable declarations for explicit KIND
-        # When we check variable type information, we have instances of DataType to identify
+        #
+        # When we check variable type information, we have DataType values to identify
         # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses
         # the corresponding DataType values as keys to look up allowed kinds for each type.
         # Since the case does not matter, we convert all allowed type kinds to upper case.
@@ -397,14 +392,13 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         cls.check_kind_declarations(subroutine, types, allowed_type_kinds, rule_report)
 
         # 2. Check constants for explicit KIND
-        # Mapping from data type names to internal classes
-        type_map = {'INTEGER': sym.IntLiteral, 'REAL': sym.FloatLiteral,
-                    'LOGICAL': sym.LogicLiteral, 'CHARACTER': sym.StringLiteral}
-
+        #
         # Constants are represented by an instance of some Literal class, which directly
         # gives us their type. Therefore, we create a map that uses the corresponding
         # Literal types as keys to look up allowed kinds for each type. Again, we
         # convert all allowed type kinds to upper case.
+        type_map = {'INTEGER': sym.IntLiteral, 'REAL': sym.FloatLiteral,
+                    'LOGICAL': sym.LogicLiteral, 'CHARACTER': sym.StringLiteral}
         types = tuple(type_map[name] for name in config['constant_types'])
         if config.get('allowed_type_kinds'):
             allowed_type_kinds = {type_map[name]: [kind.upper() for kind in kinds]
@@ -447,6 +441,10 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         'title': 'Use Fortran 90 comparison operators.'
     }
 
+    '''
+    Regex patterns for each operator that match F77 and F90 operators as
+    named groups, thus allowing to easily find out which operator was used.
+    '''
     _op_patterns = {
         '==': re.compile(r'(?P<f77>\.eq\.)|(?P<f90>==)', re.I),
         '!=': re.compile(r'(?P<f77>\.ne\.)|(?P<f90>/=)', re.I),
@@ -456,18 +454,11 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '<': re.compile(r'(?P<f77>\.lt\.)|(?P<f90><(?!=))', re.I),
     }
 
-    @staticmethod
-    def source_lines_to_range(node, offset=None):
-        '''Convenience helper function to ease the conversion of line number
-        tuples to line ranges.'''
-        if offset:
-            return range(node._source.lines[0] - offset, node._source.lines[1] - offset + 1)
-        return range(node._source.lines[0], node._source.lines[1] + 1)
-
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check for the use of Fortran 90 comparison operators.'''
-        # Retrieve all comparisons together with the IR node in which they are located
+        # We extract all `Comparison` expression nodes, grouped by the IR node they are in.
+        # Then we run through all such pairs and check the symbol used in the source string.
         q_comp = lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, sym.Comparison))
         retriever = ExpressionFinder(unique=False, retrieve=q_comp, with_ir_node=True)
         for node, expr_list in retriever.visit(subroutine.ir):

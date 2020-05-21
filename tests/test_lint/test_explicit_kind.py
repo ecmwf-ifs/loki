@@ -21,20 +21,15 @@ def test_explicit_kind(refpath, frontend):
     assert len(handler.target.messages) == 11
     assert all('[4.7]' in msg for msg in handler.target.messages)
     assert all('ExplicitKindRule' in msg for msg in handler.target.messages)
-    # declarations
-    assert 'routine "routine_not_okay"' in handler.target.messages[0] and \
-        '"i"' in handler.target.messages[0]
-    assert 'routine "routine_not_okay"' in handler.target.messages[1] and \
-        '"j"' in handler.target.messages[1] and '"1"' in handler.target.messages[1]
-    assert 'routine "routine_not_okay"' in handler.target.messages[2] and \
-        '"a(3)"' in handler.target.messages[2]
-    assert 'routine "routine_not_okay"' in handler.target.messages[3] and \
-        '"b"' in handler.target.messages[3]
-    # literals
-    assert 'l. 17' in handler.target.messages[4] and '"1"' in handler.target.messages[4]
-    assert 'l. 17' in handler.target.messages[5] and '"7"' in handler.target.messages[5]
-    assert 'l. 18' in handler.target.messages[6] and '"2"' in handler.target.messages[6]
-    assert 'l. 19' in handler.target.messages[7] and '"3E0"' in handler.target.messages[7]
-    assert 'l. 20' in handler.target.messages[8] and '"4.0"' in handler.target.messages[8]
-    assert 'l. 20' in handler.target.messages[9] and '"5D0"' in handler.target.messages[9]
-    assert 'l. 20' in handler.target.messages[10] and '"4"' in handler.target.messages[10]
+
+    # Keywords to search for in the messages as tuples:
+    # ('var name' or 'literal', 'line number', 'invalid kind value' or None)
+    keywords = (
+        # Declarations
+        ('i', '16', None), ('j', '17', '1'), ('a(3)', '18', None), ('b', '19', '8'),
+        # Literals
+        ('1', '21', None), ('7', '21', None), ('2', '22', None), ('3E0', '23', None),
+        ('4.0', '24', None), ('5D0', '24', None), ('6._4', '24', '4')
+    )
+    for keys, msg in zip(keywords, handler.target.messages):
+        assert all(kw in msg for kw in keys if kw is not None)
