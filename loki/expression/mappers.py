@@ -167,14 +167,22 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
 
-def retrieve_expressions(expr, cond):
+def retrieve_expressions(expr, cond, recurse_cond=None):
     """
     Utility function to retrieve all expressions satisfying condition `cond`.
 
     Can be used with py:class:`ExpressionRetriever` to query the IR for
     expression nodes using custom conditions.
+
+    :param cond: Function handle that is given each visited expression node and
+                 yields `True` or `False` depending on whether that expression
+                 should be included into the result.
+    :param recurse_cond: Optional function handle that is given each visited
+                         expression node and yields `True` or `False` depending
+                         on whether that expression and its children should be
+                         visited.
     """
-    retriever = ExpressionRetriever(cond)
+    retriever = ExpressionRetriever(cond, recurse_query=recurse_cond)
     retriever(expr)
     return retriever.exprs
 
