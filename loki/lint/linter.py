@@ -8,7 +8,7 @@ from loki.sourcefile import SourceFile
 from loki.backend import fgen
 
 
-class Linter(object):
+class Linter:
 
     def __init__(self, reporter, rules=None, config=None):
         self.reporter = reporter

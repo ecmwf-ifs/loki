@@ -58,6 +58,9 @@ def test_linter_check():
             assert file_report.reports[1].problem_reports[0].location == 'Location'
             assert file_report.reports[1].rule == TestRule
 
+        def output(self, handler_reports):
+            pass
+
     config = {
         'TestRule2': {
             'other_key': 'other_value',

@@ -1,13 +1,13 @@
-import pytest
 from pathlib import Path
+import pytest
 
 from conftest import generate_report_handler, generate_linter
 from loki.lint.rules import MplCdstringRule
 from loki.frontend import FP
 
 
-@pytest.fixture(scope='module')
-def refpath():
+@pytest.fixture(scope='module', name='refpath')
+def fixture_refpath():
     return Path(__file__).parent / 'mpl_cdstring.f90'
 
 

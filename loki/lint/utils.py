@@ -45,7 +45,6 @@ class GenericRule:
         Perform rule checks on module level. Must be implemented by
         a rule if applicable.
         '''
-        pass
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
@@ -53,7 +52,6 @@ class GenericRule:
         Perform rule checks on subroutine level. Must be implemented by
         a rule if applicable.
         '''
-        pass
 
     @classmethod
     def check_file(cls, sourcefile, rule_report, config):
@@ -61,7 +59,6 @@ class GenericRule:
         Perform rule checks on file level. Must be implemented by
         a rule if applicable.
         '''
-        pass
 
     @classmethod
     def check(cls, ast, rule_report, config):

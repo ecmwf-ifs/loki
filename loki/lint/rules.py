@@ -484,10 +484,8 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
             # Then we look at the comparison operators for each expression root and match
             # them directly in the source string
             for expr_root, exprs in root_expr_map.items():
-                # Collect all operators present in this expression
-                ops_present = {op.operator for op in exprs if isinstance(expr, sym.Comparison)}
                 # For each comparison operator, check if F90 or F77 operators are matched
-                for op in sorted(ops_present):
+                for op in sorted({op.operator for op in exprs}):
                     source_string = strip_inline_comments(expr_root.source.string)
                     matches = cls._op_patterns[op].findall(source_string)
                     for f77, _ in matches:

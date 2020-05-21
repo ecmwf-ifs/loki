@@ -4,8 +4,8 @@ from loki.lint.reporter import ProblemReport, RuleReport, FileReport, DefaultHan
 from loki.lint.rules import GenericRule
 
 
-@pytest.fixture(scope='module')
-def dummy_file_report():
+@pytest.fixture(scope='module', name='dummy_file_report')
+def fixture_dummy_file_report():
     file_report = FileReport('file.f90')
     rule_report = RuleReport(GenericRule)
     rule_report.add('Some message', 'foobar')
@@ -14,7 +14,7 @@ def dummy_file_report():
     return file_report
 
 
-class DummyLogger(object):
+class DummyLogger:
 
     def __init__(self):
         self.messages = []
@@ -58,6 +58,6 @@ def test_default_handler_not_immediate(dummy_file_report):
 
 
 @pytest.mark.skip()
-def test_junit_xml_handler(dummy_file_report):
+def test_junit_xml_handler():
     # TODO
     pass

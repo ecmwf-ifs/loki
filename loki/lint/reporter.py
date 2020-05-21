@@ -7,14 +7,14 @@ from loki.logging import logger
 from loki.lint.utils import get_filename_from_parent
 
 
-class ProblemReport(object):
+class ProblemReport:
 
     def __init__(self, msg, location):
         self.msg = msg
         self.location = location
 
 
-class RuleReport(object):
+class RuleReport:
 
     def __init__(self, rule, problem_reports=None):
         self.rule = rule
@@ -25,7 +25,7 @@ class RuleReport(object):
         self.problem_reports.append(ProblemReport(msg, location))
 
 
-class FileReport(object):
+class FileReport:
 
     def __init__(self, filename, reports=None):
         self.filename = filename
@@ -37,7 +37,7 @@ class FileReport(object):
         self.reports.append(rule_report)
 
 
-class Reporter(object):
+class Reporter:
 
     def __init__(self, handlers=None):
         if not handlers:
@@ -67,7 +67,7 @@ class Reporter(object):
             handler.output(reports)
 
 
-class GenericHandler(object):
+class GenericHandler:
 
     def __init__(self, basedir=None):
         self.basedir = basedir

@@ -188,7 +188,7 @@ def generate_report_handler(handler_cls=None):
     Creates a handler for use with :py:class:`loki.lint.Reporter` that buffers
     all produced messages in a list that can then be inspected.
     """
-    class DummyLogger(object):
+    class DummyLogger:
 
         def __init__(self):
             self.messages = []
