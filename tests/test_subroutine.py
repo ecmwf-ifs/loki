@@ -5,7 +5,7 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, as_tuple, fgen, fexprgen
+    SymbolType, StringLiteral, fgen, fexprgen
 )
 from conftest import jit_compile, clean_test
 
@@ -163,7 +163,7 @@ end subroutine routine_arguments_multiline
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_arguments_order(here, frontend):
+def test_routine_arguments_order(frontend):
     """
     Test argument ordering honours singateu (dummy list) instead of
     order of apearance in spec declarations.
@@ -186,7 +186,7 @@ end subroutine routine_arguments_order
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_arguments_add_remove(here, frontend):
+def test_routine_arguments_add_remove(frontend):
     """
     Test addition and removal of subroutine arguments.
     """
@@ -346,7 +346,7 @@ end subroutine routine_simple_caching
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_routine_variables_add_remove(here, frontend):
+def test_routine_variables_add_remove(frontend):
     """
     Test local variable addition and removal.
     """
@@ -402,12 +402,12 @@ integer :: c
 """.strip().lower()
 
     # Now remove the `maximum` variable and make sure it's gone
-    routine.variables = [v for v in routine.variables if v.name is not 'maximum']
+    routine.variables = [v for v in routine.variables if v.name != 'maximum']
     assert 'maximum' not in fgen(routine.spec).lower()
     routine_vars = [str(arg) for arg in routine.variables]
     assert routine_vars in (
         ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
-        ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)','a', 'b(x)', 'c']
+        ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c']
     )
 
 
