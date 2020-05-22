@@ -318,7 +318,7 @@ class Subroutine:
         """
         # TODO: Can be simplified once we can directly lookup variables objects in scope
         arg_map = {v.name.lower(): v for v in self.variables if v.name.lower() in self._dummies}
-        return as_tuple(arg_map[a] for a in self._dummies)
+        return as_tuple(arg_map[a.lower()] for a in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):

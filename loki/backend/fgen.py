@@ -221,7 +221,9 @@ class FortranCodegen(Visitor):
         assert len(o.variables) > 0
         types = [v.type for v in o.variables]
         # Ensure all variable types are equal, except for shape and dimension
-        ignore = ['shape', 'dimensions', 'source']
+        # TODO: Should extend to deeper recursion of `variables` if
+        # the symbol has a known derived type
+        ignore = ['shape', 'dimensions', 'variables', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
         dtype = self.visit(types[0])
 

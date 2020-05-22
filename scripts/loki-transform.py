@@ -264,8 +264,10 @@ class SCATransformation(AbstractTransformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
+        # TODO: Careful with order her, as removing the variables first
+        # can invalidate the .arguments property! This needs more testing!
         routine.arguments = [a for a in routine.arguments if str(a).upper() not in target.variables]
+        routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
 
         # Establish the new dimensions and shapes first, before cloning the variables
         # The reason for this is that shapes of all variable instances are linked
@@ -380,7 +382,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(DataType.INTEGER, kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller.symbols)]
+            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.symbols),)
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
