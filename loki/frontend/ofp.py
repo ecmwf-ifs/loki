@@ -439,7 +439,9 @@ class OFP2IR(GenericVisitor):
 
     def visit_allocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return ir.Allocation(variables=variables, source=source)
+        kw_args = {arg.attrib['name'].lower(): self.visit(arg)
+                   for arg in o.findall('keyword-arguments/keyword-argument')}
+        return ir.Allocation(variables=variables, source=source, data_source=kw_args.get('source'))
 
     def visit_deallocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
