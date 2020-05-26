@@ -828,24 +828,25 @@ class FParser2IR(GenericVisitor):
     visit_Format_Stmt = visit_Intrinsic_Stmt
     visit_Write_Stmt = visit_Intrinsic_Stmt
     visit_Goto_Stmt = visit_Intrinsic_Stmt
-    visit_Return_Stmt = visit_Goto_Stmt
-    visit_Continue_Stmt = visit_Goto_Stmt
-    visit_Cycle_Stmt = visit_Goto_Stmt
-    visit_Exit_Stmt = visit_Goto_Stmt
-    visit_Save_Stmt = visit_Goto_Stmt
-    visit_Read_Stmt = visit_Goto_Stmt
-    visit_Open_Stmt = visit_Goto_Stmt
-    visit_Close_Stmt = visit_Goto_Stmt
-    visit_Inquire_Stmt = visit_Goto_Stmt
-    visit_Access_Stmt = visit_Goto_Stmt
-    visit_Namelist_Stmt = visit_Goto_Stmt
-    visit_Parameter_Stmt = visit_Goto_Stmt
-    visit_Final_Binding = visit_Goto_Stmt
-    visit_Procedure_Stmt = visit_Goto_Stmt
-    visit_Equivalence_Stmt = visit_Goto_Stmt
-    visit_External_Stmt = visit_Goto_Stmt
-    visit_Common_Stmt = visit_Goto_Stmt
-    visit_Stop_Stmt = visit_Goto_Stmt
+    visit_Return_Stmt = visit_Intrinsic_Stmt
+    visit_Continue_Stmt = visit_Intrinsic_Stmt
+    visit_Cycle_Stmt = visit_Intrinsic_Stmt
+    visit_Exit_Stmt = visit_Intrinsic_Stmt
+    visit_Save_Stmt = visit_Intrinsic_Stmt
+    visit_Read_Stmt = visit_Intrinsic_Stmt
+    visit_Open_Stmt = visit_Intrinsic_Stmt
+    visit_Close_Stmt = visit_Intrinsic_Stmt
+    visit_Inquire_Stmt = visit_Intrinsic_Stmt
+    visit_Access_Stmt = visit_Intrinsic_Stmt
+    visit_Namelist_Stmt = visit_Intrinsic_Stmt
+    visit_Parameter_Stmt = visit_Intrinsic_Stmt
+    visit_Dimension_Stmt = visit_Intrinsic_Stmt
+    visit_Final_Binding = visit_Intrinsic_Stmt
+    visit_Procedure_Stmt = visit_Intrinsic_Stmt
+    visit_Equivalence_Stmt = visit_Intrinsic_Stmt
+    visit_External_Stmt = visit_Intrinsic_Stmt
+    visit_Common_Stmt = visit_Intrinsic_Stmt
+    visit_Stop_Stmt = visit_Intrinsic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
         return ir.Intrinsic(text=o.tostr(), source=kwargs.get('source'))
@@ -977,3 +978,9 @@ class FParser2IR(GenericVisitor):
         body = as_tuple(flatten(self.visit(ch, **kwargs) for ch in body_ast))
         source = kwargs.get('source', None)
         return ir.Interface(spec=spec, body=body, source=source)
+
+    def visit_Function_Stmt(self, o, **kwargs):
+        # TODO: not implemented
+        return ir.Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+
+    visit_Subroutine_Stmt = visit_Function_Stmt
