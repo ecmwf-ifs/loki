@@ -166,7 +166,9 @@ class WhileLoop(Node):
                  label=None, source=None):
         super(WhileLoop, self).__init__(source=source)
 
-        assert isinstance(condition, Expression)
+        # Unfortunately, unbounded DO ... END DO loops exist and we capture
+        # those in this class
+        assert isinstance(condition, Expression) or condition is None
 
         self.condition = condition
         self.body = as_tuple(body)
