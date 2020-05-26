@@ -249,11 +249,13 @@ class FParser2IR(GenericVisitor):
         kind = o.items[1] if o.items[1] is not None else None
         return self.visit_literal(int(o.items[0]), DataType.INTEGER, kind=kind, **kwargs)
 
-    isit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
+    visit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
         return self.visit_literal(o.items[0], DataType.REAL, kind=kind, **kwargs)
+
+    visit_Signed_Real_Literal_Constant = visit_Real_Literal_Constant
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
         return self.visit_literal(o.items[0], DataType.LOGICAL, **kwargs)
@@ -953,10 +955,9 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Set(self, o, **kwargs):
         # TODO: actually parse the statements
-        source = kwargs.get('source', None)
-        variable = self.visit(o.items[0], **kwargs)
-        values = as_tuple(flatten(self.visit(v, **kwargs) for v in o.items[1].items))
-        return ir.DataDeclaration(variable=variable, values=values, source=source)
+        variable = self.visit(get_child(o, Fortran2003.Data_Stmt_Object_List), **kwargs)
+        values = as_tuple(self.visit(get_child(o, Fortran2003.Data_Stmt_Value_List), **kwargs))
+        return ir.DataDeclaration(variable=variable, values=values, source=kwargs.get('source'))
 
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(flatten(self.visit(c) for c in o.items))

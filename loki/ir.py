@@ -359,7 +359,8 @@ class DataDeclaration(Node):
         super(DataDeclaration, self).__init__(source=source)
 
         # TODO: This should only allow Expression instances but needs frontend changes
-        assert isinstance(variable, (Expression, str))
+        # TODO: Support complex statements (LOKI-23)
+        assert isinstance(variable, (Expression, str, tuple))
         assert is_iterable(values) and all(isinstance(val, Expression) for val in values)
 
         self.variable = variable
