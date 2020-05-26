@@ -608,6 +608,10 @@ class FParser2IR(GenericVisitor):
             do_stmt = get_child(o, do_stmt_types)
         # Extract source by looking at everything between DO and END DO statements
         end_do_stmt = rget_child(o, Fortran2003.End_Do_Stmt)
+        if end_do_stmt is None:
+            # We may have a labeled loop with an explicit CONTINUE statement
+            end_do_stmt = rget_child(o, Fortran2003.Continue_Stmt)
+            assert str(end_do_stmt.item.label) == do_stmt.label.string
         lines = (do_stmt.item.span[0], end_do_stmt.item.span[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]])
         source = Source(lines=lines, string=string, label=do_stmt.item.name)
