@@ -471,7 +471,7 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
         return LokiStringifyMapper()
 
     def __getinitargs__(self):
-        return ('[%s]' % (','.join(repr(c) for c in self.elements)),) + super().__getinitargs__()
+        return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
 
 
 class Sum(ExprMetadataMixin, pmbl.Sum):
