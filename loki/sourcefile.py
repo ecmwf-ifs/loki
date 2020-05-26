@@ -221,7 +221,7 @@ class SourceFile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def preprocess(cls, file_path, pp_path, info_path, kinds=None):
+    def preprocess(cls, frontend, file_path, pp_path, info_path, kinds=None):
         """
         A dedicated pre-processing step to ensure smooth source parsing.
 
