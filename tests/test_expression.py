@@ -6,7 +6,7 @@ import numpy as np
 
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic,
-    Nullify, IntLiteral, FloatLiteral, InlineCall, Subroutine,
+    Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions
 )
 from loki.tools import gettempdir, filehash
@@ -144,6 +144,43 @@ end subroutine literals
     assert isinstance(stmts[5].expr, Cast)
     assert str(stmts[5].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[6].expr, Cast)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_intrinsic_literals(here, frontend):
+    """
+    Test intrinsic literal values.
+    """
+    fcode = """
+subroutine intrinsic_literals(n1, n2, n3, n4, n5, n6)
+  integer, intent(out) :: n1, n2, n3, n4, n5, n6
+
+  n1 = B'00000'
+  n2 = b"101010"
+  n3 = O'737'
+  n4 = o"007"
+  n5 = Z'CAFE'
+  n6 = z"babe"
+end subroutine intrinsic_literals
+"""
+    filepath = here/('expression_intrinsic_literals_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='intrinsic_literals')
+
+    n1, n2, n3, n4, n5, n6 = function()
+    clean_test(filepath)
+    assert n1 == 0 and n2 == 42 and n3 == 479 and n4 == 7 and n5 == 51966 and n6 == 47806
+
+    # In addition to value testing, let's make sure
+    # that we created the correct expression types
+    if frontend is not OMNI:  # Omni evaluates BOZ constants...
+        stmts = FindNodes(Statement).visit(routine.body)
+        assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == "B'00000'"
+        assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value.upper() == 'B"101010"'
+        assert isinstance(stmts[2].expr, IntrinsicLiteral) and stmts[2].expr.value == "O'737'"
+        assert isinstance(stmts[3].expr, IntrinsicLiteral) and stmts[3].expr.value.upper() == 'O"007"'
+        assert isinstance(stmts[4].expr, IntrinsicLiteral) and stmts[4].expr.value == "Z'CAFE'"
+        assert isinstance(stmts[5].expr, IntrinsicLiteral) and stmts[5].expr.value.upper() == 'Z"BABE"'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

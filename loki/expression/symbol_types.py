@@ -9,7 +9,8 @@ from loki.expression.mappers import LokiStringifyMapper
 
 
 __all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
-           'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'Literal', 'LiteralList',
+           'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'IntrinsicLiteral',
+           'Literal', 'LiteralList',
            'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
            'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript']
 
@@ -408,13 +409,34 @@ class StringLiteral(ExprMetadataMixin, _Literal):
         return LokiStringifyMapper()
 
 
+class IntrinsicLiteral(ExprMetadataMixin, _Literal):
+    """
+    Any literal not represented by a dedicated class. Its value is stored as
+    string and returned unaltered.
+
+    This is currently used for complex and BOZ constants.
+    """
+
+    def __init__(self, value, **kwargs):
+        self.value = value
+        super().__init__(**kwargs)
+
+    def __getinitargs__(self):
+        return (self.value,) + super().__getinitargs__()
+
+    mapper_method = intern('map_intrinsic_literal')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+
 class Literal:
     """
     A factory class that instantiates the appropriate :class:`*Literal` type for
     a given value.
 
     This always returns a :class:`IntLiteral`, :class:`FloatLiteral`, :class:`StringLiteral`,
-    or :class:`LogicLiteral`.
+    :class:`LogicLiteral` or, as a fallback, :class:`IntrinsicLiteral`.
     """
 
     @staticmethod
@@ -441,14 +463,7 @@ class Literal:
         try:
             obj = cls._from_literal(value, **kwargs)
         except KeyError:
-            # Let Pymbolic figure our what we're dealing with
-            # pylint: disable=import-outside-toplevel
-            from pymbolic import parse
-            obj = parse(value)
-
-            # Make sure we catch elementary literals
-            if not isinstance(obj, pmbl.Expression):
-                obj = cls._from_literal(obj, **kwargs)
+            obj = IntrinsicLiteral(value, **kwargs)
 
         # And attach our own meta-data
         if hasattr(obj, 'kind'):

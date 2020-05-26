@@ -577,6 +577,10 @@ class OFP2IR(GenericVisitor):
         return o.attrib['id']
 
     def visit_literal(self, o, source=None):
+        boz_literal = o.find('boz-literal-constant')
+        if boz_literal is not None:
+            return sym.IntrinsicLiteral(boz_literal.attrib['constant'], source=source)
+
         kwargs = {'source': source}
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None

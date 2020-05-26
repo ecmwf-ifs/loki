@@ -33,6 +33,8 @@ class LokiStringifyMapper(StringifyMapper):
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
 
+    map_intrinsic_literal = map_logic_literal
+
     def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
             parent = self.rec(expr.parent, enclosing_prec, *args, **kwargs)
@@ -139,6 +141,7 @@ class ExpressionRetriever(WalkMapper):
     map_float_literal = WalkMapper.map_constant
     map_int_literal = WalkMapper.map_constant
     map_string_literal = WalkMapper.map_constant
+    map_intrinsic_literal = WalkMapper.map_constant
     map_inline_call = WalkMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
@@ -202,6 +205,8 @@ class ExpressionDimensionsMapper(Mapper):
     map_logic_literal = map_algebraic_leaf
     map_float_literal = map_algebraic_leaf
     map_int_literal = map_algebraic_leaf
+    map_string_literal = map_algebraic_leaf
+    map_intrinsic_literal = map_algebraic_leaf
     map_scalar = map_algebraic_leaf
 
     def map_array(self, expr, *args, **kwargs):
@@ -251,6 +256,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_int_literal = map_constant
     map_float_literal = map_constant
     map_string_literal = map_constant
+    map_intrinsic_literal = map_constant
     map_scalar = map_constant
     map_array = map_constant
     map_variable = map_constant
@@ -303,6 +309,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
+    map_intrinsic_literal = IdentityMapper.map_constant
 
     def map_scalar(self, expr, *args, **kwargs):
         initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None

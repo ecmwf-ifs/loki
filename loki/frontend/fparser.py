@@ -260,6 +260,13 @@ class FParser2IR(GenericVisitor):
     def visit_Logical_Literal_Constant(self, o, **kwargs):
         return self.visit_literal(o.items[0], DataType.LOGICAL, **kwargs)
 
+    def visit_Complex_Literal_Constant(self, o, **kwargs):
+        return sym.IntrinsicLiteral(value=o.string, source=kwargs.get('source'))
+
+    visit_Binary_Constant = visit_Complex_Literal_Constant
+    visit_Octal_Constant = visit_Complex_Literal_Constant
+    visit_Hex_Constant = visit_Complex_Literal_Constant
+
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
         return self.visit(o.items[1], **kwargs)
 
