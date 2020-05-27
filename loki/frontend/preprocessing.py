@@ -16,7 +16,8 @@ def reinsert_contiguous(ir, pp_info):
     if pp_info is not None:
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
-                decl.type.contiguous = True
+                for var in decl.variables:
+                    var.type.contiguous = True
     return ir
 
 
@@ -92,7 +93,8 @@ blacklist = {
         'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
 
         # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-        'CONTIGUOUS': PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
+        'CONTIGUOUS': PPRule(
+            match=re.compile(r', CONTIGUOUS', re.I), replace='', postprocess=reinsert_contiguous),
     },
     FP: {
         # Remove various IBM directives
@@ -107,10 +109,10 @@ blacklist = {
         'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
 
         # Replace CONVERT argument in OPEN calls
-        'CONVERT_ENDIAN': PPRule(match=re.compile(
-            (r'(?:^\s*)(?P<pre>OPEN\s*\(.*)'
-             r'(?P<convert>,\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
-             r'(?P<post>(?:,.*)?\))'), re.I),
+        'CONVERT_ENDIAN': PPRule(
+            match=re.compile((r'(?:^\s*)(?P<pre>OPEN\s*\(.*)'
+                              r'(?P<convert>,\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
+                              r'(?P<post>(?:,.*)?\))'), re.I),
             replace=r'\g<pre>\g<post>', postprocess=reinsert_convert_endian),
     }
 }

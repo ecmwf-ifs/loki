@@ -883,3 +883,26 @@ end subroutine routine_member_procedures
     assert out1 == 7
     assert out2 == 23
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_contiguous(here, frontend):
+    """
+    Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
+    all frontends).
+    """
+    fcode = """
+subroutine routine_contiguous(vec)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), pointer, contiguous :: vec(:)
+
+  vec(:) = 2.
+end subroutine routine_contiguous
+    """
+    # We need to write this one to file as OFP has to preprocess the file
+    filepath = here/'routine_contiguous.f90'
+    SourceFile.to_file(fcode, filepath)
+
+    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
+    assert len(routine.arguments) == 1
+    assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
