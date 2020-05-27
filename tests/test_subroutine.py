@@ -210,7 +210,7 @@ end subroutine routine_arguments_add_remove
     b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.symbols)
     c = Variable(name='c', type=x.type, scope=routine.symbols)
 
-    # Add new variables and check that they are all in the routine spec
+    # Add new arguments and check that they are all in the routine spec
     routine.arguments += (a, b, c)
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (
@@ -245,6 +245,12 @@ integer, intent(in) :: c
     routine.arguments = [arg for arg in routine.arguments if 'x' not in str(arg)]
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args == ['y', 'scalar', 'a', 'c', ]
+
+    # Check that removed args still exist as variables
+    routine_vars = [str(arg) for arg in routine.variables]
+    assert 'vector(x)' in routine_vars or 'vector(1:x)' in routine_vars
+    assert 'matrix(x, y)' in routine_vars or 'matrix(1:x, 1:y)' in routine_vars
+    assert 'b(x)' in routine_vars
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -351,11 +357,12 @@ def test_routine_variables_add_remove(frontend):
     Test local variable addition and removal.
     """
     fcode = """
-subroutine routine_variables_add_remove(x, y, maximum)
+subroutine routine_variables_add_remove(x, y, maximum, vector)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   real(kind=jprb), intent(out) :: maximum
-  real(kind=jprb) :: vector(x), matrix(x, y)
+  real(kind=jprb), intent(inout) :: vector(x)
+  real(kind=jprb) :: matrix(x, y)
 end subroutine routine_variables_add_remove
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -383,7 +390,7 @@ integer, parameter :: jprb = selected_real_kind(13, 300)
 integer, intent(in) :: x
 integer, intent(in) :: y
 real(kind=selected_real_kind(13, 300)), intent(out) :: maximum
-real(kind=selected_real_kind(13, 300)) :: vector(1:x)
+real(kind=selected_real_kind(13, 300)), intent(inout) :: vector(1:x)
 real(kind=selected_real_kind(13, 300)) :: matrix(1:x, 1:y)
 real(kind=jprb) :: a
 real(kind=jprb) :: b(x)
@@ -395,7 +402,8 @@ integer :: c
 integer, parameter :: jprb = selected_real_kind(13, 300)
 integer, intent(in) :: x, y
 real(kind=jprb), intent(out) :: maximum
-real(kind=jprb) :: vector(x), matrix(x, y)
+real(kind=jprb), intent(inout) :: vector(x)
+real(kind=jprb) :: matrix(x, y)
 real(kind=jprb) :: a
 real(kind=jprb) :: b(x)
 integer :: c
@@ -408,6 +416,11 @@ integer :: c
     assert routine_vars in (
         ['jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)', 'a', 'b(x)', 'c'],
         ['jprb', 'x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)', 'a', 'b(x)', 'c']
+    )
+    # Ensure `maximum` has been removed from arguments, but they are otherwise unharmed
+    assert [str(arg) for arg in routine.arguments] in (
+        ['x', 'y', 'vector(x)'],
+        ['x', 'y', 'vector(1:x)']
     )
 
 

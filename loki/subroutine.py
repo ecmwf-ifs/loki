@@ -289,6 +289,9 @@ class Subroutine:
     def variables(self, variables):
         """
         Set the variables property and ensure that the internal declarations match.
+
+        Note that arguments also count as variables and therefore any
+        removal from this list will also remove arguments from the subroutine signature.
         """
         # First map variables to existing declarations
         declarations = FindNodes(Declaration).visit(self.spec)
@@ -311,6 +314,10 @@ class Subroutine:
         # Remove all redundant declarations
         self.spec = Transformer(dmap).visit(self.spec)
 
+        # Filter the dummy list in case we removed an argument
+        varnames = [str(v.name).lower() for v in variables]
+        self._dummies = as_tuple(arg for arg in self._dummies if str(arg).lower() in varnames)
+
     @property
     def arguments(self):
         """
@@ -323,7 +330,9 @@ class Subroutine:
     @arguments.setter
     def arguments(self, arguments):
         """
-        Set the arguments property and ensure that the internal declarations match.
+        Set the arguments property and ensure that internal declarations and signature match.
+
+        Note that removing arguments from this property does not actually remove declarations.
         """
         # First map variables to existing declarations
         declarations = FindNodes(Declaration).visit(self.spec)

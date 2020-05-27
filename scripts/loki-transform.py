@@ -264,9 +264,7 @@ class SCATransformation(AbstractTransformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
-        # TODO: Careful with order her, as removing the variables first
-        # can invalidate the .arguments property! This needs more testing!
-        routine.arguments = [a for a in routine.arguments if str(a).upper() not in target.variables]
+        # Note that this also removes arguments and their declarations!
         routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
 
         # Establish the new dimensions and shapes first, before cloning the variables
@@ -295,7 +293,6 @@ class SCATransformation(AbstractTransformation):
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
 
         # Apply vmap to variable and argument list and subroutine body
-        routine.arguments = [vmap.get(v, v) for v in routine.arguments]
         routine.variables = [vmap.get(v, v) for v in routine.variables]
 
         # Apply substitution map to replacements to capture nesting
@@ -667,7 +664,6 @@ class InferArgShapeTransformation(AbstractTransformation):
                 # called routine, so we need to add them to the call signature.
 
                 # Propagate the updated variables to variable definitions in routine
-                routine.arguments = [vmap.get(v, v) for v in routine.arguments]
                 routine.variables = [vmap.get(v, v) for v in routine.variables]
 
                 # And finally propagate this to the variable instances
