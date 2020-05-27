@@ -185,9 +185,6 @@ class FortranCodegen(Visitor):
         return header + spec + contains + body + footer
 
     def visit_Subroutine(self, o, **kwargs):
-        # Make sure declarations are re-inserted
-        o._externalize()
-
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         arguments = self.segment([a.name for a in o.arguments])
         argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '()'
@@ -221,15 +218,25 @@ class FortranCodegen(Visitor):
         return '\n'.join(comments)
 
     def visit_Declaration(self, o, **kwargs):
+        assert len(o.variables) > 0
+        types = [v.type for v in o.variables]
+        # Ensure all variable types are equal, except for shape and dimension
+        # TODO: Should extend to deeper recursion of `variables` if
+        # the symbol has a known derived type
+        ignore = ['shape', 'dimensions', 'variables', 'source']
+        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        dtype = self.visit(types[0])
+
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
-        _type = self.visit(o.type, **kwargs)
         if o.dimensions is None:
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
         variables = []
         for v in o.variables:
-            stmt = self.visit(v, **kwargs)
+            # This is a bit dubious, but necessary, as we otherwise pick up
+            # array dimensions from the internal representation of the variable.
+            stmt = self.visit(v, **kwargs) if o.dimensions is None else v.basename
             if v.initial is not None:
                 stmt += ' = %s' % self.visit(v.initial, **kwargs)
             # Hack the pointer assignment (very ugly):
@@ -237,7 +244,7 @@ class FortranCodegen(Visitor):
                 stmt = stmt.replace(' = ', ' => ')
             variables += [stmt]
         variables = self.segment(variables)
-        return self.indent + '%s%s :: %s' % (_type, dimensions, variables) + comment
+        return self.indent + '%s%s :: %s' % (dtype, dimensions, variables) + comment
 
     def visit_DataDeclaration(self, o, **kwargs):
         values = self.segment([str(v) for v in o.values], chunking=8)

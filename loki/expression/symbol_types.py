@@ -160,6 +160,9 @@ class Array(ExprMetadataMixin, pmbl.Variable):
             # entries for variables inherited from a parent scope
             self.type = type.clone()
         self.parent = parent
+        # Ensure dimensions are treated via ArraySubscript objects
+        if dimensions is not None and not isinstance(dimensions, ArraySubscript):
+            dimensions = ArraySubscript(dimensions)
         self.dimensions = dimensions
         self.initial = initial
 

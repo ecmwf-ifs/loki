@@ -3,7 +3,7 @@ from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PRE
 
 from loki.tools import chunks
 from loki.visitors import Visitor, FindNodes, Transformer
-from loki.ir import Import
+from loki.ir import Import, Declaration
 from loki.expression import LokiStringifyMapper, Array
 from loki.types import DataType, SymbolType
 
@@ -193,9 +193,6 @@ class CCodegen(Visitor):
         return spec + '\n\n' + routines
 
     def visit_Subroutine(self, o, **kwargs):
-        # Re-generate variable declarations
-        o._externalize(c_backend=True)
-
         # Generate header with argument signature
         aptr = []
         for a in o.arguments:
@@ -226,6 +223,16 @@ class CCodegen(Visitor):
                 casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
                     dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
 
+        # Remove declarations for arguments, as C arguments are declarations!
+        decl_map = {}
+        for decl in FindNodes(Declaration).visit(o.spec):
+            new_vars = [v for v in decl.variables if v not in o.arguments]
+            if len(new_vars) > 0:
+                decl_map[decl] = decl.clone(variables=new_vars)
+            else:
+                decl_map[decl] = None
+        o.spec = Transformer(decl_map).visit(o.spec, **kwargs)
+
         # Some boilerplate imports...
         imports = '#include <stdio.h>\n'  # For manual debugging
         imports += '#include <stdbool.h>\n'
@@ -252,8 +259,13 @@ class CCodegen(Visitor):
         return ('#include "%s"' % o.module) if o.c_import else ''
 
     def visit_Declaration(self, o, **kwargs):
+        types = [v.type for v in o.variables]
+        # Ensure all variable types are equal, except for shape and dimension
+        ignore = ['shape', 'dimensions', 'source']
+        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        dtype = self.visit(types[0])
+
         comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
-        _type = self.visit(o.type, **kwargs)
         variables = []
         for v in o.variables:
             stmt = self.visit(v, **kwargs)
@@ -263,7 +275,7 @@ class CCodegen(Visitor):
                 stmt = '*' + stmt
             variables += [stmt]
         variables = self.segment(variables)
-        return self.indent + '%s %s;' % (_type, variables) + comment
+        return self.indent + '%s %s;' % (dtype, variables) + comment
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
         if o.dtype == DataType.DERIVED_TYPE:

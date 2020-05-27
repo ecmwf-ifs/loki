@@ -11,7 +11,7 @@ from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
                      CallContext, Intrinsic, DataDeclaration)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 from loki.types import TypeTable
 
 
@@ -51,9 +51,6 @@ class Subroutine:
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
 
-        self.arguments = None
-        self.variables = None
-        self._decl_map = None
         self._parent = weakref.ref(parent) if parent is not None else None
 
         self.symbols = symbols
@@ -66,13 +63,11 @@ class Subroutine:
             parent_types = self.parent.types if self.parent is not None else None
             self.types = TypeTable(parent=parent_types)
 
+        # The primary IR components
         self.docstring = docstring
         self.spec = spec
         self.body = body
         self.members = members
-
-        # Internalize argument declarations
-        self._internalize()
 
         self.bind = bind
         self.is_function = is_function
@@ -283,71 +278,76 @@ class Subroutine:
                      members=members, symbols=obj.symbols, types=obj.types, parent=parent)
         return obj
 
-    def _internalize(self):
+    @property
+    def variables(self):
         """
-        Internalize argument and variable declarations.
+        Return the variables (including arguments) declared in this subroutine
         """
-        self.arguments = [None] * len(self._dummies)
-        self.variables = []
-        self._decl_map = OrderedDict()
+        return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
+
+    @variables.setter
+    def variables(self, variables):
+        """
+        Set the variables property and ensure that the internal declarations match.
+
+        Note that arguments also count as variables and therefore any
+        removal from this list will also remove arguments from the subroutine signature.
+        """
+        # First map variables to existing declarations
+        declarations = FindNodes(Declaration).visit(self.spec)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+
+        for v in as_tuple(variables):
+            if v not in decl_map:
+                # By default, append new variables to the end of the spec
+                new_decl = Declaration(variables=[v])
+                self.spec.append(new_decl)
+
+        # Run through existing declarations and check that all variables still exist
         dmap = {}
-
-        for decl in FindNodes(Declaration).visit(self.ir):
-            # Record all variables independently
-            self.variables += list(decl.variables)
-
-            # Insert argument variable at the position of the dummy
-            for v in decl.variables:
-                if v.name.lower() in self._dummies:
-                    idx = self._dummies.index(v.name.lower())
-                    self.arguments[idx] = v
-
-            # Stash declaration and mark for removal
-            for v in decl.variables:
-                self._decl_map[v] = decl
-            dmap[decl] = None
-
-        # Remove declarations from the IR
+        for decl in FindNodes(Declaration).visit(self.spec):
+            new_vars = as_tuple(v for v in decl.variables if v in variables)
+            if len(new_vars) > 0:
+                decl._update(variables=new_vars)
+            else:
+                dmap[decl] = None  # Mark for removal
+        # Remove all redundant declarations
         self.spec = Transformer(dmap).visit(self.spec)
 
-    def _externalize(self, c_backend=False):
+        # Filter the dummy list in case we removed an argument
+        varnames = [str(v.name).lower() for v in variables]
+        self._dummies = as_tuple(arg for arg in self._dummies if str(arg).lower() in varnames)
+
+    @property
+    def arguments(self):
         """
-        Re-insert argument declarations...
+        Return arguments in order of the defined signature (dummy list).
         """
-        # A hacky way to ensure we don;t do this twice
-        # TODO; Need better way to determine this; THIS IS NOT SAFE!
-        if self._decl_map is None:
-            return
+        # TODO: Can be simplified once we can directly lookup variables objects in scope
+        arg_map = {v.name.lower(): v for v in self.variables if v.name.lower() in self._dummies}
+        return as_tuple(arg_map[a.lower()] for a in self._dummies)
 
-        decls = []
-        for v in self.variables:
-            if c_backend and v in self.arguments:
-                continue
+    @arguments.setter
+    def arguments(self, arguments):
+        """
+        Set the arguments property and ensure that internal declarations and signature match.
 
-            if v in self._decl_map:
-                d = self._decl_map[v].clone()
-                d.variables = as_tuple(v)
-            else:
-                d = Declaration(variables=[v], type=v.type)
+        Note that removing arguments from this property does not actually remove declarations.
+        """
+        # First map variables to existing declarations
+        declarations = FindNodes(Declaration).visit(self.spec)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
 
-            # Dimension declarations are done on variables
-            d.dimensions = None
+        arguments = as_tuple(arguments)
+        for arg in arguments:
+            if arg not in decl_map:
+                # By default, append new variables to the end of the spec
+                assert arg.type.intent is not None
+                new_decl = Declaration(variables=[arg])
+                self.spec.append(new_decl)
 
-            decls += [d]
-
-        # Find any DataDeclaration instances to make sure variables are declared before
-        # their initialization
-        try:
-            data_index = [isinstance(d, DataDeclaration) for d in self.spec.body].index(True)
-        except ValueError:
-            data_index = None
-
-        if data_index is not None:
-            self.spec.insert(data_index, decls)
-        else:
-            self.spec.append(decls)
-
-        self._decl_map = None
+        # Set new dummy list according to input
+        self._dummies = as_tuple(arg.name.lower() for arg in arguments)
 
     def enrich_calls(self, routines):
         """

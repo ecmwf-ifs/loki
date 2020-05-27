@@ -137,6 +137,8 @@ class DerivedArgsTransformation(AbstractTransformation):
         candidates = self._derived_type_arguments(routine)
 
         # Callee: Establish replacements for declarations and dummy arguments
+        new_arguments = list(routine.arguments)
+        new_variables = list(routine.variables)
         for arg, type_vars in candidates.items():
             new_vars = []
             for type_var in type_vars:
@@ -150,13 +152,17 @@ class DerivedArgsTransformation(AbstractTransformation):
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list
-            i = routine.arguments.index(arg)
-            routine.arguments[i:i+1] = new_vars
+            i = new_arguments.index(arg)
+            new_arguments[i:i+1] = new_vars
 
             # Also replace the variable in the variable list to
             # trigger the re-generation of the according declaration.
-            i = routine.variables.index(arg)
-            routine.variables[i:i+1] = new_vars
+            i = new_variables.index(arg)
+            new_variables[i:i+1] = new_vars
+
+        # Apply replacements to routine by setting the properties
+        routine.arguments = new_arguments
+        routine.variables = new_variables
 
         # Create a variable substitution mapper and apply to body
         argnames = [arg.name.lower() for arg in candidates.keys()]
@@ -258,8 +264,8 @@ class SCATransformation(AbstractTransformation):
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
+        # Note that this also removes arguments and their declarations!
         routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
-        routine.arguments = [a for a in routine.arguments if str(a).upper() not in target.variables]
 
         # Establish the new dimensions and shapes first, before cloning the variables
         # The reason for this is that shapes of all variable instances are linked
@@ -287,7 +293,6 @@ class SCATransformation(AbstractTransformation):
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
 
         # Apply vmap to variable and argument list and subroutine body
-        routine.arguments = [vmap.get(v, v) for v in routine.arguments]
         routine.variables = [vmap.get(v, v) for v in routine.variables]
 
         # Apply substitution map to replacements to capture nesting
@@ -374,7 +379,7 @@ class SCATransformation(AbstractTransformation):
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(DataType.INTEGER, kind='JPIM')
-            caller.variables += [Variable(name=target.variable, type=dtype, scope=caller.symbols)]
+            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.symbols),)
 
 
 def insert_claw_directives(routine, driver, claw_scalars, target):
@@ -659,7 +664,6 @@ class InferArgShapeTransformation(AbstractTransformation):
                 # called routine, so we need to add them to the call signature.
 
                 # Propagate the updated variables to variable definitions in routine
-                routine.arguments = [vmap.get(v, v) for v in routine.arguments]
                 routine.variables = [vmap.get(v, v) for v in routine.variables]
 
                 # And finally propagate this to the variable instances

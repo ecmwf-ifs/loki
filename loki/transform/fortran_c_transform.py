@@ -83,7 +83,7 @@ class FortranCTransformation(BasicTransformation):
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
             vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
-            declarations += (Declaration(variables=(vnew,), type=ctype),)
+            declarations += (Declaration(variables=(vnew,)),)
         return TypeDef(name=typename.lower(), bind_c=True, declarations=declarations, symbols=symbols)
 
     @staticmethod
@@ -149,7 +149,7 @@ class FortranCTransformation(BasicTransformation):
                          symbols=wrapper.symbols, types=wrapper.types)
 
         # Copy internal argument and declaration definitions
-        wrapper.variables = routine.arguments + [v for _, v in local_arg_map.items()]
+        wrapper.variables = routine.arguments + tuple(v for _, v in local_arg_map.items())
         wrapper.arguments = routine.arguments
         return wrapper
 
@@ -223,8 +223,8 @@ class FortranCTransformation(BasicTransformation):
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                            scope=intf_routine.symbols)
-            intf_routine.variables += [var]
-            intf_routine.arguments += [var]
+            intf_routine.variables += (var,)
+            intf_routine.arguments += (var,)
 
         return Interface(body=(intf_routine, ))
 
@@ -259,8 +259,7 @@ class FortranCTransformation(BasicTransformation):
                     else:
                         variables += [v.clone(name=v.name.lower())]
                 declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
-                                             type=decl.type, comment=decl.comment,
-                                             pragma=decl.pragma)]
+                                             comment=decl.comment, pragma=decl.pragma)]
             td.declarations = declarations
             spec += [td]
 
@@ -291,7 +290,7 @@ class FortranCTransformation(BasicTransformation):
                     if s.lower() in mod_vars:
                         var = mod_vars[s.lower()]
 
-                        decl = Declaration(variables=(var,), type=var.type)
+                        decl = Declaration(variables=(var,))
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
                         vget = Statement(target=var, expr=InlineCall(function=getter))
                         getter_calls += [decl, vget]
@@ -404,7 +403,7 @@ class FortranCTransformation(BasicTransformation):
 
         if len(loop_map) > 0:
             kernel.body = Transformer(loop_map).visit(kernel.body)
-        kernel.variables += list(set(index_vars))
+        kernel.variables += tuple(set(index_vars))
 
         # Apply variable substitution
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)

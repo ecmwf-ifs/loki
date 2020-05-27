@@ -562,7 +562,7 @@ class FParser2IR(GenericVisitor):
         kwargs['dimensions'] = dimensions
         kwargs['dtype'] = dtype
         variables = as_tuple(self.visit(o.items[2], **kwargs))
-        return ir.Declaration(variables=variables, type=dtype, dimensions=dimensions, source=source)
+        return ir.Declaration(variables=variables, dimensions=dimensions, source=source)
 
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Fortran2003.Derived_Type_Stmt).items[1].tostr().lower()
