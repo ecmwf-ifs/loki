@@ -962,6 +962,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Set(self, o, **kwargs):
         # TODO: actually parse the statements
+        # pylint: disable=no-member
         variable = self.visit(get_child(o, Fortran2003.Data_Stmt_Object_List), **kwargs)
         values = as_tuple(self.visit(get_child(o, Fortran2003.Data_Stmt_Value_List), **kwargs))
         return ir.DataDeclaration(variable=variable, values=values, source=kwargs.get('source'))

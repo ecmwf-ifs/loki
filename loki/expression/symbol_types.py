@@ -39,6 +39,10 @@ class ExprMetadataMixin:
     def source(self):
         return self._metadata['source']
 
+    @staticmethod
+    def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument
+        return LokiStringifyMapper()
+
 
 class Scalar(ExprMetadataMixin, pmbl.Variable):
     """
@@ -481,9 +485,6 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
         super(LiteralList, self).__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
     def __getinitargs__(self):
         return ('[%s]' % (','.join(repr(c) for c in self.elements)),)

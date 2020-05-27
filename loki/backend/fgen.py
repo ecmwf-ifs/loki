@@ -1,11 +1,11 @@
 from textwrap import wrap
-from pymbolic.primitives import is_zero, Product
+from pymbolic.primitives import is_zero
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
 
 from loki.visitors import Visitor
 from loki.tools import chunks, flatten, as_tuple
-from loki.expression import LokiStringifyMapper
+from loki.expression import LokiStringifyMapper, Product
 from loki.types import DataType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']

@@ -1,7 +1,7 @@
 import re
 from pymbolic.primitives import Expression
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
-from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
+from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL, PREC_PRODUCT)
 
 from loki.tools import as_tuple, flatten
 
@@ -74,6 +74,15 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_range_index = map_range
     map_loop_range = map_range
+
+    def map_product(self, expr, enclosing_prec, *args, **kwargs):
+        if len(expr.children) == 2 and expr.children[0] == -1:
+            # Negative values are encoded as multiplication by (-1) (constant, not IntLiteral).
+            # We replace this by a minus again
+            return self.parenthesize_if_needed(
+                '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
+                enclosing_prec, PREC_PRODUCT)
+        return super().map_product(expr, enclosing_prec, *args, **kwargs)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))

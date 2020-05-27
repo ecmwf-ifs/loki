@@ -106,6 +106,7 @@ class OMNI2IR(GenericVisitor):
         'Freal': 'REAL',
         'Flogical': 'LOGICAL',
         'Fcharacter': 'CHARACTER',
+        'Fcomplex': 'COMPLEX',
         'int': 'INTEGER',
         'real': 'REAL',
     }
@@ -430,16 +431,20 @@ class OMNI2IR(GenericVisitor):
         return sym.RangeIndex((lower, upper, step))
 
     def visit_FrealConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None))
+        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None), source=source)
 
     def visit_FlogicalConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.LOGICAL)
+        return sym.Literal(value=o.text, type=DataType.LOGICAL, source=source)
 
     def visit_FcharacterConstant(self, o, source=None):
-        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER)
+        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER, source=source)
 
     def visit_FintConstant(self, o, source=None):
-        return sym.Literal(value=int(o.text), type=DataType.INTEGER)
+        return sym.Literal(value=int(o.text), type=DataType.INTEGER, source=source)
+
+    def visit_FcomplexConstant(self, o, source=None):
+        value = '({})'.format(', '.join('{}'.format(self.visit(v)) for v in list(o)))
+        return sym.IntrinsicLiteral(value=value, source=source)
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
