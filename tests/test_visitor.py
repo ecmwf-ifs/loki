@@ -10,6 +10,36 @@ from loki import (
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_find_nodes_greedy(frontend):
+    """
+    Test the FindNodes visitor's greedy property.
+    """
+    fcode = """
+subroutine routine_find_nodes_greedy(n, m)
+  integer, intent(in) :: n, m
+
+  if (n > m) then
+    if (n == 3) then
+      print *,"Inner if"
+    endif
+    print *,"Outer if"
+  endif
+end subroutine routine_find_nodes_greedy
+"""
+
+    # Test the internals of the subroutine
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(conditionals) == 2
+
+    outer_cond = FindNodes(Conditional, greedy=True).visit(routine.body)
+    assert len(outer_cond) == 1
+    assert outer_cond[0] in conditionals
+    assert str(outer_cond[0].conditions[0]) == 'n > m'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_expression_finder(frontend):
     """
     Test the expression finder's ability to yield only all variables.
