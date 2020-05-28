@@ -28,12 +28,13 @@ def reinsert_convert_endian(ir, pp_info):
     """
     if pp_info is not None:
         for intr in FindNodes(Intrinsic).visit(ir):
-            match = pp_info.get(intr._source.lines[0], None)
+            match = pp_info.get(intr._source.lines[0], [None])[0]
             if match is not None:
-                match = match[0]
-                intr.text = match['pre'] + match['convert'] + match['post']
-                if intr._source is not None:
-                    intr._source.string = intr.text
+                text = match['pre'] + match['convert'] + match['post']
+                source = intr._source
+                if source is not None:
+                    source.string = text
+                intr._update(text=text, source=source)
     return ir
 
 
@@ -100,10 +101,14 @@ blacklist = {
         # Remove various IBM directives
         'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
 
-        # Replace string CPP directives in Fortran source lines by strings
+        # Enquote string CPP directives in Fortran source lines to make them string constants
+        # Note: this is a bit tricky as we need to make sure that we don't replace it inside CPP
+        #       directives as this can produce invalid code
         'STRING_PP_DIRECTIVES': PPRule(
-            match=re.compile(r'(^(?!\s*#).*)(__(?:FILE(?:NAME)?|DATE|VERSION)__)'),
-            replace=r'\1"\2"'),
+            match=re.compile((
+                r'(?P<pp>^\s*#.*__(?:FILE|FILENAME|DATE|VERSION)__)|'  # Match inside a directive
+                r'(?P<else>__(?:FILE|FILENAME|DATE|VERSION)__)')),     # Match elsewhere
+            replace=lambda m: m['pp'] or '"{}"'.format(m['else'])),
 
         # Replace integer CPP directives by 0
         'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),

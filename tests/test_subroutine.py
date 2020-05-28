@@ -5,7 +5,7 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen
+    SymbolType, StringLiteral, fgen, fexprgen, Statement
 )
 from conftest import jit_compile, clean_test
 
@@ -802,6 +802,71 @@ def test_pp_macros(here, frontend):
     assert len(intrinsics) == 9
     assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
                for node in intrinsics)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Cannot handle directives')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
+    FP
+])
+def test_pp_directives(here, frontend):
+    fcode = """
+subroutine routine_pp_directives
+  print *,"Compiled ",__FILENAME__," on ",__DATE__
+#define __FILENAME__ __FILE__
+  print *,"This is ",__FILE__,__VERSION__
+  y = __LINE__ * 5 + __LINE__
+end subroutine routine_pp_directives
+"""
+    filepath = here/'routine_pp_directives.F90'
+    SourceFile.to_file(fcode, filepath)
+    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_pp_directives']
+
+    # Note: these checks are rather loose as we currently do not restore the original version but
+    # simply replace the PP constants by strings
+    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 3
+    assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
+    assert intrinsics[1].text == '#define __FILENAME__ __FILE__'
+    assert '__FILE__' in intrinsics[2].text and '__VERSION__' in intrinsics[2].text
+
+    statements = FindNodes(Statement).visit(routine.body)
+    assert len(statements) == 1
+    assert fgen(statements[0]) == 'y = 0*5 + 0'
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    OMNI,
+    FP
+])
+def test_convert_endian(here, frontend):
+    pre = """
+SUBROUTINE ROUTINE_CONVERT_ENDIAN()
+  INTEGER :: IUNIT
+  CHARACTER(LEN=100) :: CL_CFILE
+"""
+    body = """
+IUNIT = 61
+OPEN(IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", CONVERT='BIG_ENDIAN')
+IUNIT = 62
+OPEN(IUNIT, FILE=TRIM(CL_CFILE), CONVERT="LITTLE_ENDIAN", FORM="UNFORMATTED")
+"""
+    post = """
+END SUBROUTINE ROUTINE_CONVERT_ENDIAN
+"""
+    fcode = pre + body + post
+
+    filepath = here/'routine_convert_endian.F90'
+    SourceFile.to_file(fcode, filepath)
+    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
+
+    if frontend == OMNI:
+        # F... OMNI
+        body = body.replace('OPEN(IUNIT', 'OPEN(UNIT=IUNIT')
+        body = body.replace('"', "'")
+    # TODO: This is hacky as the fgen backend is still pretty much WIP
+    assert fgen(routine.body).upper().strip() == body.strip()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
