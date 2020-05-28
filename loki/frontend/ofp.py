@@ -130,8 +130,12 @@ class OFP2IR(GenericVisitor):
 
     def visit_loop(self, o, source=None):
         if o.find('header/index-variable') is None:
-            # We are processing a while loop
-            condition = self.visit(o.find('header'))
+            if o.find('do-stmt').attrib['hasLoopControl'] == 'false':
+                # We are processing an unbounded do loop
+                condition = None
+            else:
+                # We are processing a while loop
+                condition = self.visit(o.find('header'))
             body = as_tuple(self.visit(o.find('body')))
             return ir.WhileLoop(condition=condition, body=body, source=source)
 

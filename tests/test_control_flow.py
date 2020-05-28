@@ -136,6 +136,34 @@ end subroutine loop_scalar_logical_expr
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_loop_unbounded(here, frontend):
+    """
+    Test unbounded loops.
+    """
+
+    fcode = """
+subroutine loop_unbounded(out)
+  integer, intent(out) :: out
+
+  out = 1
+  do
+    out = out + 1
+    if (out > 5) then
+      exit
+    endif
+  enddo
+end subroutine loop_unbounded
+"""
+    filepath = here/('control_flow_loop_unbounded_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='loop_unbounded')
+
+    outvar = function()
+    assert outvar == 6
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_inline_conditionals(here, frontend):
     """
     Test the use of inline conditionals.

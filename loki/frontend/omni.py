@@ -330,11 +330,12 @@ class OMNI2IR(GenericVisitor):
         return ir.WhileLoop(condition=condition, body=body, source=source)
 
     def visit_FdoStatement(self, o, source=None):
-        assert o.find('Var') is not None
         assert o.find('body') is not None
-        variable = self.visit(o.find('Var'))
         body = as_tuple(self.visit(o.find('body')))
-        # TODO: What do we do with loop bounds? Tuple or Range?
+        if o.find('Var') is None:
+            # We are in an unbound do loop
+            return ir.WhileLoop(condition=None, body=body, source=source)
+        variable = self.visit(o.find('Var'))
         lower = self.visit(o.find('indexRange/lowerBound'))
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
@@ -494,7 +495,12 @@ class OMNI2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
+        # TODO: do-construct-name is not preserved
         return ir.Intrinsic(text='cycle', source=source)
+
+    def visit_FexitStatement(self, o, source=None):
+        # TODO: do-construct-name is not preserved
+        return ir.Intrinsic(text='exit', source=source)
 
     def visit_FopenStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]
