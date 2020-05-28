@@ -283,7 +283,7 @@ class FortranCodegen(Visitor):
         header = 'DO'
         if o.condition is not None:
             condition = self.visit(o.condition, **kwargs)
-            header += 'WHILE ({})'.format(condition)
+            header += ' WHILE ({})'.format(condition)
         footer = '\n' + self.indent + 'END DO'
         return self.indent + header + '\n' + body + footer
 
