@@ -228,16 +228,12 @@ end subroutine routine_simple
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    def retrieve(expr):
-        var_types = (IntLiteral, FloatLiteral, LogicLiteral)
-        excl_types = (ArraySubscript, LoopRange)
-        retriever = ExpressionRetriever(
-            lambda e: isinstance(e, var_types),
-            recurse_query=lambda e, *args, **kwargs: not isinstance(e, excl_types))
-        retriever(expr)
-        return retriever.exprs
-
+    # Find all literals except when they appear in array subscripts or loop ranges
+    cond = lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral))
+    recurse_cond = lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+    retrieve = lambda expr: retrieve_expressions(expr, cond=cond, recurse_cond=recurse_cond)
     literals = ExpressionFinder(unique=False, retrieve=retrieve).visit(routine.body)
+
     if frontend == OMNI:
         # OMNI substitutes jprb
         assert len(literals) == 4
