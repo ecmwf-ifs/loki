@@ -150,9 +150,11 @@ class OFP2IR(GenericVisitor):
         bounds = sym.LoopRange((lower, upper, step))
 
         body = as_tuple(self.visit(o.find('body')))
+        # Extract loop label if any
+        label = o.find('do-stmt').attrib['digitString'] or None
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
+        return ir.Loop(variable=variable, body=body, bounds=bounds, label=label, source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
@@ -470,6 +472,7 @@ class OFP2IR(GenericVisitor):
     visit_format = visit_open
     visit_print = visit_open
     visit_cycle = visit_open
+    visit_continue = visit_open
     visit_exit = visit_open
     visit_return = visit_open
 

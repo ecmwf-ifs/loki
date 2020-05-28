@@ -498,6 +498,9 @@ class OMNI2IR(GenericVisitor):
         # TODO: do-construct-name is not preserved
         return ir.Intrinsic(text='cycle', source=source)
 
+    def visit_continueStatement(self, o, source=None):
+        return ir.Intrinsic(text='continue', source=source)
+
     def visit_FexitStatement(self, o, source=None):
         # TODO: do-construct-name is not preserved
         return ir.Intrinsic(text='exit', source=source)

@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import OFP, OMNI, FP, Subroutine
+from loki import OFP, OMNI, FP, Subroutine, FindNodes, Loop
 from conftest import jit_compile, clean_test
 
 
@@ -160,6 +160,40 @@ end subroutine loop_unbounded
 
     outvar = function()
     assert outvar == 6
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_loop_labeled_continue(here, frontend):
+    """
+    Test labeled loops with continue statement.
+
+    Note that this does not get represented 1:1 as we always insert ENDDO
+    statements in fgen. But this does not harm the outcome as the resulting
+    loop behaviour will still be the same.
+    """
+
+    fcode = """
+subroutine loop_labeled_continue(out)
+  integer, intent(out) :: out
+  integer :: j
+
+  out = 1
+  do 101 j=1,10
+    out = out + 1
+101 continue
+end subroutine loop_labeled_continue
+"""
+    filepath = here/('control_flow_loop_labeled_continue_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    if frontend != OMNI:  # OMNI doesn't read the Loop label...
+        assert FindNodes(Loop).visit(routine.ir)[0].label == '101'
+
+    function = jit_compile(routine, filepath=filepath, objname='loop_labeled_continue')
+
+    outvar = function()
+    assert outvar == 11
     clean_test(filepath)
 
 
