@@ -688,11 +688,7 @@ end subroutine pointer_nullify
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
-    OMNI,
-    pytest.param(FP, marks=pytest.mark.xfail(reason='Order in spec not preserved')),
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_parameter_stmt(here, frontend):
     """
     PARAMETER(...) statement
