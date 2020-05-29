@@ -1,5 +1,4 @@
 import weakref
-from collections import OrderedDict
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
@@ -8,7 +7,7 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
-                     CallContext, Intrinsic, DataDeclaration)
+                     CallContext, Intrinsic)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
@@ -177,7 +176,7 @@ class Subroutine:
     def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None,
                   parent=None):
         name = name or ast.find('name').text
-        file = ast.attrib['file']
+        # file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
 
@@ -194,12 +193,21 @@ class Subroutine:
                  if t.attrib['type'] == fhash][0]
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
-        # Generate spec, filter out external declarations and docstring
+        # Generate spec
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
-        mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-                  if d._source.file != file or next(iter(d.variables)) == name}
-        spec = Section(body=Transformer(mapper).visit(spec))
+        # TODO: this filtered out external declarations explicitly. Reason?
+        # mapper = {d: None for d in FindNodes(Declaration).visit(spec)
+        #           if d._source.file != file or next(iter(d.variables)) == name}
+
+        # Filter out the declaration for the subroutine name but keep it for functions (since
+        # this declares the return type)
+        if not is_function:
+            mapper = {d: None for d in FindNodes(Declaration).visit(spec)
+                      if d.variables[0].name == name}
+            spec = Section(body=Transformer(mapper).visit(spec))
+        else:
+            spec = Section(body=spec)
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
