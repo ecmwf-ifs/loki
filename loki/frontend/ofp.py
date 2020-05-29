@@ -370,6 +370,7 @@ class OFP2IR(GenericVisitor):
             parameter = o.find('attribute-parameter') is not None
             optional = o.find('attribute-optional') is not None
             target = o.find('attribute-target') is not None
+            external = o.find('attribute-external') is not None
             dims = o.find('dimensions')
             dimensions = None if dims is None else as_tuple(self.visit(dims))
 
@@ -402,7 +403,10 @@ class OFP2IR(GenericVisitor):
             variables = [self.visit(v, type=_type, dimensions=dimensions)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
-            return ir.Declaration(variables=variables, dimensions=dimensions, source=source)
+            return ir.Declaration(variables=variables, dimensions=dimensions, external=external, source=source)
+        if o.attrib['type'] == 'external':
+            variables = [self.visit(v) for v in o.findall('names/name')]
+            return ir.Declaration(variables=variables, external=True, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string, source=source)
         if o.attrib['type'] == 'data':
@@ -554,6 +558,9 @@ class OFP2IR(GenericVisitor):
             variable = generate_variable(vname=item, indices=indices, kwargs=kwargs,
                                          parent=variable, source=source)
         return variable
+
+    def visit_generic_name_list_part(self, o, source=None, **kwargs):
+        return o.attrib['id']
 
     def visit_variable(self, o, source=None, **kwargs):
         if 'id' not in o.attrib and 'name' not in o.attrib:
