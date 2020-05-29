@@ -279,7 +279,8 @@ class Subroutine:
                        for s in walk(contains_ast, routine_types)]
 
         obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
-                     members=members, symbols=obj.symbols, types=obj.types, parent=parent)
+                     members=members, symbols=obj.symbols, types=obj.types, parent=parent,
+                     is_function=is_function)
         return obj
 
     @property

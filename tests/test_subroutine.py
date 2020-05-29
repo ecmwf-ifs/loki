@@ -956,6 +956,112 @@ end subroutine routine_member_procedures
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_external_stmt(here, frontend):
+    """
+    Tests procedures passed as dummy arguments and declared as EXTERNAL.
+    """
+    fcode = """
+! This should be tested as well with interface statements in the caller
+! routine, and the subprogram definitions outside (to have "truly external"
+! procedures, however, we need to make the INTERFACE support more robust first
+
+!subroutine external_subroutine(outvar)
+!  implicit none
+!  integer, intent(out) :: outvar
+!  outvar = 1
+!end subroutine external_subroutine
+!
+!function external_function() result(outvar)
+!  implicit none
+!  integer :: outvar
+!  outvar = 2
+!end function external_function
+
+subroutine routine_external_stmt(invar, sub1, sub2, sub3, outvar, func1, func2, func3)
+  implicit none
+  integer, intent(in) :: invar
+  external sub1
+  external :: sub2, sub3
+  integer, intent(out) :: outvar
+  integer, external :: func1, func2
+  integer, external :: func3
+  integer tmp
+
+  call sub1(tmp)
+  outvar = invar + tmp  ! invar + 1
+  call sub2(tmp)
+  outvar = outvar + tmp + func1()  ! (invar + 1) + 1 + 2
+  call sub3(tmp)
+  outvar = outvar + tmp + func2()  ! (invar + 4) + 1 + 2
+  tmp = func3()
+  outvar = outvar + tmp  ! (invar + 7) + 2
+end subroutine routine_external_stmt
+
+subroutine routine_call_external_stmt(invar, outvar)
+  implicit none
+  integer, intent(in) :: invar
+  integer, intent(out) :: outvar
+
+!  interface
+!    subroutine external_subroutine(outvar)
+!      integer, intent(out) :: outvar
+!    end subroutine external_subroutine
+!  end interface
+!
+!  interface
+!    function external_function() result(outvar)
+!      integer :: outvar
+!    end function external_function
+!  end interface
+
+  call routine_external_stmt(invar, external_subroutine, external_subroutine, external_subroutine, &
+                            &outvar, external_function, external_function, external_function)
+
+contains
+
+  subroutine external_subroutine(outvar)
+    implicit none
+    integer, intent(out) :: outvar
+    outvar = 1
+  end subroutine external_subroutine
+
+  function external_function()
+    implicit none
+    integer :: external_function
+    external_function = 2
+  end function external_function
+
+end subroutine routine_call_external_stmt
+"""
+
+    source = SourceFile.from_source(fcode, frontend=frontend)
+    routine = source['routine_external_stmt']
+    assert len(routine.arguments) == 8
+
+    for decl in FindNodes(Declaration).visit(routine.spec):
+        # Skip local variables
+        if decl.variables[0].name in ('invar', 'outvar', 'tmp'):
+            continue
+        # Is the EXTERNAL attribute set?
+        assert decl.external
+        for v in decl.variables:
+            # Are procedure names represented as Scalar objects?
+            assert isinstance(v, Scalar)
+            if 'sub' in v.name:
+                assert v.type.dtype == DataType.DEFERRED
+            else:
+                assert v.type.dtype == DataType.INTEGER
+
+    # Generate code, compile and load
+    filepath = here/('subroutine_routine_external_stmt_%s.f90' % frontend)
+    function = jit_compile(source, filepath=filepath, objname='routine_call_external_stmt')
+
+    outvar = function(7)
+    assert outvar == 16
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_contiguous(here, frontend):
     """
     Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
