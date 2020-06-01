@@ -482,7 +482,7 @@ class FParser2IR(GenericVisitor):
         # TODO: fparser wrongfully parses calls to functions without arguments as this type.
         # This means this routine also produces inline calls for actual inline calls...
         name = get_child(o, Fortran2003.Type_Name).tostr()
-        component_specs = get_child(o, Fortran2003.Component_Spec_List)
+        component_specs = get_child(o, Fortran2003.Component_Spec_List)  # pylint: disable=no-member
         if component_specs:
             args = as_tuple(self.visit(component_specs, **kwargs))
             kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
