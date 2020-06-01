@@ -233,6 +233,8 @@ class OMNI2IR(GenericVisitor):
             _type.shape = dimensions
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
+        if external:
+            _type.external = external
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
                                 initial=value, scope=self.scope.symbols, source=source)
         return ir.Declaration(variables=as_tuple(variable), external=external, source=source)

@@ -1047,6 +1047,7 @@ end subroutine routine_call_external_stmt
         for v in decl.variables:
             # Are procedure names represented as Scalar objects?
             assert isinstance(v, Scalar)
+            assert v.type.external is True
             if 'sub' in v.name:
                 assert v.type.dtype == DataType.DEFERRED
             else:

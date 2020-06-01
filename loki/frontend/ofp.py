@@ -399,13 +399,14 @@ class OFP2IR(GenericVisitor):
                                        allocatable=allocatable, pointer=pointer,
                                        optional=optional, parameter=parameter,
                                        target=target, source=source)
-
-            variables = [self.visit(v, type=_type, dimensions=dimensions)
+            variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
             return ir.Declaration(variables=variables, dimensions=dimensions, external=external, source=source)
         if o.attrib['type'] == 'external':
             variables = [self.visit(v) for v in o.findall('names/name')]
+            for v in variables:
+                v.type.external = True
             return ir.Declaration(variables=variables, external=True, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string, source=source)
@@ -577,6 +578,9 @@ class OFP2IR(GenericVisitor):
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
+        external = kwargs.get('external')
+        if external:
+            _type.external = external
         return sym.Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
                             type=_type, initial=initial, source=source)
 

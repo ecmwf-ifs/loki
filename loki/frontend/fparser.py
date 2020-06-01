@@ -188,6 +188,7 @@ class FParser2IR(GenericVisitor):
         # Careful! Mind the many ways in which this can get called with
         # outside information (either in kwargs or maps stored on self).
         dimensions = kwargs.get('dimensions', None)
+        external = kwargs.get('external', None)
         dtype = kwargs.get('dtype', None)
         parent = kwargs.get('parent', None)
         shape = kwargs.get('shape', None)
@@ -216,6 +217,11 @@ class FParser2IR(GenericVisitor):
 
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
+
+        if external:
+            if dtype is None:
+                dtype = SymbolType(DataType.DEFERRED)
+            dtype.external = external
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
                             parent=parent, initial=initial, source=source)
@@ -571,12 +577,14 @@ class FParser2IR(GenericVisitor):
         # Now create the actual variables declared in this statement
         # (and provide them with the type and dimension information)
         kwargs['dimensions'] = dimensions
+        kwargs['external'] = external
         kwargs['dtype'] = dtype
         variables = as_tuple(self.visit(o.items[2], **kwargs))
         return ir.Declaration(variables=variables, dimensions=dimensions, external=external, source=source)
 
     def visit_External_Stmt(self, o, **kwargs):
         # pylint: disable=no-member
+        kwargs['external'] = True
         variables = as_tuple(self.visit(get_child(o, Fortran2003.External_Name_List), **kwargs))
         return ir.Declaration(variables=variables, external=True, source=kwargs.get('source'))
 
