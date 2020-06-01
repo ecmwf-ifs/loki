@@ -7,7 +7,7 @@ from loki import (
     Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Statement
 )
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, clean_test, clean_preprocessing
 
 
 @pytest.fixture(scope='module', name='here')
@@ -160,6 +160,7 @@ end subroutine routine_arguments_multiline
     assert np.all(vector == 5.)
     assert np.all(matrix[0, :] == 5.)
     assert np.all(matrix[1, :] == 10.)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -818,7 +819,7 @@ subroutine routine_pp_directives
   y = __LINE__ * 5 + __LINE__
 end subroutine routine_pp_directives
 """
-    filepath = here/'routine_pp_directives.F90'
+    filepath = here/('routine_pp_directives_%s.F90' % frontend)
     SourceFile.to_file(fcode, filepath)
     routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_pp_directives']
 
@@ -833,6 +834,8 @@ end subroutine routine_pp_directives
     statements = FindNodes(Statement).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
+    clean_preprocessing(filepath, frontend)
+    filepath.unlink()
 
 
 @pytest.mark.parametrize('frontend', [
@@ -867,6 +870,8 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
         body = body.replace('"', "'")
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
+    clean_preprocessing(filepath, frontend)
+    filepath.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -965,9 +970,11 @@ subroutine routine_contiguous(vec)
 end subroutine routine_contiguous
     """
     # We need to write this one to file as OFP has to preprocess the file
-    filepath = here/'routine_contiguous.f90'
+    filepath = here/('routine_contiguous_%s.f90' % frontend)
     SourceFile.to_file(fcode, filepath)
 
     routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
     assert len(routine.arguments) == 1
     assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
+    clean_preprocessing(filepath, frontend)
+    filepath.unlink()

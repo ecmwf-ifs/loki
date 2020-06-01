@@ -62,7 +62,7 @@ class SourceFile:
         and module IRs.
         """
         filepath = Path(filename)
-        pppath = Path(filename).with_suffix('.omni.F90')
+        pppath = Path(filename).with_suffix('.omni%s' % filepath.suffix)
 
         preprocess_omni(filename, pppath, includes=includes)
 
@@ -110,7 +110,7 @@ class SourceFile:
         # the input to the OFP, as it will otherwise drop certain
         # terms due to advanced bugged-ness! :(
         if preprocess:
-            pp_path = file_path.with_suffix('.ofp.F90')
+            pp_path = file_path.with_suffix('.ofp%s' % file_path.suffix)
             cls.preprocess(OFP, file_path, pp_path, info_path)
             file_path = pp_path
 
@@ -158,7 +158,7 @@ class SourceFile:
         # the input to the FP, as it will otherwise drop certain
         # terms due to missing features in FP
         if preprocess:
-            pp_path = file_path.with_suffix('.fp.F90')
+            pp_path = file_path.with_suffix('.fp%s' % file_path.suffix)
             cls.preprocess(FP, file_path, pp_path, info_path)
             file_path = pp_path
 
