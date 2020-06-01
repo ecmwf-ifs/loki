@@ -11,6 +11,7 @@ from loki.ir import TypeDef, Section
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
 from loki.types import TypeTable
+from loki.tools import as_tuple
 
 
 __all__ = ['Module']
@@ -161,7 +162,7 @@ class Module:
         """
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
         """
-        return self.routines
+        return as_tuple(self.routines)
 
     @property
     def parent(self):
