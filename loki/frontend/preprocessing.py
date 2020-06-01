@@ -81,19 +81,23 @@ def reinsert_open_newunit(ir, pp_info):
     return ir
 
 
-def reinsert_convert_endian(ir, pp_info):
+def reinsert_open_newunit(ir, pp_info):
     """
-    Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
-    into calls to OPEN.
+    Reinsert the NEWUNIT=... arguments into calls to OPEN.
     """
     if pp_info is not None:
         for intr in FindNodes(Intrinsic).visit(ir):
-            match = pp_info.get(intr._source.lines[0], None)
+            match = pp_info.get(intr._source.lines[0], [None])[0]
             if match is not None:
-                match = match[0]
-                intr.text = match['pre'] + match['convert'] + match['post']
-                if intr._source is not None:
-                    intr._source.string = intr.text
+                source = intr._source
+                assert source is not None
+                text = match['ws'] + match['open'] + match['args1'] + (match['delim'] or '')
+                text += match['newunit_key'] + match['newunit_val'] + match['args2']
+                if match['args2'].rstrip().endswith('&'):
+                    cont_line_index = source.string.find(match['args2']) + len(match['args2'])
+                    text += source.string[cont_line_index:].rstrip()
+                source.string = text
+                intr._update(text=text, source=source)
     return ir
 
 
