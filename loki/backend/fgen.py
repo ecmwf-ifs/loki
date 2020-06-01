@@ -196,7 +196,7 @@ class FortranCodegen(Visitor):
         body = self.visit(o.body, **kwargs) if o.body else ''
         self._depth -= 1
         footer = '\n%sEND %s %s\n' % (self.indent, ftype, o.name)
-        if o.members is not None:
+        if o.members:
             members = '\n\n'.join(self.visit(s, **kwargs) for s in o.members)
             contains = '\nCONTAINS\n\n'
         else:

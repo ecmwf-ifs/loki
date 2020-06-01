@@ -177,3 +177,13 @@ class Module:
             return subroutine_map[name.lower()]
 
         return None
+
+    def apply(self, op, **kwargs):
+        """
+        Apply a given transformation to the source file object.
+
+        Note that the dispatch routine `op.apply(source)` will ensure
+        that all entities of this `SourceFile` are correctly traversed.
+        """
+        # TODO: Should type-check for an `Operation` object here
+        op.apply(self, **kwargs)

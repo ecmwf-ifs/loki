@@ -66,7 +66,7 @@ class Subroutine:
         self.docstring = docstring
         self.spec = spec
         self.body = body
-        self.members = members
+        self._members = members
 
         self.bind = bind
         self.is_function = is_function
@@ -397,6 +397,13 @@ class Subroutine:
         return (self.docstring, self.spec, self.body)
 
     @property
+    def members(self):
+        """
+        Tuple of member function defined in this `Subroutine`.
+        """
+        return as_tuple(self._members)
+
+    @property
     def argnames(self):
         return [a.name for a in self.arguments]
 
@@ -449,3 +456,13 @@ class Subroutine:
         Access the enclosing scope.
         """
         return self._parent() if self._parent is not None else None
+
+    def apply(self, op, **kwargs):
+        """
+        Apply a given transformation to the source file object.
+
+        Note that the dispatch routine `op.apply(source)` will ensure
+        that all entities of this `SourceFile` are correctly traversed.
+        """
+        # TODO: Should type-check for an `Operation` object here
+        op.apply(self, **kwargs)
