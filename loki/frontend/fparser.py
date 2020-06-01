@@ -983,7 +983,6 @@ class FParser2IR(GenericVisitor):
         return ir.Nullify(variables=variables, source=source)
 
     def visit_Interface_Block(self, o, **kwargs):
-        import pdb; pdb.set_trace()
         spec = get_child(o, Fortran2003.Interface_Stmt).items[0]
         if spec:
             spec = spec if isinstance(spec, str) else spec.tostr()
