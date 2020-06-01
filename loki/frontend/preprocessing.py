@@ -2,7 +2,8 @@ import re
 from collections import defaultdict
 
 from loki.visitors import FindNodes
-from loki.ir import Declaration
+from loki.ir import Declaration, Intrinsic
+from loki.frontend.util import OMNI, OFP, FP
 
 
 __all__ = ['blacklist', 'PPRule']
@@ -15,7 +16,25 @@ def reinsert_contiguous(ir, pp_info):
     if pp_info is not None:
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
-                decl.type.contiguous = True
+                for var in decl.variables:
+                    var.type.contiguous = True
+    return ir
+
+
+def reinsert_convert_endian(ir, pp_info):
+    """
+    Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
+    into calls to OPEN.
+    """
+    if pp_info is not None:
+        for intr in FindNodes(Intrinsic).visit(ir):
+            match = pp_info.get(intr._source.lines[0], [None])[0]
+            if match is not None:
+                text = match['pre'] + match['convert'] + match['post']
+                source = intr._source
+                if source is not None:
+                    source.string = text
+                intr._update(text=text, source=source)
     return ir
 
 
@@ -66,12 +85,39 @@ class PPRule:
 
 
 """
-A black list of Fortran features that cause bugs and failures in the OFP.
+A black list of Fortran features that cause bugs and failures in frontends.
 """
 blacklist = {
-    # Remove various IBM directives
-    'IBM_DIRECTIVES': PPRule(match=re.compile('(@PROCESS.*\n)'), replace='\n'),
+    OMNI: {},
+    OFP: {
+        # Remove various IBM directives
+        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
 
-    # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-    'CONTIGUOUS': PPRule(match=', CONTIGUOUS', replace='', postprocess=reinsert_contiguous),
+        # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
+        'CONTIGUOUS': PPRule(
+            match=re.compile(r', CONTIGUOUS', re.I), replace='', postprocess=reinsert_contiguous),
+    },
+    FP: {
+        # Remove various IBM directives
+        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
+
+        # Enquote string CPP directives in Fortran source lines to make them string constants
+        # Note: this is a bit tricky as we need to make sure that we don't replace it inside CPP
+        #       directives as this can produce invalid code
+        'STRING_PP_DIRECTIVES': PPRule(
+            match=re.compile((
+                r'(?P<pp>^\s*#.*__(?:FILE|FILENAME|DATE|VERSION)__)|'  # Match inside a directive
+                r'(?P<else>__(?:FILE|FILENAME|DATE|VERSION)__)')),     # Match elsewhere
+            replace=lambda m: m['pp'] or '"{}"'.format(m['else'])),
+
+        # Replace integer CPP directives by 0
+        'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
+
+        # Replace CONVERT argument in OPEN calls
+        'CONVERT_ENDIAN': PPRule(
+            match=re.compile((r'(?:^\s*)(?P<pre>OPEN\s*\(.*)'
+                              r'(?P<convert>,\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
+                              r'(?P<post>(?:,.*)?\))'), re.I),
+            replace=r'\g<pre>\g<post>', postprocess=reinsert_convert_endian),
+    }
 }

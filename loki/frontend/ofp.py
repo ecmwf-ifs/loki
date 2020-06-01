@@ -8,7 +8,8 @@ import open_fortran_parser
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas
+    inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas,
+    OFP
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -58,7 +59,7 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
     _ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
-    for r_name, rule in blacklist.items():
+    for r_name, rule in blacklist[OFP].items():
         _info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
         _ir = rule.postprocess(_ir, _info)
 

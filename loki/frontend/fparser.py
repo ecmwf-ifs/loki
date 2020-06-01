@@ -1,7 +1,5 @@
-import codecs
 from collections import OrderedDict
 import re
-from pathlib import Path
 
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child
@@ -14,15 +12,16 @@ from fparser.common.readfortran import FortranStringReader
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
+from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas
+    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file, FP
 )
 import loki.ir as ir
 import loki.expression.symbol_types as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
-from loki.logging import DEBUG, warning
+from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
 from loki.types import DataType, SymbolType
 
@@ -30,47 +29,25 @@ from loki.types import DataType, SymbolType
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
 
 
-_regex_ifndef = re.compile(r'#\s*if\b\s+[!]\s*defined\b\s*\(?([A-Za-z_]+)\)?')
-
-
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
     """
     Generate an internal IR from file via the fparser AST.
     """
-    filepath = Path(filename)
-    try:
-        with filepath.open('r') as f:
-            fcode = f.read()
-    except UnicodeDecodeError as excinfo:
-        warning('Skipping bad character in input file "%s": %s',
-                str(filepath), str(excinfo))
-        kwargs = {'mode': 'r', 'encoding': 'utf-8', 'errors': 'ignore'}
-        with codecs.open(filepath, **kwargs) as f:
-            fcode = f.read()
-
+    fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
 
 
 @timeit(log_level=DEBUG)
 def parse_fparser_source(source):
-
-    # Comment out ``@PROCESS`` instructions
-    fcode = source.replace('@PROCESS', '! @PROCESS')
-
-    # Replace ``#if !defined(...)`` by ``#ifndef ...`` due to fparser removing
-    # everything that looks like an in-line comment (i.e., anything from the
-    # letter '!' onwards).
-    fcode = _regex_ifndef.sub(r'#ifndef \1', fcode)
-
-    reader = FortranStringReader(fcode, ignore_comments=False)
+    reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
     return f2008_parser(reader)
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, raw_source, typedefs=None, scope=None):
+def parse_fparser_ast(ast, raw_source, pp_info=None, typedefs=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
@@ -78,7 +55,13 @@ def parse_fparser_ast(ast, raw_source, typedefs=None, scope=None):
     # Parse the raw FParser language AST into our internal IR
     _ir = FParser2IR(raw_source=raw_source, typedefs=typedefs, scope=scope).visit(ast)
 
-    # Perform soime minor sanitation tasks
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    if pp_info is not None:
+        for r_name, rule in blacklist[FP].items():
+            info = pp_info.get(r_name, None)
+            _ir = rule.postprocess(_ir, info)
+
+    # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
     _ir = cluster_comments(_ir)
     _ir = inline_pragmas(_ir)
@@ -673,12 +656,12 @@ class FParser2IR(GenericVisitor):
         for child in node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt):
             node = self.visit(child, **kwargs)
             if isinstance(child, Fortran2003.Else_If_Stmt):
-                bodies.append(as_tuple(body))
+                bodies.append(as_tuple(flatten(body)))
                 body = []
                 conditions.append(node)
             else:
                 body.append(node)
-        bodies.append(as_tuple(body))
+        bodies.append(as_tuple(flatten(body)))
         assert len(conditions) == len(bodies)
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         else_body = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(else_ast)))
@@ -812,8 +795,8 @@ class FParser2IR(GenericVisitor):
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):
-        children = tuple(self.visit(c, **kwargs) for c in o.content)
-        children = tuple(c for c in children if c is not None)
+        children = [self.visit(c, **kwargs) for c in o.content]
+        children = as_tuple(flatten(c for c in children if c is not None))
         # Search for the ASSOCIATE statement and add all following items as its body
         assoc_index = [isinstance(ch, ir.Scope) for ch in children].index(True)
         children[assoc_index].body = children[assoc_index + 1:]
