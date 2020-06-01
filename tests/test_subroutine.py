@@ -1117,3 +1117,52 @@ end subroutine routine_contiguous
     assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
     clean_preprocessing(filepath, frontend)
     filepath.unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_subroutine_interface(here, frontend):
+    """
+    Test auto-generation of an interface block for a given subroutine.
+    """
+    fcode = """
+subroutine test_subroutine_interface(in1, in2, out1, out2)
+  use header, only: jprb
+  integer, intent(in) :: in1, in2
+  real(kind=jprb), intent(out) :: out1, out2
+  integer :: localvar
+  localvar = in1 + in2
+  out1 = real(localvar, kind=jprb)
+  out2 = out1 + 2.
+end subroutine
+"""
+    routine = Subroutine.from_source(fcode, xmods=[here/'source/xmod'], frontend=frontend)
+
+    if frontend == OMNI:
+        assert fgen(routine.interface).strip() == """
+INTERFACE
+  SUBROUTINE test_subroutine_interface &
+ & (in1, in2, out1, out2)
+    USE header, ONLY: jprb
+IMPLICIT NONE
+    INTEGER, INTENT(IN) :: in1
+    INTEGER, INTENT(IN) :: in2
+    REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out1
+    REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out2
+
+  END SUBROUTINE test_subroutine_interface
+
+END INTERFACE
+""".strip()
+    else:
+        assert fgen(routine.interface).strip() == """
+INTERFACE
+  SUBROUTINE test_subroutine_interface &
+ & (in1, in2, out1, out2)
+    USE header, ONLY: jprb
+    INTEGER, INTENT(IN) :: in1, in2
+    REAL(KIND=jprb), INTENT(OUT) :: out1, out2
+
+  END SUBROUTINE test_subroutine_interface
+
+END INTERFACE
+""".strip()

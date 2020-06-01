@@ -6,8 +6,10 @@ from loki.frontend import Frontend
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
-from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
-                     CallContext, Intrinsic)
+from loki.ir import (
+    Declaration, Allocation, Import, Section, CallStatement,
+    CallContext, Intrinsic, Interface
+)
 from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
@@ -15,15 +17,6 @@ from loki.types import TypeTable
 
 
 __all__ = ['Subroutine']
-
-
-class InterfaceBlock:
-
-    def __init__(self, name, arguments, imports, declarations):
-        self.name = name
-        self.arguments = arguments
-        self.imports = imports
-        self.declarations = declarations
 
 
 class Subroutine:
@@ -416,39 +409,20 @@ class Subroutine:
 
     @property
     def interface(self):
-        arguments = self.arguments
-        declarations = tuple(d for d in FindNodes(Declaration).visit(self.spec)
-                             if any(v in arguments for v in d.variables))
+        """
+        Interface object that defines the `Subroutine` signature in header files.
+        """
+        arg_names = [arg.name for arg in self.arguments]
 
-        # Collect unknown symbols that we might need to import
-        undefined = set()
-        anames = [a.name for a in arguments]
-        for decl in declarations:
-            # Add potentially unkown TYPE and KIND symbols to 'undefined'
-            # if decl.type.name.upper() not in BaseType._base_types:
-            #    undefined.add(decl.type.name)
-            if decl.type.name.upper():
-                # Nonsense-if to fool pylint
-                raise NotImplementedError()
-            if decl.type.kind and not decl.type.kind.isdigit():
-                undefined.add(decl.type.kind)
-            # Add (pure) variable dimensions that might be defined elsewhere
-            for v in decl.variables:
-                if isinstance(v, Array):
-                    undefined.update([str(d) for d in v.dimensions
-                                      if isinstance(d, Scalar) and d not in anames])
+        # Remove all local variable declarations from interface routine spec
+        decl_map = {decl: None
+                    for decl in FindNodes(Declaration).visit(self.spec)
+                    if not all(v.name in arg_names for v in decl.variables)}
+        spec = Transformer(decl_map).visit(self.spec)
 
-        # Create a sub-list of imports based on undefined symbols
-        imports = []
-        for use in FindNodes(Import).visit(self.spec):
-            symbols = tuple(s for s in use.symbols if s in undefined)
-            if not use.c_import and len(as_tuple(use.symbols)) > 0:
-                # TODO: Check that only modules defining derived types
-                # are included here.
-                imports += [Import(module=use.module, symbols=symbols)]
-
-        return InterfaceBlock(name=self.name, imports=imports,
-                              arguments=arguments, declarations=declarations)
+        # Create the "interface routine" with all but declarations stripped
+        routine = Subroutine(name=self.name, args=arg_names, spec=spec, body=None)
+        return Interface(body=(routine,))
 
     @property
     def parent(self):
