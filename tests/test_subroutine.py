@@ -5,7 +5,7 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Statement
+    SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
 
