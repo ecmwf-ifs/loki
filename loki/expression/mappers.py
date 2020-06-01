@@ -1,7 +1,7 @@
 import re
 from pymbolic.primitives import Expression
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
-from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL)
+from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_CALL, PREC_PRODUCT)
 
 from loki.tools import as_tuple, flatten
 
@@ -32,6 +32,8 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return "'%s'" % self._regex_string_literal.sub(r"'\1", expr.value)
+
+    map_intrinsic_literal = map_logic_literal
 
     def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
@@ -72,6 +74,15 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_range_index = map_range
     map_loop_range = map_range
+
+    def map_product(self, expr, enclosing_prec, *args, **kwargs):
+        if len(expr.children) == 2 and expr.children[0] == -1:
+            # Negative values are encoded as multiplication by (-1) (constant, not IntLiteral).
+            # We replace this by a minus again
+            return self.parenthesize_if_needed(
+                '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
+                enclosing_prec, PREC_PRODUCT)
+        return super().map_product(expr, enclosing_prec, *args, **kwargs)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
@@ -139,6 +150,7 @@ class ExpressionRetriever(WalkMapper):
     map_float_literal = WalkMapper.map_constant
     map_int_literal = WalkMapper.map_constant
     map_string_literal = WalkMapper.map_constant
+    map_intrinsic_literal = WalkMapper.map_constant
     map_inline_call = WalkMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
@@ -167,14 +179,22 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
 
-def retrieve_expressions(expr, cond):
+def retrieve_expressions(expr, cond, recurse_cond=None):
     """
     Utility function to retrieve all expressions satisfying condition `cond`.
 
     Can be used with py:class:`ExpressionRetriever` to query the IR for
     expression nodes using custom conditions.
+
+    :param cond: Function handle that is given each visited expression node and
+                 yields `True` or `False` depending on whether that expression
+                 should be included into the result.
+    :param recurse_cond: Optional function handle that is given each visited
+                         expression node and yields `True` or `False` depending
+                         on whether that expression and its children should be
+                         visited.
     """
-    retriever = ExpressionRetriever(cond)
+    retriever = ExpressionRetriever(cond, recurse_query=recurse_cond)
     retriever(expr)
     return retriever.exprs
 
@@ -194,6 +214,8 @@ class ExpressionDimensionsMapper(Mapper):
     map_logic_literal = map_algebraic_leaf
     map_float_literal = map_algebraic_leaf
     map_int_literal = map_algebraic_leaf
+    map_string_literal = map_algebraic_leaf
+    map_intrinsic_literal = map_algebraic_leaf
     map_scalar = map_algebraic_leaf
 
     def map_array(self, expr, *args, **kwargs):
@@ -243,6 +265,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_int_literal = map_constant
     map_float_literal = map_constant
     map_string_literal = map_constant
+    map_intrinsic_literal = map_constant
     map_scalar = map_constant
     map_array = map_constant
     map_variable = map_constant
@@ -295,6 +318,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_float_literal = IdentityMapper.map_constant
     map_int_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
+    map_intrinsic_literal = IdentityMapper.map_constant
 
     def map_scalar(self, expr, *args, **kwargs):
         initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None

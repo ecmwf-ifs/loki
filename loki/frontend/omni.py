@@ -106,6 +106,7 @@ class OMNI2IR(GenericVisitor):
         'Freal': 'REAL',
         'Flogical': 'LOGICAL',
         'Fcharacter': 'CHARACTER',
+        'Fcomplex': 'COMPLEX',
         'int': 'INTEGER',
         'real': 'REAL',
     }
@@ -330,11 +331,12 @@ class OMNI2IR(GenericVisitor):
         return ir.WhileLoop(condition=condition, body=body, source=source)
 
     def visit_FdoStatement(self, o, source=None):
-        assert o.find('Var') is not None
         assert o.find('body') is not None
-        variable = self.visit(o.find('Var'))
         body = as_tuple(self.visit(o.find('body')))
-        # TODO: What do we do with loop bounds? Tuple or Range?
+        if o.find('Var') is None:
+            # We are in an unbound do loop
+            return ir.WhileLoop(condition=None, body=body, source=source)
+        variable = self.visit(o.find('Var'))
         lower = self.visit(o.find('indexRange/lowerBound'))
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
@@ -429,16 +431,20 @@ class OMNI2IR(GenericVisitor):
         return sym.RangeIndex((lower, upper, step))
 
     def visit_FrealConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None))
+        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None), source=source)
 
     def visit_FlogicalConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.LOGICAL)
+        return sym.Literal(value=o.text, type=DataType.LOGICAL, source=source)
 
     def visit_FcharacterConstant(self, o, source=None):
-        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER)
+        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER, source=source)
 
     def visit_FintConstant(self, o, source=None):
-        return sym.Literal(value=int(o.text), type=DataType.INTEGER)
+        return sym.Literal(value=int(o.text), type=DataType.INTEGER, source=source)
+
+    def visit_FcomplexConstant(self, o, source=None):
+        value = '({})'.format(', '.join('{}'.format(self.visit(v)) for v in list(o)))
+        return sym.IntrinsicLiteral(value=value, source=source)
 
     def visit_FarrayConstructor(self, o, source=None):
         values = as_tuple(self.visit(v) for v in o)
@@ -494,7 +500,15 @@ class OMNI2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
+        # TODO: do-construct-name is not preserved
         return ir.Intrinsic(text='cycle', source=source)
+
+    def visit_continueStatement(self, o, source=None):
+        return ir.Intrinsic(text='continue', source=source)
+
+    def visit_FexitStatement(self, o, source=None):
+        # TODO: do-construct-name is not preserved
+        return ir.Intrinsic(text='exit', source=source)
 
     def visit_FopenStatement(self, o, source):
         nvalues = [self.visit(nv) for nv in o.find('namedValueList')]

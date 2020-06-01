@@ -130,8 +130,12 @@ class OFP2IR(GenericVisitor):
 
     def visit_loop(self, o, source=None):
         if o.find('header/index-variable') is None:
-            # We are processing a while loop
-            condition = self.visit(o.find('header'))
+            if o.find('do-stmt').attrib['hasLoopControl'] == 'false':
+                # We are processing an unbounded do loop
+                condition = None
+            else:
+                # We are processing a while loop
+                condition = self.visit(o.find('header'))
             body = as_tuple(self.visit(o.find('body')))
             return ir.WhileLoop(condition=condition, body=body, source=source)
 
@@ -146,9 +150,11 @@ class OFP2IR(GenericVisitor):
         bounds = sym.LoopRange((lower, upper, step))
 
         body = as_tuple(self.visit(o.find('body')))
+        # Extract loop label if any
+        label = o.find('do-stmt').attrib['digitString'] or None
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
+        return ir.Loop(variable=variable, body=body, bounds=bounds, label=label, source=source)
 
     def visit_if(self, o, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
@@ -435,7 +441,9 @@ class OFP2IR(GenericVisitor):
 
     def visit_allocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return ir.Allocation(variables=variables, source=source)
+        kw_args = {arg.attrib['name'].lower(): self.visit(arg)
+                   for arg in o.findall('keyword-arguments/keyword-argument')}
+        return ir.Allocation(variables=variables, source=source, data_source=kw_args.get('source'))
 
     def visit_deallocate(self, o, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
@@ -464,6 +472,7 @@ class OFP2IR(GenericVisitor):
     visit_format = visit_open
     visit_print = visit_open
     visit_cycle = visit_open
+    visit_continue = visit_open
     visit_exit = visit_open
     visit_return = visit_open
 
@@ -568,6 +577,10 @@ class OFP2IR(GenericVisitor):
         return o.attrib['id']
 
     def visit_literal(self, o, source=None):
+        boz_literal = o.find('boz-literal-constant')
+        if boz_literal is not None:
+            return sym.IntrinsicLiteral(boz_literal.attrib['constant'], source=source)
+
         kwargs = {'source': source}
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None

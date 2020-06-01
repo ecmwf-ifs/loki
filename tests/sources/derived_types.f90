@@ -185,4 +185,19 @@ contains
     item%A = -5.0
   end subroutine check_case
 
+  subroutine check_alloc_source(item, item2)
+    ! Use of SOURCE in allocate 
+    type(explicit), intent(inout) :: item
+    type(deferred), intent(inout) :: item2
+    real(kind=jprb), allocatable :: vector(:), vector2(:)
+
+    allocate(vector, source=item%vector)
+    vector(:) = vector(:) + item%scalar
+    item%vector(:) = vector(:)
+
+    allocate(vector2, source=item2%vector)  ! Try mold here when supported by fparser
+    vector2(:) = item2%scalar
+    item2%vector(:) = vector2(:)
+  end subroutine check_alloc_source
+
 end module derived_types

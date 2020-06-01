@@ -6,7 +6,7 @@ import numpy as np
 
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic,
-    Nullify, IntLiteral, FloatLiteral, InlineCall, Subroutine,
+    Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions
 )
 from loki.tools import gettempdir, filehash
@@ -144,6 +144,84 @@ end subroutine literals
     assert isinstance(stmts[5].expr, Cast)
     assert str(stmts[5].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[6].expr, Cast)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_boz_literals(here, frontend):
+    """
+    Test boz literal values.
+    """
+    fcode = """
+subroutine boz_literals(n1, n2, n3, n4, n5, n6)
+  integer, intent(out) :: n1, n2, n3, n4, n5, n6
+
+  n1 = B'00000'
+  n2 = b"101010"
+  n3 = O'737'
+  n4 = o"007"
+  n5 = Z'CAFE'
+  n6 = z"babe"
+end subroutine boz_literals
+"""
+    filepath = here/('expression_boz_literals_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='boz_literals')
+
+    n1, n2, n3, n4, n5, n6 = function()
+    clean_test(filepath)
+    assert n1 == 0 and n2 == 42 and n3 == 479 and n4 == 7 and n5 == 51966 and n6 == 47806
+
+    # In addition to value testing, let's make sure that we created the correct expression types
+    if frontend is not OMNI:
+        # Note: Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
+        # Note: FP converts constants to upper case
+        stmts = FindNodes(Statement).visit(routine.body)
+        assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == "B'00000'"
+        assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value.upper() == 'B"101010"'
+        assert isinstance(stmts[2].expr, IntrinsicLiteral) and stmts[2].expr.value == "O'737'"
+        assert isinstance(stmts[3].expr, IntrinsicLiteral) and stmts[3].expr.value.upper() == 'O"007"'
+        assert isinstance(stmts[4].expr, IntrinsicLiteral) and stmts[4].expr.value == "Z'CAFE'"
+        assert isinstance(stmts[5].expr, IntrinsicLiteral) and stmts[5].expr.value.upper() == 'Z"BABE"'
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='They are represented too stupid in OFP parse tree')),
+    OMNI,
+    FP
+])
+def test_complex_literals(here, frontend):
+    """
+    Test complex literal values.
+    """
+    fcode = """
+subroutine complex_literals(c1, c2, c3)
+  complex, intent(out) :: c1, c2, c3
+
+  c1 = (1.0, -1.0)
+  c2 = (3, 2E8)
+  c3 = (21_2, 4._8)
+end subroutine complex_literals
+"""
+    filepath = here/('expression_complex_literals_%s.f90' % frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='complex_literals')
+
+    c1, c2, c3 = function()
+    clean_test(filepath)
+    assert c1 == (1-1j) and c2 == (3+2e8j) and c3 == (21+4j)
+
+    # In addition to value testing, let's make sure that we created the correct expression types
+    stmts = FindNodes(Statement).visit(routine.body)
+    assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == '(1.0, -1.0)'
+    # Note: Here, for inconsistency, FP converts the exponential letter 'e' to lower case...
+    assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value.lower() == '(3, 2e8)'
+    assert isinstance(stmts[2].expr, IntrinsicLiteral)
+    try:
+        assert stmts[2].expr.value == '(21_2, 4._8)'
+    except AssertionError as excinfo:
+        if frontend == OMNI:
+            pytest.xfail('OMNI wrongfully assigns the same kind to real and imaginary part')
+        raise excinfo
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -610,11 +688,7 @@ end subroutine pointer_nullify
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
-    OMNI,
-    pytest.param(FP, marks=pytest.mark.xfail(reason='Order in spec not preserved')),
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_parameter_stmt(here, frontend):
     """
     PARAMETER(...) statement

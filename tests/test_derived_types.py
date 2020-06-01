@@ -296,3 +296,44 @@ def test_case_sensitivity(refpath, reference, frontend):
     function(item)
     assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
     assert item.q == -1.0 and item.a == -5.0
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_check_alloc_source(refpath, reference, frontend):
+    """
+    allocate(vector, source=item%vector)
+    vector(:) = vector(:) + item%scalar
+    item%vector(:) = vector(:)
+
+    allocate(vector2, mold=item2%vector)
+    vector2(:) = item2%scalar
+    item2%vector(:) = vector2(:)
+    """
+
+    def get_ref_input():
+        item = reference.explicit()
+        item.scalar = 1.
+        item.vector[:] = 1.
+
+        item2 = reference.deferred()
+        reference.alloc_deferred(item2)
+        item2.scalar = 2.
+        item2.vector[:] = -1.
+
+        return item, item2
+
+    # Test the reference solution
+    item, item2 = get_ref_input()
+    reference.check_alloc_source(item, item2)
+    assert (item.vector == 2.).all()
+    assert (item2.vector == 2.).all()
+    reference.free_deferred(item2)
+
+    # Test the generated identity
+    test = generate_identity(refpath, modulename='derived_types',
+                             routinename='check_alloc_source', frontend=frontend)
+    item, item2 = get_ref_input()
+    getattr(test, 'check_alloc_source_%s' % frontend)(item, item2)
+    assert (item.vector == 2.).all()
+    assert (item2.vector == 2.).all()
+    reference.free_deferred(item2)

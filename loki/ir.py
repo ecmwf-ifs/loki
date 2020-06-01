@@ -166,7 +166,9 @@ class WhileLoop(Node):
                  label=None, source=None):
         super(WhileLoop, self).__init__(source=source)
 
-        assert isinstance(condition, Expression)
+        # Unfortunately, unbounded DO ... END DO loops exist and we capture
+        # those in this class
+        assert isinstance(condition, Expression) or condition is None
 
         self.condition = condition
         self.body = as_tuple(body)
@@ -357,7 +359,8 @@ class DataDeclaration(Node):
         super(DataDeclaration, self).__init__(source=source)
 
         # TODO: This should only allow Expression instances but needs frontend changes
-        assert isinstance(variable, (Expression, str))
+        # TODO: Support complex statements (LOKI-23)
+        assert isinstance(variable, (Expression, str, tuple))
         assert is_iterable(values) and all(isinstance(val, Expression) for val in values)
 
         self.variable = variable
