@@ -79,13 +79,13 @@ def check_file(filename, linter, frontend=FP, preprocess=False, fix=False):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
+        debug('[%s] Parsing completed without error.', filename)
+        linter.check(source)
+        if fix:
+            linter.fix(source)
     except Exception as excinfo:  # pylint: disable=broad-except
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
-    debug('[%s] Parsing completed without error.', filename)
-    linter.check(source)
-    if fix:
-        linter.fix(source)
     return True
 
 
