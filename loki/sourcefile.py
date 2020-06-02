@@ -260,7 +260,7 @@ class SourceFile:
 
     @property
     def source(self):
-        content = self.modules + self.subroutines
+        content = as_tuple(self.modules) + as_tuple(self.subroutines)
         return '\n\n'.join(fgen(s) for s in content)
 
     @property
@@ -298,14 +298,14 @@ class SourceFile:
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
 
-    def write(self, source=None, filename=None):
+    def write(self, path=None, source=None):
         """
         Write content to file
 
+        :param path: Optional filepath; if not provided, `self.path` is used
         :param source: Optional source string; if not provided `self.source` is used
-        :param filename: Optional filename; if not provided, `self.name` is used
         """
-        path = Path(filename or self.path)
+        path = self.path if path is None else Path(path)
         source = self.source if source is None else source
         self.to_file(source=source, path=path)
 
