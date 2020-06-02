@@ -17,6 +17,7 @@ from loki import (
     info, as_tuple, Loop, Variable,
     Array, CallStatement, Pragma, DataType,
     SymbolType, Import, RangeIndex, ArraySubscript, LoopRange,
+    Transformation, DependencyTransformation,
     AbstractTransformation, BasicTransformation, FortranCTransformation,
     Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper
 )
@@ -33,7 +34,7 @@ def get_typedefs(typedef, xmods=None, frontend=OFP):
     return definitions
 
 
-class DerivedArgsTransformation(AbstractTransformation):
+class DerivedArgsTransformation(Transformation):
     """
     Pipeline to remove derived types from subroutine signatures by replacing
     the relevant derived arguments with the sub-variables used in the called
@@ -45,15 +46,16 @@ class DerivedArgsTransformation(AbstractTransformation):
     depend on the accurate signatures and call arguments.
     """
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, routine, **kwargs):
         # Determine role in bulk-processing use case
         task = kwargs.get('task', None)
-        role = 'kernel' if task is None else task.config['role']
+        role = kwargs.get('role') if task is None else task.config['role']
 
         # Apply argument transformation, caller first!
-        self.flatten_derived_args_caller(source)
+        self.flatten_derived_args_caller(routine)
         if role == 'kernel':
-            self.flatten_derived_args_routine(source)
+            self.flatten_derived_args_routine(routine)
+
 
     @staticmethod
     def _derived_type_arguments(routine):
@@ -444,35 +446,32 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
+    kernel_mod = 'CLOUDSC_MOD'
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)['cloudsc_driver']
-    driver.enrich_calls(routines=routine)
+                                  frontend=frontend)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path/routine.name.lower()).with_suffix('.idem.F90')
-    driver_out = (out_path/driver.name.lower()).with_suffix('.idem.F90')
-
-    class IdemTransformation(BasicTransformation):
+    class IdemTransformation(Transformation):
         """
-        Here we define a custom transformation pipeline to re-generate
-        separate kernel and driver versions, adding some optional changes
-        like derived-type argument removal or an experimental low-level
-        OpenMP wrapping.
+        Define a custom transformation pipeline that optionally inserts
+        experimental OpenMP pragmas for horizontal loops.
         """
 
-        def _pipeline(self, source, **kwargs):
+        def transform_subroutine(self, routine, **kwargs):
             # Define the horizontal dimension
             horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                                    variable='JL', iteration=('KIDIA', 'KFDIA'))
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(source.body):
+                for loop in FindNodes(Loop).visit(routine.body):
                     if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
@@ -480,26 +479,25 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
                                                content='end do simd nowait')
                         loop._update(pragma=pragma, pragma_post=pragma_nowait)
 
-            # Perform necessary housekeeking tasks
-            self.rename_routine(source, suffix='IDEM')
-            self.write_to_file(source, **kwargs)
-
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
         # Caller must go first, as it needs info from routine
-        DerivedArgsTransformation().apply(driver)
-        DerivedArgsTransformation().apply(routine)
+        driver.apply(DerivedArgsTransformation(), role='driver')
+        kernel.apply(DerivedArgsTransformation(), role='kernel')
 
-    # Now we instantiate our pipeline and apply the changes
-    transformation = IdemTransformation()
-    transformation.apply(routine, filename=source_out)
+    # Now we instantiate our pipeline and apply the "idempotence" changes
+    kernel.apply(IdemTransformation())
+    driver.apply(IdemTransformation())
 
-    # Insert new module import into the driver and re-generate
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
-                               symbols=[routine.name.upper()]))
-    transformation.rename_calls(driver, suffix='IDEM')
-    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
+
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.idem.F90').name)
 
 
 @cli.command()
