@@ -1,9 +1,9 @@
 from collections import OrderedDict
 from itertools import count
 
-from loki.transform.transformation import BasicTransformation
+from loki.transform.transformation import Transformation
 from loki.sourcefile import SourceFile
-from loki.backend import cgen
+from loki.backend import cgen, fgen
 from loki.ir import (Section, Import, Intrinsic, Interface, CallStatement, Declaration,
                      TypeDef, Statement, Scope, Loop)
 from loki.subroutine import Subroutine
@@ -19,7 +19,7 @@ from loki.types import DataType, SymbolType, TypeTable
 __all__ = ['FortranCTransformation']
 
 
-class FortranCTransformation(BasicTransformation):
+class FortranCTransformation(Transformation):
     """
     Fortran-to-C transformation that translates the given routine
     into C and generates the corresponding ISO-C wrappers.
@@ -30,43 +30,42 @@ class FortranCTransformation(BasicTransformation):
         # Fortran modules that can be imported as C headers
         self.header_modules = header_modules or None
 
-    def _pipeline(self, source, **kwargs):
+        # Maps from original type name to ISO-C and C-struct types
+        self.c_structs = OrderedDict()
+
+    def transform_module(self, module, **kwargs):
         path = kwargs.get('path')
 
-        # Maps from original type name to ISO-C and C-struct types
-        c_structs = OrderedDict()
+        for name, td in module.typedefs.items():
+            self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
-        if isinstance(source, Module):
-            for name, td in source.typedefs.items():
-                c_structs[name.lower()] = self.c_struct_typedef(td)
+        # Generate Fortran wrapper module
+        wrapper = self.generate_iso_c_wrapper_module(module, self.c_structs)
+        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
+        SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
-            # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_module(source, c_structs)
-            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
-            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=False)
+        # Generate C header file from module
+        c_header = self.generate_c_header(module)
+        self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+        SourceFile.to_file(source=cgen(c_header), path=self.c_path)
 
-            # Generate C header file from module
-            c_header = self.generate_c_header(source)
-            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            SourceFile.to_file(source=cgen(c_header), path=self.c_path)
+    def transform_subroutine(self, routine, **kwargs):
+        path = kwargs.get('path')
 
-        elif isinstance(source, Subroutine):
-            for arg in source.arguments:
-                if arg.type.dtype == DataType.DERIVED_TYPE:
-                    c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
+        for arg in routine.arguments:
+            if arg.type.dtype == DataType.DERIVED_TYPE:
+                self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
 
-            # Generate Fortran wrapper module
-            wrapper = self.generate_iso_c_wrapper_routine(source, c_structs)
-            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
-            self.write_to_file(wrapper, filename=self.wrapperpath, module_wrap=True)
+        # Generate Fortran wrapper module
+        wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
+        module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
+        SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
 
-            # Generate C source file from Loki IR
-            c_kernel = self.generate_c_kernel(source)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
-
-        else:
-            raise RuntimeError('Can only translate Module or Subroutine nodes')
+        # Generate C source file from Loki IR
+        c_kernel = self.generate_c_kernel(routine)
+        self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+        SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
 
     @classmethod
     def c_struct_typedef(cls, derived):
