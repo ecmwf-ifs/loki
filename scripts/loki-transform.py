@@ -224,7 +224,7 @@ class Dimension:
         return [self.variable] + i_range
 
 
-class SCATransformation(AbstractTransformation):
+class SCATransformation(Transformation):
     """
     Pipeline to transform kernel into SCA format and insert CLAW directives.
 
@@ -234,19 +234,19 @@ class SCATransformation(AbstractTransformation):
     def __init__(self, dimension):
         self.dimension = dimension
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, routine, **kwargs):
         task = kwargs.get('task', None)
         role = kwargs['role'] if task is None else task.config['role']
 
         if role == 'driver':
-            self.hoist_dimension_from_call(source, target=self.dimension, wrap=True)
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
 
         elif role == 'kernel':
-            self.hoist_dimension_from_call(source, target=self.dimension, wrap=False)
-            self.remove_dimension(source, target=self.dimension)
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
+            self.remove_dimension(routine, target=self.dimension)
 
-        if source.members is not None:
-            for member in source.members:
+        if routine.members is not None:
+            for member in routine.members:
                 self.apply(member, **kwargs)
 
     @staticmethod
@@ -452,7 +452,7 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)
+                                  frontend=frontend, typedefs=typedefs)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend)
     # Ensure that the kernel calls have all meta-information
@@ -527,55 +527,52 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
+    kernel_mod = 'CLOUDSC_MOD'
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                   frontend=frontend, typedefs=typedefs)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)['cloudsc_driver']
-    driver.enrich_calls(routines=routine)
-
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path/routine.name.lower()).with_suffix('.%s.F90' % mode)
-    driver_out = (out_path/driver.name.lower()).with_suffix('.%s.F90' % mode)
+                                  frontend=frontend)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
     if mode == 'claw':
-        claw_scalars = [v.name.lower() for v in routine.variables
+        claw_scalars = [v.name.lower() for v in kernel[kernel_name].variables
                         if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
 
-    # Debug addition: detect calls to `ref_save` and replace with `ref_error`
-    for call in FindNodes(CallStatement).visit(routine.body):
-        if call.name.lower() == 'ref_save':
-            call.name = 'ref_error'
-
     # First, remove all derived-type arguments; caller first!
-    DerivedArgsTransformation().apply(driver)
-    DerivedArgsTransformation().apply(routine)
+    driver.apply(DerivedArgsTransformation(), role='driver')
+    kernel.apply(DerivedArgsTransformation(), role='kernel')
 
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                            variable='JL', iteration=('KIDIA', 'KFDIA'))
 
     # Now we instantiate our SCA pipeline and apply the changes
-    transformation = SCATransformation(dimension=horizontal)
-    transformation.apply(driver, role='driver', filename=driver_out)
-    transformation.apply(routine, role='kernel', filename=source_out)
+    sca_transform = SCATransformation(dimension=horizontal)
+    driver.apply(sca_transform, role='driver')
+    kernel.apply(sca_transform, role='kernel')
 
     if mode == 'claw':
-        insert_claw_directives(routine, driver, claw_scalars, target=horizontal)
+        insert_claw_directives(kernel[kernel_name], driver[driver_name],
+                               claw_scalars, target=horizontal)
 
     if strip_omp_do:
-        remove_omp_do(driver)
+        remove_omp_do(driver[driver_name])
 
-    # And finally apply the necessary housekeeping changes
-    BasicTransformation().apply(routine, suffix=mode.upper(), filename=source_out)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
+                                          mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.%s.F90' % mode).name)
 
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
-                               symbols=[routine.name.upper()]))
-    BasicTransformation().rename_calls(driver, suffix=mode.upper())
-    BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.%s.F90' % mode).name)
 
 
 @cli.command()
