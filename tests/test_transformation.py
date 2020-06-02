@@ -319,17 +319,17 @@ END SUBROUTINE kernel
     driver.apply(transformation, role='driver', targets='kernel')
 
     # Check that the kernel has been wrapped
-    assert len(kernel.subroutines) == 1
-    assert kernel.subroutines[0].name == 'kernel_test'
+    assert len(kernel.subroutines) == 0
+    assert len(kernel.all_subroutines) == 1
+    assert kernel.all_subroutines[0].name == 'kernel_test'
     assert kernel['kernel_test'] == kernel.all_subroutines[0]
-    # TODO: Currently broken; needs transformation re-structuring....
-    # assert len(kernel.modules) == 1
-    # assert kernel.modules[0].name == 'kernel_test_mod'
-    # assert kernel['kernel_test_mod'] == kernel.modules[0]
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_test_mod'
+    assert kernel['kernel_test_mod'] == kernel.modules[0]
 
     # Check that the driver name has not changed
-    assert len(kernel.modules) == 0
-    assert len(kernel.subroutines) == 1
+    assert len(driver.modules) == 0
+    assert len(driver.subroutines) == 1
     assert driver.subroutines[0].name == 'driver'
 
     # Check that calls and imports have been diverted to the re-generated routine

@@ -41,7 +41,7 @@ class Transformation:
         Defines the transformation to apply to `Module` items.
         """
 
-    def transform_file(self, module, **kwargs):
+    def transform_file(self, sourcefile, **kwargs):
         """
         Defines the transformation to apply to `SourceFile` items.
         """
@@ -71,6 +71,9 @@ class Transformation:
 
         for routine in sourcefile.subroutines:
             self.apply(routine, **kwargs)
+
+        # Aply file-level transformations
+        self.transform_file(sourcefile, **kwargs)
 
     def apply_subroutine(self, subroutine, **kwargs):
         """

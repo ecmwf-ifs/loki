@@ -2,6 +2,7 @@ from pathlib import Path
 
 from loki.transform.transformation import Transformation
 from loki.subroutine import Subroutine
+from loki.module import Module
 from loki.visitors import FindNodes, Transformer
 from loki.ir import CallStatement, Import
 from loki.backend import fgen
@@ -50,6 +51,10 @@ class DependencyTransformation(Transformation):
         self.include_path = None if include_path is None else Path(include_path)
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Rename driver subroutine and all calls to target routines. In
+        'strict' mode, also  re-generate the kernel interface headers.
+        """
         role = kwargs.get('role')
 
         if role == 'kernel':
@@ -67,15 +72,26 @@ class DependencyTransformation(Transformation):
             self.generate_interfaces(routine, **kwargs)
 
     def transform_module(self, module, **kwargs):
+        """
+        Rename kernel modules and re-point module-level imports.
+        """
         role = kwargs.get('role')
 
         if role == 'kernel':
             # Change the name of kernel modules
-            module.name = self._derive_module_name(module.name)
+            module.name = self.derive_module_name(module.name)
 
         # Module imports only appear in the spec section
         imports = FindNodes(Import).visit(module.spec)
         self.rename_imports(module, imports=imports, **kwargs)
+
+    def transform_file(self, sourcefile, **kwargs):
+        """
+        In 'module' mode perform module-wrapping for dependnecy injection.
+        """
+        role = kwargs.get('role')
+        if role == 'kernel' and self.mode == 'module':
+            self.module_wrap(sourcefile, **kwargs)
 
     def rename_calls(self, routine, **kwargs):
         """
@@ -115,7 +131,7 @@ class DependencyTransformation(Transformation):
 
                     else:
                         # Create a new module import with explicitly qualified symbol
-                        new_module = self._derive_module_name(im.module.split('.')[0])
+                        new_module = self.derive_module_name(im.module.split('.')[0].upper())
                         new_symbol = '{}{}'.format(target_symbol, self.suffix)
                         new_import = im.clone(module=new_module, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
@@ -129,7 +145,7 @@ class DependencyTransformation(Transformation):
                     # Append suffix to all target symbols
                     symbols = as_tuple('{}{}'.format(s, self.suffix) if s.lower() in targets else s
                                        for s in im.symbols)
-                    module_name = self._derive_module_name(im.module)
+                    module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)
 
                 # TODO: Deal with unqualified blanket imports
@@ -139,7 +155,7 @@ class DependencyTransformation(Transformation):
         if isinstance(source, Subroutine):
             source.body = Transformer(removal_map).visit(source.body)
 
-    def _derive_module_name(self, modname):
+    def derive_module_name(self, modname):
         """
         Utility to derive a new module name from `suffix` and `module_suffix`
         """
@@ -162,3 +178,24 @@ class DependencyTransformation(Transformation):
             intfb_path = self.include_path/'{}.intfb.h'.format(source.name.lower())
             with intfb_path.open('w') as f:
                 f.write(fgen(source.interface))
+
+    def module_wrap(self, sourcefile, **kwargs):
+        """
+        Wrap target subroutines in modules and replace in source file.
+        """
+        targets = kwargs.get('targets', None)
+
+        module_routines = [r for r in sourcefile.all_subroutines
+                           if r not in sourcefile.subroutines]
+
+        for routine in sourcefile.subroutines:
+            if routine not in module_routines:
+                if targets is None or routine.name+self.suffix in targets:
+                    # Create wrapper module and insert into file
+                    modname = '{}{}'.format(routine.name, self.module_suffix)
+                    module = Module(name=modname, routines=[routine])
+                    sourcefile._modules += (module, )
+
+                    # Remove old standalone routine
+                    sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
+                                                    if r is not routine)
