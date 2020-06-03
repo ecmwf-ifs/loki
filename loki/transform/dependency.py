@@ -101,8 +101,12 @@ class DependencyTransformation(Transformation):
                         modify the corresponding calls.
         """
         targets = kwargs.get('targets', None)
+        if targets is not None:
+            # Normalize string casing
+            targets = [str(t).upper() for t in as_tuple(targets)]
+
         for call in FindNodes(CallStatement).visit(routine.body):
-            if targets is None or call.name in targets:
+            if targets is None or call.name.upper() in targets:
                 call._update(name='{}{}'.format(call.name, self.suffix))
 
     def rename_imports(self, source, imports, **kwargs):
@@ -114,7 +118,7 @@ class DependencyTransformation(Transformation):
         """
         targets = kwargs.get('targets', None)
         if targets is not None:
-            targets = as_tuple(str(t).lower() for t in as_tuple(targets))
+            targets = as_tuple(str(t).upper() for t in as_tuple(targets))
 
         # Transformer map to remove any outdated imports
         removal_map = {}
@@ -123,7 +127,7 @@ class DependencyTransformation(Transformation):
         for im in imports:
             if im.c_import:
                 target_symbol = im.module.split('.')[0].lower()
-                if targets is not None and target_symbol in targets:
+                if targets is not None and target_symbol.upper() in targets:
                     if self.mode == 'strict':
                         # Modify the the basename of the C-style header import
                         im._update(module='{}{}.{}'.format(target_symbol, self.suffix,
@@ -131,7 +135,7 @@ class DependencyTransformation(Transformation):
 
                     else:
                         # Create a new module import with explicitly qualified symbol
-                        new_module = self.derive_module_name(im.module.split('.')[0].upper())
+                        new_module = self.derive_module_name(im.module.split('.')[0])
                         new_symbol = '{}{}'.format(target_symbol, self.suffix)
                         new_import = im.clone(module=new_module, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
@@ -141,9 +145,9 @@ class DependencyTransformation(Transformation):
 
             else:
                 # Modify module import if it imports any targets
-                if targets is not None and any(s.lower() in targets for s in im.symbols):
+                if targets is not None and any(s.upper() in targets for s in im.symbols):
                     # Append suffix to all target symbols
-                    symbols = as_tuple('{}{}'.format(s, self.suffix) if s.lower() in targets else s
+                    symbols = as_tuple('{}{}'.format(s, self.suffix) if s.upper() in targets else s
                                        for s in im.symbols)
                     module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)
@@ -161,8 +165,8 @@ class DependencyTransformation(Transformation):
         """
         if self.module_suffix:
             # If a module suffix is provided, we insert suffix before that
-            if self.module_suffix in modname:
-                idx = modname.index(self.module_suffix)
+            if self.module_suffix.upper() in modname.upper():
+                idx = modname.upper().index(self.module_suffix.upper())
                 return '{}{}{}'.format(modname[:idx], self.suffix, self.module_suffix)
 
             return '{}{}{}'.format(modname, self.suffix, self.module_suffix)

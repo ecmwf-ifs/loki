@@ -210,6 +210,7 @@ class Dimension:
         # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
         iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
         iteration += ['1:%s' % self.name]
+        iteration += ['1:%s' % alias for alias in self.aliases]
         return [self.name] + self.aliases + iteration
 
     @property
