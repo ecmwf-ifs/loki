@@ -171,7 +171,8 @@ class Subroutine:
         name = name or ast.find('name').text
         # file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
-        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+        symbol_map = symbol_map or {}
+        symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
 
         # Check if it is a function or a subroutine. There may be a better way to do
         # this but OMNI does not seem to make it obvious, thus checking the return type

@@ -32,16 +32,72 @@ end module a_module
     assert module.routines[0].name == 'my_routine'
 
 
+@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+def test_module_external_typedefs_subroutine(frontend):
+    """
+    Test that externally provided type information is correctly
+    attached to a `Module` subroutine when supplied via the `typedefs`
+    parameter in the constructor.
+    """
+    fcode_external = """
+module external_mod
+  integer, parameter :: x = 2
+  integer, parameter :: y = 3
+
+  type ext_type
+    real :: array(x, y)
+  end type ext_type
+end module external_mod
+"""
+
+    fcode_module = """
+module a_module
+contains
+
+  subroutine my_routine(pt_ext)
+    use external_mod, only: ext_type
+    implicit none
+
+    type(ext_type) :: pt_ext
+    pt_ext%array(:,:) = 42.0
+  end subroutine my_routine
+end module a_module
+"""
+
+    external = Module.from_source(fcode_external, frontend=frontend)
+    assert'ext_type' in external.typedefs
+
+    module = Module.from_source(fcode_module, frontend=frontend,
+                                typedefs=external.typedefs)
+    routine = module.subroutines[0]
+    pt_ext = routine.variables[0]
+
+    # OMNI resolves explicit shape parameters in the frontend parser
+    exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
+
+    # Check that the `array` variable in the `ext` type is found and
+    # has correct type and shape info
+    assert 'array' in pt_ext.type.variables
+    a = pt_ext.type.variables['array']
+    assert a.type.dtype == DataType.REAL
+    assert fexprgen(a.shape) == exptected_array_shape
+
+    # Check the LHS of the assignment has correct meta-data
+    pt_ext_arr = routine.body[0].target
+    assert pt_ext_arr.type.dtype == DataType.REAL
+    assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
+
+
 @pytest.mark.parametrize('frontend', [
     FP,
     pytest.param(OFP, marks=pytest.mark.xfail(reason='Typedefs not yet supported in frontend')),
     OMNI
 ])
-def test_module_external_typedefs(frontend):
+def test_module_external_typedefs_type(frontend):
     """
     Test that externally provided type information is correctly
-    attached to `Module` components when supplied via the `typedefs`
-    parameter in the constructor.
+    attached to a `Module` type and used in a contained subroutine
+    when supplied via the `typedefs` parameter in the constructor.
     """
     fcode_external = """
 module external_mod

@@ -89,7 +89,7 @@ class SourceFile:
                                          typetable=typetable, parent=obj) for ast in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
-        modules = [Module.from_omni(ast=ast, raw_source=raw_source,
+        modules = [Module.from_omni(ast=ast, typedefs=typedefs, raw_source=raw_source,
                                     typetable=typetable, parent=obj) for ast in ast_m]
 
         obj.__init__(path=path, routines=routines, modules=modules, ast=ast,
