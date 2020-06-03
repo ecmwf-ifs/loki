@@ -46,7 +46,7 @@ def parse_omni_file(filename, xmods=None):
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
     """
     filepath = Path(filename)
-    info("[Frontend.OMNI] Parsing %s" % filepath.name)
+    info("[Frontend.OMNI] Parsing %s" % filepath)
 
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []

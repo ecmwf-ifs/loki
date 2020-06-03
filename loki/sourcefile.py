@@ -46,9 +46,10 @@ class SourceFile:
 
     @classmethod
     def from_file(cls, filename, preprocess=False, typedefs=None,
-                  xmods=None, includes=None, frontend=OFP):
+                  xmods=None, includes=None, builddir=None, frontend=OFP):
         if frontend == OMNI:
-            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
+            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods,
+                                 includes=includes, builddir=builddir)
         if frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         if frontend == FP:
@@ -56,13 +57,16 @@ class SourceFile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None, includes=None):
+    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None,
+                  includes=None, builddir=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
         filepath = Path(filename)
         pppath = Path(filename).with_suffix('.omni%s' % filepath.suffix)
+        if builddir is not None:
+            pppath = Path(builddir)/pppath.name
 
         preprocess_omni(filename, pppath, includes=includes)
 

@@ -426,7 +426,7 @@ def cli():
 
 @cli.command('idem')
 @click.option('--out-path', '-out', type=click.Path(),
-              help='Path for generated souce files.')
+              help='Path for generated source files.')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
@@ -453,9 +453,10 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=frontend, typedefs=typedefs)
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)
+                                  frontend=frontend, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
@@ -534,9 +535,10 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)
+                                  frontend=frontend, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
