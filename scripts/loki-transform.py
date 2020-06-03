@@ -396,13 +396,13 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
         if str(loop.variable).upper() == target.variable:
-            pragma = Pragma(keyword='claw', content='parallelize forward create update')
+            pragma = Pragma(keyword='claw', content='sca forward create update')
             loop._update(pragma=pragma)
 
     # Generate CLAW directives and insert into routine spec
     segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
-                  Pragma(keyword='claw', content='parallelize &'),
+                  Pragma(keyword='claw', content='sca &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
     routine.spec.append(directives)
 
