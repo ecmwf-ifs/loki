@@ -6,20 +6,16 @@ physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
 from collections import OrderedDict, defaultdict
-from copy import deepcopy
 from pathlib import Path
 import click
-import toml
 
 from loki import (
-    SourceFile, Transformer, TaskScheduler,
-    FindNodes, FindVariables, SubstituteExpressions,
-    info, as_tuple, Loop, Variable,
-    Array, CallStatement, Pragma, DataType,
-    SymbolType, Import, RangeIndex, ArraySubscript, LoopRange,
-    Transformation, DependencyTransformation,
-    AbstractTransformation, BasicTransformation, FortranCTransformation,
-    Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper
+    SourceFile, Transformer, FindNodes, FindVariables,
+    SubstituteExpressions, as_tuple, Loop, Variable, Array,
+    CallStatement, Pragma, DataType, SymbolType, RangeIndex,
+    ArraySubscript, LoopRange, Transformation,
+    DependencyTransformation, FortranCTransformation, Frontend, OMNI,
+    OFP, fgen, SubstituteExpressionsMapper
 )
 
 
@@ -449,7 +445,7 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     """
     driver_name = 'CLOUDSC_DRIVER'
     kernel_name = 'CLOUDSC'
-    kernel_mod = 'CLOUDSC_MOD'
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
@@ -531,7 +527,7 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     """
     driver_name = 'CLOUDSC_DRIVER'
     kernel_name = 'CLOUDSC'
-    kernel_mod = 'CLOUDSC_MOD'
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
@@ -597,7 +593,6 @@ def transpile(out_path, header, source, driver, xmod, include):
     """
     driver_name = 'CLOUDSC_DRIVER'
     kernel_name = 'CLOUDSC'
-    kernel_mod = 'CLOUDSC_MOD'
 
     # Parse original driver and kernel routine, and enrich the driver
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
@@ -633,13 +628,13 @@ def transpile(out_path, header, source, driver, xmod, include):
     driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 
-class InferArgShapeTransformation(AbstractTransformation):
+class InferArgShapeTransformation(Transformation):
     """
     Uses IPA context information to infer the shape of arguments from
     the caller.
     """
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, source, **kwargs):  # pylint: disable=arguments-differ
 
         for call in FindNodes(CallStatement).visit(source.body):
             if call.context is not None and call.context.active:
@@ -674,255 +669,6 @@ class InferArgShapeTransformation(AbstractTransformation):
                         new_shape = vname_map[v.name.lower()].shape
                         vmap_body[v] = v.clone(shape=new_shape)
                 routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
-
-
-class RapsTransformation(BasicTransformation):
-    """
-    Dedicated housekeeping pipeline for dealing with module wrapping
-    and dependency management for RAPS.
-    """
-
-    def __init__(self, raps_deps=None, loki_deps=None, basepath=None):
-        self.raps_deps = raps_deps
-        self.loki_deps = loki_deps
-        self.basepath = basepath
-
-    def _pipeline(self, source, **kwargs):
-        task = kwargs.get('task')
-        mode = task.config['mode']
-        role = task.config['role']
-        # TODO: Need enrichment for Imports to get rid of this!
-        processor = kwargs.get('processor', None)
-
-        info('Processing %s (role=%s, mode=%s)', source.name, role, mode)
-
-        original = source.name
-        if role == 'kernel':
-            self.rename_routine(source, suffix=mode.upper())
-
-        self.rename_calls(source, suffix=mode.upper())
-        self.adjust_imports(source, mode, processor)
-
-        filename = task.path.with_suffix('.%s.F90' % mode)
-        modules = as_tuple(task.file.modules)
-        if len(modules) > 0:
-            # If module imports are used, we inject the mode-specific name
-            assert len(modules) == 1
-            module = modules[0]
-            modname = ''.join(module.name.lower().split('_mod')[:-1]).upper()
-            module.name = ('%s_%s_MOD' % (modname, mode)).upper()
-            self.write_to_file(modules, filename=filename, module_wrap=False)
-        else:
-            self.write_to_file(source, filename=filename, module_wrap=False)
-
-        self.adjust_dependencies(original=original, task=task, processor=processor)
-
-        # Re-generate interfaces and interface blocks after adjusting call signature
-        for incl in processor.includes:
-            # TODO: This header-searching madness should be improved with loki.build!
-            for ending in ['.intfb.h', '.h']:
-                intfb_path = Path(incl)/task.path.with_suffix(ending).name
-                if (intfb_path).exists():
-                    new_intfb_path = Path(incl)/task.path.with_suffix('.%s%s' % (mode, ending)).name
-                    SourceFile.to_file(source=fgen(source.interface), path=Path(new_intfb_path))
-
-    @staticmethod
-    def adjust_imports(routine, mode, processor):
-        """
-        Utility routine to rename all calls to relevant subroutines and
-        adjust the relevant imports.
-        """
-        replacements = {}
-
-        # Update all relevant interface abd module imports
-        # Note: C-style header imports live in routine.body!
-        endings = ['.h', '.intfb', '_mod']
-        for im in FindNodes(Import).visit(routine.ir):
-            modname = im.module.lower()
-            for ending in endings:
-                modname = modname.split(ending)[0]
-
-            if modname in processor.item_map:
-                if im.c_import:
-                    new_modname = im.module.replace(modname, '%s.%s' % (modname, mode))
-                    replacements[im] = im.clone(module=new_modname)
-                else:
-                    # THE DIFFERENCES ARE VERY SUBTLE!
-                    modname = modname.upper()  # Fortran
-                    new_modname = im.module.replace(modname, '%s_%s' % (modname, mode.upper()))
-                    replacements[im] = im.clone(module=new_modname)
-
-        # Insert new declarations and transform existing ones
-        routine.spec = Transformer(replacements).visit(routine.spec)
-        routine.body = Transformer(replacements).visit(routine.body)
-
-    def adjust_dependencies(self, original, task, processor):
-        """
-        Utility routine to generate Loki-specific build dependencies from
-        RAPS-generated dependency files.
-
-        Hack alert: The two dependency files are stashed on the transformation
-        and modified on-the-fly. This is required to get selective replication
-        until we have some smarter dependency generation and globbing support.
-        """
-        from raps_deps import Dependency  # pylint: disable=import-outside-toplevel
-
-        mode = task.config['mode']
-        whitelist = task.config['whitelist']
-        original = original.lower()
-        sourcepath = task.path
-
-        # Adjust the object entry in the dependency file
-        f_path = sourcepath.relative_to(self.basepath)
-        f_mode_path = f_path.with_suffix('.%s.F90' % mode)
-        o_path = f_path.with_suffix('.o')
-        o_mode_path = o_path.with_suffix('.%s.o' % mode)
-
-        # Re-generate dependencies for objects
-        r_deps = deepcopy(self.raps_deps.content_map[str(o_path)])
-        r_deps.replace(str(o_path), str(o_mode_path))
-        r_deps.replace(str(f_path), str(f_mode_path))
-        self.loki_deps.content += [r_deps]
-
-        # Replicate the dependencies for header files
-        for incl in processor.includes:
-            for ending in ['.h', '.intfb.h']:
-                h_path = Path(incl)/('%s%s' % (original, ending))
-                if h_path.exists():
-                    h_path = h_path.relative_to(self.basepath)
-                    ok_path = h_path.with_suffix('.ok')
-
-                    h_deps = deepcopy(self.raps_deps.content_map[str(ok_path)])
-                    h_deps.replace(str(h_path),
-                                   str(h_path).replace(original, '%s.%s' % (original, mode)))
-                    h_deps.replace(str(ok_path),
-                                   str(ok_path).replace(original, '%s.%s' % (original, mode)))
-                    self.loki_deps.content += [h_deps]
-
-        # Run through all previous dependencies and inject
-        # the transformed object/header names
-        for d in self.loki_deps.content:
-            # We're depended on by an auto-generated header
-            if isinstance(d, Dependency) and '%s.intfb.ok' % original in str(d.deps):
-                intfb = d.find('%s.intfb.ok' % original)
-                if intfb is not None:
-                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
-                    d.replace(intfb, intfb_new)
-
-            # We're depended on by an natural header
-            if isinstance(d, Dependency) and '%s.ok' % original in str(d.deps):
-                intfb = d.find('%s.ok' % original)
-                if intfb is not None:
-                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
-                    d.replace(intfb, intfb_new)
-
-            if isinstance(d, Dependency) and str(o_path) in d.deps:
-                d.replace(str(o_path), str(o_mode_path))
-
-        # Inject new object into the final binary libs
-        objs_ifsloki = self.loki_deps.content_map['OBJS_ifsloki']
-        if original in whitelist:
-            # Add new dependency inplace, next to the old one
-            objs_ifsloki.append_inplace(str(o_path), str(o_mode_path))
-        elif str(o_path) in objs_ifsloki.objects:
-            # Replace old dependency to avoid ghosting where possible
-            objs_ifsloki.replace(str(o_path), str(o_mode_path))
-        else:
-            objs_ifsloki.objects += [str(o_mode_path)]
-
-
-@cli.command('physics')
-@click.option('--config', '-cfg', type=click.Path(),
-              help='Path to configuration file.')
-@click.option('--basepath', type=click.Path(),
-              help='Basepath of the IFS/RAPS installation directory.')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Path to source files to transform.')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional source file(s) containing type definitions')
-@click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
-              help='Path to RAPS-generated dependency file')
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
-              help='Frontend parser to use (default OFP)')
-@click.option('--callgraph', '-cg', is_flag=True, default=False,
-              help='Generate and display the subroutine callgraph.')
-def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
-            frontend, callgraph):
-    """
-    Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
-    source-to-source transformations, such as the Single Column Abstraction (SCA),
-    to large sets of interdependent subroutines.
-    """
-    from raps_deps import RapsDependencyFile, Rule  # pylint: disable=import-outside-toplevel
-
-    frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
-
-    # Load configuration file and process options
-    with Path(config).open('r') as f:
-        config = toml.load(f)
-
-    # Convert 'routines' to an ordered dictionary
-    config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
-
-    # Create and setup the scheduler for bulk-processing
-    scheduler = TaskScheduler(paths=source, config=config, xmods=xmod,
-                              includes=include, typedefs=typedefs,
-                              frontend=frontend)
-    scheduler.append(config['routines'].keys())
-
-    # Add explicitly blacklisted subnodes
-    if 'blacklist' in config['default']:
-        scheduler.blacklist += [b.upper() for b in config['default']['blacklist']]
-    for opts in config['routines'].values():
-        if 'blacklist' in opts:
-            scheduler.blacklist += [b.upper() for b in opts['blacklist']]
-
-    scheduler.populate()
-
-    raps_deps = None
-    loki_deps = None
-    if raps_dependencies:
-        # Load RAPS dependency file for injection into the build system
-        raps_deps = RapsDependencyFile.from_file(raps_dependencies)
-
-        # Create new deps file with lib dependencies and a build rule
-        objs_ifsloki = deepcopy(raps_deps.content_map['OBJS_ifs'])
-        objs_ifsloki.target = 'OBJS_ifsloki'
-        rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
-                            cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
-        loki_deps = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
-
-    # Create the RapsTransformation to manage dependency injection
-    raps_transform = RapsTransformation(raps_deps, loki_deps, basepath=basepath)
-
-    mode = config['default']['mode']
-    if mode == 'sca':
-        # Define the target dimension to strip from kernel and caller
-        horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
-                               variable='JL', iteration=('KIDIA', 'KFDIA'))
-
-        # First, remove derived-type arguments
-        scheduler.process(transformation=DerivedArgsTransformation())
-        # Backward insert argument shapes (for surface routines)
-        scheduler.process(transformation=InferArgShapeTransformation())
-        # And finally, remove the horizontal dimension
-        scheduler.process(transformation=SCATransformation(dimension=horizontal))
-
-    # Finalize by applying the RapsTransformation
-    scheduler.process(transformation=raps_transform)
-    if raps_dependencies:
-        # Write new mode-specific dependency rules file
-        loki_config_path = raps_deps.path.with_suffix('.loki.def')
-        raps_transform.loki_deps.write(path=loki_config_path)
-
-    # Output the resulting callgraph
-    if callgraph:
-        scheduler.graph.render('callgraph', view=False)
 
 
 if __name__ == "__main__":
