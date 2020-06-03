@@ -595,24 +595,23 @@ def transpile(out_path, header, source, driver, xmod, include):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
+    kernel_mod = 'CLOUDSC_MOD'
 
     # Parse original driver and kernel routine, and enrich the driver
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
-                                   includes=include, frontend=OMNI).subroutines[0]
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                  frontend=OMNI, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=OMNI).subroutines[0]
-    driver.enrich_calls(routines=routine)
+                                  frontend=OMNI, builddir=out_path)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path / routine.name.lower()).with_suffix('.c.F90')
-    driver_out = (out_path / driver.name.lower()).with_suffix('.c.F90')
-
-    # Unroll derived-type arguments into multiple arguments
-    # Caller must go first, as it needs info from routine
-    DerivedArgsTransformation().apply(driver)
-    DerivedArgsTransformation().apply(routine)
+    # First, remove all derived-type arguments; caller first!
+    driver.apply(DerivedArgsTransformation(), role='driver')
+    kernel.apply(DerivedArgsTransformation(), role='kernel')
 
     typepaths = [Path(h) for h in header]
     typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
@@ -621,14 +620,17 @@ def transpile(out_path, header, source, driver, xmod, include):
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation(header_modules=typemods)
-    transformation.apply(routine, filename=source_out, path=out_path)
+    transformation.apply(kernel, path=out_path)
 
-    # Insert new module import into the driver and re-generate
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_fc_mod' % routine.name,
-                               symbols=['%s_fc' % routine.name]))
-    transformation.rename_calls(driver, suffix='fc')
-    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
+
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 
 class InferArgShapeTransformation(AbstractTransformation):

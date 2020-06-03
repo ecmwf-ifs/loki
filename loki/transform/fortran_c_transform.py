@@ -1,3 +1,4 @@
+from pathlib import Path
 from collections import OrderedDict
 from itertools import count
 
@@ -34,7 +35,7 @@ class FortranCTransformation(Transformation):
         self.c_structs = OrderedDict()
 
     def transform_module(self, module, **kwargs):
-        path = kwargs.get('path')
+        path = Path(kwargs.get('path'))
 
         for name, td in module.typedefs.items():
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
@@ -50,7 +51,7 @@ class FortranCTransformation(Transformation):
         SourceFile.to_file(source=cgen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
-        path = kwargs.get('path')
+        path = Path(kwargs.get('path'))
 
         for arg in routine.arguments:
             if arg.type.dtype == DataType.DERIVED_TYPE:
