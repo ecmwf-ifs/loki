@@ -30,10 +30,33 @@ def reinsert_convert_endian(ir, pp_info):
         for intr in FindNodes(Intrinsic).visit(ir):
             match = pp_info.get(intr._source.lines[0], [None])[0]
             if match is not None:
-                text = match['pre'] + match['convert'] + match['post']
                 source = intr._source
-                if source is not None:
-                    source.string = text
+                assert source is not None
+                text = match['ws'] + match['pre'] + match['convert'] + match['post']
+                if match['post'].rstrip().endswith('&'):
+                    cont_line_index = source.string.find(match['post']) + len(match['post'])
+                    text += source.string[cont_line_index:].rstrip()
+                source.string = text
+                intr._update(text=text, source=source)
+    return ir
+
+
+def reinsert_open_newunit(ir, pp_info):
+    """
+    Reinsert the NEWUNIT=... arguments into calls to OPEN.
+    """
+    if pp_info is not None:
+        for intr in FindNodes(Intrinsic).visit(ir):
+            match = pp_info.get(intr._source.lines[0], [None])[0]
+            if match is not None:
+                source = intr._source
+                assert source is not None
+                text = match['ws'] + match['open'] + match['args1'] + (match['delim'] or '')
+                text += match['newunit_key'] + match['newunit_val'] + match['args2']
+                if match['args2'].rstrip().endswith('&'):
+                    cont_line_index = source.string.find(match['args2']) + len(match['args2'])
+                    text += source.string[cont_line_index:].rstrip()
+                source.string = text
                 intr._update(text=text, source=source)
     return ir
 
@@ -115,9 +138,19 @@ blacklist = {
 
         # Replace CONVERT argument in OPEN calls
         'CONVERT_ENDIAN': PPRule(
-            match=re.compile((r'(?:^\s*)(?P<pre>OPEN\s*\(.*)'
-                              r'(?P<convert>,\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
-                              r'(?P<post>(?:,.*)?\))'), re.I),
-            replace=r'\g<pre>\g<post>', postprocess=reinsert_convert_endian),
+            match=re.compile((r'(?P<ws>^\s*)(?P<pre>OPEN\s*\(.*?)'
+                              r'(?P<convert>,?\s*CONVERT=[\'\"](?:BIG|LITTLE)_ENDIAN[\'\"]\s*)'
+                              r'(?P<post>.*?$)'), re.I),
+            replace=r'\g<ws>\g<pre>\g<post>', postprocess=reinsert_convert_endian),
+
+        # Replace NEWUNIT argument in OPEN calls
+        'OPEN_NEWUNIT': PPRule(
+            match=re.compile((r'(?P<ws>^\s*)(?P<open>OPEN\s*\()(?P<args1>.*?)(?P<delim>,)?'
+                              r'(?P<newunit_key>,?\s*NEWUNIT=)(?P<newunit_val>.*?(?=,|\)|&))'
+                              r'(?P<args2>.*?$)'), re.I),
+            replace=lambda m: '{ws}{op}{unit}{delim}{args1}{args2}'.format(
+                ws=m['ws'], op=m['open'], unit=m['newunit_val'], delim=m['delim'] or '',
+                args1=m['args1'], args2=m['args2']),
+            postprocess=reinsert_open_newunit),
     }
 }

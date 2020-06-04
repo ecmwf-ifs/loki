@@ -838,11 +838,7 @@ end subroutine routine_pp_directives
     filepath.unlink()
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_convert_endian(here, frontend):
     pre = """
 SUBROUTINE ROUTINE_CONVERT_ENDIAN()
@@ -853,14 +849,15 @@ SUBROUTINE ROUTINE_CONVERT_ENDIAN()
 IUNIT = 61
 OPEN(IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", CONVERT='BIG_ENDIAN')
 IUNIT = 62
-OPEN(IUNIT, FILE=TRIM(CL_CFILE), CONVERT="LITTLE_ENDIAN", FORM="UNFORMATTED")
+OPEN(IUNIT, FILE=TRIM(CL_CFILE), CONVERT="LITTLE_ENDIAN", &
+  & FORM="UNFORMATTED")
 """
     post = """
 END SUBROUTINE ROUTINE_CONVERT_ENDIAN
 """
     fcode = pre + body + post
 
-    filepath = here/'routine_convert_endian.F90'
+    filepath = here/('routine_convert_endian_%s.F90' % frontend)
     SourceFile.to_file(fcode, filepath)
     routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
 
@@ -868,6 +865,41 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
         # F... OMNI
         body = body.replace('OPEN(IUNIT', 'OPEN(UNIT=IUNIT')
         body = body.replace('"', "'")
+        body = body.replace('&\n  & ', '')
+    # TODO: This is hacky as the fgen backend is still pretty much WIP
+    assert fgen(routine.body).upper().strip() == body.strip()
+    clean_preprocessing(filepath, frontend)
+    filepath.unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_open_newunit(here, frontend):
+    pre = """
+SUBROUTINE ROUTINE_OPEN_NEWUNIT()
+  INTEGER :: IUNIT
+  CHARACTER(LEN=100) :: CL_CFILE
+"""
+    body = """
+OPEN(NEWUNIT=IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED")
+OPEN(FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", NEWUNIT=IUNIT)
+OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT, &
+  & FORM="UNFORMATTED")
+OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT&
+  & , FORM="UNFORMATTED")
+"""
+    post = """
+END SUBROUTINE ROUTINE_OPEN_NEWUNIT
+"""
+    fcode = pre + body + post
+
+    filepath = here/('routine_open_newunit_%s.F90' % frontend)
+    SourceFile.to_file(fcode, filepath)
+    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
+
+    if frontend == OMNI:
+        # F... OMNI
+        body = body.replace('"', "'")
+        body = body.replace('&\n  & ', '')
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
     clean_preprocessing(filepath, frontend)
