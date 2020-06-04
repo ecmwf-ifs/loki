@@ -6,7 +6,7 @@ from loki import (
     Subroutine, Loop, Statement, Conditional,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, ExpressionRetriever, retrieve_expressions)
+    ExpressionCallbackMapper, retrieve_expressions)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

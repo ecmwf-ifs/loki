@@ -10,7 +10,7 @@ from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface
 )
-from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
+from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
 from loki.types import TypeTable

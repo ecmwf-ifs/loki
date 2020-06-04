@@ -1,5 +1,5 @@
-import pytest
 from pathlib import Path
+import pytest
 
 from loki import OFP, OMNI, FP, SourceFile, CallStatement, Import
 from loki.transform import Transformation, DependencyTransformation
@@ -287,7 +287,7 @@ END SUBROUTINE kernel
     FP,
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='C-imports need pre-processing for OMNI')),
 ])
-def test_dependency_transformation_module_wrap(here, frontend):
+def test_dependency_transformation_module_wrap(frontend):
     """
     Test injection of suffixed kernels into unchanged driver
     routines automatic module wrapping of the kernel.

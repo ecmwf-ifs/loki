@@ -131,7 +131,7 @@ class DependencyTransformation(Transformation):
                     if self.mode == 'strict':
                         # Modify the the basename of the C-style header import
                         im._update(module='{}{}.{}'.format(target_symbol, self.suffix,
-                                                          '.'.join(im.module.split('.')[1:])))
+                                                           '.'.join(im.module.split('.')[1:])))
 
                     else:
                         # Create a new module import with explicitly qualified symbol
