@@ -327,8 +327,8 @@ class Declaration(Node):
 
     _traversable = ['variables', 'dimensions']
 
-    def __init__(self, variables, dimensions=None, comment=None,
-                 pragma=None, source=None):
+    def __init__(self, variables, dimensions=None, external=False,
+                 comment=None, pragma=None, source=None):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
@@ -339,6 +339,7 @@ class Declaration(Node):
 
         self.variables = as_tuple(variables)
         self.dimensions = as_tuple(dimensions) if dimensions else None
+        self.external = external
 
         self.comment = comment
         self.pragma = pragma

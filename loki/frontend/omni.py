@@ -191,13 +191,22 @@ class OMNI2IR(GenericVisitor):
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
 
-        # Hack: For some £$%^ reason, OMNI inserts the function name as a varDecl...
-        if hasattr(self.scope, 'name') and self.scope.name == name.text:
-            return None
-
+        external = False
         if name.attrib['type'] in self.type_map:
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast)
+
+            if _type is None:
+                if tast.attrib['return_type'] == 'Fvoid':
+                    dtype = DataType.DEFERRED
+                else:
+                    t = self._omni_types[tast.attrib['return_type']]
+                    dtype = DataType.from_fortran_type(t)
+                _type = SymbolType(dtype)
+
+            if tast.attrib.get('is_external') == 'true':
+                # This is an external declaration
+                external = True
 
             # If the type definition comes back as deferred, carry out the definition here
             # (this is due to not knowing to which variable instance the type definition
@@ -224,9 +233,11 @@ class OMNI2IR(GenericVisitor):
             _type.shape = dimensions
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
+        if external:
+            _type.external = external
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
                                 initial=value, scope=self.scope.symbols, source=source)
-        return ir.Declaration(variables=as_tuple(variable), source=source)
+        return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
@@ -387,7 +398,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_Var(self, o, **kwargs):
         vname = o.text
-        t = o.attrib['type']
+        t = o.attrib.get('type')
 
         source = kwargs.get('source', None)
         dimensions = kwargs.get('dimensions', None)

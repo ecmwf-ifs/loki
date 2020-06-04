@@ -188,6 +188,7 @@ class FParser2IR(GenericVisitor):
         # Careful! Mind the many ways in which this can get called with
         # outside information (either in kwargs or maps stored on self).
         dimensions = kwargs.get('dimensions', None)
+        external = kwargs.get('external', None)
         dtype = kwargs.get('dtype', None)
         parent = kwargs.get('parent', None)
         shape = kwargs.get('shape', None)
@@ -216,6 +217,11 @@ class FParser2IR(GenericVisitor):
 
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
+
+        if external:
+            if dtype is None:
+                dtype = SymbolType(DataType.DEFERRED)
+            dtype.external = external
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
                             parent=parent, initial=initial, source=source)
@@ -472,6 +478,21 @@ class FParser2IR(GenericVisitor):
         # Recurse down to visit_Name
         return self.visit(o.items[0], **kwargs)
 
+    def visit_Structure_Constructor(self, o, **kwargs):
+        # TODO: fparser wrongfully parses calls to functions without arguments as this type.
+        # This means this routine also produces inline calls for actual inline calls...
+        name = get_child(o, Fortran2003.Type_Name).tostr()
+        component_specs = get_child(o, Fortran2003.Component_Spec_List)  # pylint: disable=no-member
+        if component_specs:
+            args = as_tuple(self.visit(component_specs, **kwargs))
+            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
+            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
+        else:
+            arguments = None
+            kwarguments = None
+        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+                              source=kwargs.get('source'))
+
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
@@ -506,7 +527,7 @@ class FParser2IR(GenericVisitor):
         else:
             dimensions = None
 
-        # First, pick out parameters, including explicit DIMENSIONs
+        # First, pick out parameters, including explicit DIMENSIONs and EXTERNAL
         attrs = as_tuple(str(self.visit(a)).lower().strip()
                          for a in walk(o.items, (
                              Fortran2003.Attr_Spec, Fortran2003.Component_Attr_Spec,
@@ -518,6 +539,8 @@ class FParser2IR(GenericVisitor):
             intent = 'inout'
         elif 'intent(out)' in attrs:
             intent = 'out'
+
+        external = 'external' in attrs
 
         # Next, figure out the type we're declaring
         dtype = None
@@ -554,9 +577,16 @@ class FParser2IR(GenericVisitor):
         # Now create the actual variables declared in this statement
         # (and provide them with the type and dimension information)
         kwargs['dimensions'] = dimensions
+        kwargs['external'] = external
         kwargs['dtype'] = dtype
         variables = as_tuple(self.visit(o.items[2], **kwargs))
-        return ir.Declaration(variables=variables, dimensions=dimensions, source=source)
+        return ir.Declaration(variables=variables, dimensions=dimensions, external=external, source=source)
+
+    def visit_External_Stmt(self, o, **kwargs):
+        # pylint: disable=no-member
+        kwargs['external'] = True
+        variables = as_tuple(self.visit(get_child(o, Fortran2003.External_Name_List), **kwargs))
+        return ir.Declaration(variables=variables, external=True, source=kwargs.get('source'))
 
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Fortran2003.Derived_Type_Stmt).items[1].tostr().lower()
@@ -836,7 +866,6 @@ class FParser2IR(GenericVisitor):
     visit_Final_Binding = visit_Intrinsic_Stmt
     visit_Procedure_Stmt = visit_Intrinsic_Stmt
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
-    visit_External_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt
 

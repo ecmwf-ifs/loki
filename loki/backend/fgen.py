@@ -232,6 +232,12 @@ class FortranCodegen(Visitor):
             dimensions = ''
         else:
             dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
+        if o.external:
+            external = 'EXTERNAL'
+            if dtype:
+                external = ', ' + external
+        else:
+            external = ''
         variables = []
         for v in o.variables:
             # This is a bit dubious, but necessary, as we otherwise pick up
@@ -244,7 +250,7 @@ class FortranCodegen(Visitor):
                 stmt = stmt.replace(' = ', ' => ')
             variables += [stmt]
         variables = self.segment(variables)
-        return self.indent + '%s%s :: %s' % (dtype, dimensions, variables) + comment
+        return self.indent + '%s%s%s :: %s' % (dtype, dimensions, external, variables) + comment
 
     def visit_DataDeclaration(self, o, **kwargs):
         values = self.segment([str(v) for v in o.values], chunking=8)
@@ -394,7 +400,7 @@ class FortranCodegen(Visitor):
         else:
             type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
                         DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
-                        DataType.COMPLEX: 'COMPLEX'}
+                        DataType.COMPLEX: 'COMPLEX', DataType.DEFERRED: ''}
             tname = type_map[o.dtype]
         return '%s%s%s%s%s%s%s%s%s%s%s' % (
             tname,
