@@ -381,7 +381,7 @@ class FortranCTransformation(Transformation):
 
                 # Add index variable to range replacement
                 new_dims = as_tuple(shape_index_map.get(s, d)
-                                    for d, s in zip(v.dimensions.index_tuple, v.shape))
+                                    for d, s in zip(v.dimensions.index_tuple, as_tuple(v.shape)))
                 vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
 
             index_vars.update(list(vdims))
