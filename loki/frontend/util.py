@@ -153,7 +153,10 @@ def inline_pragmas(ir):
     declaration due to way we parse derived types.
     """
     pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
-    pairs += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
+    # TODO: Generally pragma inlining does not repsect type restriction
+    # (eg. omp do pragas to loops) or "post_pragmas". This needs a deeper
+    # rethink, so diabling the problematic corner case for now.
+    # pairs += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
     pairs += PatternFinder(pattern=(Pragma, Loop)).visit(ir)
     mapper = {}
     for pair in pairs:

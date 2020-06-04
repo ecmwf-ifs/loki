@@ -46,7 +46,7 @@ def parse_omni_file(filename, xmods=None):
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
     """
     filepath = Path(filename)
-    info("[Frontend.OMNI] Parsing %s" % filepath.name)
+    info("[Frontend.OMNI] Parsing %s" % filepath)
 
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
@@ -383,8 +383,12 @@ class OMNI2IR(GenericVisitor):
         if vtype is None and t in self.type_map:
             vtype = self.visit(self.type_map[t])
         if vtype is None:
-            typename = self._omni_types.get(t, t)
-            vtype = SymbolType(DataType.from_fortran_type(typename))
+            if t in self._omni_types:
+                typename = self._omni_types[t]
+                vtype = SymbolType(DataType.from_fortran_type(typename))
+            else:
+                # If we truly cannot determine the type, we defer
+                vtype = SymbolType(DataType.DEFERRED)
 
         if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that

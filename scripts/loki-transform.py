@@ -6,19 +6,16 @@ physics, including "Single Column" (SCA) and CLAW transformations.
 """
 
 from collections import OrderedDict, defaultdict
-from copy import deepcopy
 from pathlib import Path
 import click
-import toml
 
 from loki import (
-    SourceFile, Transformer, TaskScheduler,
-    FindNodes, FindVariables, SubstituteExpressions,
-    info, as_tuple, Loop, Variable,
-    Array, CallStatement, Pragma, DataType,
-    SymbolType, Import, RangeIndex, ArraySubscript, LoopRange,
-    AbstractTransformation, BasicTransformation, FortranCTransformation,
-    Frontend, OMNI, OFP, fgen, SubstituteExpressionsMapper
+    SourceFile, Transformer, FindNodes, FindVariables,
+    SubstituteExpressions, as_tuple, Loop, Variable, Array,
+    CallStatement, Pragma, DataType, SymbolType, RangeIndex,
+    ArraySubscript, LoopRange, Transformation,
+    DependencyTransformation, FortranCTransformation, Frontend, OMNI,
+    OFP, fgen, SubstituteExpressionsMapper
 )
 
 
@@ -33,7 +30,7 @@ def get_typedefs(typedef, xmods=None, frontend=OFP):
     return definitions
 
 
-class DerivedArgsTransformation(AbstractTransformation):
+class DerivedArgsTransformation(Transformation):
     """
     Pipeline to remove derived types from subroutine signatures by replacing
     the relevant derived arguments with the sub-variables used in the called
@@ -45,15 +42,16 @@ class DerivedArgsTransformation(AbstractTransformation):
     depend on the accurate signatures and call arguments.
     """
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, routine, **kwargs):
         # Determine role in bulk-processing use case
         task = kwargs.get('task', None)
-        role = 'kernel' if task is None else task.config['role']
+        role = kwargs.get('role') if task is None else task.config['role']
 
         # Apply argument transformation, caller first!
-        self.flatten_derived_args_caller(source)
+        self.flatten_derived_args_caller(routine)
         if role == 'kernel':
-            self.flatten_derived_args_routine(source)
+            self.flatten_derived_args_routine(routine)
+
 
     @staticmethod
     def _derived_type_arguments(routine):
@@ -208,6 +206,7 @@ class Dimension:
         # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
         iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
         iteration += ['1:%s' % self.name]
+        iteration += ['1:%s' % alias for alias in self.aliases]
         return [self.name] + self.aliases + iteration
 
     @property
@@ -222,7 +221,7 @@ class Dimension:
         return [self.variable] + i_range
 
 
-class SCATransformation(AbstractTransformation):
+class SCATransformation(Transformation):
     """
     Pipeline to transform kernel into SCA format and insert CLAW directives.
 
@@ -232,19 +231,19 @@ class SCATransformation(AbstractTransformation):
     def __init__(self, dimension):
         self.dimension = dimension
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, routine, **kwargs):
         task = kwargs.get('task', None)
         role = kwargs['role'] if task is None else task.config['role']
 
         if role == 'driver':
-            self.hoist_dimension_from_call(source, target=self.dimension, wrap=True)
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
 
         elif role == 'kernel':
-            self.hoist_dimension_from_call(source, target=self.dimension, wrap=False)
-            self.remove_dimension(source, target=self.dimension)
+            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
+            self.remove_dimension(routine, target=self.dimension)
 
-        if source.members is not None:
-            for member in source.members:
+        if routine.members is not None:
+            for member in routine.members:
                 self.apply(member, **kwargs)
 
     @staticmethod
@@ -393,13 +392,13 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
         if str(loop.variable).upper() == target.variable:
-            pragma = Pragma(keyword='claw', content='parallelize forward create update')
+            pragma = Pragma(keyword='claw', content='sca forward create update')
             loop._update(pragma=pragma)
 
     # Generate CLAW directives and insert into routine spec
     segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
-                  Pragma(keyword='claw', content='parallelize &'),
+                  Pragma(keyword='claw', content='sca &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
     routine.spec.append(directives)
 
@@ -423,7 +422,7 @@ def cli():
 
 @cli.command('idem')
 @click.option('--out-path', '-out', type=click.Path(),
-              help='Path for generated souce files.')
+              help='Path for generated source files.')
 @click.option('--source', '-s', type=click.Path(),
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
@@ -444,35 +443,33 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)['cloudsc_driver']
-    driver.enrich_calls(routines=routine)
+                                  frontend=frontend, builddir=out_path)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path/routine.name.lower()).with_suffix('.idem.F90')
-    driver_out = (out_path/driver.name.lower()).with_suffix('.idem.F90')
-
-    class IdemTransformation(BasicTransformation):
+    class IdemTransformation(Transformation):
         """
-        Here we define a custom transformation pipeline to re-generate
-        separate kernel and driver versions, adding some optional changes
-        like derived-type argument removal or an experimental low-level
-        OpenMP wrapping.
+        Define a custom transformation pipeline that optionally inserts
+        experimental OpenMP pragmas for horizontal loops.
         """
 
-        def _pipeline(self, source, **kwargs):
+        def transform_subroutine(self, routine, **kwargs):
             # Define the horizontal dimension
             horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                                    variable='JL', iteration=('KIDIA', 'KFDIA'))
 
             if openmp:
                 # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(source.body):
+                for loop in FindNodes(Loop).visit(routine.body):
                     if loop.variable == horizontal.variable:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
@@ -480,26 +477,25 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
                                                content='end do simd nowait')
                         loop._update(pragma=pragma, pragma_post=pragma_nowait)
 
-            # Perform necessary housekeeking tasks
-            self.rename_routine(source, suffix='IDEM')
-            self.write_to_file(source, **kwargs)
-
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
         # Caller must go first, as it needs info from routine
-        DerivedArgsTransformation().apply(driver)
-        DerivedArgsTransformation().apply(routine)
+        driver.apply(DerivedArgsTransformation(), role='driver')
+        kernel.apply(DerivedArgsTransformation(), role='kernel')
 
-    # Now we instantiate our pipeline and apply the changes
-    transformation = IdemTransformation()
-    transformation.apply(routine, filename=source_out)
+    # Now we instantiate our pipeline and apply the "idempotence" changes
+    kernel.apply(IdemTransformation())
+    driver.apply(IdemTransformation())
 
-    # Insert new module import into the driver and re-generate
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
-                               symbols=[routine.name.upper()]))
-    transformation.rename_calls(driver, suffix='IDEM')
-    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
+
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.idem.F90').name)
 
 
 @cli.command()
@@ -529,55 +525,53 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     Optionally, this can also insert CLAW directives that may be use
     for further downstream transformations.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
+
     frontend = Frontend[frontend.upper()]
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                   frontend=frontend, typedefs=typedefs)['cloudsc']
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend)['cloudsc_driver']
-    driver.enrich_calls(routines=routine)
-
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path/routine.name.lower()).with_suffix('.%s.F90' % mode)
-    driver_out = (out_path/driver.name.lower()).with_suffix('.%s.F90' % mode)
+                                  frontend=frontend, builddir=out_path)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
     if mode == 'claw':
-        claw_scalars = [v.name.lower() for v in routine.variables
+        claw_scalars = [v.name.lower() for v in kernel[kernel_name].variables
                         if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
 
-    # Debug addition: detect calls to `ref_save` and replace with `ref_error`
-    for call in FindNodes(CallStatement).visit(routine.body):
-        if call.name.lower() == 'ref_save':
-            call.name = 'ref_error'
-
     # First, remove all derived-type arguments; caller first!
-    DerivedArgsTransformation().apply(driver)
-    DerivedArgsTransformation().apply(routine)
+    driver.apply(DerivedArgsTransformation(), role='driver')
+    kernel.apply(DerivedArgsTransformation(), role='kernel')
 
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                            variable='JL', iteration=('KIDIA', 'KFDIA'))
 
     # Now we instantiate our SCA pipeline and apply the changes
-    transformation = SCATransformation(dimension=horizontal)
-    transformation.apply(driver, role='driver', filename=driver_out)
-    transformation.apply(routine, role='kernel', filename=source_out)
+    sca_transform = SCATransformation(dimension=horizontal)
+    driver.apply(sca_transform, role='driver')
+    kernel.apply(sca_transform, role='kernel')
 
     if mode == 'claw':
-        insert_claw_directives(routine, driver, claw_scalars, target=horizontal)
+        insert_claw_directives(kernel[kernel_name], driver[driver_name],
+                               claw_scalars, target=horizontal)
 
     if strip_omp_do:
-        remove_omp_do(driver)
+        remove_omp_do(driver[driver_name])
 
-    # And finally apply the necessary housekeeping changes
-    BasicTransformation().apply(routine, suffix=mode.upper(), filename=source_out)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
+                                          mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.%s.F90' % mode).name)
 
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_MOD' % routine.name.upper(),
-                               symbols=[routine.name.upper()]))
-    BasicTransformation().rename_calls(driver, suffix=mode.upper())
-    BasicTransformation().write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.%s.F90' % mode).name)
 
 
 @cli.command()
@@ -597,24 +591,22 @@ def transpile(out_path, header, source, driver, xmod, include):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
+    driver_name = 'CLOUDSC_DRIVER'
+    kernel_name = 'CLOUDSC'
 
     # Parse original driver and kernel routine, and enrich the driver
     typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
-    routine = SourceFile.from_file(source, typedefs=typedefs, xmods=xmod,
-                                   includes=include, frontend=OMNI).subroutines[0]
+    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+                                  frontend=OMNI, typedefs=typedefs,
+                                  builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=OMNI).subroutines[0]
-    driver.enrich_calls(routines=routine)
+                                  frontend=OMNI, builddir=out_path)
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
-    # Prepare output paths
-    out_path = Path(out_path)
-    source_out = (out_path / routine.name.lower()).with_suffix('.c.F90')
-    driver_out = (out_path / driver.name.lower()).with_suffix('.c.F90')
-
-    # Unroll derived-type arguments into multiple arguments
-    # Caller must go first, as it needs info from routine
-    DerivedArgsTransformation().apply(driver)
-    DerivedArgsTransformation().apply(routine)
+    # First, remove all derived-type arguments; caller first!
+    driver.apply(DerivedArgsTransformation(), role='driver')
+    kernel.apply(DerivedArgsTransformation(), role='kernel')
 
     typepaths = [Path(h) for h in header]
     typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
@@ -623,23 +615,26 @@ def transpile(out_path, header, source, driver, xmod, include):
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation(header_modules=typemods)
-    transformation.apply(routine, filename=source_out, path=out_path)
+    transformation.apply(kernel, path=out_path)
 
-    # Insert new module import into the driver and re-generate
-    # TODO: Needs internalising into `BasicTransformation.module_wrap()`
-    driver.spec.prepend(Import(module='%s_fc_mod' % routine.name,
-                               symbols=['%s_fc' % routine.name]))
-    transformation.rename_calls(driver, suffix='fc')
-    transformation.write_to_file(driver, filename=driver_out, module_wrap=False)
+    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
+    kernel.apply(dependency, role='kernel')
+    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.c.F90').name)
+
+    # Re-generate the driver that mimicks the original source file,
+    # but imports and calls our re-generated kernel.
+    driver.apply(dependency, role='driver', targets=kernel_name)
+    driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 
-class InferArgShapeTransformation(AbstractTransformation):
+class InferArgShapeTransformation(Transformation):
     """
     Uses IPA context information to infer the shape of arguments from
     the caller.
     """
 
-    def _pipeline(self, source, **kwargs):
+    def transform_subroutine(self, source, **kwargs):  # pylint: disable=arguments-differ
 
         for call in FindNodes(CallStatement).visit(source.body):
             if call.context is not None and call.context.active:
@@ -674,255 +669,6 @@ class InferArgShapeTransformation(AbstractTransformation):
                         new_shape = vname_map[v.name.lower()].shape
                         vmap_body[v] = v.clone(shape=new_shape)
                 routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
-
-
-class RapsTransformation(BasicTransformation):
-    """
-    Dedicated housekeeping pipeline for dealing with module wrapping
-    and dependency management for RAPS.
-    """
-
-    def __init__(self, raps_deps=None, loki_deps=None, basepath=None):
-        self.raps_deps = raps_deps
-        self.loki_deps = loki_deps
-        self.basepath = basepath
-
-    def _pipeline(self, source, **kwargs):
-        task = kwargs.get('task')
-        mode = task.config['mode']
-        role = task.config['role']
-        # TODO: Need enrichment for Imports to get rid of this!
-        processor = kwargs.get('processor', None)
-
-        info('Processing %s (role=%s, mode=%s)', source.name, role, mode)
-
-        original = source.name
-        if role == 'kernel':
-            self.rename_routine(source, suffix=mode.upper())
-
-        self.rename_calls(source, suffix=mode.upper())
-        self.adjust_imports(source, mode, processor)
-
-        filename = task.path.with_suffix('.%s.F90' % mode)
-        modules = as_tuple(task.file.modules)
-        if len(modules) > 0:
-            # If module imports are used, we inject the mode-specific name
-            assert len(modules) == 1
-            module = modules[0]
-            modname = ''.join(module.name.lower().split('_mod')[:-1]).upper()
-            module.name = ('%s_%s_MOD' % (modname, mode)).upper()
-            self.write_to_file(modules, filename=filename, module_wrap=False)
-        else:
-            self.write_to_file(source, filename=filename, module_wrap=False)
-
-        self.adjust_dependencies(original=original, task=task, processor=processor)
-
-        # Re-generate interfaces and interface blocks after adjusting call signature
-        for incl in processor.includes:
-            # TODO: This header-searching madness should be improved with loki.build!
-            for ending in ['.intfb.h', '.h']:
-                intfb_path = Path(incl)/task.path.with_suffix(ending).name
-                if (intfb_path).exists():
-                    new_intfb_path = Path(incl)/task.path.with_suffix('.%s%s' % (mode, ending)).name
-                    SourceFile.to_file(source=fgen(source.interface), path=Path(new_intfb_path))
-
-    @staticmethod
-    def adjust_imports(routine, mode, processor):
-        """
-        Utility routine to rename all calls to relevant subroutines and
-        adjust the relevant imports.
-        """
-        replacements = {}
-
-        # Update all relevant interface abd module imports
-        # Note: C-style header imports live in routine.body!
-        endings = ['.h', '.intfb', '_mod']
-        for im in FindNodes(Import).visit(routine.ir):
-            modname = im.module.lower()
-            for ending in endings:
-                modname = modname.split(ending)[0]
-
-            if modname in processor.item_map:
-                if im.c_import:
-                    new_modname = im.module.replace(modname, '%s.%s' % (modname, mode))
-                    replacements[im] = im.clone(module=new_modname)
-                else:
-                    # THE DIFFERENCES ARE VERY SUBTLE!
-                    modname = modname.upper()  # Fortran
-                    new_modname = im.module.replace(modname, '%s_%s' % (modname, mode.upper()))
-                    replacements[im] = im.clone(module=new_modname)
-
-        # Insert new declarations and transform existing ones
-        routine.spec = Transformer(replacements).visit(routine.spec)
-        routine.body = Transformer(replacements).visit(routine.body)
-
-    def adjust_dependencies(self, original, task, processor):
-        """
-        Utility routine to generate Loki-specific build dependencies from
-        RAPS-generated dependency files.
-
-        Hack alert: The two dependency files are stashed on the transformation
-        and modified on-the-fly. This is required to get selective replication
-        until we have some smarter dependency generation and globbing support.
-        """
-        from raps_deps import Dependency  # pylint: disable=import-outside-toplevel
-
-        mode = task.config['mode']
-        whitelist = task.config['whitelist']
-        original = original.lower()
-        sourcepath = task.path
-
-        # Adjust the object entry in the dependency file
-        f_path = sourcepath.relative_to(self.basepath)
-        f_mode_path = f_path.with_suffix('.%s.F90' % mode)
-        o_path = f_path.with_suffix('.o')
-        o_mode_path = o_path.with_suffix('.%s.o' % mode)
-
-        # Re-generate dependencies for objects
-        r_deps = deepcopy(self.raps_deps.content_map[str(o_path)])
-        r_deps.replace(str(o_path), str(o_mode_path))
-        r_deps.replace(str(f_path), str(f_mode_path))
-        self.loki_deps.content += [r_deps]
-
-        # Replicate the dependencies for header files
-        for incl in processor.includes:
-            for ending in ['.h', '.intfb.h']:
-                h_path = Path(incl)/('%s%s' % (original, ending))
-                if h_path.exists():
-                    h_path = h_path.relative_to(self.basepath)
-                    ok_path = h_path.with_suffix('.ok')
-
-                    h_deps = deepcopy(self.raps_deps.content_map[str(ok_path)])
-                    h_deps.replace(str(h_path),
-                                   str(h_path).replace(original, '%s.%s' % (original, mode)))
-                    h_deps.replace(str(ok_path),
-                                   str(ok_path).replace(original, '%s.%s' % (original, mode)))
-                    self.loki_deps.content += [h_deps]
-
-        # Run through all previous dependencies and inject
-        # the transformed object/header names
-        for d in self.loki_deps.content:
-            # We're depended on by an auto-generated header
-            if isinstance(d, Dependency) and '%s.intfb.ok' % original in str(d.deps):
-                intfb = d.find('%s.intfb.ok' % original)
-                if intfb is not None:
-                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
-                    d.replace(intfb, intfb_new)
-
-            # We're depended on by an natural header
-            if isinstance(d, Dependency) and '%s.ok' % original in str(d.deps):
-                intfb = d.find('%s.ok' % original)
-                if intfb is not None:
-                    intfb_new = intfb.replace(original, '%s.%s' % (original, mode))
-                    d.replace(intfb, intfb_new)
-
-            if isinstance(d, Dependency) and str(o_path) in d.deps:
-                d.replace(str(o_path), str(o_mode_path))
-
-        # Inject new object into the final binary libs
-        objs_ifsloki = self.loki_deps.content_map['OBJS_ifsloki']
-        if original in whitelist:
-            # Add new dependency inplace, next to the old one
-            objs_ifsloki.append_inplace(str(o_path), str(o_mode_path))
-        elif str(o_path) in objs_ifsloki.objects:
-            # Replace old dependency to avoid ghosting where possible
-            objs_ifsloki.replace(str(o_path), str(o_mode_path))
-        else:
-            objs_ifsloki.objects += [str(o_mode_path)]
-
-
-@cli.command('physics')
-@click.option('--config', '-cfg', type=click.Path(),
-              help='Path to configuration file.')
-@click.option('--basepath', type=click.Path(),
-              help='Basepath of the IFS/RAPS installation directory.')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Path to source files to transform.')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--typedef', '-t', type=click.Path(), multiple=True,
-              help='Path for additional source file(s) containing type definitions')
-@click.option('--raps-dependencies', '-deps', type=click.Path(), default=None,
-              help='Path to RAPS-generated dependency file')
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
-              help='Frontend parser to use (default OFP)')
-@click.option('--callgraph', '-cg', is_flag=True, default=False,
-              help='Generate and display the subroutine callgraph.')
-def physics(config, basepath, source, xmod, include, typedef, raps_dependencies,
-            frontend, callgraph):
-    """
-    Physics bulk-processing option that employs a :class:`TaskScheduler` to apply
-    source-to-source transformations, such as the Single Column Abstraction (SCA),
-    to large sets of interdependent subroutines.
-    """
-    from raps_deps import RapsDependencyFile, Rule  # pylint: disable=import-outside-toplevel
-
-    frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(typedef, xmods=xmod, frontend=OFP)
-
-    # Load configuration file and process options
-    with Path(config).open('r') as f:
-        config = toml.load(f)
-
-    # Convert 'routines' to an ordered dictionary
-    config['routines'] = OrderedDict((r['name'], r) for r in config['routine'])
-
-    # Create and setup the scheduler for bulk-processing
-    scheduler = TaskScheduler(paths=source, config=config, xmods=xmod,
-                              includes=include, typedefs=typedefs,
-                              frontend=frontend)
-    scheduler.append(config['routines'].keys())
-
-    # Add explicitly blacklisted subnodes
-    if 'blacklist' in config['default']:
-        scheduler.blacklist += [b.upper() for b in config['default']['blacklist']]
-    for opts in config['routines'].values():
-        if 'blacklist' in opts:
-            scheduler.blacklist += [b.upper() for b in opts['blacklist']]
-
-    scheduler.populate()
-
-    raps_deps = None
-    loki_deps = None
-    if raps_dependencies:
-        # Load RAPS dependency file for injection into the build system
-        raps_deps = RapsDependencyFile.from_file(raps_dependencies)
-
-        # Create new deps file with lib dependencies and a build rule
-        objs_ifsloki = deepcopy(raps_deps.content_map['OBJS_ifs'])
-        objs_ifsloki.target = 'OBJS_ifsloki'
-        rule_ifsloki = Rule(target='$(BMDIR)/libifsloki.a', deps=['$(OBJS_ifsloki)'],
-                            cmds=['/bin/rm -f $@', 'ar -cr $@ $^', 'ranlib $@'])
-        loki_deps = RapsDependencyFile(content=[objs_ifsloki, rule_ifsloki])
-
-    # Create the RapsTransformation to manage dependency injection
-    raps_transform = RapsTransformation(raps_deps, loki_deps, basepath=basepath)
-
-    mode = config['default']['mode']
-    if mode == 'sca':
-        # Define the target dimension to strip from kernel and caller
-        horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
-                               variable='JL', iteration=('KIDIA', 'KFDIA'))
-
-        # First, remove derived-type arguments
-        scheduler.process(transformation=DerivedArgsTransformation())
-        # Backward insert argument shapes (for surface routines)
-        scheduler.process(transformation=InferArgShapeTransformation())
-        # And finally, remove the horizontal dimension
-        scheduler.process(transformation=SCATransformation(dimension=horizontal))
-
-    # Finalize by applying the RapsTransformation
-    scheduler.process(transformation=raps_transform)
-    if raps_dependencies:
-        # Write new mode-specific dependency rules file
-        loki_config_path = raps_deps.path.with_suffix('.loki.def')
-        raps_transform.loki_deps.write(path=loki_config_path)
-
-    # Output the resulting callgraph
-    if callgraph:
-        scheduler.graph.render('callgraph', view=False)
 
 
 if __name__ == "__main__":

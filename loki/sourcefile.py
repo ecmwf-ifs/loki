@@ -46,9 +46,10 @@ class SourceFile:
 
     @classmethod
     def from_file(cls, filename, preprocess=False, typedefs=None,
-                  xmods=None, includes=None, frontend=OFP):
+                  xmods=None, includes=None, builddir=None, frontend=OFP):
         if frontend == OMNI:
-            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods, includes=includes)
+            return cls.from_omni(filename, typedefs=typedefs, xmods=xmods,
+                                 includes=includes, builddir=builddir)
         if frontend == OFP:
             return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
         if frontend == FP:
@@ -56,13 +57,16 @@ class SourceFile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None, includes=None):
+    def from_omni(cls, filename, preprocess=False, typedefs=None, xmods=None,
+                  includes=None, builddir=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
         filepath = Path(filename)
         pppath = Path(filename).with_suffix('.omni%s' % filepath.suffix)
+        if builddir is not None:
+            pppath = Path(builddir)/pppath.name
 
         preprocess_omni(filename, pppath, includes=includes)
 
@@ -89,7 +93,7 @@ class SourceFile:
                                          typetable=typetable, parent=obj) for ast in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
-        modules = [Module.from_omni(ast=ast, raw_source=raw_source,
+        modules = [Module.from_omni(ast=ast, typedefs=typedefs, raw_source=raw_source,
                                     typetable=typetable, parent=obj) for ast in ast_m]
 
         obj.__init__(path=path, routines=routines, modules=modules, ast=ast,
@@ -260,7 +264,7 @@ class SourceFile:
 
     @property
     def source(self):
-        content = self.modules + self.subroutines
+        content = as_tuple(self.modules) + as_tuple(self.subroutines)
         return '\n\n'.join(fgen(s) for s in content)
 
     @property
@@ -288,14 +292,24 @@ class SourceFile:
 
         return None
 
-    def write(self, source=None, filename=None):
+    def apply(self, op, **kwargs):
+        """
+        Apply a given transformation to the source file object.
+
+        Note that the dispatch routine `op.apply(source)` will ensure
+        that all entities of this `SourceFile` are correctly traversed.
+        """
+        # TODO: Should type-check for an `Operation` object here
+        op.apply(self, **kwargs)
+
+    def write(self, path=None, source=None):
         """
         Write content to file
 
+        :param path: Optional filepath; if not provided, `self.path` is used
         :param source: Optional source string; if not provided `self.source` is used
-        :param filename: Optional filename; if not provided, `self.name` is used
         """
-        path = Path(filename or self.path)
+        path = self.path if path is None else Path(path)
         source = self.source if source is None else source
         self.to_file(source=source, path=path)
 

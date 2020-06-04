@@ -6,24 +6,17 @@ from loki.frontend import Frontend
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
-from loki.ir import (Declaration, Allocation, Import, Section, CallStatement,
-                     CallContext, Intrinsic)
-from loki.expression import FindVariables, Array, Scalar, SubstituteExpressions
+from loki.ir import (
+    Declaration, Allocation, Import, Section, CallStatement,
+    CallContext, Intrinsic, Interface
+)
+from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
 from loki.types import TypeTable
 
 
 __all__ = ['Subroutine']
-
-
-class InterfaceBlock:
-
-    def __init__(self, name, arguments, imports, declarations):
-        self.name = name
-        self.arguments = arguments
-        self.imports = imports
-        self.declarations = declarations
 
 
 class Subroutine:
@@ -66,7 +59,7 @@ class Subroutine:
         self.docstring = docstring
         self.spec = spec
         self.body = body
-        self.members = members
+        self._members = members
 
         self.bind = bind
         self.is_function = is_function
@@ -178,7 +171,8 @@ class Subroutine:
         name = name or ast.find('name').text
         # file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
-        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
+        symbol_map = symbol_map or {}
+        symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
 
         # Check if it is a function or a subroutine. There may be a better way to do
         # this but OMNI does not seem to make it obvious, thus checking the return type
@@ -397,6 +391,13 @@ class Subroutine:
         return (self.docstring, self.spec, self.body)
 
     @property
+    def members(self):
+        """
+        Tuple of member function defined in this `Subroutine`.
+        """
+        return as_tuple(self._members)
+
+    @property
     def argnames(self):
         return [a.name for a in self.arguments]
 
@@ -409,39 +410,24 @@ class Subroutine:
 
     @property
     def interface(self):
-        arguments = self.arguments
-        declarations = tuple(d for d in FindNodes(Declaration).visit(self.spec)
-                             if any(v in arguments for v in d.variables))
+        """
+        Interface object that defines the `Subroutine` signature in header files.
+        """
+        arg_names = [arg.name for arg in self.arguments]
 
-        # Collect unknown symbols that we might need to import
-        undefined = set()
-        anames = [a.name for a in arguments]
-        for decl in declarations:
-            # Add potentially unkown TYPE and KIND symbols to 'undefined'
-            # if decl.type.name.upper() not in BaseType._base_types:
-            #    undefined.add(decl.type.name)
-            if decl.type.name.upper():
-                # Nonsense-if to fool pylint
-                raise NotImplementedError()
-            if decl.type.kind and not decl.type.kind.isdigit():
-                undefined.add(decl.type.kind)
-            # Add (pure) variable dimensions that might be defined elsewhere
-            for v in decl.variables:
-                if isinstance(v, Array):
-                    undefined.update([str(d) for d in v.dimensions
-                                      if isinstance(d, Scalar) and d not in anames])
-
-        # Create a sub-list of imports based on undefined symbols
-        imports = []
-        for use in FindNodes(Import).visit(self.spec):
-            symbols = tuple(s for s in use.symbols if s in undefined)
-            if not use.c_import and len(as_tuple(use.symbols)) > 0:
-                # TODO: Check that only modules defining derived types
-                # are included here.
-                imports += [Import(module=use.module, symbols=symbols)]
-
-        return InterfaceBlock(name=self.name, imports=imports,
-                              arguments=arguments, declarations=declarations)
+        # Remove all local variable declarations from interface routine spec
+        # and duplicate all argument symbols within a new subroutine scope
+        routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
+        decl_map = {}
+        for decl in FindNodes(Declaration).visit(self.spec):
+            if all(v.name in arg_names for v in decl.variables):
+                # Replicate declaration with re-scoped variables
+                variables = as_tuple(v.clone(scope=routine.symbols) for v in decl.variables)
+                decl_map[decl] = decl.clone(variables=variables)
+            else:
+                decl_map[decl] = None  # Remove local variable declarations
+        routine.spec = Transformer(decl_map).visit(self.spec)
+        return Interface(body=(routine,))
 
     @property
     def parent(self):
@@ -449,3 +435,13 @@ class Subroutine:
         Access the enclosing scope.
         """
         return self._parent() if self._parent is not None else None
+
+    def apply(self, op, **kwargs):
+        """
+        Apply a given transformation to the source file object.
+
+        Note that the dispatch routine `op.apply(source)` will ensure
+        that all entities of this `SourceFile` are correctly traversed.
+        """
+        # TODO: Should type-check for an `Operation` object here
+        op.apply(self, **kwargs)

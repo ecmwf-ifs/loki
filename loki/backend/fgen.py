@@ -192,11 +192,11 @@ class FortranCodegen(Visitor):
         header = '%s %s%s%s\n' % (ftype, o.name, argument, bind_c)
         self._depth += 1
         docstring = '%s\n\n' % self.visit(o.docstring, **kwargs) if o.docstring else ''
-        spec = '%s\n\n' % self.visit(o.spec, **kwargs) if o.spec else ''
+        spec = '%s\n' % self.visit(o.spec, **kwargs) if o.spec else ''
         body = self.visit(o.body, **kwargs) if o.body else ''
         self._depth -= 1
         footer = '\n%sEND %s %s\n' % (self.indent, ftype, o.name)
-        if o.members is not None:
+        if o.members:
             members = '\n\n'.join(self.visit(s, **kwargs) for s in o.members)
             contains = '\nCONTAINS\n\n'
         else:

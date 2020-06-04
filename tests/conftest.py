@@ -26,11 +26,11 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
             routine.name += '_%s' % frontend
             for call in FindNodes(CallStatement).visit(routine.body):
                 call.name += '_%s' % frontend
-        source.write(source=fgen(module), filename=testname)
+        source.write(path=testname, source=fgen(module))
     else:
         routine = [r for r in source.subroutines if r.name == routinename][0]
         routine.name += '_%s' % frontend
-        source.write(source=fgen(routine), filename=testname)
+        source.write(path=testname, source=fgen(routine))
 
     pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
 
@@ -47,14 +47,14 @@ def jit_compile(source, filepath=None, objname=None):
     """
     if isinstance(source, SourceFile):
         filepath = source.filepath if filepath is None else Path(filepath)
-        source.write(filename=filepath)
+        source.write(path=filepath)
     else:
         source = fgen(source)
         if filepath is None:
             filepath = gettempdir()/filehash(source, prefix='', suffix='.f90')
         else:
             filepath = Path(filepath)
-        SourceFile(filepath).write(source)
+        SourceFile(filepath).write(source=source)
 
     pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True)
 
