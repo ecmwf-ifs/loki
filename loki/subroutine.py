@@ -416,13 +416,17 @@ class Subroutine:
         arg_names = [arg.name for arg in self.arguments]
 
         # Remove all local variable declarations from interface routine spec
-        decl_map = {decl: None
-                    for decl in FindNodes(Declaration).visit(self.spec)
-                    if not all(v.name in arg_names for v in decl.variables)}
-        spec = Transformer(decl_map).visit(self.spec)
-
-        # Create the "interface routine" with all but declarations stripped
-        routine = Subroutine(name=self.name, args=arg_names, spec=spec, body=None)
+        # and duplicate all argument symbols within a new subroutine scope
+        routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
+        decl_map = {}
+        for decl in FindNodes(Declaration).visit(self.spec):
+            if all(v.name in arg_names for v in decl.variables):
+                # Replicate declaration with re-scoped variables
+                variables = as_tuple(v.clone(scope=routine.symbols) for v in decl.variables)
+                decl_map[decl] = decl.clone(variables=variables)
+            else:
+                decl_map[decl] = None  # Remove local variable declarations
+        routine.spec = Transformer(decl_map).visit(self.spec)
         return Interface(body=(routine,))
 
     @property
