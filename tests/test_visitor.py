@@ -376,43 +376,43 @@ MODULE some_mod
 END MODULE some_mod
     """.strip()
     ref = """
-<Module some_mod>
-#<Section>
-##<Declaration n>
-#<Subroutine some_routine>
+<Module:: some_mod>
+#<Section::>
+##<Declaration:: n>
+#<Subroutine:: some_routine>
 ##<Comment:: ! This is a b...>
-##<Section>
+##<Section::>
 ###<Intrinsic:: IMPLICIT NONE>
-###<Declaration x>
-###<Declaration y>
-###<Declaration i>
-##<Section>
+###<Declaration:: x>
+###<Declaration:: y>
+###<Declaration:: i>
+##<Section::>
 ###<Comment:: ! And now to ...>
-###<Conditional>
+###<Conditional::>
 ####<If x < 1E-8 and x > -1E-8>
 #####<Stmt:: x = 0.>
 ####<ElseIf x > 0.>
-#####<WhileLoop x > 1.>
+#####<WhileLoop:: x > 1.>
 ######<Stmt:: x = x / 2.>
 ####<Else>
 #####<Stmt:: x = -x>
 ###<Stmt:: y = 0>
-###<Loop i=1:n>
+###<Loop:: i=1:n>
 ####<Stmt:: y = y + x*x>
 ###<Stmt:: y = my_sqrt(y)>
-#<Function my_sqrt>
-##<Section>
+#<Function:: my_sqrt>
+##<Section::>
 ###<Intrinsic:: IMPLICIT NONE>
-###<Declaration arg>
-###<Declaration my_sqrt>
-##<Section>
+###<Declaration:: arg>
+###<Declaration:: my_sqrt>
+##<Section::>
 ###<Stmt:: my_sqrt = SQRT(arg)>
     """.strip()
 
     if frontend == OMNI:
         ref_lines = ref.splitlines()
         # Replace ElseIf branch by nested if
-        ref_lines = ref_lines[:15] + ['####<Else>', '#####<Conditional>'] + ref_lines[15:]  # Insert Conditional
+        ref_lines = ref_lines[:15] + ['####<Else>', '#####<Conditional::>'] + ref_lines[15:]  # Insert Conditional
         ref_lines[17] = ref_lines[17].replace('Else', '')  # ElseIf -> If
         ref_lines[17:22] = ['##' + line for line in ref_lines[17:22]]  # -> Indent
         # Some string inconsistencies

@@ -120,6 +120,9 @@ class Pragma(Node):
         self.keyword = keyword
         self.content = content
 
+    def __repr__(self):
+        return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
+
 
 class Loop(Node):
     """
@@ -151,6 +154,11 @@ class Loop(Node):
         # Note: Needs to be one tuple per `traversable`
         return tuple((self.variable,) + (self.bounds,) + (self.body,))
 
+    def __repr__(self):
+        label = ' {}'.format(self.label) if self.label else ''
+        control = '{}={}'.format(str(self.variable), str(self.bounds))
+        return 'Loop::{} {}'.format(label, control)
+
 
 class WhileLoop(Node):
     """
@@ -181,6 +189,11 @@ class WhileLoop(Node):
         # Note: Needs to be one tuple per `traversable`
         return tuple((self.condition,) + (self.body,))
 
+    def __repr__(self):
+        label = ' {}'.format(self.label) if self.label else ''
+        control = str(self.condition) if self.condition else ''
+        return 'WhileLoop::{} {}'.format(label, control)
+
 
 class Conditional(Node):
     """
@@ -204,6 +217,9 @@ class Conditional(Node):
     def children(self):
         # Note that we currently ignore the condition itself
         return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
+
+    def __repr__(self):
+        return 'Conditional::'
 
 
 class MultiConditional(Node):
@@ -332,8 +348,6 @@ class Declaration(Node):
 
     def __init__(self, variables, dimensions=None, external=False,
                  comment=None, pragma=None, source=None):
-        # Stop complaints about `type` in this function
-        # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
@@ -350,6 +364,10 @@ class Declaration(Node):
     @property
     def children(self):
         return tuple((self.variables,) + (self.dimensions or [],))
+
+    def __repr__(self):
+        variables = ', '.join(str(var) for var in self.variables)
+        return 'Declaration:: {}'.format(variables)
 
 
 class DataDeclaration(Node):

@@ -187,3 +187,9 @@ class Module:
         """
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
+
+    def __repr__(self):
+        """
+        String representation.
+        """
+        return 'Module:: {}'.format(self.name)

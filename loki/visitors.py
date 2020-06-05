@@ -308,7 +308,13 @@ class Stringifier(Visitor):
     # Handler for outer objects
 
     def visit_Module(self, o, **kwargs):
-        header = self.format_node('Module', o.name)
+        """
+        Format as
+          <repr(Module)>
+            ...spec...
+            ...routines...
+        """
+        header = self.format_node(repr(o))
         self.depth += 1
         spec = self.visit(o.spec, **kwargs)
         routines = self.visit(o.subroutines)
@@ -316,7 +322,15 @@ class Stringifier(Visitor):
         return self.join_lines(header, spec, routines)
 
     def visit_Subroutine(self, o, **kwargs):
-        header = self.format_node('Function' if o.is_function else 'Subroutine', o.name)
+        """
+        Format as
+          <repr(Subroutine)>
+            ...docstring...
+            ...spec...
+            ...body...
+            ...members...
+        """
+        header = self.format_node(repr(o))
         self.depth += 1
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
@@ -355,55 +369,22 @@ class Stringifier(Visitor):
     def visit_Section(self, o, **kwargs):
         """
         Format as
-          <Section>
-            ...
+          <repr(Section)>
+            ...body...
         """
-        header = self.format_node('Section')
+        header = self.format_node(repr(o))
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
         return self.join_lines(header, body)
 
-    def visit_Declaration(self, o, **kwargs):
-        """
-        Format as
-          <Declaration [var[, var[, ...]]]>
-        """
-        variables = self.visit(o.variables, **kwargs)
-        return self.format_node('Declaration', variables)
-
-    def visit_Loop(self, o, **kwargs):
-        """
-        Format as
-          <Loop [label] [var]=[range]>
-            ...
-        """
-        label = self.visit(o.label, **kwargs)
-        control = '{}={}'.format(self.visit(o.variable, **kwargs), self.visit(o.bounds, **kwargs))
-        header = self.format_node('Loop', label, control)
-        self.depth += 1
-        body = self.visit(o.body, **kwargs)
-        self.depth -= 1
-        return self.join_lines(header, body)
-
-    def visit_WhileLoop(self, o, **kwargs):
-        """
-        Format as
-          <Loop [label] [condition]>
-            ...
-        """
-        label = self.visit(o.label, **kwargs)
-        control = self.visit(o.condition, **kwargs)
-        header = self.format_node('WhileLoop', label, control)
-        self.depth += 1
-        body = self.visit(o.body, **kwargs)
-        self.depth -= 1
-        return self.join_lines(header, body)
+    visit_Loop = visit_Section
+    visit_WhileLoop = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
         """
         Format as
-          <Conditional>
+          <repr(Conditional)>
             <If [condition]>
               ...
             <ElseIf [condition]>
@@ -411,7 +392,7 @@ class Stringifier(Visitor):
             <Else>
               ...
         """
-        header = self.format_node('Conditional')
+        header = self.format_node(repr(o))
         self.depth += 1
         conditions = [self.format_node(name, self.visit(cond, **kwargs))
                       for name, cond in zip_longest(['If'], o.conditions, fillvalue='ElseIf')]
