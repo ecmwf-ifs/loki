@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
+    Section, Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
@@ -27,6 +27,7 @@ def test_routine_simple(here, frontend):
     """
     fcode = """
 subroutine routine_simple (x, y, scalar, vector, matrix)
+  ! This is the docstring
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   real(kind=jprb), intent(in) :: scalar
@@ -42,6 +43,11 @@ end subroutine routine_simple
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert isinstance(routine.body, Section)
+    assert isinstance(routine.spec, Section)
+    assert len(routine.docstring) == 1
+    assert routine.docstring[0].text == '! This is the docstring'
+
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
@@ -740,9 +746,10 @@ subroutine routine_call_no_arg()
   call abort
 end subroutine routine_call_no_arg
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].arguments == ()
-    assert routine.body[0].kwarguments == ()
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ()
+    assert calls[0].kwarguments == ()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -755,18 +762,19 @@ subroutine routine_call_kwargs()
   call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
 end subroutine routine_call_kwargs
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].name == 'mpl_init'
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_init'
 
-    assert routine.body[0].arguments == ()
-    assert len(routine.body[0].kwarguments) == 2
-    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in routine.body[0].kwarguments)
+    assert calls[0].arguments == ()
+    assert len(calls[0].kwarguments) == 2
+    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in calls[0].kwarguments)
 
-    assert routine.body[0].kwarguments[0][0] == 'kprocs'
-    assert (isinstance(routine.body[0].kwarguments[0][1], Scalar) and
-            routine.body[0].kwarguments[0][1].name == 'kprocs')
+    assert calls[0].kwarguments[0][0] == 'kprocs'
+    assert (isinstance(calls[0].kwarguments[0][1], Scalar) and
+            calls[0].kwarguments[0][1].name == 'kprocs')
 
-    assert routine.body[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
+    assert calls[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -779,11 +787,12 @@ subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
   call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
 end subroutine routine_call_args_kwargs
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].name == 'mpl_send'
-    assert len(routine.body[0].arguments) == 3
-    assert all(a.name == b.name for a, b in zip(routine.body[0].arguments, routine.arguments))
-    assert routine.body[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_send'
+    assert len(calls[0].arguments) == 3
+    assert all(a.name == b.name for a, b in zip(calls[0].arguments, routine.arguments))
+    assert calls[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -918,7 +927,7 @@ end subroutine routine_empty_spec
         assert len(routine.spec.body) == 1
     else:
         assert not routine.spec.body
-    assert len(routine.body) == 1
+    assert len(routine.body.body) == 1
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

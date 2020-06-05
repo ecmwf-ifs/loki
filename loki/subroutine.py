@@ -56,10 +56,12 @@ class Subroutine:
             self.types = TypeTable(parent=parent_types)
 
         # The primary IR components
-        self.docstring = docstring
+        self.docstring = as_tuple(docstring)
+        assert isinstance(spec, Section) or spec is None
         self.spec = spec
+        assert isinstance(body, Section) or body is None
         self.body = body
-        self._members = members
+        self._members = as_tuple(members)
 
         self.bind = bind
         self.is_function = is_function

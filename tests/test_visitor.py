@@ -380,14 +380,14 @@ END MODULE some_mod
 #<Section>
 ##<Declaration n>
 #<Subroutine some_routine>
-##<Comment:: ...>
+##<Comment:: ! This is a b...>
 ##<Section>
 ###<Intrinsic:: IMPLICIT NONE>
 ###<Declaration x>
 ###<Declaration y>
 ###<Declaration i>
 ##<Section>
-###<Comment:: ...>
+###<Comment:: ! And now to ...>
 ###<Conditional>
 ####<If x < 1E-8 and x > -1E-8>
 #####<Stmt:: x = 0.>

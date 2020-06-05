@@ -4,12 +4,12 @@ import inspect
 
 from pymbolic.primitives import Expression
 
-from loki.tools import flatten, as_tuple, is_iterable
+from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import TypeTable
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
-           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
+           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
            'MultiConditional', 'Interface', 'Intrinsic']
 
@@ -79,7 +79,7 @@ class Intrinsic(Node):
         self.text = text
 
     def __repr__(self):
-        return 'Intrinsic:: %s' % self.text
+        return 'Intrinsic:: {}'.format(truncate_string(self.text))
 
 
 class Comment(Node):
@@ -92,7 +92,7 @@ class Comment(Node):
         self.text = text
 
     def __repr__(self):
-        return 'Comment:: ... '
+        return 'Comment:: {}'.format(truncate_string(self.text))
 
 
 class CommentBlock(Node):
@@ -306,6 +306,9 @@ class Section(Node):
 
     def prepend(self, node):
         self._update(body=as_tuple(node) + self.body)
+
+    def __repr__(self):
+        return 'Section::'
 
 
 class Scope(Section):

@@ -10,7 +10,7 @@ from hashlib import md5
 from loki.logging import log, info, INFO
 
 
-__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached', 'gettempdir']
+__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached', 'gettempdir', 'truncate_string']
 
 
 def as_tuple(item, type=None, length=None):
@@ -162,3 +162,14 @@ def filehash(source, prefix=None, suffix=None):
     prefix = '' if prefix is None else prefix
     suffix = '' if suffix is None else suffix
     return '%s%s%s' % (prefix, str(md5(source.encode()).hexdigest()), suffix)
+
+
+def truncate_string(string, length=16, continuation='...'):
+    """
+    Truncates a string to have a maximum given number of characters and indicates the
+    truncation by continuation characters '...'.
+    This is used, for example, in the representation strings of IR nodes.
+    """
+    if len(string) > length:
+        return string[:length - len(continuation)] + continuation
+    return string
