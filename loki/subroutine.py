@@ -8,7 +8,7 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface
+    CallContext, Intrinsic, Interface, Comment, CommentBlock
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
@@ -144,6 +144,7 @@ class Subroutine:
 
         # Generate the subroutine body with all shape and type info
         body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=obj)
+        body = Section(body=body)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -203,6 +204,16 @@ class Subroutine:
         else:
             spec = Section(body=spec)
 
+        # Hack: We remove comments from the beginning of the spec to get the docstring
+        comment_map = {}
+        docs = []
+        for node in spec.body:
+            if not isinstance(node, (Comment, CommentBlock)):
+                break
+            docs.append(node)
+            comment_map[node] = None
+        spec = Transformer(comment_map).visit(spec)
+
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
         spec_body = list(spec.body)
@@ -224,13 +235,14 @@ class Subroutine:
         body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs,
                                        type_map=type_map, symbol_map=symbol_map,
                                        raw_source=raw_source, scope=obj))
+        body = Section(body=body)
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body,
+        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
                      members=members, ast=ast, parent=parent, symbols=obj.symbols,
                      types=obj.types, is_function=is_function)
         return obj
@@ -256,7 +268,7 @@ class Subroutine:
                                      raw_source=raw_source)
         else:
             spec = ()
-        spec = Section(body=spec)
+        spec = Section(body=flatten(spec))
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
@@ -264,12 +276,29 @@ class Subroutine:
                                               scope=obj, raw_source=raw_source))
         else:
             body = ()
-        # body = Section(body=body)
+        body = Section(body=flatten(body))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
+
+        # Another big hack: fparser allocates all comments before and after the spec to the spec.
+        # We remove them from the beginning to get the docstring and move them from the end to the
+        # body as those can potentially be pragmas.
+        comment_map = {}
+        docs = []
+        for node in spec.body:
+            if not isinstance(node, (Comment, CommentBlock)):
+                break
+            docs.append(node)
+            comment_map[node] = None
+        for node in reversed(spec.body):
+            if not isinstance(node, (Comment, CommentBlock)):
+                break
+            body.prepend(node)
+            comment_map[node] = None
+        spec = Transformer(comment_map).visit(spec)
 
         # Parse "member" subroutines recursively
         members = None
@@ -280,7 +309,7 @@ class Subroutine:
                                                pp_info=pp_info, parent=obj)
                        for s in walk(contains_ast, routine_types)]
 
-        obj.__init__(name=name, args=args, docstring=None, spec=spec, body=body, ast=ast,
+        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
                      members=members, symbols=obj.symbols, types=obj.types, parent=parent,
                      is_function=is_function)
         return obj
