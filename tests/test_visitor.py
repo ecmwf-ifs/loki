@@ -3,10 +3,10 @@ from pymbolic.primitives import Expression
 
 from loki import (
     OFP, OMNI, FP,
-    Subroutine, Loop, Statement, Conditional,
+    Module, Subroutine, Loop, Statement, Conditional,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -334,3 +334,101 @@ end subroutine routine_simple
     if frontend == FP:
         assert comp_root[0].source.lines == (12, 12)
         assert cast_root[0].source.lines == (13, 13)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_stringifier(frontend):
+    """
+    Test basic stringifier capability.
+    """
+    fcode = """
+MODULE some_mod
+  INTEGER :: n
+  CONTAINS
+    SUBROUTINE some_routine (x, y)
+      ! This is a basic subroutine with some loops
+      IMPLICIT NONE
+      REAL, INTENT(IN) :: x
+      REAL, INTENT(OUT) :: y
+      INTEGER :: i
+      ! And now to the content
+      IF (x < 1E-8 .and. x > -1E-8) THEN
+        x = 0.
+      ELSE IF (x > 0.) THEN
+        DO WHILE (x > 1.)
+          x = x / 2.
+        ENDDO
+      ELSE
+        x = -x
+      ENDIF
+      y = 0
+      DO i=1,n
+        y = y + x*x
+      ENDDO
+      y = my_sqrt(y)
+    END SUBROUTINE some_routine
+    FUNCTION my_sqrt (arg)
+      IMPLICIT NONE
+      REAL, INTENT(IN) :: arg
+      REAL :: my_sqrt
+      my_sqrt = SQRT(arg)
+    END FUNCTION my_sqrt
+END MODULE some_mod
+    """.strip()
+    ref = """
+<Module some_mod>
+#<Section>
+##<Declaration n>
+#<Subroutine some_routine>
+##<Comment:: ...>
+##<Section>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration x>
+###<Declaration y>
+###<Declaration i>
+##<Section>
+###<Comment:: ...>
+###<Conditional>
+####<If x < 1E-8 and x > -1E-8>
+#####<Stmt:: x = 0.>
+####<ElseIf x > 0.>
+#####<WhileLoop x > 1.>
+######<Stmt:: x = x / 2.>
+####<Else>
+#####<Stmt:: x = -x>
+###<Stmt:: y = 0>
+###<Loop i=1:n>
+####<Stmt:: y = y + x*x>
+###<Stmt:: y = my_sqrt(y)>
+#<Function my_sqrt>
+##<Section>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration arg>
+###<Declaration my_sqrt>
+##<Section>
+###<Stmt:: my_sqrt = SQRT(arg)>
+    """.strip()
+
+    if frontend == OMNI:
+        ref_lines = ref.splitlines()
+        # Replace ElseIf branch by nested if
+        ref_lines = ref_lines[:15] + ['####<Else>', '#####<Conditional>'] + ref_lines[15:]  # Insert Conditional
+        ref_lines[17] = ref_lines[17].replace('Else', '')  # ElseIf -> If
+        ref_lines[17:22] = ['##' + line for line in ref_lines[17:22]]  # -> Indent
+        # Some string inconsistencies
+        ref_lines[13] = ref_lines[13].replace('1E-8', '1e-8')
+        ref_lines[23] = ref_lines[23].replace('1:n', '1:n:1')
+        ref_lines[32] = ref_lines[32].replace('SQRT', 'sqrt')
+        ref = '\n'.join(ref_lines)
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Test custom indentation
+    assert Stringifier(indent='#').visit(module).strip() == ref.strip()
+
+    # Test default
+    assert Stringifier().visit(module).strip() == ref.strip().replace('#', '  ')
+
+    # Test custom initial depth
+    ref_lines = ['#' + line if line else '' for line in ref.splitlines()]
+    assert Stringifier(indent='#', depth=1).visit(module).strip() == '\n'.join(ref_lines).strip()

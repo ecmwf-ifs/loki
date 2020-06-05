@@ -1,9 +1,11 @@
 import inspect
+from itertools import zip_longest
 
 from loki.ir import Node
 from loki.tools import flatten, is_iterable
 
-__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
+__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
+           'Stringifier']
 
 
 class GenericVisitor:
@@ -260,6 +262,169 @@ class FindNodes(Visitor):
         for i in o.children:
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
+
+
+class Stringifier(Visitor):
+
+    # pylint: disable=arguments-differ
+
+    def __init__(self, depth=0, indent='  ', linewidth=90, conservative=False):
+        super().__init__()
+
+        self.depth = depth
+        self._indent = indent
+        self.linewidth = linewidth
+        self.conservative = conservative
+
+    @property
+    def indent(self):
+        """
+        Yield indentation according to current depth.
+        """
+        return self._indent * self.depth
+
+    def format_node(self, name, *items):
+        """
+        Default format for a node.
+        """
+        text = '{} {}'.format(name, ', '.join(item for item in items if item is not None)).strip()
+        return self.format_line('<', text, '>')
+
+    def format_line(self, *items):
+        """
+        Format a line and applies indentation.
+        """
+        return ''.join([self.indent, *items])
+
+    @staticmethod
+    def join_lines(*lines):
+        """
+        Combine multiple lines.
+        """
+        if not lines:
+            return None
+        return '\n'.join(line for line in lines if line is not None)
+
+    # Handler for outer objects
+
+    def visit_Module(self, o, **kwargs):
+        header = self.format_node('Module', o.name)
+        self.depth += 1
+        spec = self.visit(o.spec, **kwargs)
+        routines = self.visit(o.subroutines)
+        self.depth -= 1
+        return self.join_lines(header, spec, routines)
+
+    def visit_Subroutine(self, o, **kwargs):
+        header = self.format_node('Function' if o.is_function else 'Subroutine', o.name)
+        self.depth += 1
+        docstring = self.visit(o.docstring, **kwargs)
+        spec = self.visit(o.spec, **kwargs)
+        body = self.visit(o.body, **kwargs)
+        members = self.visit(o.members, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, docstring, spec, body, members)
+
+    # Handler for AST base nodes
+
+    def visit_Node(self, o, **kwargs):
+        """
+        Format as
+          <repr(Node)>
+        """
+        return self.format_node(repr(o))
+
+    @classmethod
+    def visit_Expression(cls, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Dispatch routine to expression tree stringifier.
+        """
+        return str(o)
+
+    def visit_tuple(self, o, **kwargs):
+        """
+        Recurse for each item in the tuple and return as separate lines.
+        """
+        lines = (self.visit(item, **kwargs) for item in o)
+        return self.join_lines(*lines)
+
+    visit_list = visit_tuple
+
+    # Handler for IR nodes
+
+    def visit_Section(self, o, **kwargs):
+        """
+        Format as
+          <Section>
+            ...
+        """
+        header = self.format_node('Section')
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body)
+
+    def visit_Declaration(self, o, **kwargs):
+        """
+        Format as
+          <Declaration [var[, var[, ...]]]>
+        """
+        variables = self.visit(o.variables, **kwargs)
+        return self.format_node('Declaration', variables)
+
+    def visit_Loop(self, o, **kwargs):
+        """
+        Format as
+          <Loop [label] [var]=[range]>
+            ...
+        """
+        label = self.visit(o.label, **kwargs)
+        control = '{}={}'.format(self.visit(o.variable, **kwargs), self.visit(o.bounds, **kwargs))
+        header = self.format_node('Loop', label, control)
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        """
+        Format as
+          <Loop [label] [condition]>
+            ...
+        """
+        label = self.visit(o.label, **kwargs)
+        control = self.visit(o.condition, **kwargs)
+        header = self.format_node('WhileLoop', label, control)
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body)
+
+    def visit_Conditional(self, o, **kwargs):
+        """
+        Format as
+          <Conditional>
+            <If [condition]>
+              ...
+            <ElseIf [condition]>
+              ...
+            <Else>
+              ...
+        """
+        header = self.format_node('Conditional')
+        self.depth += 1
+        conditions = [self.format_node(name, self.visit(cond, **kwargs))
+                      for name, cond in zip_longest(['If'], o.conditions, fillvalue='ElseIf')]
+        if o.else_body:
+            conditions += [self.format_node('Else')]
+        self.depth += 1
+        bodies = [self.visit(body, **kwargs) for body in o.bodies]
+        if o.else_body:
+            bodies += [self.visit(o.else_body, **kwargs)]
+        self.depth -= 1
+        self.depth -= 1
+        body = [item for branch in zip(conditions, bodies) for item in branch]
+        return self.join_lines(header, *body)
 
 
 class PrintAST(Visitor):
