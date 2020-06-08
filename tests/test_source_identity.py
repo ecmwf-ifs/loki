@@ -25,7 +25,6 @@ SUBROUTINE CONSERVATIVE (X, Y, SCALAR, VECTOR, MATRIX)
     REAL(KIND=JPRB), INTENT(INOUT) :: VECTOR(X)
     REAL(KIND=JPRB), DIMENSION(X, Y), INTENT(OUT) :: MATRIX
     INTEGER :: I
-
     DO I=1, X
         VECTOR(I) = VECTOR(I) + SCALAR
         MATRIX(I, :) = I * VECTOR(I)
@@ -36,7 +35,7 @@ END SUBROUTINE CONSERVATIVE
     # Parse and write the code
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = here/('source_id_subroutine_conservative_%s.f90' % frontend)
-    SourceFile(filepath).write(fgen(routine, conservative=True))
+    SourceFile(filepath).write(source=fgen(routine, conservative=True))
 
     # Check the result
     source = read_file(filepath)

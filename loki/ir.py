@@ -68,6 +68,10 @@ class Node:
     def children(self):
         return ()
 
+    @property
+    def source(self):
+        return self._source
+
     def __repr__(self):
         return 'Node::'
 
