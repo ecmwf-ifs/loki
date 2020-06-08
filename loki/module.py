@@ -92,10 +92,11 @@ class Module:
         spec = parse_ofp_ast(spec_ast, raw_source=raw_source, typedefs=typedefs, scope=obj)
 
         # Parse member subroutines and functions
-        routines = tuple(Subroutine.from_ofp(ast, raw_source, typedefs=typedefs, parent=obj)
-                         for ast in ast.findall('members/subroutine'))
-        routines += tuple(Subroutine.from_ofp(ast, raw_source, typedefs=typedefs, parent=obj)
-                          for ast in ast.findall('members/function'))
+        routines = None
+        if ast.find('members'):
+            routines = tuple(Subroutine.from_ofp(member, raw_source, typedefs=typedefs, parent=obj)
+                             for member in list(ast.find('members'))
+                             if member.tag in ('subroutine', 'function'))
 
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast, raw_source=raw_source,
                      parent=parent, symbols=obj.symbols, types=obj.types)

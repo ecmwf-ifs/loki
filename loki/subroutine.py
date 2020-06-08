@@ -156,12 +156,9 @@ class Subroutine:
         # Parse "member" subroutines and functions recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
-                                           pp_info=pp_info, parent=obj)
-                       for s in ast.findall('members/subroutine')]
-            members += [Subroutine.from_ofp(ast=s, raw_source=raw_source, typedefs=typedefs,
-                                            pp_info=pp_info, parent=obj)
-                        for s in ast.findall('members/function')]
+            members = tuple(Subroutine.from_ofp(member, raw_source, typedefs=typedefs, parent=obj)
+                            for member in list(ast.find('members'))
+                            if member.tag in ('subroutine', 'function'))
 
         obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
                      members=members, ast=ast, typedefs=typedefs, symbols=obj.symbols,
