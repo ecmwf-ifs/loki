@@ -339,11 +339,13 @@ end subroutine routine_simple
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_stringifier(frontend):
     """
-    Test basic stringifier capability.
+    Test basic stringifier capability for most IR nodes.
     """
     fcode = """
 MODULE some_mod
   INTEGER :: n
+  !$loki dimension(klon)
+  REAL :: arr(:)
   CONTAINS
     SUBROUTINE some_routine (x, y)
       ! This is a basic subroutine with some loops
@@ -362,6 +364,7 @@ MODULE some_mod
         x = -x
       ENDIF
       y = 0
+      !$loki some pragma
       DO i=1,n
         y = y + x*x
       ENDDO
@@ -373,12 +376,37 @@ MODULE some_mod
       REAL :: my_sqrt
       my_sqrt = SQRT(arg)
     END FUNCTION my_sqrt
+  SUBROUTINE other_routine (m)
+    ! This is just to have some more IR nodes
+    ! with multi-line comments and everything...
+    IMPLICIT NONE
+    INTEGER, INTENT(IN) :: m
+    REAL, ALLOCATABLE :: var(:)
+    SELECT CASE (m)
+      CASE (0)
+        m = 1
+      CASE (1:10)
+        PRINT *, '1 to 10'
+      CASE (-1, -2)
+        m = 10
+      CASE DEFAULT
+        PRINT *, 'Default case'
+    END SELECT
+    ASSOCIATE (x => arr(m))
+      x = x * 2.
+    END ASSOCIATE
+    ALLOCATE(var, source=arr)
+    CALL some_routine (arr(1), var(1))
+    arr(:) = arr(:) + var(:)
+    DEALLOCATE(var)
+  END SUBROUTINE other_routine
 END MODULE some_mod
     """.strip()
     ref = """
 <Module:: some_mod>
 #<Section::>
 ##<Declaration:: n>
+##<Declaration:: arr(:)>
 #<Subroutine:: some_routine>
 ##<Comment:: ! This is a b...>
 ##<Section::>
@@ -390,35 +418,59 @@ END MODULE some_mod
 ###<Comment:: ! And now to ...>
 ###<Conditional::>
 ####<If x < 1E-8 and x > -1E-8>
-#####<Stmt:: x = 0.>
+#####<Statement:: x = 0.>
 ####<ElseIf x > 0.>
 #####<WhileLoop:: x > 1.>
-######<Stmt:: x = x / 2.>
+######<Statement:: x = x / 2.>
 ####<Else>
-#####<Stmt:: x = -x>
-###<Stmt:: y = 0>
+#####<Statement:: x = -x>
+###<Statement:: y = 0>
 ###<Loop:: i=1:n>
-####<Stmt:: y = y + x*x>
-###<Stmt:: y = my_sqrt(y)>
+####<Statement:: y = y + x*x>
+###<Statement:: y = my_sqrt(y)>
 #<Function:: my_sqrt>
 ##<Section::>
 ###<Intrinsic:: IMPLICIT NONE>
 ###<Declaration:: arg>
 ###<Declaration:: my_sqrt>
 ##<Section::>
-###<Stmt:: my_sqrt = SQRT(arg)>
+###<Statement:: my_sqrt = SQRT(arg)>
+#<Subroutine:: other_routine>
+##<CommentBlock:: ! This is jus...>
+##<Section::>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration:: m>
+###<Declaration:: var(:)>
+##<Section::>
+###<MultiConditional:: m>
+####<Case 0>
+#####<Statement:: m = 1>
+####<Case 1:10>
+#####<Intrinsic:: PRINT *, '1 t...>
+####<Case (-1, -2)>
+#####<Statement:: m = 10>
+####<Default>
+#####<Intrinsic:: PRINT *, 'Def...>
+###<Scope:: arr(m)=x>
+####<Statement:: x = x*2.>
+###<Allocation:: var>
+###<Call:: some_routine>
+###<Statement:: arr(:) = arr(:) + var(:)>
+###<Deallocation:: var>
     """.strip()
 
     if frontend == OMNI:
         ref_lines = ref.splitlines()
         # Replace ElseIf branch by nested if
-        ref_lines = ref_lines[:15] + ['####<Else>', '#####<Conditional::>'] + ref_lines[15:]  # Insert Conditional
-        ref_lines[17] = ref_lines[17].replace('Else', '')  # ElseIf -> If
-        ref_lines[17:22] = ['##' + line for line in ref_lines[17:22]]  # -> Indent
+        ref_lines = ref_lines[:16] + ['####<Else>', '#####<Conditional::>'] + ref_lines[16:]  # Insert Conditional
+        ref_lines[18] = ref_lines[18].replace('Else', '')  # ElseIf -> If
+        ref_lines[18:23] = ['##' + line for line in ref_lines[18:23]]  # -> Indent
         # Some string inconsistencies
-        ref_lines[13] = ref_lines[13].replace('1E-8', '1e-8')
-        ref_lines[23] = ref_lines[23].replace('1:n', '1:n:1')
-        ref_lines[32] = ref_lines[32].replace('SQRT', 'sqrt')
+        ref_lines[14] = ref_lines[14].replace('1E-8', '1e-8')
+        ref_lines[24] = ref_lines[24].replace('1:n', '1:n:1')
+        ref_lines[33] = ref_lines[33].replace('SQRT', 'sqrt')
+        ref_lines[45] = ref_lines[45].replace('PRINT', 'print')
+        ref_lines[49] = ref_lines[49].replace('PRINT', 'print')
         ref = '\n'.join(ref_lines)
 
     module = Module.from_source(fcode, frontend=frontend)

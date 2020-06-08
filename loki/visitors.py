@@ -407,6 +407,37 @@ class Stringifier(Visitor):
         body = [item for branch in zip(conditions, bodies) for item in branch]
         return self.join_lines(header, *body)
 
+    def visit_MultiConditional(self, o, **kwargs):
+        """
+        Format as
+          <repr(MultiConditional)>
+            <Case [value(s)]>
+              ...
+            <Case [value(s)]>
+              ...
+            <Default>
+              ...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
+        values = []
+        for expr in o.values:
+            if isinstance(expr, tuple):
+                value = '({})'.format(', '.join(self.visit(e, **kwargs) for e in expr))
+            else:
+                value = self.visit(expr, **kwargs)
+            values += [self.format_node('Case', value)]
+        if o.else_body:
+            values += [self.format_node('Default')]
+        self.depth += 1
+        bodies = [self.visit(body, **kwargs) for body in o.bodies]
+        if o.else_body:
+            bodies += [self.visit(o.else_body, **kwargs)]
+        self.depth -= 1
+        self.depth -= 1
+        body = [item for branch in zip(values, bodies) for item in branch]
+        return self.join_lines(header, *body)
+
 
 class PrintAST(Visitor):
     # pylint: disable=no-self-use,unused-argument
