@@ -168,16 +168,24 @@ class OFP2IR(GenericVisitor):
 
     def visit_select(self, o, source=None):
         expr = self.visit(o.find('header'))
-        values = [self.visit(h) for h in o.findall('body/case/header')]
-        bodies = [self.visit(b) for b in o.findall('body/case/body')]
+        cases = [self.visit(case) for case in o.findall('body/case')]
+        values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)
+            values, bodies = list(values), list(bodies)
             values.pop(else_index)
             else_body = as_tuple(bodies.pop(else_index))
         else:
             else_body = ()
         return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
                                    else_body=else_body, source=source)
+
+    def visit_case(self, o, source=None):
+        value = self.visit(o.find('header'))
+        if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
+            value = sym.RangeIndex(value)
+        body = self.visit(o.find('body'))
+        return value, body
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)

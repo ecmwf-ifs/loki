@@ -361,6 +361,29 @@ class OMNI2IR(GenericVisitor):
         return ir.Conditional(conditions=as_tuple(conditions),
                               bodies=(bodies, ), else_body=else_body)
 
+    def visit_FselectCaseStatement(self, o, source=None):
+        expr = self.visit(o.find('value'))
+        cases = [self.visit(case) for case in o.findall('FcaseLabel')]
+        values, bodies = zip(*cases)
+        if None in values:
+            else_index = values.index(None)
+            values, bodies = list(values), list(bodies)
+            values.pop(else_index)
+            else_body = as_tuple(bodies.pop(else_index))
+        else:
+            else_body = ()
+        return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
+                                   else_body=else_body, source=source)
+
+    def visit_FcaseLabel(self, o, source=None):
+        values = [self.visit(value) for value in list(o) if value.tag in ('value', 'indexRange')]
+        if not values:
+            values = None
+        elif len(values) == 1:
+            values = values.pop()
+        body = self.visit(o.find('body'))
+        return values, body
+
     def visit_FmemberRef(self, o, **kwargs):
         vname = o.attrib['member']
         t = o.attrib['type']
