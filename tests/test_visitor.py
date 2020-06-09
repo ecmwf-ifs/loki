@@ -368,7 +368,7 @@ MODULE some_mod
       DO i=1,n
         y = y + x*x
       ENDDO
-      y = my_sqrt(y)
+      y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1.
     END SUBROUTINE some_routine
     FUNCTION my_sqrt (arg)
       IMPLICIT NONE
@@ -427,7 +427,8 @@ END MODULE some_mod
 ###<Statement:: y = 0>
 ###<Loop:: i=1:n>
 ####<Statement:: y = y + x*x>
-###<Statement:: y = my_sqrt(y)>
+###<Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 
+... 1. + 1.>
 #<Function:: my_sqrt>
 ##<Section::>
 ###<Intrinsic:: IMPLICIT NONE>
@@ -443,9 +444,9 @@ END MODULE some_mod
 ###<Declaration:: var(:)>
 ##<Section::>
 ###<MultiConditional:: m>
-####<Case 0>
+####<Case (0)>
 #####<Statement:: m = 1>
-####<Case 1:10>
+####<Case (1:10)>
 #####<Intrinsic:: PRINT *, '1 t...>
 ####<Case (-1, -2)>
 #####<Statement:: m = 10>
@@ -468,19 +469,29 @@ END MODULE some_mod
         # Some string inconsistencies
         ref_lines[14] = ref_lines[14].replace('1E-8', '1e-8')
         ref_lines[24] = ref_lines[24].replace('1:n', '1:n:1')
-        ref_lines[33] = ref_lines[33].replace('SQRT', 'sqrt')
-        ref_lines[45] = ref_lines[45].replace('PRINT', 'print')
-        ref_lines[49] = ref_lines[49].replace('PRINT', 'print')
+        ref_lines[34] = ref_lines[34].replace('SQRT', 'sqrt')
+        ref_lines[46] = ref_lines[46].replace('PRINT', 'print')
+        ref_lines[50] = ref_lines[50].replace('PRINT', 'print')
         ref = '\n'.join(ref_lines)
+        cont_index = 26
+    else:
+        cont_index = 24
 
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test custom indentation
-    assert Stringifier(indent='#').visit(module).strip() == ref.strip()
+    line_cont = lambda indent: '\n{:{indent}} '.format('...', indent=max(len(indent), 1))
+    assert Stringifier(indent='#', line_cont=line_cont).visit(module).strip() == ref.strip()
 
     # Test default
-    assert Stringifier().visit(module).strip() == ref.strip().replace('#', '  ')
+    ref_lines = ref.strip().replace('#', '  ').splitlines()
+    ref_lines[cont_index] = '      <Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
+    ref_lines[cont_index + 1] = '      + 1. + 1.>'
+    default_ref = '\n'.join(ref_lines)
+    assert Stringifier().visit(module).strip() == default_ref
 
     # Test custom initial depth
     ref_lines = ['#' + line if line else '' for line in ref.splitlines()]
-    assert Stringifier(indent='#', depth=1).visit(module).strip() == '\n'.join(ref_lines).strip()
+    ref_lines[cont_index + 1] = '...  1. + 1.>'
+    depth_ref = '\n'.join(ref_lines)
+    assert Stringifier(indent='#', depth=1, line_cont=line_cont).visit(module).strip() == depth_ref

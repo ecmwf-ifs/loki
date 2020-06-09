@@ -2,7 +2,7 @@ import inspect
 from itertools import zip_longest
 
 from loki.ir import Node
-from loki.tools import flatten, is_iterable
+from loki.tools import flatten, is_iterable, as_tuple
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
            'Stringifier']
@@ -268,13 +268,88 @@ class Stringifier(Visitor):
 
     # pylint: disable=arguments-differ
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, conservative=False):
+    class ItemList:
+        """
+        Helper class that takes a list of items and joins them into a string,
+        using custom separators and wrapping long lines.
+        """
+
+        def __init__(self, items, sep, width, cont):
+            super().__init__()
+            self.items = [item for item in items if item is not None]
+            self.sep = sep
+            self.width = width
+            self.cont = cont.splitlines(keepends=True)
+
+        def _add_item_to_line(self, line, item):
+            # Let's see if we can fit the current item plus separator
+            # onto the line and have enough space left for a line break
+            new_line = line + item
+            if len(new_line) + len(self.cont[0]) <= self.width:
+               return new_line, []
+
+            # Putting the current item plus separator and potential line break
+            # onto the current line exceeds the allowed width: we need to break.
+
+            # First, let's see if the item by itself fits on the next line
+            new_line = self.cont[1] + item
+            if len(new_line) + len(self.cont[0]) <= self.width:
+                return new_line, [line + self.cont[0]]
+
+            # The new item does not fit onto a line at all, we have to split it
+            # up as good as we can
+            # TODO: This is not safe for strings currently and may still exceed
+            #       the line limit if the chunks are too big!
+            chunks = item.split(' ')
+            chunks[:-1] = [chunk + ' ' for chunk in chunks[:-1]]
+
+            # First, add as much as possible to the previous line
+            for idx, chunk in enumerate(chunks):
+                new_line = line + chunk
+                if len(new_line) + len(self.cont[0]) > self.width:
+                    break
+                line = new_line
+
+            # Now put the rest on new lines
+            lines = [line + self.cont[0]]
+            line = self.cont[1]
+            for chunk in chunks[idx:]:
+                new_line = line + chunk
+                if len(new_line) + len(self.cont[0]) > self.width:
+                    lines += [line + self.cont[0]]
+                    line = self.cont[1] + chunk
+                else:
+                    line = new_line
+            return line, lines
+
+        def __str__(self):
+            """
+            Join the items together using the given separator and wrap lines if
+            necessary.
+            """
+            if not self.items:
+                return ''
+            if len(self.items) == 1:
+                return str(self.items[0])
+            lines = []
+            # Start with the first item and the separator
+            line = str(self.items[0]) + self.sep
+            # Add all following items except for the last one
+            for item in self.items[1:-1]:
+                line, _lines = self._add_item_to_line(line, str(item) + self.sep)
+                lines += _lines
+            # Add the last item
+            line, _lines = self._add_item_to_line(line, str(self.items[-1]))
+            lines += _lines
+            return ''.join([*lines, line])
+
+    def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent):
         super().__init__()
 
         self.depth = depth
         self._indent = indent
         self.linewidth = linewidth
-        self.conservative = conservative
+        self.line_cont = line_cont
 
     @property
     def indent(self):
@@ -282,19 +357,6 @@ class Stringifier(Visitor):
         Yield indentation according to current depth.
         """
         return self._indent * self.depth
-
-    def format_node(self, name, *items):
-        """
-        Default format for a node.
-        """
-        text = '{} {}'.format(name, ', '.join(item for item in items if item is not None)).strip()
-        return self.format_line('<', text, '>')
-
-    def format_line(self, *items):
-        """
-        Format a line and applies indentation.
-        """
-        return ''.join([self.indent, *items])
 
     @staticmethod
     def join_lines(*lines):
@@ -304,6 +366,36 @@ class Stringifier(Visitor):
         if not lines:
             return None
         return '\n'.join(line for line in lines if line is not None)
+
+    def join_items(self, items, sep=', '):
+        """
+        Create a TokenList object which can be passed to `format_line` or `format_node`
+        where it is expanded, observing the allowed linewidth.
+        """
+        return self.ItemList(items, sep, self.linewidth, self.line_cont(self.indent))
+
+    def format_node(self, name, *items):
+        """
+        Default format for a node.
+        """
+        if items:
+            return self.format_line('<', name, ' ', self.join_items(items), '>')
+        return self.format_line('<', name, '>')
+
+    def format_line(self, *items):
+        """
+        Format a line and apply indentation.
+        """
+        return str(self.join_items([self.indent, *items], sep=''))
+
+    def visit_all(self, item, *args, **kwargs):
+        """
+        Convenience function to call `visit` either for all elements in
+        item if item is an iterable, or for multiple items given as arguments.
+        """
+        if is_iterable(item):
+            return as_tuple(self.visit(i, **kwargs) for i in [*item, *args] if i is not None)
+        return as_tuple(self.visit(i, **kwargs) for i in [item, *args] if i is not None)
 
     # Handler for outer objects
 
@@ -317,7 +409,7 @@ class Stringifier(Visitor):
         header = self.format_node(repr(o))
         self.depth += 1
         spec = self.visit(o.spec, **kwargs)
-        routines = self.visit(o.subroutines)
+        routines = self.visit(o.subroutines, **kwargs)
         self.depth -= 1
         return self.join_lines(header, spec, routines)
 
@@ -394,14 +486,13 @@ class Stringifier(Visitor):
         """
         header = self.format_node(repr(o))
         self.depth += 1
-        conditions = [self.format_node(name, self.visit(cond, **kwargs))
-                      for name, cond in zip_longest(['If'], o.conditions, fillvalue='ElseIf')]
+        conditions = self.visit_all(o.conditions, **kwargs)
+        conditions = [self.format_node(*vals)
+                      for vals in zip_longest(['If'], conditions, fillvalue='ElseIf')]
         if o.else_body:
-            conditions += [self.format_node('Else')]
+            conditions.append(self.format_node('Else'))
         self.depth += 1
-        bodies = [self.visit(body, **kwargs) for body in o.bodies]
-        if o.else_body:
-            bodies += [self.visit(o.else_body, **kwargs)]
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
         self.depth -= 1
         self.depth -= 1
         body = [item for branch in zip(conditions, bodies) for item in branch]
@@ -422,17 +513,12 @@ class Stringifier(Visitor):
         self.depth += 1
         values = []
         for expr in o.values:
-            if isinstance(expr, tuple):
-                value = '({})'.format(', '.join(self.visit(e, **kwargs) for e in expr))
-            else:
-                value = self.visit(expr, **kwargs)
+            value = '({})'.format(', '.join(self.visit_all(expr, **kwargs)))
             values += [self.format_node('Case', value)]
         if o.else_body:
             values += [self.format_node('Default')]
         self.depth += 1
-        bodies = [self.visit(body, **kwargs) for body in o.bodies]
-        if o.else_body:
-            bodies += [self.visit(o.else_body, **kwargs)]
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
         self.depth -= 1
         self.depth -= 1
         body = [item for branch in zip(values, bodies) for item in branch]
