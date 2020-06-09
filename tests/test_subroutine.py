@@ -734,7 +734,7 @@ end subroutine routine_call_caller
     assert fexprgen(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
 #    assert fexprgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
-    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
+    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, matrix, item%matrix)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -1136,6 +1136,7 @@ def test_subroutine_interface(here, frontend):
     fcode = """
 subroutine test_subroutine_interface(in1, in2, out1, out2)
   use header, only: jprb
+  IMPLICIT NONE
   integer, intent(in) :: in1, in2
   real(kind=jprb), intent(out) :: out1, out2
   integer :: localvar
@@ -1149,29 +1150,24 @@ end subroutine
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface &
- & (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface(in1, in2, out1, out2)
     USE header, ONLY: jprb
-IMPLICIT NONE
+    IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1
     INTEGER, INTENT(IN) :: in2
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out1
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out2
-
   END SUBROUTINE test_subroutine_interface
-
 END INTERFACE
 """.strip()
     else:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface &
- & (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface(in1, in2, out1, out2)
     USE header, ONLY: jprb
+    IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1, in2
     REAL(KIND=jprb), INTENT(OUT) :: out1, out2
-
   END SUBROUTINE test_subroutine_interface
-
 END INTERFACE
 """.strip()

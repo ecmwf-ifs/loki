@@ -1,9 +1,10 @@
 from textwrap import wrap
+from itertools import zip_longest
 from pymbolic.primitives import is_zero
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
 
-from loki.visitors import Visitor
+from loki.visitors import Stringifier
 from loki.tools import chunks, flatten, as_tuple
 from loki.expression import LokiStringifyMapper, Product
 from loki.types import DataType
@@ -110,27 +111,18 @@ class FCodeMapper(LokiStringifyMapper):
         return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
 
 
-class FortranCodegen(Visitor):
+class FortranCodegen(Stringifier):
     """
     Tree visitor to generate standardized Fortran code from IR.
     """
     # pylint: disable=no-self-use, unused-argument
 
-    def __init__(self, depth=0, linewidth=90, chunking=4, conservative=True):
-        super(FortranCodegen, self).__init__()
-        self.linewidth = linewidth
+    def __init__(self, depth=0, indent='  ', linewidth=90, chunking=4, conservative=True):
+        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
+                         line_cont=lambda indent: ' &\n{}& '.format(indent))
         self.conservative = conservative
         self.chunking = chunking
-        self._depth = depth
         self._fsymgen = FCodeMapper()
-
-    @classmethod
-    def default_retval(cls):
-        return ""
-
-    @property
-    def indent(self):
-        return '  ' * self._depth
 
     @property
     def fsymgen(self):
@@ -147,77 +139,139 @@ class FortranCodegen(Visitor):
         return delim.join(', '.join(c) for c in args)
 
     def visit(self, o, *args, **kwargs):
-        if self.conservative and hasattr(o, '_source') and o._source is not None:
+        """
+        Overwrite standard visit routine to inject original source in conservative
+        mode and print labels.
+        """
+        has_source = hasattr(o, 'source') and o.source is not None
+        if self.conservative and has_source and o.source.string is not None:
             # Re-use original source associated with node
-            return o._source.string
+            return o.source.string
+        return super().visit(o, *args, **kwargs)
 
-        if hasattr(o, '_source') and o._source is not None and o._source.label:
-            label = '{} '.format(o._source.label)
-        else:
-            label = ''
-        return '%s%s' % (label, super(FortranCodegen, self).visit(o, **kwargs))
+    # Handler for outer objects
+
+    def visit_Module(self, o, **kwargs):
+        """
+        Format as
+          MODULE <name>
+            ...spec...
+          CONTAINS
+            ...routines...
+          END MODULE
+        """
+        header = self.format_line('MODULE ', o.name)
+        contains = self.format_line('CONTAINS')
+        footer = self.format_line('END MODULE ', o.name)
+
+        self.depth += 1
+        spec = self.visit(o.spec, **kwargs)
+        routines = self.visit(o.routines, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, spec, contains, routines, footer)
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as
+          <ftype> <name>([<args>]) [BIND(c, name=<name>)]
+            ...docstring...
+            ...spec...
+            ...body...
+          [CONTAINS]
+            [...member...]
+          END <ftype> <name>
+        """
+        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        arguments = self.join_items(o.argnames)
+        bind_c = ' BIND(c, name=\'{}\')'.format(o.bind) if o.bind else ''
+        header = self.format_line(ftype, ' ', o.name, '(', arguments, ')', bind_c)
+        contains = self.format_line('CONTAINS')
+        footer = self.format_line('END ', ftype, ' ', o.name)
+
+        self.depth += 1
+        docstring = self.visit(o.docstring, **kwargs)
+        spec = self.visit(o.spec, **kwargs)
+        body = self.visit(o.body, **kwargs)
+        members = self.visit(o.members, **kwargs)
+        self.depth -= 1
+        if members:
+            return self.join_lines(header, docstring, spec, body, contains, members, footer)
+        return self.join_lines(header, docstring, spec, body, footer)
+
+    # Handler for AST base nodes
+
+    def visit_Node(self, o, **kwargs):
+        """
+        Format non-supported nodes as
+          ! <repr(Node)>
+        """
+        return self.format_line('! <', repr(o), '>')
 
     def visit_Expression(self, o, **kwargs):
+        """
+        Call :class:`FCodeMapper` for expression trees.
+        """
         return self.fsymgen(o)
+
+    def visit_tuple(self, o, **kwargs):
+        """
+        Recurse for each item in the tuple and return as separate lines.
+        Insert labels if existing.
+        """
+        lines = []
+        for item in o:
+            line = self.visit(item, **kwargs)
+
+            # Apply label to line
+            has_source = hasattr(item, 'source') and item.source is not None
+            if has_source and item.source.label:
+                # Replace indentation by label
+                indent = max(1, len(line) - len(line.lstrip()) - 1)
+                line = '{:{indent}} {}'.format(item.source.label, line.lstrip(), indent=indent)
+
+            lines.append(line)
+        return self.join_lines(*lines)
+
+    visit_list = visit_tuple
 
     def visit_str(self, o, **kwargs):
         return o
 
-    def visit_Node(self, o, **kwargs):
-        return self.indent + '! <%s>' % o.__class__.__name__
+    # Handler for IR nodes
 
     def visit_Intrinsic(self, o, **kwargs):
-        return str(o.text)
-
-    def visit_tuple(self, o, **kwargs):
-        return '\n'.join([self.visit(i, **kwargs) for i in o])
-
-    visit_list = visit_tuple
-
-    def visit_Module(self, o, **kwargs):
-        self._depth += 1
-        body = self.visit(o.routines, **kwargs)
-        spec = self.visit(o.spec, **kwargs)
-        self._depth -= 1
-        header = 'MODULE %s \n\n' % o.name
-        contains = '\ncontains\n\n'
-        footer = '\nEND MODULE %s\n' % o.name
-        return header + spec + contains + body + footer
-
-    def visit_Subroutine(self, o, **kwargs):
-        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
-        arguments = self.segment([a.name for a in o.arguments])
-        argument = ' &\n & (%s)' % arguments if len(o.arguments) > 0 else '()'
-        bind_c = ' &\n%s & bind(c, name=\'%s\')' % (self.indent, o.bind) if o.bind else ''
-        header = '%s %s%s%s\n' % (ftype, o.name, argument, bind_c)
-        self._depth += 1
-        docstring = '%s\n\n' % self.visit(o.docstring, **kwargs) if o.docstring else ''
-        spec = '%s\n' % self.visit(o.spec, **kwargs) if o.spec else ''
-        body = self.visit(o.body, **kwargs) if o.body else ''
-        self._depth -= 1
-        footer = '\n%sEND %s %s\n' % (self.indent, ftype, o.name)
-        if o.members:
-            members = '\n\n'.join(self.visit(s, **kwargs) for s in o.members)
-            contains = '\nCONTAINS\n\n'
-        else:
-            members = ''
-            contains = ''
-        return self.indent + header + docstring + spec + body + contains + members + footer
+        """
+        Format intrinsic nodes.
+        """
+        return self.format_line(str(o.text).lstrip())
 
     def visit_Comment(self, o, **kwargs):
-        text = o._source.string if o.text is None else o.text
-        return self.indent + text
+        """
+        Format comments.
+        """
+        text = o.text or o.source.string
+        return self.format_line(str(text).lstrip())
 
     def visit_Pragma(self, o, **kwargs):
+        """
+        Format pragmas.
+        """
         if o.content is not None:
-            return '!$%s %s' % (o.keyword, o.content)
+            return self.format_line('!$', o.keyword, ' ', o.content)
         return o._source.string
 
     def visit_CommentBlock(self, o, **kwargs):
-        comments = [self.visit(c, **kwargs) for c in o.comments]
-        return '\n'.join(comments)
+        """
+        Format comment blocks.
+        """
+        return self.visit(o.comments)
 
     def visit_Declaration(self, o, **kwargs):
+        """
+        Format declaration as
+          [<type>] [, DIMENSION(...)] [, EXTERNAL] :: var [= initial] [, var [= initial] ] ...
+        """
+        attributes = []
         assert len(o.variables) > 0
         types = [v.type for v in o.variables]
         # Ensure all variable types are equal, except for shape and dimension
@@ -225,205 +279,303 @@ class FortranCodegen(Visitor):
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
-        dtype = self.visit(types[0])
-
-        comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
-        if o.dimensions is None:
-            dimensions = ''
-        else:
-            dimensions = ', DIMENSION(%s)' % ','.join(str(d) for d in o.dimensions)
+        dtype = self.visit(types[0], **kwargs)
+        if str(dtype):
+            attributes += [dtype]
+        if o.dimensions:
+            attributes += ['DIMENSION({})'.format(', '.join(self.visit_all(o.dimensions, **kwargs)))]
         if o.external:
-            external = 'EXTERNAL'
-            if dtype:
-                external = ', ' + external
-        else:
-            external = ''
+            attributes += ['EXTERNAL']
         variables = []
         for v in o.variables:
             # This is a bit dubious, but necessary, as we otherwise pick up
             # array dimensions from the internal representation of the variable.
-            stmt = self.visit(v, **kwargs) if o.dimensions is None else v.basename
+            var = self.visit(v, **kwargs) if o.dimensions is None else v.basename
+            initial = ''
             if v.initial is not None:
-                stmt += ' = %s' % self.visit(v.initial, **kwargs)
-            # Hack the pointer assignment (very ugly):
-            if v.type.pointer:
-                stmt = stmt.replace(' = ', ' => ')
-            variables += [stmt]
-        variables = self.segment(variables)
-        return self.indent + '%s%s%s :: %s' % (dtype, dimensions, external, variables) + comment
+                initial = ' {} {}'.format('=>' if v.type.pointer else '=',
+                                          self.visit(v.initial, **kwargs))
+            variables += ['{}{}'.format(var, initial)]
+        comment = ''
+        if o.comment:
+            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+        return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables), comment)
 
     def visit_DataDeclaration(self, o, **kwargs):
-        values = self.segment([str(v) for v in o.values], chunking=8)
-        return self.indent + 'DATA %s/%s/' % (o.variable, values)
+        """
+        Format as
+          DATA <var> /<values>/
+        """
+        values = self.visit_all(o.values, **kwargs)
+        return self.format_line('DATA ', o.variable, '/', values, '/')
 
     def visit_Import(self, o, **kwargs):
+        """
+        Format imports according to their type as
+          #include "..."
+        or
+          include "..."
+        or
+          USE <module> [, ONLY: <symbols>]
+        """
         if o.c_import:
             return '#include "%s"' % o.module
         if o.f_include:
-            return 'include "%s"' % o.module
-        only = (', ONLY: %s' % self.segment(o.symbols)) if len(o.symbols) > 0 else ''
-        return self.indent + 'USE %s%s' % (o.module, only)
+            return self.format_line('include "', o.module, '"')
+        if o.symbols:
+            return self.format_line('USE ', o.module, ', ONLY: ', self.join_items(o.symbols))
+        return self.format_line('USE ', o.module)
 
     def visit_Interface(self, o, **kwargs):
-        self._depth += 1
-        spec = ' %s' % o.spec if o.spec else ''
-        header = 'INTERFACE%s\n' % spec
-        body = ('\n%s' % self.indent).join(self.visit(ch, **kwargs) for ch in o.body)
-        self._depth -= 1
-        return self.indent + header + body + '\n%sEND INTERFACE\n' % self.indent
+        """
+        Format interface node as
+          INTERFACE [<spec>]
+            ...body...
+          END INTERFACE
+        """
+        spec = ' {}'.format(o.spec) if o.spec else ''
+        header = self.format_line('INTERFACE', spec)
+        footer = self.format_line('END INTERFACE', spec)
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body, footer)
 
     def visit_Loop(self, o, **kwargs):
-        pragma = (self.visit(o.pragma, **kwargs) + '\n') if o.pragma else ''
-        pragma_post = ('\n' + self.visit(o.pragma_post, **kwargs)) if o.pragma_post else ''
-        self._depth += 1
+        """
+        Format loop with explicit range as
+          DO <var>=<loop range>
+            ...body...
+          END DO
+        """
+        pragma = self.visit(o.pragma, **kwargs)
+        pragma_post = self.visit(o.pragma_post, **kwargs)
+        control = '{}={}'.format(*self.visit_all(o.variable, o.bounds, **kwargs))
+        header = self.format_line('DO ', control)
+        footer = self.format_line('END DO')
+        self.depth += 1
         body = self.visit(o.body, **kwargs)
-        self._depth -= 1
-        header = ' %s=%s' % (self.visit(o.variable, **kwargs), self.visit(o.bounds, **kwargs))
-        return pragma + self.indent + \
-            'DO%s\n%s\n%sEND DO%s' % (header, body, self.indent, pragma_post)
+        self.depth -= 1
+        return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_WhileLoop(self, o, **kwargs):
-        self._depth += 1
-        body = self.visit(o.body, **kwargs)
-        self._depth -= 1
-        header = 'DO'
+        """
+        Format loop as
+          DO [WHILE (<condition>)
+            ...body...
+          END DO
+        """
+        pragma = self.visit(o.pragma, **kwargs)
+        pragma_post = self.visit(o.pragma_post, **kwargs)
+        control = ''
         if o.condition is not None:
-            condition = self.visit(o.condition, **kwargs)
-            header += ' WHILE ({})'.format(condition)
-        footer = '\n' + self.indent + 'END DO'
-        return self.indent + header + '\n' + body + footer
+            control = ' WHILE ({})'.format(self.visit(o.condition, **kwargs))
+        header = self.format_line('DO', control)
+        footer = self.format_line('END DO')
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_Conditional(self, o, **kwargs):
+        """
+        Format conditional as
+          IF (<condition>) <single-statement body>
+        or
+          IF (<condition>) THEN
+            ...body...
+          [ELSE IF (<condition>) THEN]
+            [...body...]
+          [ELSE]
+            [...body...]
+          END IF
+        """
         if o.inline:
             # No indentation and only a single body node
             assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
-            self._depth, indent_depth = 0, self._depth  # Suppress indentation
-            body = self.visit(flatten(o.bodies)[0], **kwargs)
-            self._depth = indent_depth
             cond = self.visit(o.conditions[0], **kwargs)
-            return self.indent + 'IF (%s) %s' % (cond, body)
+            body = self.visit(flatten(o.bodies)[0], **kwargs)
+            return self.format_line('IF (', cond, ') ', body)
 
-        self._depth += 1
-        bodies = [self.visit(b, **kwargs) for b in o.bodies]
-        else_body = self.visit(o.else_body, **kwargs)
-        self._depth -= 1
-        headers = ['IF (%s) THEN' % self.visit(c, **kwargs) for c in o.conditions]
-        main_branch = ('\n%sELSE' % self.indent).join(
-            '%s\n%s' % (h, b) for h, b in zip(headers, bodies))
-        else_branch = '\n%sELSE\n%s' % (self.indent, else_body) if o.else_body else ''
-        return self.indent + main_branch + '%s\n%sEND IF' % (else_branch, self.indent)
+        conditions = self.visit_all(o.conditions, **kwargs)
+        conditions = [self.format_line(keyword, ' (', cond, ') THEN')
+                      for keyword, cond in zip_longest(['IF'], conditions, fillvalue='ELSE IF')]
+        if o.else_body:
+            conditions.append(self.format_line('ELSE'))
+        footer = self.format_line('END IF')
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        branches = [item for branch in zip(conditions, bodies) for item in branch]
+        return self.join_lines(*branches, footer)
 
     def visit_MultiConditional(self, o, **kwargs):
-        expr = self.visit(o.expr, **kwargs)
-        values = ['(%s)' % ', '.join(self.visit(e, **kwargs) for e in as_tuple(v))
-                  for v in o.values]
+        """
+        Format as
+          SELECT CASE (<expr>)
+          CASE (<value>)
+            ...body...
+          [CASE (<value>)]
+            [...body...]
+          [DEFAULT]
+            [...body...]
+          END SELECT
+        """
+        header = self.format_line('SELECT CASE (', self.visit(o.expr, **kwargs), ')')
+        cases = []
+        for value in o.values:
+            case = self.visit_all(as_tuple(value), **kwargs)
+            cases.append(self.format_line('CASE (', self.join_items(case), ')'))
         if o.else_body:
-            values += ['DEFAULT']
-        self._depth += 1
-        bodies = [self.visit(b, **kwargs) for b in o.bodies]
-        if o.else_body:
-            bodies += [self.visit(o.else_body, **kwargs)]
-        self._depth -= 1
-        assert len(values) == len(bodies)
-        header = self.indent + 'SELECT CASE (%s)\n' % expr
-        footer = self.indent + 'END SELECT'
-        cases = [self.indent + 'CASE %s\n' % v + b for v, b in zip(values, bodies)]
-        return header + '\n'.join(cases) + '\n' + footer
+            cases.append(self.format_line('CASE DEFAULT'))
+        footer = self.format_line('END SELECT')
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        branches = [item for branch in zip(cases, bodies) for item in branch]
+        return self.join_lines(header, *branches, footer)
 
     def visit_Statement(self, o, **kwargs):
-        stmt = '%s = %s' % (self.visit(o.target, **kwargs), self.visit(o.expr, **kwargs))
+        """
+        Format statement as
+          <target> = <expr>
+        or
+          <pointer> => <expr>
+        """
+        target = self.visit(o.target, **kwargs)
+        expr = self.visit(o.expr, **kwargs)
+        comment = ''
+        if o.comment:
+            comment = '  {}'.format(self.visit(o.comment, **kwargs))
         if o.ptr:
-            # Manually force pointer assignment notation
-            # ... Hack me baby, one more time ...
-            stmt = stmt.replace(' = ', ' => ')
-        comment = '  %s' % self.visit(o.comment, **kwargs) if o.comment is not None else ''
-        return self.indent + self.chunk(stmt) + comment
+            return self.format_line(target, ' => ', expr, comment)
+        return self.format_line(target, ' = ', expr, comment)
 
     def visit_MaskedStatement(self, o, **kwargs):
-        condition = self.visit(o.condition, **kwargs)
-        self._depth += 1
+        """
+        Format masked assignment as
+          WHERE (<condition>)
+            ...body...
+          [ELSEWHERE]
+            [...body...]
+          END WHERE
+        """
+        header = self.format_line('WHERE (', self.visit(o.condition, **kwargs), ')')
+        footer = self.format_line('END WHERE')
+        default_header = self.format_line('ELSEWHERE')
+        self.depth += 1
         body = self.visit(o.body, **kwargs)
         default = self.visit(o.default, **kwargs)
-        self._depth -= 1
-        header = self.indent + 'WHERE (%s)\n' % condition
-        footer = '\n' + self.indent + 'END WHERE'
-        default = '\n%sELSEWHERE\n' % self.indent + default if len(o.default) > 0 else ''
-        return header + body + default + footer
+        self.depth -= 1
+        if o.default:
+            return self.join_lines(header, body, default_header, default, footer)
+        return self.join_lines(header, body, footer)
 
     def visit_Section(self, o, **kwargs):
+        """
+        Format the section's body.
+        """
         return self.visit(o.body, **kwargs)
 
     def visit_Scope(self, o, **kwargs):
-        associates = ['%s=>%s' % (self.visit(v, **kwargs), self.visit(a, **kwargs))
-                      for a, v in o.associations.items()]
-        associates = self.segment(associates, chunking=3)
+        """
+        Format scope as
+          ASSOCIATE (<associates>)
+            ...body...
+          END ASSOCIATE
+        """
+        assocs = ['{1}=>{0}'.format(*self.visit_all(a, **kwargs)) for a in o.associations.items()]
+        header = self.format_line('ASSOCIATE (', self.join_items(assocs), ')')
+        footer = self.format_line('END ASSOCIATE')
         body = self.visit(o.body, **kwargs)
-        return 'ASSOCIATE(%s)\n%s\nEND ASSOCIATE' % (associates, body)
+        return self.join_lines(header, body, footer)
 
     def visit_CallStatement(self, o, **kwargs):
-        if o.kwarguments is not None:
-            kwarguments = tuple('%s=%s' % (k, self.visit(v, **kwargs)) for k, v in o.kwarguments)
-            args = as_tuple(o.arguments) + kwarguments
-        else:
-            args = o.arguments
-        if len(args) > self.chunking:
-            self._depth += 2
-            # TODO: Temporary hack to force cloudsc_driver into the Fortran
-            # line limit. The linewidth check should be made smarter to
-            # adjust the chunking to the linewidth, like expressions do.
-            signature = self.segment([self.visit(a, **kwargs) for a in args], chunking=3)
-            self._depth -= 2
-        else:
-            signature = ', '.join(self.visit(a, **kwargs) for a in args)
-        return self.indent + 'CALL %s(%s)' % (o.name, signature)
+        """
+        Format call statement as
+          CALL <name>(<args>)
+        """
+        args = self.visit_all(o.arguments, **kwargs)
+        if o.kwarguments:
+            args += tuple('{}={}'.format(*self.visit_all(arg, **kwargs)) for arg in o.kwarguments)
+        return self.format_line('CALL ', o.name, '(', self.join_items(args), ')')
 
     def visit_Allocation(self, o, **kwargs):
-        source = ''
+        """
+        Format allocation statement as
+          ALLOCATE(<variables> [, SOURCE=<source>])
+        """
+        items = self.visit_all(o.variables, **kwargs)
         if o.data_source is not None:
-            source = ', source=%s' % self.visit(o.data_source, **kwargs)
-        variables = ','.join(v if isinstance(v, str) else self.visit(v, **kwargs)
-                             for v in o.variables)
-        return self.indent + 'ALLOCATE(%s%s)' % (variables, source)
+            items += ('SOURCE={}'.format(self.visit(o.data_source, **kwargs)), )
+        return self.format_line('ALLOCATE (', self.join_items(items), ')')
 
     def visit_Deallocation(self, o, **kwargs):
-        variables = ','.join(v if isinstance(v, str) else self.visit(v, **kwargs)
-                             for v in o.variables)
-        return self.indent + 'DEALLOCATE(%s)' % variables
+        """
+        Format de-allocation statement as
+          DEALLOCATE(<variables>)
+        """
+        items = self.visit_all(o.variables, **kwargs)
+        return self.format_line('DEALLOCATE (', self.join_items(items), ')')
 
     def visit_Nullify(self, o, **kwargs):
-        variables = ', '.join(self.visit(v, **kwargs) for v in o.variables)
-        return self.indent + 'NULLIFY(%s)' % variables
+        """
+        Format pointer nullification as
+          NULLIFY(<variables>)
+        """
+        items = self.visit_all(o.variables, **kwargs)
+        return self.format_line('NULLIFY (', self.join_items(items), ')')
 
     def visit_SymbolType(self, o, **kwargs):
+        """
+        Format declaration type as
+          <typename>[(<spec>)] [, <attributes>]
+        """
+        attributes = []
         if o.dtype == DataType.DERIVED_TYPE:
-            tname = 'TYPE(%s)' % o.name
+            typename = 'TYPE({})'.format(o.name)
         else:
             type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
                         DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
                         DataType.COMPLEX: 'COMPLEX', DataType.DEFERRED: ''}
-            tname = type_map[o.dtype]
-        return '%s%s%s%s%s%s%s%s%s%s%s' % (
-            tname,
-            '(LEN=%s)' % o.length if o.length else '',
-            '(KIND=%s)' % o.kind if o.kind else '',
-            ', ALLOCATABLE' if o.allocatable else '',
-            ', POINTER' if o.pointer else '',
-            ', VALUE' if o.value else '',
-            ', OPTIONAL' if o.optional else '',
-            ', PARAMETER' if o.parameter else '',
-            ', TARGET' if o.target else '',
-            ', CONTIGUOUS' if o.contiguous else '',
-            ', INTENT(%s)' % o.intent.upper() if o.intent else '',
-        )
+            typename = type_map[o.dtype]
+        if o.length:
+            typename += '(LEN={})'.format(self.visit(o.length, **kwargs))
+        if o.kind:
+            typename += '(KIND={})'.format(self.visit(o.kind, **kwargs))
+        if typename:
+            attributes += [typename]
+
+        if o.allocatable:
+            attributes += ['ALLOCATABLE']
+        if o.pointer:
+            attributes += ['POINTER']
+        if o.value:
+            attributes += ['VALUE']
+        if o.optional:
+            attributes += ['OPTIONAL']
+        if o.parameter:
+            attributes += ['PARAMETER']
+        if o.contiguous:
+            attributes += ['CONTIGUOUS']
+        if o.intent:
+            attributes += ['INTENT({})'.format(o.intent.upper())]
+        return self.join_items(attributes)
 
     def visit_TypeDef(self, o, **kwargs):
-        bind_c = ', bind(c) ::' if o.bind_c else ''
-        self._depth += 2
+        """
+        Format type definition as
+          TYPE [, BIND(c) ::] <name>
+            ...declarations...
+          END TYPE <name>
+        """
+        bind_c = ', BIND(c) ::' if o.bind_c else ''
+        header = self.format_line('TYPE', bind_c, ' ', o.name)
+        footer = self.format_line('END TYPE ', o.name)
+        self.depth += 1
         declarations = self.visit(o.declarations, **kwargs)
-        self._depth -= 2
-        header = self.indent + 'TYPE%s %s\n' % (bind_c, o.name)
-        footer = '\n%sEND TYPE %s' % (self.indent, o.name)
-        return header + declarations + footer
+        self.depth -= 1
+        return self.join_lines(header, declarations, footer)
 
 
 def fgen(ir, depth=0, chunking=4, conservative=False):
@@ -432,6 +584,7 @@ def fgen(ir, depth=0, chunking=4, conservative=False):
     """
     return FortranCodegen(depth=depth, chunking=chunking,
                           conservative=conservative).visit(ir)
+
 
 """
 Expose the expression generator for testing purposes.
