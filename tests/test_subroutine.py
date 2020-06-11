@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Section, Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
+    Section, Intrinsic, PreprocessorDirective, CallStatement, DataType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
@@ -803,15 +803,10 @@ end subroutine routine_call_args_kwargs
 def test_pp_macros(here, frontend):
     refpath = here/'sources/subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
-    visitor = FindNodes(Intrinsic)
-    # We need to collect the intrinsics in multiple places because different frontends
-    # make the cut between parts of a routine in different places
-    intrinsics = visitor.visit(routine.docstring)
-    intrinsics += visitor.visit(routine.spec)
-    intrinsics += visitor.visit(routine.body)
-    assert len(intrinsics) == 9
-    assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
-               for node in intrinsics)
+    visitor = FindNodes(PreprocessorDirective)
+    directives = visitor.visit(routine.ir)
+    assert len(directives) == 8
+    assert all(node.text.startswith('#') for node in directives)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -834,11 +829,12 @@ end subroutine routine_pp_directives
 
     # Note: these checks are rather loose as we currently do not restore the original version but
     # simply replace the PP constants by strings
+    directives = FindNodes(PreprocessorDirective).visit(routine.body)
+    assert len(directives) == 1
+    assert directives[0].text == '#define __FILENAME__ __FILE__'
     intrinsics = FindNodes(Intrinsic).visit(routine.body)
-    assert len(intrinsics) == 3
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
-    assert intrinsics[1].text == '#define __FILENAME__ __FILE__'
-    assert '__FILE__' in intrinsics[2].text and '__VERSION__' in intrinsics[2].text
+    assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 
     statements = FindNodes(Statement).visit(routine.body)
     assert len(statements) == 1
@@ -1134,7 +1130,7 @@ def test_subroutine_interface(here, frontend):
     Test auto-generation of an interface block for a given subroutine.
     """
     fcode = """
-subroutine test_subroutine_interface(in1, in2, out1, out2)
+subroutine test_subroutine_interface (in1, in2, out1, out2)
   use header, only: jprb
   IMPLICIT NONE
   integer, intent(in) :: in1, in2
@@ -1150,7 +1146,7 @@ end subroutine
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface(in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
     USE header, ONLY: jprb
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1
@@ -1163,7 +1159,7 @@ END INTERFACE
     else:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface(in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
     USE header, ONLY: jprb
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1, in2

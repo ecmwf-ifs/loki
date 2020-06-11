@@ -11,7 +11,7 @@ from loki.types import TypeTable
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional', 'Interface', 'Intrinsic']
+           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective']
 
 
 class Node:
@@ -130,6 +130,20 @@ class Pragma(Node):
 
     def __repr__(self):
         return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
+
+
+class PreprocessorDirective(Node):
+    """
+    Internal representation of a preprocessor directive.
+    """
+
+    def __init__(self, text, source=None):
+        super().__init__(source=source)
+
+        self.text = text
+
+    def __repr__(self):
+        return 'PreprocessorDirective:: {}'.format(truncate_string(self.text))
 
 
 class Loop(Node):

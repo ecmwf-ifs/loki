@@ -125,7 +125,7 @@ class FParser2IR(GenericVisitor):
         if not isinstance(o, str) and o.item is not None:
             label = getattr(o.item, 'label', None)
             lines = (o.item.span[0], o.item.span[1])
-            string = ''.join(self.raw_source[lines[0] - 1:lines[1]])
+            string = ''.join(self.raw_source[lines[0] - 1:lines[1]]).strip('\n')
             source = Source(lines=lines, string=string, label=label)
         return source
 
@@ -183,7 +183,7 @@ class FParser2IR(GenericVisitor):
         # forcing us to generate ``Variable`` objects, and in
         # declarations, where none of the metadata is available
         # at this low level!
-        vname = o.tostr().lower()
+        vname = o.tostr()
 
         # Careful! Mind the many ways in which this can get called with
         # outside information (either in kwargs or maps stored on self).
@@ -635,7 +635,7 @@ class FParser2IR(GenericVisitor):
             end_do_stmt = rget_child(o, Fortran2003.Continue_Stmt)
             assert str(end_do_stmt.item.label) == do_stmt.label.string
         lines = (do_stmt.item.span[0], end_do_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string, label=do_stmt.item.name)
         # Extract loop header and get stepping info
         variable, bounds = self.visit(do_stmt, **kwargs)
@@ -675,7 +675,7 @@ class FParser2IR(GenericVisitor):
         # Extract source by looking at everything between IF and END IF statements
         end_if_stmt = rget_child(o, Fortran2003.End_If_Stmt)
         lines = (if_then_stmt.item.span[0], end_if_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string, label=if_then_stmt.item.name)
         # Start with the condition that is always there
         conditions = [self.visit(if_then_stmt, **kwargs)]
@@ -870,7 +870,7 @@ class FParser2IR(GenericVisitor):
     visit_Stop_Stmt = visit_Intrinsic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text=o.tostr(), source=kwargs.get('source'))
+        return ir.PreprocessorDirective(text=o.tostr(), source=kwargs.get('source'))
 
     visit_Cpp_Elif_Stmt = visit_Cpp_If_Stmt
     visit_Cpp_Else_Stmt = visit_Cpp_If_Stmt
@@ -931,7 +931,7 @@ class FParser2IR(GenericVisitor):
         # Extract source by looking at everything between SELECT and END SELECT
         end_select_stmt = rget_child(o, Fortran2003.End_Select_Stmt)
         lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string, label=select_stmt.item.name)
         # The SELECT argument
         expr = self.visit(select_stmt, **kwargs)
