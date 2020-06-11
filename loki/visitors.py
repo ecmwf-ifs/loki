@@ -1,9 +1,8 @@
 import inspect
-from copy import deepcopy
 from itertools import zip_longest
 
 from loki.ir import Node
-from loki.tools import flatten, is_iterable, as_tuple
+from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
            'Stringifier']
@@ -266,176 +265,22 @@ class FindNodes(Visitor):
 
 
 class Stringifier(Visitor):
+    """
+    Visitor that converts a given IR tree to string.
+
+    It serves as base class for backends and provides a number of helpful routines that
+    ease implementing automatic recursion and line wrapping.
+
+    :param int depth: the current level of indentation.
+    :param str indent: the string to be prepended to a line for each level of indentation.
+    :param int linewidth: the line width limit.
+    :param line_cont: a function handle that takes the current indentation string and yields
+                      the string that should be inserted inbetween lines when they need to
+                      be wrapped to stay within the line width limit.
+    :type line_cont: function expecting 1 str argument
+    """
 
     # pylint: disable=arguments-differ
-
-    class ItemList:
-        """
-        Helper class that takes a list of items and joins them into a long string,
-        when converting the object to a string using custom separators.
-        Long lines are wrapped automatically.
-
-        The behaviour is essentially the same as `sep.join(items)` but with the
-        automatic wrapping of long lines. `items` can contain st
-
-        :param items: the list (or tuple) of items (that can be instances of
-                      `str` or `ItemList`) that is to be joined.
-        :type items: list or tuple
-        :param str sep: the separator to be inserted between consecutive items.
-        :param int width: the line width after which long lines should be wrapped.
-        :param cont: the line continuation string to be inserted on a line break.
-        :type cont: (str, str) or str
-        :param bool separable: an indicator whether this can be split up to fill
-                               lines or should stay as a unit (this is for cosmetic
-                               purposes only, as too long lines will be wrapped
-                               in any case).
-        """
-
-        def __init__(self, items, sep, width, cont, separable=True):
-            super().__init__()
-            self.items = [item for item in items if item is not None]
-            self.sep = sep
-            self.width = width
-            self.cont = cont.splitlines(keepends=True) if isinstance(cont, str) else cont
-            self.separable = separable
-
-        def _add_item_to_line(self, line, item):
-            """
-            Append the given item to the line.
-
-            :param str line: the line to which the item is appended.
-            :param item: the item that is appended.
-            :type item: str or `ItemList`
-
-            :return: the updated line and a list of preceeding lines that have
-                     been wrapped in the process.
-            :rtype: (str, list)
-            """
-            # Let's see if we can fit the current item plus separator
-            # onto the line and have enough space left for a line break
-            new_line = '{!s}{!s}'.format(line, item)
-            if len(new_line) + len(self.cont[0]) <= self.width:
-                return new_line, []
-
-            # Putting the current item plus separator and potential line break
-            # onto the current line exceeds the allowed width: we need to break.
-            item_line = '{!s}{!s}'.format(self.cont[1], item)
-            item_fits_in_line = len(item_line) + len(self.cont[0]) <= self.width
-
-            # First, let's see if we have an ItemList object that we can split up.
-            # However, we'll split this up only if allowed or if the item won't fit
-            # on a line
-            if isinstance(item, type(self)) and (item.separable or not item_fits_in_line):
-                line, new_item = item._to_str(line=line, stop_on_continuation=True)
-                new_line, lines = self._add_item_to_line(self.cont[1], new_item)
-                return new_line, [line + self.cont[0], *lines]
-
-            # Otherwise, let's put it on a new line if the item as a whole fits on the next line
-            if item_fits_in_line:
-                return item_line, [line + self.cont[0]]
-
-            # The new item does not fit onto a line at all and it is not an ItemList
-            # for which we know how to split it: let's try our best anyways
-            # TODO: This is not safe for strings currently and may still exceed
-            #       the line limit if the chunks are too big! Safest option would
-            #       be to have expression mapper etc. all return ItemList instances
-            #       and accept violations for the remaining cases.
-            chunks = str(item).split(' ')
-            chunks[:-1] = [chunk + ' ' for chunk in chunks[:-1]]
-
-            # First, add as much as possible to the previous line
-            next_chunk = 0
-            for idx, chunk in enumerate(chunks):
-                new_line = line + chunk
-                if len(new_line) + len(self.cont[0]) > self.width:
-                    next_chunk = idx
-                    break
-                line = new_line
-
-            # Now put the rest on new lines
-            lines = [line + self.cont[0]]
-            line = self.cont[1]
-            for chunk in chunks[next_chunk:]:
-                new_line = line + chunk
-                if len(new_line) + len(self.cont[0]) > self.width:
-                    lines += [line + self.cont[0]]
-                    line = self.cont[1] + chunk
-                else:
-                    line = new_line
-            return line, lines
-
-        def _to_str(self, line='', stop_on_continuation=False):
-            """
-            Join all items into a long string using the given separator and wrap lines if
-            necessary.
-
-            :param str line: the line this should be appended to.
-            :param bool stop_on_continuation: if True, only items up to the line width are
-                appended
-
-            :return: the joined string and an `ItemList` object with the remaining items, if
-                     any, or None
-            :rtype: (str, ItemList or NoneType)
-            """
-            if not self.items:
-                return '', None
-            if len(self.items) == 1:
-                return str(self.items[0]), None
-            lines = []
-            # Add all items one after another
-            for idx, item in enumerate(self.items):
-                if str(item) == '':
-                    # Skip empty items
-                    continue
-                sep = self.sep if idx + 1 < len(self.items) else ''
-                old_line = line
-                line, _lines = self._add_item_to_line(line, item + sep)
-                if stop_on_continuation and _lines:
-                    return old_line, type(self)(self.items[idx:], sep=self.sep, width=self.width,
-                                                cont=self.cont, separable=self.separable)
-                lines += _lines
-            return ''.join([*lines, line]), None
-
-        def __add__(self, other):
-            """
-            Concatenate this object and a string or another py:class:`ItemList`.
-
-            :param other: the object to append.
-            :type other: str or ItemList
-            """
-            if isinstance(other, type(self)):
-                return type(self)([self, other], sep='', width=self.width, cont=self.cont,
-                                  separable=False)
-            if isinstance(other, str):
-                obj = deepcopy(self)
-                if obj.items:
-                    obj.items[-1] += other
-                else:
-                    obj.items = [other]
-                return obj
-            raise TypeError('Concatenation only for strings or items of same type.')
-
-        def __radd__(self, other):
-            """
-            Concatenate a string and this object.
-
-            :param other: the str to prepend.
-            :type other: str
-            """
-            if isinstance(other, str):
-                obj = deepcopy(self)
-                if obj.items:
-                    obj.items[0] = other + obj.items[0]
-                else:
-                    obj.items = [other]
-                return obj
-            raise TypeError('Concatenation only for strings.')
-
-        def __str__(self):
-            """
-            Convert to a string.
-            """
-            return self._to_str()[0]
 
     def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent):
         super().__init__()
@@ -470,18 +315,28 @@ class Stringifier(Visitor):
 
     def join_items(self, items, sep=', ', separable=True):
         """
-        Concatenate a list of items by creating a TokenList object.
+        Concatenate a list of items by creating a py:class:`JoinableStringList` object.
 
         The return value can be passed to `format_line` or `format_node` or converted to a string
         by simply calling `str` with it as an argument. Upon expansion, lines will be
         wrapped automatically to stay within the linewidth.
+
+        :param list items: the list of strings to be joined.
+        :param str sep: the separator to be inserted between items.
+        :param bool separable: an indicator whether cosmetic line breaks between items are
+                               permitted.
+
+        :return: a py:class:`JoinableStringList` object for the items.
+        :rtype: py:class:`JoinableStringList`
         """
-        return self.ItemList(items, sep=sep, width=self.linewidth,
-                             cont=self.line_cont(self.indent), separable=separable)
+        return JoinableStringList(items, sep=sep, width=self.linewidth,
+                                  cont=self.line_cont(self.indent), separable=separable)
 
     def format_node(self, name, *items):
         """
         Default format for a node.
+
+        Creates a string of the form `<name[, attribute, attribute, ...]>`.
         """
         if items:
             return self.format_line('<', name, ' ', self.join_items(items), '>')
@@ -489,7 +344,17 @@ class Stringifier(Visitor):
 
     def format_line(self, *items, comment=None, no_wrap=False, no_indent=False):
         """
-        Format a line and apply indentation.
+        Format a line by concatenating all items and applying indentation while observing
+        the allowed line width limit.
+
+        :param list items: the items to be put on that line.
+        :param str comment: an optional inline comment to be put at the end of the line.
+        :param bool no_wrap: disable line wrapping.
+        :param bool no_indent: do not apply indentation.
+
+        :return: the string of the current line, potentially including line breaks if
+                 required to observe the line width limit.
+        :rtype: str
         """
         if not no_indent:
             items = [self.indent, *items]
@@ -511,6 +376,8 @@ class Stringifier(Visitor):
     def visit_all(self, item, *args, **kwargs):
         """
         Convenience function to call `visit` for all given items.
+        If only one iterable argument is provided, `visit` is called on all of
+        its elements.
         """
         if is_iterable(item) and not args:
             return as_tuple(self.visit(i, **kwargs) for i in item if i)
@@ -645,4 +512,7 @@ class Stringifier(Visitor):
 
 
 def pprint(ir):
+    """
+    Convert the given IR to string using the py:class:`Stringifier`.
+    """
     print(Stringifier().visit(ir))

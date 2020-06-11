@@ -118,7 +118,7 @@ class FortranCodegen(Stringifier):
 
     def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: ' &\n{}& '.format(indent))
+                         line_cont=lambda indent: ' &\n{}& '.format(indent))  # pylint: disable=unnecessary-lambda
         self.conservative = conservative
         self._fsymgen = FCodeMapper()
 
