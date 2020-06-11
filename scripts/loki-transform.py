@@ -387,7 +387,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     Note: Must be run after generic SCA conversion.
     """
-    from loki import FortranCodegen  # pylint: disable=import-outside-toplevel
+    #from loki import FortranCodegen  # pylint: disable=import-outside-toplevel
 
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
@@ -396,7 +396,9 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
             loop._update(pragma=pragma)
 
     # Generate CLAW directives and insert into routine spec
-    segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
+    from loki.visitors import Stringifier
+    segmented_scalars = Stringifier.ItemList(claw_scalars, sep=', ', width=80, cont=' &\n & ')
+#    segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
                   Pragma(keyword='claw', content='sca &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]

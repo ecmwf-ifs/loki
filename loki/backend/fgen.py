@@ -1,11 +1,10 @@
-from textwrap import wrap
 from itertools import zip_longest
 from pymbolic.primitives import is_zero
 from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
                                          PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
 
 from loki.visitors import Stringifier
-from loki.tools import chunks, flatten, as_tuple
+from loki.tools import flatten, as_tuple
 from loki.expression import LokiStringifyMapper, Product
 from loki.types import DataType
 
@@ -117,26 +116,15 @@ class FortranCodegen(Stringifier):
     """
     # pylint: disable=no-self-use, unused-argument
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, chunking=4, conservative=True):
+    def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
                          line_cont=lambda indent: ' &\n{}& '.format(indent))
         self.conservative = conservative
-        self.chunking = chunking
         self._fsymgen = FCodeMapper()
 
     @property
     def fsymgen(self):
         return self._fsymgen
-
-    def chunk(self, arg):
-        return ('&\n%s &' % self.indent).join(wrap(arg, width=60, drop_whitespace=False,
-                                                   break_long_words=False))
-
-    def segment(self, arguments, chunking=None):
-        chunking = chunking or self.chunking
-        delim = ', &\n%s & ' % self.indent
-        args = list(chunks(list(arguments), chunking))
-        return delim.join(', '.join(c) for c in args)
 
     def visit(self, o, *args, **kwargs):
         """
@@ -173,7 +161,7 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> <name>([<args>]) [BIND(c, name=<name>)]
+          <ftype> <name> ([<args>]) [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
@@ -184,7 +172,7 @@ class FortranCodegen(Stringifier):
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         arguments = self.join_items(o.argnames)
         bind_c = ' BIND(c, name=\'{}\')'.format(o.bind) if o.bind else ''
-        header = self.format_line(ftype, ' ', o.name, '(', arguments, ')', bind_c)
+        header = self.format_line(ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         contains = self.format_line('CONTAINS')
         footer = self.format_line('END ', ftype, ' ', o.name)
 
@@ -250,21 +238,27 @@ class FortranCodegen(Stringifier):
         Format comments.
         """
         text = o.text or o.source.string
-        return self.format_line(str(text).lstrip())
+        return self.format_line(str(text).lstrip(), no_wrap=True)
 
     def visit_Pragma(self, o, **kwargs):
         """
         Format pragmas.
         """
         if o.content is not None:
-            return self.format_line('!$', o.keyword, ' ', o.content)
-        return o._source.string
+            return self.format_line('!$', o.keyword, ' ', o.content, no_wrap=True, no_indent=True)
+        return o.source.string
 
     def visit_CommentBlock(self, o, **kwargs):
         """
         Format comment blocks.
         """
         return self.visit(o.comments)
+
+    def visit_PreprocessorDirective(self, o, **kwargs):
+        """
+        Format preprocessor directives.
+        """
+        return self.format_line(str(o.text).lstrip(), no_wrap=True, no_indent=True)
 
     def visit_Declaration(self, o, **kwargs):
         """
@@ -279,11 +273,9 @@ class FortranCodegen(Stringifier):
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
-        dtype = self.visit(types[0], **kwargs)
+        dtype = self.visit(types[0], dimensions=o.dimensions, **kwargs)
         if str(dtype):
             attributes += [dtype]
-        if o.dimensions:
-            attributes += ['DIMENSION({})'.format(', '.join(self.visit_all(o.dimensions, **kwargs)))]
         if o.external:
             attributes += ['EXTERNAL']
         variables = []
@@ -299,7 +291,8 @@ class FortranCodegen(Stringifier):
         comment = ''
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables), comment)
+        return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables),
+                                comment=comment)
 
     def visit_DataDeclaration(self, o, **kwargs):
         """
@@ -449,7 +442,7 @@ class FortranCodegen(Stringifier):
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
         if o.ptr:
             return self.format_line(target, ' => ', expr, comment)
-        return self.format_line(target, ' = ', expr, comment)
+        return self.format_line(target, ' = ', expr, comment=comment)
 
     def visit_MaskedStatement(self, o, **kwargs):
         """
@@ -531,6 +524,7 @@ class FortranCodegen(Stringifier):
         Format declaration type as
           <typename>[(<spec>)] [, <attributes>]
         """
+        dimensions = kwargs.pop('dimensions', None)
         attributes = []
         if o.dtype == DataType.DERIVED_TYPE:
             typename = 'TYPE({})'.format(o.name)
@@ -546,6 +540,8 @@ class FortranCodegen(Stringifier):
         if typename:
             attributes += [typename]
 
+        if dimensions:
+            attributes += ['DIMENSION({})'.format(', '.join(self.visit_all(dimensions, **kwargs)))]
         if o.allocatable:
             attributes += ['ALLOCATABLE']
         if o.pointer:
@@ -556,6 +552,8 @@ class FortranCodegen(Stringifier):
             attributes += ['OPTIONAL']
         if o.parameter:
             attributes += ['PARAMETER']
+        if o.target:
+            attributes += ['TARGET']
         if o.contiguous:
             attributes += ['CONTIGUOUS']
         if o.intent:
@@ -578,12 +576,11 @@ class FortranCodegen(Stringifier):
         return self.join_lines(header, declarations, footer)
 
 
-def fgen(ir, depth=0, chunking=4, conservative=False):
+def fgen(ir, depth=0, conservative=False, linewidth=132):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    return FortranCodegen(depth=depth, chunking=chunking,
-                          conservative=conservative).visit(ir)
+    return FortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir)
 
 
 """

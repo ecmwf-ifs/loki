@@ -364,7 +364,6 @@ MODULE some_mod
         x = -x
       ENDIF
       y = 0
-      !$loki some pragma
       DO i=1,n
         y = y + x*x
       ENDDO
@@ -382,6 +381,7 @@ MODULE some_mod
     IMPLICIT NONE
     INTEGER, INTENT(IN) :: m
     REAL, ALLOCATABLE :: var(:)
+    !$loki some pragma
     SELECT CASE (m)
       CASE (0)
         m = 1
@@ -443,6 +443,7 @@ END MODULE some_mod
 ###<Declaration:: m>
 ###<Declaration:: var(:)>
 ##<Section::>
+###<Pragma:: loki some pragma>
 ###<MultiConditional:: m>
 ####<Case (0)>
 #####<Statement:: m = 1>
@@ -470,8 +471,8 @@ END MODULE some_mod
         ref_lines[14] = ref_lines[14].replace('1E-8', '1e-8')
         ref_lines[24] = ref_lines[24].replace('1:n', '1:n:1')
         ref_lines[34] = ref_lines[34].replace('SQRT', 'sqrt')
-        ref_lines[46] = ref_lines[46].replace('PRINT', 'print')
-        ref_lines[50] = ref_lines[50].replace('PRINT', 'print')
+        ref_lines[47] = ref_lines[47].replace('PRINT', 'print')
+        ref_lines[51] = ref_lines[51].replace('PRINT', 'print')
         ref = '\n'.join(ref_lines)
         cont_index = 26
     else:
@@ -495,3 +496,11 @@ END MODULE some_mod
     ref_lines[cont_index + 1] = '...  1. + 1.>'
     depth_ref = '\n'.join(ref_lines)
     assert Stringifier(indent='#', depth=1, line_cont=line_cont).visit(module).strip() == depth_ref
+
+    # Test custom linewidth
+    ref_lines = ref.strip().splitlines()
+    ref_lines = ref_lines[:cont_index] + ['###<Statement:: y = my_sqrt(y) + 1. + 1. ',
+                                          '... + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ',
+                                          '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
+    w_ref = '\n'.join(ref_lines)
+    assert Stringifier(indent='#', linewidth=42, line_cont=line_cont).visit(module).strip() == w_ref
