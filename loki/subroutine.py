@@ -8,7 +8,7 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock
+    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
@@ -293,7 +293,7 @@ class Subroutine:
             docs.append(node)
             comment_map[node] = None
         for node in reversed(spec.body):
-            if not isinstance(node, (Comment, CommentBlock)):
+            if not isinstance(node, (Pragma, Comment, CommentBlock)):
                 break
             body.prepend(node)
             comment_map[node] = None
