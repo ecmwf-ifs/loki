@@ -434,8 +434,8 @@ def cli():
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
-              help='Frontend parser to use (default OFP)')
+@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
+              help='Frontend parser to use (default FP)')
 def idempotence(out_path, source, driver, header, xmod, include, flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
@@ -444,7 +444,8 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     kernel_name = 'CLOUDSC'
 
     frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    typedefs = get_typedefs(header, xmods=xmod,
+                            frontend=OFP if frontend == OMNI else frontend)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
                                   frontend=frontend, typedefs=typedefs,
                                   builddir=out_path)
@@ -512,8 +513,8 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni']),
-              help='Frontend parser to use (default OFP)')
+@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
+              help='Frontend parser to use (default FP)')
 def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -526,7 +527,8 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     kernel_name = 'CLOUDSC'
 
     frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    typedefs = get_typedefs(header, xmods=xmod,
+                            frontend=OFP if frontend == OMNI else frontend)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
                                   frontend=frontend, typedefs=typedefs,
                                   builddir=out_path)
