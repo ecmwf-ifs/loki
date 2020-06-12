@@ -168,16 +168,24 @@ class OFP2IR(GenericVisitor):
 
     def visit_select(self, o, source=None):
         expr = self.visit(o.find('header'))
-        values = [self.visit(h) for h in o.findall('body/case/header')]
-        bodies = [self.visit(b) for b in o.findall('body/case/body')]
+        cases = [self.visit(case) for case in o.findall('body/case')]
+        values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)
+            values, bodies = list(values), list(bodies)
             values.pop(else_index)
             else_body = as_tuple(bodies.pop(else_index))
         else:
             else_body = ()
         return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
                                    else_body=else_body, source=source)
+
+    def visit_case(self, o, source=None):
+        value = self.visit(o.find('header'))
+        if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
+            value = sym.RangeIndex(value)
+        body = self.visit(o.find('body'))
+        return value, body
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
@@ -254,12 +262,12 @@ class OFP2IR(GenericVisitor):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         if o.find('save-stmt') is not None:
-            return ir.Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string.strip(), source=source)
         if o.find('implicit-stmt') is not None:
-            return ir.Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string.strip(), source=source)
         if o.find('access-spec') is not None:
             # PUBLIC or PRIVATE declarations
-            return ir.Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string.strip(), source=source)
         if o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
@@ -409,7 +417,7 @@ class OFP2IR(GenericVisitor):
                 v.type.external = True
             return ir.Declaration(variables=variables, external=True, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
-            return ir.Intrinsic(text=source.string, source=source)
+            return ir.Intrinsic(text=source.string.strip(), source=source)
         if o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
@@ -465,12 +473,12 @@ class OFP2IR(GenericVisitor):
             match = re.search(r'#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
             module = match.groupdict()['module']
             return ir.Import(module=module, c_import=True, source=source)
-        return ir.Intrinsic(text=source.string, source=source)
+        return ir.PreprocessorDirective(text=source.string.strip(), source=source)
 
     def visit_open(self, o, source=None):
         cstart = source.string.lower().find(o.tag.lower())
         assert cstart != -1
-        return ir.Intrinsic(text=source.string[cstart:].strip('\n'), source=source)
+        return ir.Intrinsic(text=source.string[cstart:].strip(), source=source)
 
     visit_close = visit_open
     visit_read = visit_open

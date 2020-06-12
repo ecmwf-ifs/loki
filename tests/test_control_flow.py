@@ -294,11 +294,7 @@ end subroutine goto_stmt
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_select_case(here, frontend):
     fcode = """
 subroutine select_case(cmd, out1)

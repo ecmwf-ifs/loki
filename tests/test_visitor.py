@@ -3,10 +3,10 @@ from pymbolic.primitives import Expression
 
 from loki import (
     OFP, OMNI, FP,
-    Subroutine, Loop, Statement, Conditional,
+    Module, Subroutine, Loop, Statement, Conditional,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -334,3 +334,173 @@ end subroutine routine_simple
     if frontend == FP:
         assert comp_root[0].source.lines == (12, 12)
         assert cast_root[0].source.lines == (13, 13)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_stringifier(frontend):
+    """
+    Test basic stringifier capability for most IR nodes.
+    """
+    fcode = """
+MODULE some_mod
+  INTEGER :: n
+  !$loki dimension(klon)
+  REAL :: arr(:)
+  CONTAINS
+    SUBROUTINE some_routine (x, y)
+      ! This is a basic subroutine with some loops
+      IMPLICIT NONE
+      REAL, INTENT(IN) :: x
+      REAL, INTENT(OUT) :: y
+      INTEGER :: i
+      ! And now to the content
+      IF (x < 1E-8 .and. x > -1E-8) THEN
+        x = 0.
+      ELSE IF (x > 0.) THEN
+        DO WHILE (x > 1.)
+          x = x / 2.
+        ENDDO
+      ELSE
+        x = -x
+      ENDIF
+      y = 0
+      DO i=1,n
+        y = y + x*x
+      ENDDO
+      y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1.
+    END SUBROUTINE some_routine
+    FUNCTION my_sqrt (arg)
+      IMPLICIT NONE
+      REAL, INTENT(IN) :: arg
+      REAL :: my_sqrt
+      my_sqrt = SQRT(arg)
+    END FUNCTION my_sqrt
+  SUBROUTINE other_routine (m)
+    ! This is just to have some more IR nodes
+    ! with multi-line comments and everything...
+    IMPLICIT NONE
+    INTEGER, INTENT(IN) :: m
+    REAL, ALLOCATABLE :: var(:)
+    !$loki some pragma
+    SELECT CASE (m)
+      CASE (0)
+        m = 1
+      CASE (1:10)
+        PRINT *, '1 to 10'
+      CASE (-1, -2)
+        m = 10
+      CASE DEFAULT
+        PRINT *, 'Default case'
+    END SELECT
+    ASSOCIATE (x => arr(m))
+      x = x * 2.
+    END ASSOCIATE
+    ALLOCATE(var, source=arr)
+    CALL some_routine (arr(1), var(1))
+    arr(:) = arr(:) + var(:)
+    DEALLOCATE(var)
+  END SUBROUTINE other_routine
+END MODULE some_mod
+    """.strip()
+    ref = """
+<Module:: some_mod>
+#<Section::>
+##<Declaration:: n>
+##<Declaration:: arr(:)>
+#<Subroutine:: some_routine>
+##<Comment:: ! This is a b...>
+##<Section::>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration:: x>
+###<Declaration:: y>
+###<Declaration:: i>
+##<Section::>
+###<Comment:: ! And now to ...>
+###<Conditional::>
+####<If x < 1E-8 and x > -1E-8>
+#####<Statement:: x = 0.>
+####<ElseIf x > 0.>
+#####<WhileLoop:: x > 1.>
+######<Statement:: x = x / 2.>
+####<Else>
+#####<Statement:: x = -x>
+###<Statement:: y = 0>
+###<Loop:: i=1:n>
+####<Statement:: y = y + x*x>
+###<Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 
+... 1. + 1.>
+#<Function:: my_sqrt>
+##<Section::>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration:: arg>
+###<Declaration:: my_sqrt>
+##<Section::>
+###<Statement:: my_sqrt = SQRT(arg)>
+#<Subroutine:: other_routine>
+##<CommentBlock:: ! This is jus...>
+##<Section::>
+###<Intrinsic:: IMPLICIT NONE>
+###<Declaration:: m>
+###<Declaration:: var(:)>
+##<Section::>
+###<Pragma:: loki some pragma>
+###<MultiConditional:: m>
+####<Case (0)>
+#####<Statement:: m = 1>
+####<Case (1:10)>
+#####<Intrinsic:: PRINT *, '1 t...>
+####<Case (-1, -2)>
+#####<Statement:: m = 10>
+####<Default>
+#####<Intrinsic:: PRINT *, 'Def...>
+###<Scope:: arr(m)=x>
+####<Statement:: x = x*2.>
+###<Allocation:: var>
+###<Call:: some_routine>
+###<Statement:: arr(:) = arr(:) + var(:)>
+###<Deallocation:: var>
+    """.strip()
+
+    if frontend == OMNI:
+        ref_lines = ref.splitlines()
+        # Replace ElseIf branch by nested if
+        ref_lines = ref_lines[:16] + ['####<Else>', '#####<Conditional::>'] + ref_lines[16:]  # Insert Conditional
+        ref_lines[18] = ref_lines[18].replace('Else', '')  # ElseIf -> If
+        ref_lines[18:23] = ['##' + line for line in ref_lines[18:23]]  # -> Indent
+        # Some string inconsistencies
+        ref_lines[14] = ref_lines[14].replace('1E-8', '1e-8')
+        ref_lines[24] = ref_lines[24].replace('1:n', '1:n:1')
+        ref_lines[34] = ref_lines[34].replace('SQRT', 'sqrt')
+        ref_lines[47] = ref_lines[47].replace('PRINT', 'print')
+        ref_lines[51] = ref_lines[51].replace('PRINT', 'print')
+        ref = '\n'.join(ref_lines)
+        cont_index = 26
+    else:
+        cont_index = 24
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Test custom indentation
+    line_cont = lambda indent: '\n{:{indent}} '.format('...', indent=max(len(indent), 1))
+    assert Stringifier(indent='#', line_cont=line_cont).visit(module).strip() == ref.strip()
+
+    # Test default
+    ref_lines = ref.strip().replace('#', '  ').splitlines()
+    ref_lines[cont_index] = '      <Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
+    ref_lines[cont_index + 1] = '      + 1. + 1.>'
+    default_ref = '\n'.join(ref_lines)
+    assert Stringifier().visit(module).strip() == default_ref
+
+    # Test custom initial depth
+    ref_lines = ['#' + line if line else '' for line in ref.splitlines()]
+    ref_lines[cont_index + 1] = '...  1. + 1.>'
+    depth_ref = '\n'.join(ref_lines)
+    assert Stringifier(indent='#', depth=1, line_cont=line_cont).visit(module).strip() == depth_ref
+
+    # Test custom linewidth
+    ref_lines = ref.strip().splitlines()
+    ref_lines = ref_lines[:cont_index] + ['###<Statement:: y = my_sqrt(y) + 1. + 1. ',
+                                          '... + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ',
+                                          '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
+    w_ref = '\n'.join(ref_lines)
+    assert Stringifier(indent='#', linewidth=42, line_cont=line_cont).visit(module).strip() == w_ref

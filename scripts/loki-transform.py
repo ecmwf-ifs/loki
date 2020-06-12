@@ -15,7 +15,7 @@ from loki import (
     CallStatement, Pragma, DataType, SymbolType, RangeIndex,
     ArraySubscript, LoopRange, Transformation,
     DependencyTransformation, FortranCTransformation, Frontend, OMNI,
-    OFP, fgen, SubstituteExpressionsMapper
+    OFP, fgen, SubstituteExpressionsMapper, JoinableStringList
 )
 
 
@@ -51,7 +51,6 @@ class DerivedArgsTransformation(Transformation):
         self.flatten_derived_args_caller(routine)
         if role == 'kernel':
             self.flatten_derived_args_routine(routine)
-
 
     @staticmethod
     def _derived_type_arguments(routine):
@@ -387,8 +386,6 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
 
     Note: Must be run after generic SCA conversion.
     """
-    from loki import FortranCodegen  # pylint: disable=import-outside-toplevel
-
     # Insert loop pragmas in driver (in-place)
     for loop in FindNodes(Loop).visit(driver.body):
         if str(loop.variable).upper() == target.variable:
@@ -396,7 +393,7 @@ def insert_claw_directives(routine, driver, claw_scalars, target):
             loop._update(pragma=pragma)
 
     # Generate CLAW directives and insert into routine spec
-    segmented_scalars = FortranCodegen(chunking=6).segment([str(s) for s in claw_scalars])
+    segmented_scalars = JoinableStringList(claw_scalars, sep=', ', width=80, cont=' &\n & ')
     directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
                   Pragma(keyword='claw', content='sca &'),
                   Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]

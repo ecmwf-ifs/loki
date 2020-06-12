@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Intrinsic, CallStatement, DataType, Array, Scalar, Variable,
+    Section, Intrinsic, PreprocessorDirective, CallStatement, DataType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
@@ -27,6 +27,7 @@ def test_routine_simple(here, frontend):
     """
     fcode = """
 subroutine routine_simple (x, y, scalar, vector, matrix)
+  ! This is the docstring
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   real(kind=jprb), intent(in) :: scalar
@@ -42,6 +43,11 @@ end subroutine routine_simple
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert isinstance(routine.body, Section)
+    assert isinstance(routine.spec, Section)
+    assert len(routine.docstring) == 1
+    assert routine.docstring[0].text == '! This is the docstring'
+
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
@@ -728,7 +734,7 @@ end subroutine routine_call_caller
     assert fexprgen(call.arguments[3].shape) in ['(x, y)', '(1:x, 1:y)']
 #    assert fexprgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
 
-    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, &\n     & matrix, item%matrix)'
+    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, matrix, item%matrix)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -740,9 +746,10 @@ subroutine routine_call_no_arg()
   call abort
 end subroutine routine_call_no_arg
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].arguments == ()
-    assert routine.body[0].kwarguments == ()
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ()
+    assert calls[0].kwarguments == ()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -755,18 +762,19 @@ subroutine routine_call_kwargs()
   call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
 end subroutine routine_call_kwargs
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].name == 'mpl_init'
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_init'
 
-    assert routine.body[0].arguments == ()
-    assert len(routine.body[0].kwarguments) == 2
-    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in routine.body[0].kwarguments)
+    assert calls[0].arguments == ()
+    assert len(calls[0].kwarguments) == 2
+    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in calls[0].kwarguments)
 
-    assert routine.body[0].kwarguments[0][0] == 'kprocs'
-    assert (isinstance(routine.body[0].kwarguments[0][1], Scalar) and
-            routine.body[0].kwarguments[0][1].name == 'kprocs')
+    assert calls[0].kwarguments[0][0] == 'kprocs'
+    assert (isinstance(calls[0].kwarguments[0][1], Scalar) and
+            calls[0].kwarguments[0][1].name == 'kprocs')
 
-    assert routine.body[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
+    assert calls[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -779,11 +787,12 @@ subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
   call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
 end subroutine routine_call_args_kwargs
 """)
-    assert isinstance(routine.body[0], CallStatement)
-    assert routine.body[0].name == 'mpl_send'
-    assert len(routine.body[0].arguments) == 3
-    assert all(a.name == b.name for a, b in zip(routine.body[0].arguments, routine.arguments))
-    assert routine.body[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
+    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_send'
+    assert len(calls[0].arguments) == 3
+    assert all(a.name == b.name for a, b in zip(calls[0].arguments, routine.arguments))
+    assert calls[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -794,15 +803,10 @@ end subroutine routine_call_args_kwargs
 def test_pp_macros(here, frontend):
     refpath = here/'sources/subroutine_pp_macros.F90'
     routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
-    visitor = FindNodes(Intrinsic)
-    # We need to collect the intrinsics in multiple places because different frontends
-    # make the cut between parts of a routine in different places
-    intrinsics = visitor.visit(routine.docstring)
-    intrinsics += visitor.visit(routine.spec)
-    intrinsics += visitor.visit(routine.body)
-    assert len(intrinsics) == 9
-    assert all(node.text.startswith('#') or 'implicit none' in node.text.lower()
-               for node in intrinsics)
+    visitor = FindNodes(PreprocessorDirective)
+    directives = visitor.visit(routine.ir)
+    assert len(directives) == 8
+    assert all(node.text.startswith('#') for node in directives)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -825,11 +829,12 @@ end subroutine routine_pp_directives
 
     # Note: these checks are rather loose as we currently do not restore the original version but
     # simply replace the PP constants by strings
+    directives = FindNodes(PreprocessorDirective).visit(routine.body)
+    assert len(directives) == 1
+    assert directives[0].text == '#define __FILENAME__ __FILE__'
     intrinsics = FindNodes(Intrinsic).visit(routine.body)
-    assert len(intrinsics) == 3
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
-    assert intrinsics[1].text == '#define __FILENAME__ __FILE__'
-    assert '__FILE__' in intrinsics[2].text and '__VERSION__' in intrinsics[2].text
+    assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 
     statements = FindNodes(Statement).visit(routine.body)
     assert len(statements) == 1
@@ -918,7 +923,7 @@ end subroutine routine_empty_spec
         assert len(routine.spec.body) == 1
     else:
         assert not routine.spec.body
-    assert len(routine.body) == 1
+    assert len(routine.body.body) == 1
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -1125,8 +1130,9 @@ def test_subroutine_interface(here, frontend):
     Test auto-generation of an interface block for a given subroutine.
     """
     fcode = """
-subroutine test_subroutine_interface(in1, in2, out1, out2)
+subroutine test_subroutine_interface (in1, in2, out1, out2)
   use header, only: jprb
+  IMPLICIT NONE
   integer, intent(in) :: in1, in2
   real(kind=jprb), intent(out) :: out1, out2
   integer :: localvar
@@ -1140,29 +1146,24 @@ end subroutine
     if frontend == OMNI:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface &
- & (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
     USE header, ONLY: jprb
-IMPLICIT NONE
+    IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1
     INTEGER, INTENT(IN) :: in2
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out1
     REAL(KIND=selected_real_kind(13, 300)), INTENT(OUT) :: out2
-
   END SUBROUTINE test_subroutine_interface
-
 END INTERFACE
 """.strip()
     else:
         assert fgen(routine.interface).strip() == """
 INTERFACE
-  SUBROUTINE test_subroutine_interface &
- & (in1, in2, out1, out2)
+  SUBROUTINE test_subroutine_interface (in1, in2, out1, out2)
     USE header, ONLY: jprb
+    IMPLICIT NONE
     INTEGER, INTENT(IN) :: in1, in2
     REAL(KIND=jprb), INTENT(OUT) :: out1, out2
-
   END SUBROUTINE test_subroutine_interface
-
 END INTERFACE
 """.strip()

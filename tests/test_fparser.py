@@ -56,7 +56,7 @@ end subroutine routine_raw_source
     source = SourceFile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source']
 
-    fcode = fcode.splitlines(keepends=True)
+    fcode = fcode.splitlines()
 
     # Check the intrinsics
     intrinsic_lines = (9, 11, 17, 22, 24, 26, 29)
@@ -74,7 +74,7 @@ end subroutine routine_raw_source
         # Verify that source string is subset of the relevant line in the original source
         assert node._source is not None
         assert node._source.lines in do_lines
-        assert node._source.string in (''.join(fcode[start-1:end]) for start, end in do_lines)
+        assert node._source.string in ('\n'.join(fcode[start-1:end]) for start, end in do_lines)
         # Make sure the label is correctly identified and contained
         if node._source.label:
             loop_label_found = ~loop_label_found  # This way to ensure it is found only once
@@ -102,7 +102,7 @@ end subroutine routine_raw_source
                        val.source.lines[0] in conditions[node._source.lines[0]]
                        for val in node.values)
         # Verify that source string is subset of the relevant lines in the original source
-        assert node._source.string in (''.join(fcode[start-1:end]) for start, end in cond_lines)
+        assert node._source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node._source.label:
             cond_label_found += 1
             assert node._source.label in ('check', 'multicond')

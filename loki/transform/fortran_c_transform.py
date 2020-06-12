@@ -145,6 +145,7 @@ class FortranCTransformation(Transformation):
         wrapper_body = casts_in
         wrapper_body += [CallStatement(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
+        wrapper_body = Section(body=wrapper_body)
         wrapper.__init__(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,
                          symbols=wrapper.symbols, types=wrapper.types)
 
@@ -182,8 +183,8 @@ class FortranCTransformation(Transformation):
                 isoctype = SymbolType(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
-                getterbody = [Statement(target=Variable(name=gettername, scope=getter.symbols),
-                                        expr=v)]
+                getterbody = Section(body=[
+                    Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)])
 
                 getter.__init__(name=gettername, bind=gettername, spec=getterspec,
                                 body=getterbody, is_function=True, parent=obj,
@@ -298,7 +299,7 @@ class FortranCTransformation(Transformation):
         # Replicate the kernel to strip the Fortran-specific boilerplate
         spec = Section(body=imports)
         body = Transformer({}).visit(routine.body)
-        body = as_tuple(getter_calls) + as_tuple(body)
+        body = Section(body=as_tuple(getter_calls) + as_tuple(body))
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)

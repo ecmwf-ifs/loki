@@ -317,7 +317,7 @@ subroutine parenthesis(v1, v2, v3)
 end subroutine parenthesis
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = list(routine.body)[0]
+    stmt = FindNodes(Statement).visit(routine.body)[0]
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
@@ -349,7 +349,7 @@ subroutine commutativity(v1, v2, v3)
 end subroutine commutativity
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = list(routine.body)[0]
+    stmt = FindNodes(Statement).visit(routine.body)[0]
 
     # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
@@ -468,15 +468,20 @@ end subroutine output_intrinsics
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert isinstance(routine.body[-2], Intrinsic)
-    assert isinstance(routine.body[-1], Intrinsic)
-    assert routine.body[-2].text.lower() in ["format(1x, 2i10, 1x, i4, ' : ', i10)",
-                                             'format(1x, 2i10, 1x, i4, " : ", i10)']
-    assert fgen(routine.body[-2]).lower() in ["1002 format(1x, 2i10, 1x, i4, ' : ', i10)",
-                                              '1002 format(1x, 2i10, 1x, i4, " : ", i10)']
-    assert routine.body[-1].text.lower() in \
-        ['write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)',
-         'write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)']
+    ref = ['format(1x, 2i10, 1x, i4, \' : \', i10)',
+           'write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)']
+
+    if frontend == OMNI:
+        ref[0] = ref[0].replace("'", '"')
+        ref[1] = ref[1].replace('0, 1002', 'unit=0, fmt=1002')
+        ref[1] = ref[1].replace(' * ', '*')
+        ref[1] = ref[1].replace('- 1', '-1')
+
+    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 2
+    assert intrinsics[0].text.lower() == ref[0]
+    assert intrinsics[1].text.lower() == ref[1]
+    assert fgen(intrinsics).lower() == '{} {}\n{}'.format('1002', *ref)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

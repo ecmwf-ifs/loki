@@ -4,14 +4,14 @@ import inspect
 
 from pymbolic.primitives import Expression
 
-from loki.tools import flatten, as_tuple, is_iterable
+from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import TypeTable
 
 
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
-           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef',
+           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional', 'Interface', 'Intrinsic']
+           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective']
 
 
 class Node:
@@ -68,6 +68,13 @@ class Node:
     def children(self):
         return ()
 
+    @property
+    def source(self):
+        return self._source
+
+    def __repr__(self):
+        return 'Node::'
+
 
 class Intrinsic(Node):
     """
@@ -79,7 +86,7 @@ class Intrinsic(Node):
         self.text = text
 
     def __repr__(self):
-        return 'Intrinsic:: %s' % self.text
+        return 'Intrinsic:: {}'.format(truncate_string(self.text))
 
 
 class Comment(Node):
@@ -92,7 +99,7 @@ class Comment(Node):
         self.text = text
 
     def __repr__(self):
-        return 'Comment:: ... '
+        return 'Comment:: {}'.format(truncate_string(self.text))
 
 
 class CommentBlock(Node):
@@ -106,7 +113,8 @@ class CommentBlock(Node):
         self.comments = comments
 
     def __repr__(self):
-        return 'CommentBlock::'
+        string = ''.join(comment.text for comment in self.comments)
+        return 'CommentBlock:: {}'.format(truncate_string(string))
 
 
 class Pragma(Node):
@@ -119,6 +127,23 @@ class Pragma(Node):
 
         self.keyword = keyword
         self.content = content
+
+    def __repr__(self):
+        return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
+
+
+class PreprocessorDirective(Node):
+    """
+    Internal representation of a preprocessor directive.
+    """
+
+    def __init__(self, text, source=None):
+        super().__init__(source=source)
+
+        self.text = text
+
+    def __repr__(self):
+        return 'PreprocessorDirective:: {}'.format(truncate_string(self.text))
 
 
 class Loop(Node):
@@ -151,6 +176,11 @@ class Loop(Node):
         # Note: Needs to be one tuple per `traversable`
         return tuple((self.variable,) + (self.bounds,) + (self.body,))
 
+    def __repr__(self):
+        label = ' {}'.format(self.label) if self.label else ''
+        control = '{}={}'.format(str(self.variable), str(self.bounds))
+        return 'Loop::{} {}'.format(label, control)
+
 
 class WhileLoop(Node):
     """
@@ -181,6 +211,11 @@ class WhileLoop(Node):
         # Note: Needs to be one tuple per `traversable`
         return tuple((self.condition,) + (self.body,))
 
+    def __repr__(self):
+        label = ' {}'.format(self.label) if self.label else ''
+        control = str(self.condition) if self.condition else ''
+        return 'WhileLoop::{} {}'.format(label, control)
+
 
 class Conditional(Node):
     """
@@ -204,6 +239,9 @@ class Conditional(Node):
     def children(self):
         # Note that we currently ignore the condition itself
         return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
+
+    def __repr__(self):
+        return 'Conditional::'
 
 
 class MultiConditional(Node):
@@ -230,6 +268,9 @@ class MultiConditional(Node):
     def children(self):
         return tuple((self.expr,) + (self.values,) + (self.bodies,) + (self.else_body,))
 
+    def __repr__(self):
+        return 'MultiConditional:: {}'.format(str(self.expr))
+
 
 class Statement(Node):
     """
@@ -254,7 +295,7 @@ class Statement(Node):
         return tuple((self.target,) + (self.expr,))
 
     def __repr__(self):
-        return 'Stmt:: %s = %s' % (self.target, self.expr)
+        return 'Statement:: {} = {}'.format(str(self.target), str(self.expr))
 
 
 class MaskedStatement(Node):
@@ -278,6 +319,9 @@ class MaskedStatement(Node):
     @property
     def children(self):
         return tuple((self.condition,) + (self.body,) + (self.default,))
+
+    def __repr__(self):
+        return 'MaskedStatement:: {}'.format(str(self.condition))
 
 
 class Section(Node):
@@ -307,6 +351,9 @@ class Section(Node):
     def prepend(self, node):
         self._update(body=as_tuple(node) + self.body)
 
+    def __repr__(self):
+        return 'Section::'
+
 
 class Scope(Section):
     """
@@ -317,7 +364,15 @@ class Scope(Section):
     def __init__(self, body=None, associations=None, source=None):
         super(Scope, self).__init__(body=body, source=source)
 
+        assert isinstance(associations, (dict, OrderedDict)) or associations is None
         self.associations = associations
+
+    def __repr__(self):
+        if self.associations:
+            associations = ', '.join('{}={}'.format(str(var), str(expr))
+                                     for var, expr in self.associations.items())
+            return 'Scope:: {}'.format(associations)
+        return 'Scope::'
 
 
 class Declaration(Node):
@@ -329,8 +384,6 @@ class Declaration(Node):
 
     def __init__(self, variables, dimensions=None, external=False,
                  comment=None, pragma=None, source=None):
-        # Stop complaints about `type` in this function
-        # pylint: disable=redefined-builtin
         super(Declaration, self).__init__(source=source)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
@@ -347,6 +400,10 @@ class Declaration(Node):
     @property
     def children(self):
         return tuple((self.variables,) + (self.dimensions or [],))
+
+    def __repr__(self):
+        variables = ', '.join(str(var) for var in self.variables)
+        return 'Declaration:: {}'.format(variables)
 
 
 class DataDeclaration(Node):
@@ -371,6 +428,9 @@ class DataDeclaration(Node):
     def children(self):
         return tuple((self.variable,) + (self.values,))
 
+    def __repr__(self):
+        return 'DataDeclaration:: {}'.format(str(self.variable))
+
 
 class Import(Node):
     """
@@ -389,7 +449,7 @@ class Import(Node):
 
     def __repr__(self):
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
-        return '%sImport:: %s => %s' % (_c, self.module, self.symbols)
+        return '{}Import:: {} => {}'.format(_c, self.module, self.symbols)
 
 
 class Interface(Node):
@@ -411,6 +471,9 @@ class Interface(Node):
     def children(self):
         return tuple((self.body,))
 
+    def __repr__(self):
+        return 'Interface::'
+
 
 class Allocation(Node):
     """
@@ -431,6 +494,9 @@ class Allocation(Node):
     def children(self):
         return tuple([self.variables])
 
+    def __repr__(self):
+        return 'Allocation:: {}'.format(', '.join(str(var) for var in self.variables))
+
 
 class Deallocation(Node):
     """
@@ -449,6 +515,9 @@ class Deallocation(Node):
     def children(self):
         return tuple([self.variables])
 
+    def __repr__(self):
+        return 'Deallocation:: {}'.format(', '.join(str(var) for var in self.variables))
+
 
 class Nullify(Node):
     """
@@ -466,6 +535,9 @@ class Nullify(Node):
     @property
     def children(self):
         return tuple([self.variables])
+
+    def __repr__(self):
+        return 'Nullify:: {}'.format(', '.join(str(var) for var in self.variables))
 
 
 class CallStatement(Node):
@@ -495,6 +567,9 @@ class CallStatement(Node):
     @property
     def children(self):
         return tuple((self.arguments,) + (self.kwarguments,))
+
+    def __repr__(self):
+        return 'Call:: {}'.format(self.name)
 
 
 class CallContext(Node):
@@ -551,3 +626,6 @@ class TypeDef(Node):
     @property
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
+
+    def __repr__(self):
+        return 'TypeDef:: {}'.format(self.name)

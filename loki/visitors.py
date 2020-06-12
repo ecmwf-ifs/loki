@@ -1,9 +1,11 @@
 import inspect
+from itertools import zip_longest
 
 from loki.ir import Node
-from loki.tools import flatten, is_iterable
+from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
-__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes']
+__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
+           'Stringifier']
 
 
 class GenericVisitor:
@@ -262,150 +264,253 @@ class FindNodes(Visitor):
         return ret or self.default_retval()
 
 
-class PrintAST(Visitor):
-    # pylint: disable=no-self-use,unused-argument
+class Stringifier(Visitor):
+    """
+    Visitor that converts a given IR tree to string.
 
-    _depth = 0
+    It serves as base class for backends and provides a number of helpful routines that
+    ease implementing automatic recursion and line wrapping.
 
-    def __init__(self, verbose=True):
-        super(PrintAST, self).__init__()
-        self.verbose = verbose
+    :param int depth: the current level of indentation.
+    :param str indent: the string to be prepended to a line for each level of indentation.
+    :param int linewidth: the line width limit.
+    :param line_cont: a function handle that takes the current indentation string and yields
+                      the string that should be inserted inbetween lines when they need to
+                      be wrapped to stay within the line width limit.
+    :type line_cont: function expecting 1 str argument
+    """
 
-    @classmethod
-    def default_retval(cls):
-        return "<>"
+    # pylint: disable=arguments-differ
+
+    def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent):
+        super().__init__()
+
+        self.depth = depth
+        self._indent = indent
+        self.linewidth = linewidth
+        self.line_cont = line_cont
 
     @property
     def indent(self):
-        return '  ' * self._depth
+        """
+        Yield indentation according to current depth.
+
+        :rtype: str
+        """
+        return self._indent * self.depth
+
+    @staticmethod
+    def join_lines(*lines):
+        """
+        Combine multiple lines into a long string, inserting line breaks in between.
+        Entries that are `None` are skipped.
+
+        :param list lines: the list of lines to be combined.
+        :return: the resulting string or `None` if no lines are given.
+        :rtype: str or NoneType
+        """
+        if not lines:
+            return None
+        return '\n'.join(line for line in lines if line is not None)
+
+    def join_items(self, items, sep=', ', separable=True):
+        """
+        Concatenate a list of items by creating a py:class:`JoinableStringList` object.
+
+        The return value can be passed to `format_line` or `format_node` or converted to a string
+        by simply calling `str` with it as an argument. Upon expansion, lines will be
+        wrapped automatically to stay within the linewidth.
+
+        :param list items: the list of strings to be joined.
+        :param str sep: the separator to be inserted between items.
+        :param bool separable: an indicator whether cosmetic line breaks between items are
+                               permitted.
+
+        :return: a py:class:`JoinableStringList` object for the items.
+        :rtype: py:class:`JoinableStringList`
+        """
+        return JoinableStringList(items, sep=sep, width=self.linewidth,
+                                  cont=self.line_cont(self.indent), separable=separable)
+
+    def format_node(self, name, *items):
+        """
+        Default format for a node.
+
+        Creates a string of the form `<name[, attribute, attribute, ...]>`.
+        """
+        if items:
+            return self.format_line('<', name, ' ', self.join_items(items), '>')
+        return self.format_line('<', name, '>')
+
+    def format_line(self, *items, comment=None, no_wrap=False, no_indent=False):
+        """
+        Format a line by concatenating all items and applying indentation while observing
+        the allowed line width limit.
+
+        Note that the provided comment will simply be appended to the line and no line
+        width limit will be enforced for that.
+
+        :param list items: the items to be put on that line.
+        :param str comment: an optional inline comment to be put at the end of the line.
+        :param bool no_wrap: disable line wrapping.
+        :param bool no_indent: do not apply indentation.
+
+        :return: the string of the current line, potentially including line breaks if
+                 required to observe the line width limit.
+        :rtype: str
+        """
+        if not no_indent:
+            items = [self.indent, *items]
+        if no_wrap:
+            # Simply concatenate items and append the comment
+            line = ''.join(str(item) for item in items)
+        else:
+            # Use join_items to concatenate items
+            line = str(self.join_items(items, sep=''))
+        if comment:
+            return line + comment
+        return line
+
+    def visit_all(self, item, *args, **kwargs):
+        """
+        Convenience function to call `visit` for all given items.
+        If only one iterable argument is provided, `visit` is called on all of
+        its elements.
+        """
+        if is_iterable(item) and not args:
+            return as_tuple(self.visit(i, **kwargs) for i in item if i)
+        return as_tuple(self.visit(i, **kwargs) for i in [item, *args] if i)
+
+    # Handler for outer objects
+
+    def visit_Module(self, o, **kwargs):
+        """
+        Format as
+          <repr(Module)>
+            ...spec...
+            ...routines...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
+        spec = self.visit(o.spec, **kwargs)
+        routines = self.visit(o.subroutines, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, spec, routines)
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as
+          <repr(Subroutine)>
+            ...docstring...
+            ...spec...
+            ...body...
+            ...members...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
+        docstring = self.visit(o.docstring, **kwargs)
+        spec = self.visit(o.spec, **kwargs)
+        body = self.visit(o.body, **kwargs)
+        members = self.visit(o.members, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, docstring, spec, body, members)
+
+    # Handler for AST base nodes
 
     def visit_Node(self, o, **kwargs):
-        return self.indent + '<%s>' % o.__class__.__name__
+        """
+        Format as
+          <repr(Node)>
+        """
+        return self.format_node(repr(o))
+
+    @classmethod
+    def visit_Expression(cls, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Dispatch routine to expression tree stringifier.
+        """
+        return str(o)
 
     def visit_tuple(self, o, **kwargs):
-        return '\n'.join([self.visit(i, **kwargs) for i in o])
+        """
+        Recurse for each item in the tuple and return as separate lines.
+        """
+        lines = (self.visit(item, **kwargs) for item in o)
+        return self.join_lines(*lines)
 
     visit_list = visit_tuple
 
-    def visit_Block(self, o, **kwargs):
-        self._depth += 2
+    # Handler for IR nodes
+
+    def visit_Section(self, o, **kwargs):
+        """
+        Format as
+          <repr(Section)>
+            ...body...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
         body = self.visit(o.body, **kwargs)
-        self._depth -= 2
-        return self.indent + "<Block>\n%s" % body
+        self.depth -= 1
+        return self.join_lines(header, body)
 
-    def visit_Loop(self, o, **kwargs):
-        self._depth += 2
-        body = self.visit(o.children, **kwargs)
-        self._depth -= 2
-        if self.verbose and o.bounds is not None:
-            bounds = ' :: %s' % str(o.bounds)
-        else:
-            bounds = ''
-        return self.indent + "<Loop %s%s>\n%s" % (o.variable, bounds, body)
-
-    def visit_WhileLoop(self, o, **kwargs):
-        self._depth += 2
-        body = self.visit(o.children, **kwargs)
-        self._depth -= 2
-        if self.verbose and o.condition is not None:
-            condition = ' :: %s' % str(o.condition)
-        else:
-            condition = ''
-        return self.indent + "<WhileLoop%s>\n%s" % (condition, body)
+    visit_Loop = visit_Section
+    visit_WhileLoop = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
-        self._depth += 2
-        bodies = tuple(self.visit(b, **kwargs) for b in o.bodies)
-        self._depth -= 2
-        out = self.indent + '<If %s>\n%s' % (o.conditions[0], bodies[0])
-        for b, c in zip(bodies[1:], o.conditions[1:]):
-            out += '\n%s' % self.indent + '<Else-If %s>\n%s' % (c, b)
-        if o.else_body is not None:
-            self._depth += 2
-            else_body = self.visit(o.else_body, **kwargs)
-            self._depth -= 2
-            out += '\n%s' % self.indent + '<Else>\n%s' % else_body
-        return out
+        """
+        Format as
+          <repr(Conditional)>
+            <If [condition]>
+              ...
+            <ElseIf [condition]>
+              ...
+            <Else>
+              ...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
+        conditions = self.visit_all(o.conditions, **kwargs)
+        conditions = [self.format_node(*vals)
+                      for vals in zip_longest(['If'], conditions, fillvalue='ElseIf')]
+        if o.else_body:
+            conditions.append(self.format_node('Else'))
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        self.depth -= 1
+        body = [item for branch in zip(conditions, bodies) for item in branch]
+        return self.join_lines(header, *body)
 
-    def visit_Statement(self, o, **kwargs):
-        expr = (' => ' if o.ptr else ' = ') + str(o.expr) if self.verbose else ''
-        if self.verbose and o.comment is not None:
-            self._depth += 2
-            comment = '\n%s' % self.visit(o.comment, **kwargs)
-            self._depth -= 2
-        else:
-            comment = ''
-        return self.indent + '<Stmt %s%s>%s' % (str(o.target), expr, comment)
-
-    def visit_Scope(self, o, **kwargs):
-        self._depth += 2
-        body = self.visit(o.body, **kwargs)
-        self._depth -= 2
-        return self.indent + "<Scope>\n%s" % body
-
-    def visit_Declaration(self, o, **kwargs):
-        variables = ' :: %s' % ', '.join(v.name for v in o.variables) if self.verbose else ''
-        comment = ''
-        pragma = ''
-
-        if self.verbose and o.comment is not None:
-            self._depth += 2
-            comment = '\n%s' % self.visit(o.comment, **kwargs)
-            self._depth -= 2
-        if self.verbose and o.pragma is not None:
-            self._depth += 2
-            pragma = '\n%s' % self.visit(o.pragma, **kwargs)
-            self._depth -= 2
-        return self.indent + '<Declaration%s>%s%s' % (variables, comment, pragma)
-
-    def visit_Allocation(self, o, **kwargs):
-        variable = " %s" % o.variable if self.verbose else ''
-        return self.indent + '<Alloc%s>' % variable
-
-    def visit_CallStatement(self, o, **kwargs):
-        args = '(%s)' % (', '.join(str(a) for a in o.arguments)) if self.verbose else ''
-        return self.indent + '<CallStatement %s%s>' % (o.name, args)
-
-    def visit_Comment(self, o, **kwargs):
-        body = '::%s::' % o._source.string if self.verbose else ''
-        return self.indent + '<Comment%s>' % body
-
-    def visit_CommentBlock(self, o, **kwargs):
-        body = ('\n%s' % self.indent).join([b._source.string for b in o.comments])
-        return self.indent + '<CommentBlock%s' % (
-            ('\n%s' % self.indent) + body + '>' if self.verbose else '>')
-
-    def visit_Pragma(self, o, **kwargs):
-        body = ' ::%s::' % o._source.string if self.verbose else ''
-        return self.indent + '<Pragma %s%s>' % (o.keyword, body)
-
-    def visit_Variable(self, o, **kwargs):
-        dimensions = ('(%s)' % ','.join([str(v) for v in o.dimensions])) if o.dimensions else ''
-        _type = self.visit(o.type, **kwargs) if o.type is not None else ''
-        return self.indent + '<Var %s%s%s>' % (o.name, dimensions, _type)
-
-    def visit_BaseType(self, o, **kwargs):
-        ptr = ', ptr' if o.pointer else ''
-        return '<Type %s:%s%s>' % (o.name, o.kind, ptr)
-
-    def visit_DerivedType(self, o, **kwargs):
-        variables = ''
-        comments = ''
-        pragmas = ''
-        if self.verbose:
-            self._depth += 2
-            variables = '\n%s' % self.visit(o.variables, **kwargs)
-            self._depth -= 2
-        if self.verbose and o.comments is not None:
-            self._depth += 2
-            comments = '\n%s' % self.visit(o.comments, **kwargs)
-            self._depth -= 2
-        if self.verbose and o.pragmas is not None:
-            self._depth += 2
-            pragmas = '\n%s' % self.visit(o.pragmas, **kwargs)
-            self._depth -= 2
-        return self.indent + '<DerivedType %s>%s%s%s' % (o.name, variables, pragmas, comments)
+    def visit_MultiConditional(self, o, **kwargs):
+        """
+        Format as
+          <repr(MultiConditional)>
+            <Case [value(s)]>
+              ...
+            <Case [value(s)]>
+              ...
+            <Default>
+              ...
+        """
+        header = self.format_node(repr(o))
+        self.depth += 1
+        values = []
+        for expr in o.values:
+            value = '({})'.format(', '.join(self.visit_all(expr, **kwargs)))
+            values += [self.format_node('Case', value)]
+        if o.else_body:
+            values += [self.format_node('Default')]
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= 1
+        self.depth -= 1
+        body = [item for branch in zip(values, bodies) for item in branch]
+        return self.join_lines(header, *body)
 
 
-def pprint(ir, verbose=False):
-    print(PrintAST(verbose=verbose).visit(ir))
+def pprint(ir):
+    """
+    Convert the given IR to string using the py:class:`Stringifier`.
+    """
+    print(Stringifier().visit(ir))

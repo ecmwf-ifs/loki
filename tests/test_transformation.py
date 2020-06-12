@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, SourceFile, CallStatement, Import
+from loki import OFP, OMNI, FP, SourceFile, CallStatement, Import, FindNodes
 from loki.transform import Transformation, DependencyTransformation
 
 
@@ -214,9 +214,12 @@ END MODULE driver_mod
     assert driver['driver_mod'] == driver.modules[0]
 
     # Check that calls and imports have been diverted to the re-generated routine
-    assert isinstance(driver['driver'].body[0], CallStatement)
-    assert driver['driver'].body[0].name == 'kernel_test'
-    assert isinstance(driver['driver_mod'].spec.body[0], Import)
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver_mod'].spec)
+    assert len(imports) == 1
+    assert isinstance(imports[0], Import)
     assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
 
@@ -333,8 +336,10 @@ END SUBROUTINE kernel
     assert driver.subroutines[0].name == 'driver'
 
     # Check that calls and imports have been diverted to the re-generated routine
-    assert isinstance(driver['driver'].body[0], CallStatement)
-    assert driver['driver'].body[0].name == 'kernel_test'
-    assert isinstance(driver['driver'].spec.body[0], Import)
-    assert driver['driver'].spec.body[0].module == 'kernel_test_mod'
-    assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'kernel_test_mod'
+    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
