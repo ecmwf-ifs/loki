@@ -290,7 +290,7 @@ class FortranCodegen(Stringifier):
             variables += ['{}{}'.format(var, initial)]
         comment = ''
         if o.comment:
-            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+            comment = str(self.visit(o.comment, **kwargs))
         return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables),
                                 comment=comment)
 

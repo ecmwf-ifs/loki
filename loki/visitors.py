@@ -347,6 +347,9 @@ class Stringifier(Visitor):
         Format a line by concatenating all items and applying indentation while observing
         the allowed line width limit.
 
+        Note that the provided comment will simply be appended to the line and no line
+        width limit will be enforced for that.
+
         :param list items: the items to be put on that line.
         :param str comment: an optional inline comment to be put at the end of the line.
         :param bool no_wrap: disable line wrapping.
@@ -361,15 +364,10 @@ class Stringifier(Visitor):
         if no_wrap:
             # Simply concatenate items and append the comment
             line = ''.join(str(item) for item in items)
-            if comment:
-                line += comment
-            return line
-        # Use join_items to concatenate items
-        line = str(self.join_items(items, sep=''))
+        else:
+            # Use join_items to concatenate items
+            line = str(self.join_items(items, sep=''))
         if comment:
-            # Append comment if it fits on the line, else put it on the next line
-            if len(line) + len(comment) > self.linewidth:
-                return self.join_lines(line, self.format_line(comment, no_indent=no_indent))
             return line + comment
         return line
 
