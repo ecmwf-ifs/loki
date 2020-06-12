@@ -67,7 +67,7 @@ class DerivedArgsTransformation(Transformation):
         candidates = defaultdict(list)
 
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
+            if arg.type.variables:
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable
                        for v in arg.type.variables.values()):
