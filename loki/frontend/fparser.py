@@ -550,7 +550,8 @@ class FParser2IR(GenericVisitor):
             dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
-                               contiguous='contiguous' in attrs, shape=dimensions, length=length)
+                               contiguous='contiguous' in attrs, target='target' in attrs,
+                               shape=dimensions, length=length)
 
         derived_type_ast = get_child(o, Fortran2003.Declaration_Type_Spec)
         if derived_type_ast is not None:
