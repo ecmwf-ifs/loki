@@ -56,7 +56,7 @@ end subroutine routine_raw_source
     source = SourceFile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source']
 
-    fcode = fcode.splitlines()  # keepends=True)
+    fcode = fcode.splitlines()
 
     # Check the intrinsics
     intrinsic_lines = (9, 11, 17, 22, 24, 26, 29)
