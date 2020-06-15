@@ -212,7 +212,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         'title': 'Rules for DR_HOOK',
     }
 
-    non_exec_nodes = (ir.Comment, ir.CommentBlock, ir.Pragma)
+    non_exec_nodes = (ir.Comment, ir.CommentBlock, ir.Pragma, ir.PreprocessorDirective)
 
     @classmethod
     def _find_lhook_conditional(cls, ast, is_reversed=False):
