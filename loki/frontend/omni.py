@@ -681,8 +681,7 @@ class OMNI2IR(GenericVisitor):
         return ir.Intrinsic(text='go to %d' % label, source=source)
 
     def visit_statementLabel(self, o, source=None):
-        source.label = int(o.attrib['label_name'])
-        return ir.Comment('__STATEMENT_LABEL__', source=source)
+        return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=source)
 
     def visit_FreturnStatement(self, o, source=None):
         return ir.Intrinsic(text='return', source=source)

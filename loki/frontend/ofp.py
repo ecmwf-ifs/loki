@@ -95,6 +95,18 @@ class OFP2IR(GenericVisitor):
             return self._handlers[tag]
         return super(OFP2IR, self).lookup_method(instance)
 
+    def get_label(self, o):
+        """
+        Helper routine to extract the label from one of the many places it could be.
+        """
+        if o is None or not hasattr(o, 'attrib'):
+            return None
+        if 'lbl' in o.attrib:
+            return o.attrib['lbl']
+        if 'label' in o.attrib:
+            return o.attrib['label']
+        return self.get_label(o.find('label'))
+
     def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
         """
         Generic dispatch method that tries to generate meta-data from source.
@@ -102,22 +114,20 @@ class OFP2IR(GenericVisitor):
         if isinstance(o, Iterable):
             return super(OFP2IR, self).visit(o, **kwargs)
 
-        label = o.find('label')
-        if label is not None:
-            label = label.attrib['lbl']
+        kwargs['label'] = self.get_label(o)
 
         try:
-            source = extract_source(o.attrib, self._raw_source, label=label)
+            kwargs['source'] = extract_source(o.attrib, self._raw_source, label=kwargs['label'])
         except KeyError:
-            source = None
-        return super(OFP2IR, self).visit(o, source=source, **kwargs)
+            pass
+        return super(OFP2IR, self).visit(o, **kwargs)
 
-    def visit_tuple(self, o, source=None):
+    def visit_tuple(self, o, label=None, source=None):
         return as_tuple(flatten(self.visit(c) for c in o))
 
     visit_list = visit_tuple
 
-    def visit_Element(self, o, source=None):
+    def visit_Element(self, o, label=None, source=None):
         """
         Universal default for XML element types
         """
@@ -129,7 +139,7 @@ class OFP2IR(GenericVisitor):
 
     visit_body = visit_Element
 
-    def visit_loop(self, o, source=None):
+    def visit_loop(self, o, label=None, source=None):
         if o.find('header/index-variable') is None:
             if o.find('do-stmt').attrib['hasLoopControl'] == 'false':
                 # We are processing an unbounded do loop
@@ -137,8 +147,9 @@ class OFP2IR(GenericVisitor):
             else:
                 # We are processing a while loop
                 condition = self.visit(o.find('header'))
+            loop_label = o.find('do-stmt').attrib['digitString'] or None
             body = as_tuple(self.visit(o.find('body')))
-            return ir.WhileLoop(condition=condition, body=body, source=source)
+            return ir.WhileLoop(condition=condition, body=body, loop_label=loop_label, source=source)
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
@@ -152,21 +163,22 @@ class OFP2IR(GenericVisitor):
 
         body = as_tuple(self.visit(o.find('body')))
         # Extract loop label if any
-        label = o.find('do-stmt').attrib['digitString'] or None
+        loop_label = o.find('do-stmt').attrib['digitString'] or None
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
-        return ir.Loop(variable=variable, body=body, bounds=bounds, label=label, source=source)
+        return ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
+                       label=label, source=source)
 
-    def visit_if(self, o, source=None):
+    def visit_if(self, o, label=None, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
         bodies = tuple([self.visit(b)] for b in o.findall('body'))
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
         inline = o.find('if-then-stmt') is None
         return ir.Conditional(conditions=conditions, bodies=bodies[:ncond],
-                              else_body=else_body, inline=inline, source=source)
+                              else_body=else_body, inline=inline, label=label, source=source)
 
-    def visit_select(self, o, source=None):
+    def visit_select(self, o, label=None, source=None):
         expr = self.visit(o.find('header'))
         cases = [self.visit(case) for case in o.findall('body/case')]
         values, bodies = zip(*cases)
@@ -178,9 +190,9 @@ class OFP2IR(GenericVisitor):
         else:
             else_body = ()
         return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
-                                   else_body=else_body, source=source)
+                                   else_body=else_body, label=label, source=source)
 
-    def visit_case(self, o, source=None):
+    def visit_case(self, o, label=None, source=None):
         value = self.visit(o.find('header'))
         if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
             value = sym.RangeIndex(value)
@@ -190,19 +202,19 @@ class OFP2IR(GenericVisitor):
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
-    def visit_comment(self, o, source=None):
+    def visit_comment(self, o, label=None, source=None):
         match_pragma = self._re_pragma.search(source.string)
         if match_pragma:
             # Found pragma, generate this instead
             gd = match_pragma.groupdict()
             return ir.Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
-        return ir.Comment(text=o.attrib['text'], source=source)
+        return ir.Comment(text=o.attrib['text'], label=label, source=source)
 
-    def visit_statement(self, o, source=None):
+    def visit_statement(self, o, label=None, source=None):
         # TODO: Hacky pre-emption for special-case statements
         if o.find('name/nullify-stmt') is not None:
             variable = self.visit(o.find('name'))
-            return ir.Nullify(variables=as_tuple(variable), source=source)
+            return ir.Nullify(variables=as_tuple(variable), label=label, source=source)
         if o.find('cycle') is not None:
             return self.visit(o.find('cycle'))
         if o.find('where-construct-stmt') is not None:
@@ -224,50 +236,51 @@ class OFP2IR(GenericVisitor):
                     body = w_children[1:]
                     default = ()
 
-                stmts += [ir.MaskedStatement(condition=condition, body=body, default=default)]
+                stmts += [ir.MaskedStatement(condition=condition, body=body, default=default,
+                                             label=label, source=source)]
                 children = children[iend+1:]
 
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
             return as_tuple(stmts)
         if o.find('goto-stmt') is not None:
-            label = o.find('goto-stmt').attrib['target_label']
-            return ir.Intrinsic(text='go to %s' % label, source=source)
-        return self.visit_Element(o, source=source)
+            target_label = o.find('goto-stmt').attrib['target_label']
+            return ir.Intrinsic(text='go to %s' % target_label, label=label, source=source)
+        return self.visit_Element(o, label=label, source=source)
 
-    def visit_elsewhere_stmt(self, o, source=None):
+    def visit_elsewhere_stmt(self, o, label=None, source=None):
         # Only used as a marker above
         return 'ELSEWHERE_CONSTRUCT'
 
-    def visit_end_where_stmt(self, o, source=None):
+    def visit_end_where_stmt(self, o, label=None, source=None):
         # Only used as a marker above
         return 'ENDWHERE_CONSTRUCT'
 
-    def visit_assignment(self, o, source=None):
+    def visit_assignment(self, o, label=None, source=None):
         expr = self.visit(o.find('value'))
         target = self.visit(o.find('target'))
-        return ir.Statement(target=target, expr=expr, source=source)
+        return ir.Statement(target=target, expr=expr, label=label, source=source)
 
-    def visit_pointer_assignment(self, o, source=None):
+    def visit_pointer_assignment(self, o, label=None, source=None):
         target = self.visit(o.find('target'))
         expr = self.visit(o.find('value'))
-        return ir.Statement(target=target, expr=expr, ptr=True, source=source)
+        return ir.Statement(target=target, expr=expr, ptr=True, label=label, source=source)
 
-    def visit_specification(self, o, source=None):
+    def visit_specification(self, o, label=None, source=None):
         body = tuple(self.visit(c) for c in o)
         body = tuple(c for c in body if c is not None)
         # Wrap spec area into a separate Scope
-        return ir.Section(body=body, source=source)
+        return ir.Section(body=body, label=label, source=source)
 
-    def visit_declaration(self, o, source=None):
+    def visit_declaration(self, o, label=None, source=None):
         if len(o.attrib) == 0:
             return None  # Empty element, skip
         if o.find('save-stmt') is not None:
-            return ir.Intrinsic(text=source.string.strip(), source=source)
+            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
         if o.find('implicit-stmt') is not None:
-            return ir.Intrinsic(text=source.string.strip(), source=source)
+            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
         if o.find('access-spec') is not None:
             # PUBLIC or PRIVATE declarations
-            return ir.Intrinsic(text=source.string.strip(), source=source)
+            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
         if o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
@@ -279,8 +292,8 @@ class OFP2IR(GenericVisitor):
                 comments = [c for c in comments if not isinstance(c, ir.Pragma)]
 
                 # Create the parent type...
-                typedef = ir.TypeDef(name=derived_name, declarations=[],
-                                     pragmas=pragmas, comments=comments, source=source)
+                typedef = ir.TypeDef(name=derived_name, declarations=[], pragmas=pragmas,
+                                     comments=comments, label=label, source=source)
                 parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
                                          variables=OrderedDict(), source=source)
 
@@ -410,14 +423,15 @@ class OFP2IR(GenericVisitor):
             variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
-            return ir.Declaration(variables=variables, dimensions=dimensions, external=external, source=source)
+            return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
+                                  label=label, source=source)
         if o.attrib['type'] == 'external':
             variables = [self.visit(v) for v in o.findall('names/name')]
             for v in variables:
                 v.type.external = True
-            return ir.Declaration(variables=variables, external=True, source=source)
+            return ir.Declaration(variables=variables, external=True, label=label, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
-            return ir.Intrinsic(text=source.string.strip(), source=source)
+            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
         if o.attrib['type'] == 'data':
             # Data declaration blocks
             declarations = []
@@ -433,12 +447,12 @@ class OFP2IR(GenericVisitor):
                     vals += [self.visit(lit)]
                     lit = lit.find('literal')
                 vals += [self.visit(lit)]
-                declarations += [ir.DataDeclaration(variable=variable, values=vals, source=source)]
+                declarations += [ir.DataDeclaration(variable=variable, values=vals, label=label, source=source)]
             return as_tuple(declarations)
 
         raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
-    def visit_associate(self, o, source=None):
+    def visit_associate(self, o, label=None, source=None):
         associations = OrderedDict()
         for a in o.findall('header/keyword-arguments/keyword-argument'):
             var = self.visit(a.find('name'))
@@ -451,23 +465,23 @@ class OFP2IR(GenericVisitor):
             associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
                                              source=source)
         body = self.visit(o.find('body'))
-        return ir.Scope(body=as_tuple(body), associations=associations)
+        return ir.Scope(body=as_tuple(body), associations=associations, label=label, source=source)
 
-    def visit_allocate(self, o, source=None):
+    def visit_allocate(self, o, label=None, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
         kw_args = {arg.attrib['name'].lower(): self.visit(arg)
                    for arg in o.findall('keyword-arguments/keyword-argument')}
-        return ir.Allocation(variables=variables, source=source, data_source=kw_args.get('source'))
+        return ir.Allocation(variables=variables, label=label, source=source, data_source=kw_args.get('source'))
 
-    def visit_deallocate(self, o, source=None):
+    def visit_deallocate(self, o, label=None, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return ir.Deallocation(variables=variables, source=source)
+        return ir.Deallocation(variables=variables, label=label, source=source)
 
-    def visit_use(self, o, source=None):
+    def visit_use(self, o, label=None, source=None):
         symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return ir.Import(module=o.attrib['name'], symbols=symbols, source=source)
+        return ir.Import(module=o.attrib['name'], symbols=symbols, label=label, source=source)
 
-    def visit_directive(self, o, source=None):
+    def visit_directive(self, o, label=None, source=None):
         if '#include' in o.attrib['text']:
             # Straight pipe-through node for header includes (#include ...)
             match = re.search(r'#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
@@ -475,41 +489,75 @@ class OFP2IR(GenericVisitor):
             return ir.Import(module=module, c_import=True, source=source)
         return ir.PreprocessorDirective(text=source.string.strip(), source=source)
 
-    def visit_open(self, o, source=None):
-        cstart = source.string.lower().find(o.tag.lower())
+    def visit_exit(self, o, label=None, source=None):
+        stmt_tag = '{}-stmt'.format(o.tag)
+        return self.visit(o.find(stmt_tag))
+
+    visit_return = visit_exit
+    visit_continue = visit_exit
+    visit_cycle = visit_exit
+    visit_format = visit_exit
+    visit_print = visit_exit
+    visit_open = visit_exit
+    visit_close = visit_exit
+    visit_write = visit_exit
+    visit_read = visit_exit
+
+    def create_intrinsic_from_source(self, o, attrib_name, label=None, source=None):
+        cstart = source.string.lower().find(o.attrib[attrib_name].lower())
         assert cstart != -1
-        return ir.Intrinsic(text=source.string[cstart:].strip(), source=source)
+        return ir.Intrinsic(text=source.string[cstart:].strip(), label=label, source=source)
 
-    visit_close = visit_open
-    visit_read = visit_open
-    visit_write = visit_open
-    visit_format = visit_open
-    visit_print = visit_open
-    visit_cycle = visit_open
-    visit_continue = visit_open
-    visit_exit = visit_open
-    visit_return = visit_open
+    def visit_exit_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'exitKeyword', label=label, source=source)
 
-    def visit_call(self, o, source=None):
+    def visit_return_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'keyword', label=label, source=source)
+
+    def visit_continue_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'continueKeyword', label=label, source=source)
+
+    def visit_cycle_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'cycleKeyword', label=label, source=source)
+
+    def visit_format_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'formatKeyword', label=label, source=source)
+
+    def visit_print_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'printKeyword', label=label, source=source)
+
+    def visit_open_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'openKeyword', label=label, source=source)
+
+    def visit_close_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'closeKeyword', label=label, source=source)
+
+    def visit_write_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'writeKeyword', label=label, source=source)
+
+    def visit_read_stmt(self, o, label=None, source=None):
+        return self.create_intrinsic_from_source(o, 'readKeyword', label=label, source=source)
+
+    def visit_call(self, o, label=None, source=None):
         # Need to re-think this: the 'name' node already creates
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
         kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
-        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
+        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, label=label, source=source)
 
-    def visit_argument(self, o, source=None):
+    def visit_argument(self, o, label=None, source=None):
         key = o.attrib['name']
         val = self.visit(list(o)[0])
         return key, val
 
-    def visit_label(self, o, source=None):
-        source.label = int(o.attrib['lbl'])
-        return ir.Comment('__STATEMENT_LABEL__', source=source)
+    def visit_label(self, o, label=None, source=None):
+        assert label is not None
+        return ir.Comment('__STATEMENT_LABEL__', label=label, source=source)
 
     # Expression parsing below; maye move to its own parser..?
 
-    def visit_name(self, o, source=None):
+    def visit_name(self, o, label=None, source=None):
 
         def generate_variable(vname, indices, kwargs, parent, source):
             if vname.upper() == 'RESHAPE':
@@ -592,11 +640,11 @@ class OFP2IR(GenericVisitor):
         return sym.Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
                             type=_type, initial=initial, source=source)
 
-    def visit_part_ref(self, o, source=None):
+    def visit_part_ref(self, o, label=None, source=None):
         # Return a pure string, as part of a variable name
         return o.attrib['id']
 
-    def visit_literal(self, o, source=None):
+    def visit_literal(self, o, label=None, source=None):
         boz_literal = o.find('boz-literal-constant')
         if boz_literal is not None:
             return sym.IntrinsicLiteral(boz_literal.attrib['constant'], source=source)
@@ -614,11 +662,11 @@ class OFP2IR(GenericVisitor):
             kwargs['kind'] = kind_param.attrib['kind']
         return sym.Literal(value, **kwargs)
 
-    def visit_subscripts(self, o, source=None):
+    def visit_subscripts(self, o, label=None, source=None):
         return tuple(self.visit(c) for c in o
                      if c.tag in ['subscript', 'name'])
 
-    def visit_subscript(self, o, source=None):
+    def visit_subscript(self, o, label=None, source=None):
         # TODO: Drop this entire routine, but beware the base-case!
         if o.find('range'):
             lower, upper, step = None, None, None
@@ -644,12 +692,12 @@ class OFP2IR(GenericVisitor):
 
     visit_dimension = visit_subscript
 
-    def visit_array_constructor_values(self, o, source=None):
+    def visit_array_constructor_values(self, o, label=None, source=None):
         values = [self.visit(v) for v in o.findall('value')]
         values = [v for v in values if v is not None]  # Filter empy values
         return sym.LiteralList(values=values)
 
-    def visit_operation(self, o, source=None):
+    def visit_operation(self, o, label=None, source=None):
         """
         Construct expressions from individual operations, using left-recursion.
         """
@@ -719,5 +767,5 @@ class OFP2IR(GenericVisitor):
         assert len(exprs) == 0
         return expression
 
-    def visit_operator(self, o, source=None):
+    def visit_operator(self, o, label=None, source=None):
         return o.attrib['operator']

@@ -4,8 +4,7 @@ from pathlib import Path
 import codecs
 
 from loki.visitors import Visitor, NestedTransformer
-from loki.ir import (Statement, CallStatement, Comment, CommentBlock, Declaration, Pragma, Loop,
-                     Intrinsic)
+from loki.ir import (Statement, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
 from loki.frontend.source import Source
 from loki.types import DataType, SymbolType
 from loki.expression import Literal, Variable
@@ -129,16 +128,15 @@ def cluster_comments(ir):
         # Build a CommentBlock and map it to first comment
         # and map remaining comments to None for removal
         if all(c._source is not None for c in comments):
-            if all(c._source.string is not None for c in comments):
-                string = ''.join(c._source.string for c in comments)
+            if all(c.source.string is not None for c in comments):
+                string = ''.join(c.source.string for c in comments)
             else:
                 string = None
-            lines = (comments[0]._source.lines[0], comments[-1]._source.lines[1])
-            source = Source(lines=lines, string=string, file=comments[0]._source.file,
-                            label=comments[0]._source.label)
+            lines = (comments[0].source.lines[0], comments[-1].source.lines[1])
+            source = Source(lines=lines, string=string, file=comments[0].source.file)
         else:
             source = None
-        block = CommentBlock(comments, source=source)
+        block = CommentBlock(comments, label=comments[0].label, source=source)
         comment_mapper[comments[0]] = block
         for c in comments[1:]:
             comment_mapper[c] = None
@@ -176,12 +174,13 @@ def inline_labels(ir):
     """
     pairs = PatternFinder(pattern=(Comment, Statement)).visit(ir)
     pairs += PatternFinder(pattern=(Comment, Intrinsic)).visit(ir)
+    pairs += PatternFinder(pattern=(Comment, Loop)).visit(ir)
     mapper = {}
     for pair in pairs:
-        if pair[0]._source and pair[0].text == '__STATEMENT_LABEL__':
-            if pair[1]._source and pair[1]._source.lines[0] == pair[0]._source.lines[1]:
+        if pair[0].source and pair[0].text == '__STATEMENT_LABEL__':
+            if pair[1].source and pair[1].source.lines[0] == pair[0].source.lines[1]:
                 mapper[pair[0]] = None  # Mark for deletion
-                mapper[pair[1]] = pair[1]._rebuild(source=pair[0]._source)
+                mapper[pair[1]] = pair[1]._rebuild(label=pair[0].label.lstrip('0'))
     return NestedTransformer(mapper).visit(ir)
 
 

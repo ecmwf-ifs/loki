@@ -5,17 +5,14 @@ __all = ['Source', 'extract_source']
 
 class Source:
 
-    def __init__(self, lines, string=None, file=None, label=None):
+    def __init__(self, lines, string=None, file=None):
         self.lines = lines
         self.string = string
         self.file = file
-        self.label = label
 
     def __repr__(self):
-        label = ', label {}'.format(self.label) if self.label else ''
         line_end = '-{}'.format(self.lines[1]) if self.lines[1] else ''
-        return 'Source<line {start}{end}{label}>'.format(
-            start=self.lines[0], end=line_end, label=label)
+        return 'Source<line {start}{end}>'.format(start=self.lines[0], end=line_end)
 
 
 def extract_source(ast, text, label=None, full_lines=False):
@@ -77,4 +74,4 @@ def extract_source(ast, text, label=None, full_lines=False):
         lines[0] = lines[0][cstart:]
         lines[-1] = lines[-1][:cend]
 
-    return Source(string=''.join(lines).strip('\n'), lines=(lstart, lend), label=label)
+    return Source(string=''.join(lines).strip('\n'), lines=(lstart, lend))

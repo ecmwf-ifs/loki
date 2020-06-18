@@ -211,11 +211,10 @@ class FortranCodegen(Stringifier):
             line = self.visit(item, **kwargs)
 
             # Apply label to line
-            has_source = hasattr(item, 'source') and item.source is not None
-            if has_source and item.source.label:
+            if getattr(item, 'label', None) is not None:
                 # Replace indentation by label
                 indent = max(1, len(line) - len(line.lstrip()) - 1)
-                line = '{:{indent}} {}'.format(item.source.label, line.lstrip(), indent=indent)
+                line = '{:{indent}} {}'.format(item.label, line.lstrip(), indent=indent)
 
             lines.append(line)
         return self.join_lines(*lines)
