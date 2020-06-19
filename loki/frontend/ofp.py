@@ -491,7 +491,10 @@ class OFP2IR(GenericVisitor):
 
     def visit_exit(self, o, label=None, source=None):
         stmt_tag = '{}-stmt'.format(o.tag)
-        return self.visit(o.find(stmt_tag))
+        stmt = self.visit(o.find(stmt_tag))
+        if o.find('label') is not None:
+            stmt._update(label=o.find('label').attrib['lbl'])
+        return stmt
 
     visit_return = visit_exit
     visit_continue = visit_exit

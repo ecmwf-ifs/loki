@@ -336,15 +336,17 @@ class FortranCodegen(Stringifier):
     def visit_Loop(self, o, **kwargs):
         """
         Format loop with explicit range as
-          DO <var>=<loop range>
+          DO [label] <var>=<loop range>
             ...body...
-          END DO
+          END DO [name]
         """
         pragma = self.visit(o.pragma, **kwargs)
         pragma_post = self.visit(o.pragma_post, **kwargs)
         control = '{}={}'.format(*self.visit_all(o.variable, o.bounds, **kwargs))
-        header = self.format_line('DO ', control)
-        footer = self.format_line('END DO')
+        name = ' {}'.format(o.label.rstrip(':')) if o.label else ''
+        label = '{} '.format(o.loop_label) if o.loop_label else ''
+        header = self.format_line('DO ', label, control)
+        footer = self.format_line('END DO', name) if not o.loop_label else None
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
@@ -353,17 +355,19 @@ class FortranCodegen(Stringifier):
     def visit_WhileLoop(self, o, **kwargs):
         """
         Format loop as
-          DO [WHILE (<condition>)
+          DO [label] [WHILE (<condition>)]
             ...body...
-          END DO
+          END DO [name]
         """
         pragma = self.visit(o.pragma, **kwargs)
         pragma_post = self.visit(o.pragma_post, **kwargs)
         control = ''
         if o.condition is not None:
             control = ' WHILE ({})'.format(self.visit(o.condition, **kwargs))
-        header = self.format_line('DO', control)
-        footer = self.format_line('END DO')
+        name = ' {}'.format(o.label.rstrip(':')) if o.label else ''
+        label = ' {}'.format(o.loop_label) if o.loop_label else ''
+        header = self.format_line('DO', label, control)
+        footer = self.format_line('END DO', name) if not o.loop_label else None
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
@@ -380,7 +384,7 @@ class FortranCodegen(Stringifier):
             [...body...]
           [ELSE]
             [...body...]
-          END IF
+          END IF [name]
         """
         if o.inline:
             # No indentation and only a single body node
@@ -394,7 +398,8 @@ class FortranCodegen(Stringifier):
                       for keyword, cond in zip_longest(['IF'], conditions, fillvalue='ELSE IF')]
         if o.else_body:
             conditions.append(self.format_line('ELSE'))
-        footer = self.format_line('END IF')
+        name = ' {}'.format(o.label.rstrip(':')) if o.label else ''
+        footer = self.format_line('END IF', name)
         self.depth += 1
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
         self.depth -= 1
@@ -411,7 +416,7 @@ class FortranCodegen(Stringifier):
             [...body...]
           [DEFAULT]
             [...body...]
-          END SELECT
+          END SELECT [name]
         """
         header = self.format_line('SELECT CASE (', self.visit(o.expr, **kwargs), ')')
         cases = []
@@ -420,7 +425,8 @@ class FortranCodegen(Stringifier):
             cases.append(self.format_line('CASE (', self.join_items(case), ')'))
         if o.else_body:
             cases.append(self.format_line('CASE DEFAULT'))
-        footer = self.format_line('END SELECT')
+        name = ' {}'.format(o.label.rstrip(':')) if o.label else ''
+        footer = self.format_line('END SELECT', name)
         self.depth += 1
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
         self.depth -= 1

@@ -78,7 +78,7 @@ end subroutine routine_raw_source
         # Make sure the label is correctly identified and contained
         if node.label:
             do_construct_label_found = ~do_construct_label_found  # This way to ensure it is found only once
-            assert node.label == 'outer'
+            assert node.label == 'outer:'
         if node.loop_label:
             loop_label_found = ~loop_label_found
             assert node.loop_label == '6'
@@ -105,6 +105,6 @@ end subroutine routine_raw_source
         assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node.label:
             cond_label_found += 1
-            assert node.label in ('check', 'multicond')
+            assert node.label in ('check:', 'multicond:')
 
     assert cond_label_found == 2
