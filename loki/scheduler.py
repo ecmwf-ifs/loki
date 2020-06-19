@@ -88,7 +88,7 @@ class Scheduler:
     :param paths: List of locations to search for source files.
     """
 
-    _deadlist = ['dr_hook', 'abor1', 'abort_surf']
+    _deadlist = ['dr_hook', 'abor1', 'abort_surf', 'flush']
 
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '_mod.f90']
@@ -179,6 +179,10 @@ class Scheduler:
 
                 # Append child to work queue if expansion is configured
                 if item.config['expand']:
+                    internals = [s.name.lower() for s in item.file.all_subroutines]
+                    if child.lower() in internals:
+                        continue
+
                     self.append(child)
 
                     self.taskgraph.add_edge(item, self.item_map[child])
