@@ -1,7 +1,10 @@
 from random import choice
 import pytest
 
-from loki import OFP, OMNI, FP, SourceFile, DataType, SymbolType, FCodeMapper
+from loki import (
+    OFP, OMNI, FP, SourceFile, DataType, SymbolType, FCodeMapper,
+    Subroutine
+)
 
 
 def test_data_type():
@@ -67,6 +70,35 @@ def test_symbol_type_compare():
     assert someint.compare(another, ignore='b')
     assert another.compare(someint, ignore=['b'])
     assert not someint.compare(somereal)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='OFP needs preprocessing to support contiguous keyword')),
+    OMNI,
+    FP
+])
+def test_type_declaration_attributes(frontend):
+    """
+    Test recognition of different declaration attributes.
+    """
+    fcode = """
+subroutine test_type_declarations(b, c)
+    integer, parameter :: a = 4
+    integer, intent(in) :: b
+    real(kind=a), target, intent(inout) :: c(:)
+    real(kind=a), allocatable :: d(:)
+    real(kind=a), pointer, contiguous :: e(:)
+
+end subroutine test_type_declarations
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert routine.symbols['a'].parameter
+    assert routine.symbols['b'].intent == 'in'
+    assert routine.symbols['c'].target
+    assert routine.symbols['c'].intent == 'inout'
+    assert routine.symbols['d'].allocatable
+    assert routine.symbols['e'].pointer
+    assert routine.symbols['e'].contiguous
 
 
 @pytest.mark.parametrize('frontend', [
