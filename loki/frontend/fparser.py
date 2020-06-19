@@ -224,7 +224,7 @@ class FParser2IR(GenericVisitor):
             dtype = dtype.clone(shape=shape)
 
         if dimensions:
-            dimensions = sym.ArraySubscript(dimensions)
+            dimensions = sym.ArraySubscript(dimensions, source=source)
 
         if external:
             if dtype is None:
@@ -352,7 +352,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Subscript_Triplet(self, o, **kwargs):
         children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
-        return sym.RangeIndex(children)
+        return sym.RangeIndex(children, source=kwargs.get('source'))
 
     visit_Assumed_Shape_Spec = visit_Subscript_Triplet
     visit_Deferred_Shape_Spec = visit_Subscript_Triplet
@@ -361,7 +361,7 @@ class FParser2IR(GenericVisitor):
         children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
         if children[0] is None:
             return children[1]
-        return sym.RangeIndex(children)
+        return sym.RangeIndex(children, source=kwargs.get('source'))
 
     visit_Allocate_Shape_Spec = visit_Explicit_Shape_Spec
 
@@ -405,7 +405,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Array_Constructor(self, o, **kwargs):
         values = self.visit(o.items[1], **kwargs)
-        return sym.LiteralList(values=values)
+        return sym.LiteralList(values=values, source=kwargs.get('source'))
 
     def visit_Ac_Implied_Do(self, o, **kwargs):
         # TODO: Implement this properly!
@@ -427,7 +427,7 @@ class FParser2IR(GenericVisitor):
                 kind = kind[0].items[1].tostr() if kind else args.items[1].tostr()
             else:
                 kind = None
-            return sym.Cast(name, expr, kind=kind)
+            return sym.Cast(name, expr, kind=kind, source=kwargs.get('source'))
 
         args = self.visit(o.items[1], **kwargs) if o.items[1] else None
         if args:
@@ -436,7 +436,8 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
+        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+                              source=kwargs.get('source'))
 
     visit_Function_Reference = visit_Intrinsic_Function_Reference
 
@@ -482,7 +483,8 @@ class FParser2IR(GenericVisitor):
 
         if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
             # This is (presumably) a function call
-            return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments)
+            return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+                                  source=kwargs.get('source'))
 
         # This is an array access and the arguments define the dimension.
         kwargs['dimensions'] = args
@@ -507,7 +509,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = sym.Variable(name=pname, scope=self.scope.symbols)
+        v = sym.Variable(name=pname, scope=self.scope.symbols, source=kwargs.get('source'))
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))
@@ -743,7 +745,7 @@ class FParser2IR(GenericVisitor):
             return self.visit(o.items[0], **kwargs), None
         variable = self.visit(o.items[1][0], **kwargs)
         bounds = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(o.items[1][1])))
-        return variable, sym.LoopRange(bounds)
+        return variable, sym.LoopRange(bounds, source=kwargs.get('source'))
 
     def visit_Assignment_Stmt(self, o, **kwargs):
         ptr = isinstance(o, Fortran2003.Pointer_Assignment_Stmt)
@@ -833,11 +835,12 @@ class FParser2IR(GenericVisitor):
     def visit_Parenthesis(self, o, **kwargs):
         expression = self.visit(o.items[1], **kwargs)
         if isinstance(expression, sym.Sum):
-            expression = ParenthesisedAdd(expression.children)
+            expression = ParenthesisedAdd(expression.children, source=kwargs.get('source'))
         if isinstance(expression, sym.Product):
-            expression = ParenthesisedMul(expression.children)
+            expression = ParenthesisedMul(expression.children, source=kwargs.get('source'))
         if isinstance(expression, sym.Power):
-            expression = ParenthesisedPow(expression.base, expression.exponent)
+            expression = ParenthesisedPow(expression.base, expression.exponent,
+                                          source=kwargs.get('source'))
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):

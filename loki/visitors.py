@@ -147,12 +147,42 @@ class Transformer(Visitor):
 
     In the special case in which ``M[n]`` is an iterable of nodes,
     all nodes in ``M[n]`` are inserted into the tuple containing ``n``.
+
+    :param dict mapper: the mapping M : N --> L.
+    :param bool invalidate_source: if set to True and if ``M[n]`` has `source=None`,
+        this triggers invalidating the source property for all nodes enclosing ``n``.
+        Note that the source property is not explicitly invalidated for ``M[n]``.
     """
 
-    def __init__(self, mapper=None):
+    def __init__(self, mapper=None, invalidate_source=True):
         super(Transformer, self).__init__()
         self.mapper = mapper.copy() if mapper is not None else {}
+        self.invalidate_source = invalidate_source
         self.rebuilt = {}
+
+    @staticmethod
+    def _rebuild_without_source(o, children):
+        """
+        Rebuild the given node without the source property.
+        """
+        if 'source' in o.args_frozen:
+            args_frozen = o.args_frozen
+            args_frozen['source'] = None
+            return o._rebuild(*children, **args_frozen)
+        return o._rebuild(*children, **o.args_frozen)
+
+    def _rebuild(self, o, children):
+        """
+        Rebuild the given node with the provided children.
+
+        If `invalidate_source` is `True`, `source` is set to `None` whenever
+        any of the children has `source == None`.
+        """
+        if self.invalidate_source and 'source' in o.args_frozen:
+            child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
+            if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
+                return self._rebuild_without_source(o, children)
+        return o._rebuild(*children, **o.args_frozen)
 
     def visit_object(self, o, **kwargs):
         return o
@@ -175,16 +205,24 @@ class Transformer(Visitor):
             if handle is None:
                 # None -> drop /o/
                 return None
-            if is_iterable(handle):
-                # Original implementation to extend o.children:
-                if not o.children:
-                    raise ValueError
-                extended = (tuple(handle) + o.children[0],) + o.children[1:]
-                return o._rebuild(*extended, **o.args_frozen)
-            return handle._rebuild(**handle.args)
+            # Commenting the following as I could not find a use case for it in our
+            # test base or external CLOUDSC regression tests. Possibly related: LOKI-14
+            # if is_iterable(handle):
+            #     # Original implementation to extend o.children:
+            #     if not o.children:
+            #         raise ValueError
+            #     extended = (tuple(handle) + o.children[0],) + o.children[1:]
+            #     if self.invalidate_source:
+            #         return self._rebuild_without_source(o, extended)
+            #     return o._rebuild(*extended, **o.args_frozen)
+
+            # For one-to-many mappings making sure this is not replaced again
+            # as it has been inserted by visit_tuple already
+            if not is_iterable(handle) or o not in handle:
+                return handle._rebuild(**handle.args)
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
-        return o._rebuild(*rebuilt, **o.args_frozen)
+        return self._rebuild(o, rebuilt)
 
     def visit(self, o, *args, **kwargs):
         obj = super(Transformer, self).visit(o, *args, **kwargs)
@@ -209,8 +247,10 @@ class NestedTransformer(Transformer):
             if not o.children:
                 raise ValueError
             extended = [tuple(handle) + rebuilt[0]] + rebuilt[1:]
+            if self.invalidate_source:
+                return self._rebuild_without_source(o, extended)
             return o._rebuild(*extended, **o.args_frozen)
-        return handle._rebuild(*rebuilt, **handle.args_frozen)
+        return self._rebuild(handle, rebuilt)
 
 
 class FindNodes(Visitor):

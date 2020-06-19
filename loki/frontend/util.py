@@ -115,7 +115,7 @@ def inline_comments(ir):
             if pair[1]._source.lines[0] == pair[0]._source.lines[1]:
                 mapper[pair[0]] = pair[0]._rebuild(comment=pair[1])
                 mapper[pair[1]] = None  # Mark for deletion
-    return NestedTransformer(mapper).visit(ir)
+    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
 def cluster_comments(ir):
@@ -140,7 +140,7 @@ def cluster_comments(ir):
         comment_mapper[comments[0]] = block
         for c in comments[1:]:
             comment_mapper[c] = None
-    return NestedTransformer(comment_mapper).visit(ir)
+    return NestedTransformer(comment_mapper, invalidate_source=False).visit(ir)
 
 
 def inline_pragmas(ir):
@@ -161,7 +161,7 @@ def inline_pragmas(ir):
         # Merge pragma with declaration and delete
         mapper[pair[0]] = None  # Mark for deletion
         mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
-    return NestedTransformer(mapper).visit(ir)
+    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
 def inline_labels(ir):
@@ -181,7 +181,7 @@ def inline_labels(ir):
             if pair[1].source and pair[1].source.lines[0] == pair[0].source.lines[1]:
                 mapper[pair[0]] = None  # Mark for deletion
                 mapper[pair[1]] = pair[1]._rebuild(label=pair[0].label.lstrip('0'))
-    return NestedTransformer(mapper).visit(ir)
+    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
 def process_dimension_pragmas(typedef):

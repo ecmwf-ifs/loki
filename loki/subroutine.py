@@ -89,7 +89,8 @@ class Subroutine:
             if v.name.lower() in alloc_map:
                 vtype = v.type.clone(shape=alloc_map[v.name.lower()])
                 smap[v] = v.clone(type=vtype)
-        return SubstituteExpressions(smap).visit(spec), SubstituteExpressions(vmap).visit(body)
+        return (SubstituteExpressions(smap, invalidate_source=False).visit(spec),
+                SubstituteExpressions(vmap, invalidate_source=False).visit(body))
 
     @classmethod
     def from_source(cls, source, typedefs=None, xmods=None, frontend=Frontend.FP):
@@ -190,16 +191,13 @@ class Subroutine:
         # Generate spec
         spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
-        # TODO: this filtered out external declarations explicitly. Reason?
-        # mapper = {d: None for d in FindNodes(Declaration).visit(spec)
-        #           if d._source.file != file or next(iter(d.variables)) == name}
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
             mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                       if d.variables[0].name == name}
-            spec = Section(body=Transformer(mapper).visit(spec))
+            spec = Section(body=Transformer(mapper, invalidate_source=False).visit(spec))
         else:
             spec = Section(body=spec)
 
@@ -211,7 +209,7 @@ class Subroutine:
                 break
             docs.append(node)
             comment_map[node] = None
-        spec = Transformer(comment_map).visit(spec)
+        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
@@ -297,7 +295,7 @@ class Subroutine:
                 break
             body.prepend(node)
             comment_map[node] = None
-        spec = Transformer(comment_map).visit(spec)
+        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
 
         # Parse "member" subroutines recursively
         members = None

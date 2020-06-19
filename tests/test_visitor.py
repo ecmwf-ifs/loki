@@ -2,11 +2,11 @@ import pytest
 from pymbolic.primitives import Expression
 
 from loki import (
-    OFP, OMNI, FP,
-    Module, Subroutine, Loop, Statement, Conditional,
+    OFP, OMNI, FP, Source,
+    Module, Subroutine, Section, Loop, Statement, Conditional, Sum,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions, Stringifier)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -504,3 +504,148 @@ END MODULE some_mod
                                           '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
     w_ref = '\n'.join(ref_lines)
     assert Stringifier(indent='#', linewidth=42, line_cont=line_cont).visit(module).strip() == w_ref
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformer_source_invalidation_replace(frontend):
+    """
+    Test basic transformer functionality and verify source invalidation
+    when replacing nodes.
+    """
+    fcode = """
+subroutine routine_simple (x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i, j
+
+  do i=1, x
+    vector(i) = vector(i) + scalar
+    do j=1, y
+      if (j > i) then
+        matrix(i, j) = real(i * j, kind=jprb) + 1.
+      else
+        matrix(i, j) = i * vector(j)
+      end if
+    end do
+  end do
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Replace the innermost statement in the body of the conditional
+    def get_innermost_statement(ir):
+        for stmt in FindNodes(Statement).visit(ir):
+            if 'matrix' in str(stmt.target) and isinstance(stmt.expr, Sum):
+                return stmt
+
+    stmt = get_innermost_statement(routine.ir)
+    new_expr = Sum((*stmt.expr.children[:-1], FloatLiteral(2.)))
+    new_stmt = Statement(stmt.target, new_expr)
+    mapper = {stmt: new_stmt}
+
+    body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
+    body_with_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+
+    # Find the original and new node in all bodies
+    orig_node = stmt
+    node_without_src = get_innermost_statement(body_without_source)
+    node_with_src = get_innermost_statement(body_with_source)
+
+    # Check that source of new statement is untouched
+    assert orig_node.source is not None
+    assert node_without_src.source is None
+    assert node_with_src.source is None
+
+    # Check recursively the presence or absence of the source property
+    while True:
+        node_without_src = FindNodes(node_without_src, mode='scope').visit(body_without_source)[0]
+        node_with_src = FindNodes(node_with_src, mode='scope').visit(body_with_source)[0]
+        orig_node = FindNodes(orig_node, mode='scope').visit(routine.body)[0]
+        if isinstance(orig_node, Section):
+            assert isinstance(node_without_src, Section)
+            assert isinstance(node_with_src, Section)
+            break
+        assert node_without_src.source is None
+        assert node_with_src.source and node_with_src.source == orig_node.source
+
+    # Check that else body is untouched
+    def get_else_stmt(ir):
+        return FindNodes(Conditional).visit(routine.body)[0].else_body[0]
+
+    else_stmt = get_else_stmt(routine.body)
+    assert else_stmt.source is not None
+    assert get_else_stmt(body_without_source).source == else_stmt.source
+    assert get_else_stmt(body_with_source).source == else_stmt.source
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformer_source_invalidation_prepend(frontend):
+    """
+    Test basic transformer functionality and verify source invalidation
+    when adding items to a loop body.
+    """
+    fcode = """
+subroutine routine_simple (x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i, j
+
+  do i=1, x
+    vector(i) = vector(i) + scalar
+    do j=1, y
+      if (j > i) then
+        matrix(i, j) = real(i * j, kind=jprb) + 1.
+      else
+        matrix(i, j) = i * vector(j)
+      end if
+    end do
+  end do
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Insert a new statement before the conditional
+    def get_conditional(ir):
+        return FindNodes(Conditional).visit(ir)[0]
+
+    cond = get_conditional(routine.ir)
+    new_stmt = Statement(target=routine.arguments[0], expr=routine.arguments[1])
+    mapper = {cond: (new_stmt, cond)}
+
+    body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
+    body_with_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+
+    # Find the conditional in new bodies and check that source is untouched
+    assert cond.source is not None
+    cond_without_src = get_conditional(body_without_source)
+    assert cond_without_src.source == cond.source
+    cond_with_src = get_conditional(body_with_source)
+    assert cond_with_src.source == cond.source
+
+    # Find the newly inserted statement and check that source is None
+    def get_new_statement(ir):
+        for stmt in FindNodes(Statement).visit(ir):
+            if stmt.target == routine.arguments[0]:
+                return stmt
+
+    node_without_src = get_new_statement(body_without_source)
+    assert node_without_src.source is None
+    node_with_src = get_new_statement(body_with_source)
+    assert node_with_src.source is None
+
+    # Check recursively the presence or absence of the source property
+    orig_node = cond
+    while True:
+        node_without_src = FindNodes(node_without_src, mode='scope').visit(body_without_source)[0]
+        node_with_src = FindNodes(node_with_src, mode='scope').visit(body_with_source)[0]
+        orig_node = FindNodes(orig_node, mode='scope').visit(routine.body)[0]
+        if isinstance(orig_node, Section):
+            assert isinstance(node_without_src, Section)
+            assert isinstance(node_with_src, Section)
+            break
+        assert node_without_src.source is None
+        assert node_with_src.source and node_with_src.source == orig_node.source
