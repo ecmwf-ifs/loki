@@ -242,10 +242,6 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             for node in body:
                 if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
                     call = node
-                elif isinstance(node, ir.Intrinsic) and node.text.lstrip().startswith('#'):
-                    # Skip CPP directives
-                    # TODO: Have dedicated ir class for CPP directives and add to non_exec_nodes
-                    continue
                 elif not isinstance(node, cls.non_exec_nodes):
                     # Break if executable statement encountered
                     break
