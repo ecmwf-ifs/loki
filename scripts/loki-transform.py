@@ -11,7 +11,8 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info
+    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info,
+    CallStatement, Literal, Conditional, Transformer, FindNodes
 )
 
 # Get generalized transformations provided by Loki
@@ -395,6 +396,42 @@ def plan(mode, config, header, source, build, root, include, frontend, callgraph
         scheduler.callgraph(callgraph)
 
 
+class DrHookTransformation(Transformation):
+    """
+    Re-write the DrHook label markers in transformed routines or
+    remove them if so configured.
+    """
+    def __init__(self, remove=False, mode=None, **kwargs):
+        self.remove = remove
+        self.mode = mode
+        super().__init__(**kwargs)
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['item'].role
+
+        # Leave DR_HOOK annotations in driver routine
+        if role == 'driver':
+            return
+
+        mapper = {}
+        for call in FindNodes(CallStatement).visit(routine.body):
+            # Lazily changing the DrHook label in-place
+            if call.name == 'DR_HOOK':
+                new_label = f'{call.arguments[0].value.upper()}_{str(self.mode).upper()}'
+                new_args = (Literal(value=new_label),) + call.arguments[1:]
+                if self.remove:
+                    mapper[call] = None
+                else:
+                    mapper[call] = call.clone(arguments=new_args)
+
+        if self.remove:
+            for cond in FindNodes(Conditional).visit(routine.body):
+                if cond.inline and 'LHOOK' in as_tuple(cond.condition):
+                    mapper[cond] = None
+
+        routine.body = Transformer(mapper).visit(routine.body)
+
+
 @cli.command('ecphys')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
@@ -437,6 +474,9 @@ def ecphys(mode, config, header, source, build, include, frontend):
 
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=InferArgShapeTransformation())
+
+    # Remove DR_HOOK calls first, so they don't interfere with SCC loop hoisting
+    scheduler.process(transformation=DrHookTransformation(mode=mode, remove='scc' in mode))
 
     # Now we instantiate our transformation pipeline and apply the main changes
     transformation = None
