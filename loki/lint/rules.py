@@ -100,10 +100,6 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
                         node.conditions[0].name.upper() == 'LHOOK':
                     cond = node
                     break
-            elif isinstance(node, ir.Intrinsic) and node.text.lstrip().startswith('#'):
-                # Skip CPP directives
-                # TODO: Have a dedicated ir class for CPP directives and add it to non_exec_nodes
-                continue
             elif not isinstance(node, cls.non_exec_nodes):
                 # Break if executable statement encountered
                 break
@@ -119,10 +115,6 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             for node in body:
                 if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
                     call = node
-                elif isinstance(node, ir.Intrinsic) and node.text.lstrip().startswith('#'):
-                    # Skip CPP directives
-                    # TODO: Have dedicated ir class for CPP directives and add to non_exec_nodes
-                    continue
                 elif not isinstance(node, cls.non_exec_nodes):
                     # Break if executable statement encountered
                     break
@@ -206,7 +198,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
     )
 
     # Pattern for intrinsic nodes that are allowed as non-executable statements
-    match_non_exec_intrinsic_node = re.compile(r'\s*(?:PRINT|FORMAT|#)', re.I)
+    match_non_exec_intrinsic_node = re.compile(r'\s*(?:PRINT|FORMAT)', re.I)
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
@@ -484,6 +476,16 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                             fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
                             msg = fmt_string.format(op if op != '!=' else '/=', f77)
                             rule_report.add(msg, expr_root)
+
+    @classmethod
+    def fix_subroutine(cls, subroutine, rule_report, config):
+        '''Replace by Fortran 90 comparison operators.'''
+        # We only have to invalidate the source string for the expression. This will cause the
+        # backend to regenerate the source string for that node and use Fortran 90 operators
+        # automatically
+        mapper = {report.location: report.location._update(source=None)
+                  for report in rule_report.reports}
+        return mapper
 
 
 # Create the __all__ property of the module to contain only the rule names

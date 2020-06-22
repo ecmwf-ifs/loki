@@ -1,6 +1,6 @@
 from enum import Enum
 
-from loki import SourceFile, Module, Subroutine
+from loki import SourceFile, Module, Subroutine, Transformer
 
 
 class RuleType(Enum):
@@ -105,6 +105,78 @@ class GenericRule:
             if hasattr(ast, 'members') and ast.members is not None:
                 for member in ast.members:
                     cls.check(member, rule_report, config)
+
+    @classmethod
+    def fix_module(cls, module, rule_report, config):
+        '''
+        Fix rule on module level. Must be implemented by a rule if applicable.
+        '''
+
+    @classmethod
+    def fix_subroutine(cls, subroutine, rule_report, config):
+        '''
+        Fix rule on subroutine level. Must be implemented by a rule if applicable.
+        '''
+        return {}
+
+    @classmethod
+    def fix_file(cls, sourcefile, rule_report, config):
+        '''
+        Fix rule on sourcefile level. Must be implemented by a rule if applicable.
+        '''
+
+    @classmethod
+    def fix(cls, ast, rule_report, config):
+        '''
+        Perform checks on all entities in the given IR object.
+
+        This routine calls `check_module`, `check_subroutine` and `check_file`
+        as applicable for all entities in the given IR object.
+
+        :param ast: the IR object to be checked.
+        :type ast: :py:class:`SourceFile`, :py:class:`Module`, or
+                   :py:class:`Subroutine`
+        :param rule_report: the reporter object for the rule.
+        :type rule_report: :py:class:`RuleReport`
+        :param dict config: a `dict` with the config values.
+        '''
+
+        if not cls.fixable:
+            raise RuntimeError('fix() called on non-fixable rule.')
+
+        # Fix on source file level
+        if isinstance(ast, SourceFile):
+            cls.fix_file(ast, rule_report, config)
+
+            # Then recurse for all modules and subroutines in that file
+            if hasattr(ast, 'modules') and ast.modules is not None:
+                for module in ast.modules:
+                    cls.fix(module, rule_report, config)
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
+                    cls.fix(subroutine, rule_report, config)
+
+        # Fix on module level
+        elif isinstance(ast, Module):
+            cls.fix_module(ast, rule_report, config)
+
+            # Then recurse for all subroutines in that module
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
+                    cls.fix(subroutine, rule_report, config)
+
+        # Fix on subroutine level
+        elif isinstance(ast, Subroutine):
+            mapper = {}
+            mapper.update(cls.fix_subroutine(ast, rule_report, config))
+            if mapper:
+                ast.spec = Transformer(mapper).visit(ast.spec)
+                ast.body = Transformer(mapper).visit(ast.body)
+
+            # Recurse for any procedures contained in a subroutine
+            if hasattr(ast, 'members') and ast.members is not None:
+                for member in ast.members:
+                    cls.fix(member, rule_report, config)
 
 
 def get_filename_from_parent(obj):

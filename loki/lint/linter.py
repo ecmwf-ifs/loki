@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import shutil
 import time
 from pathlib import Path
 
@@ -72,19 +73,34 @@ class Linter:
             file_report.add(rule_report)
         # Store the file report
         self.reporter.add_file_report(file_report)
+        return file_report
 
-    def fix(self, sourcefile):
+    def fix(self, sourcefile, file_report, backup_suffix=None, overwrite_config=None):
         if not isinstance(sourcefile, SourceFile):
             raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
-        # TODO: Actually do any fixing
-        # ...
-        # Determine path for the fixed file
         file_path = Path(sourcefile.path)
-        fixed_path = file_path.with_suffix('.fix' + file_path.suffix)
+        assert file_path == Path(file_report.filename)
 
-        # Build the source string
-        # Note: this does not necessarily preserve the order of things in the file
+        # Nothing to do if there are no fixable reports
+        fixable_reports = [report for report in file_report.reports if report.rule.fixable]
+        if not fixable_reports:
+            return
+
+        # Make a backup copy if requested
+        if backup_suffix:
+            backup_path = file_path.with_suffix(backup_suffix + file_path.suffix)
+            shutil.copy(file_path, backup_path)
+
+        # Extract configuration
+        config = self.config
+        if overwrite_config:
+            config.update(overwrite_config)
+
+        # Attempt to apply fixes for each rule
+        for report in fixable_reports:
+            report.rule.fix(sourcefile, report, config)
+
+        # Create the the source string for the output
+        # TODO: this does not necessarily preserve the order of things in the file
         # as it will first generate all modules and then all subroutines
-        source = [fgen(mod, conservative=True) for mod in sourcefile.modules]
-        source += [fgen(routine, conservative=True) for routine in sourcefile.subroutines]
-        SourceFile.to_file(source='\n\n'.join(source), path=fixed_path)
+        SourceFile.to_file(source=fgen(sourcefile, conservative=True), path=file_path)

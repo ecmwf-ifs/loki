@@ -75,14 +75,15 @@ def get_file_list(includes, excludes, basedir):
     return incl, excl
 
 
-def check_file(filename, linter, frontend=FP, preprocess=False, fix=False):
+def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=False,
+                       backup_suffix=None):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
         debug('[%s] Parsing completed without error.', filename)
-        linter.check(source)
+        report = linter.check(source)
         if fix:
-            linter.fix(source)
+            linter.fix(source, report, backup_suffix=backup_suffix)
     except Exception as excinfo:  # pylint: disable=broad-except
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
@@ -172,6 +173,9 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
               help='Configuration file for behaviour of linter and rules.')
 @click.option('--fix/--no-fix', default=False, show_default=True,
               help='Attempt to fix problems where possible.')
+@click.option('--backup-suffix', type=str,
+              help=('When fixing, create a backup of the original file with '
+                    'the given suffix.'))
 @click.option('--worker', type=int, default=4, show_default=True,
               help=('Number of worker processes to use. With --debug enabled '
                     'this option is ignored and only one worker is used.'))
@@ -183,7 +187,7 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, preprocess, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -214,15 +218,17 @@ def check(ctx, include, exclude, basedir, config, fix, worker, preprocess, junit
     success_count = 0
     if worker == 1:
         for f in files:
-            success_count += check_file(f, linter, preprocess=preprocess, fix=fix)
+            success_count += check_and_fix_file(f, linter, preprocess=preprocess, fix=fix,
+                                                backup_suffix=backup_suffix)
     else:
         manager = Manager()
         linter.reporter.init_parallel(manager)
 
         with workqueue(workers=worker, logger=logger, manager=manager) as q:
             log_queue = q.log_queue if hasattr(q, 'log_queue') else None  # pylint: disable=no-member
-            q_tasks = [q.call(check_file, f, linter, log_queue=log_queue,
-                              preprocess=preprocess, fix=fix) for f in files]
+            q_tasks = [q.call(check_and_fix_file, f, linter, log_queue=log_queue,
+                              preprocess=preprocess, fix=fix, backup_suffix=backup_suffix)
+                       for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
 
