@@ -25,7 +25,24 @@ def test_joinable_string_list(items, sep, width, cont, ref):
     """
     Test JoinableStringList for some common scenarios.
     """
-    obj = JoinableStringList(items, sep, width, cont, ref)
+    obj = JoinableStringList(items, sep, width, cont)
+    assert str(obj) == ref
+
+
+def test_joinable_string_list_long():
+    """
+    Test JoinableStringList with some long edge cases.
+    """
+    attributes = ['REAL(KIND=JPRB)', 'INTENT(IN)']
+    attributes = JoinableStringList(attributes, ', ', 132, ' &\n   & ')
+    variables = ['PDHTLS(KPROMA, YDMODEL%YRML_PHY_G%YRDPHY%NTILES, '
+                 'YDMODEL%YRML_DIAG%YRMDDH%NDHVTLS + YDMODEL%YRML_DIAG%YRMDDH%NDHFTLS)']
+    variables = JoinableStringList(variables, ', ', 132, ' &\n   & ')
+    items = ['  ', attributes, ' :: ', variables]
+    obj = JoinableStringList(items, '', 132, ' &\n  & ')
+    ref = ('  REAL(KIND=JPRB), INTENT(IN) ::  &\n'
+           '  & PDHTLS(KPROMA, YDMODEL%YRML_PHY_G%YRDPHY%NTILES, '
+           'YDMODEL%YRML_DIAG%YRMDDH%NDHVTLS + YDMODEL%YRML_DIAG%YRMDDH%NDHFTLS)')
     assert str(obj) == ref
 
 

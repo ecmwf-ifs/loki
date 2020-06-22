@@ -299,8 +299,6 @@ class JoinableStringList:
         """
         if not self.items:
             return '', None
-        if len(self.items) == 1:
-            return str(self.items[0]), None
         lines = []
         # Add all items one after another
         for idx, item in enumerate(self.items):
