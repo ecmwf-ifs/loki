@@ -177,11 +177,11 @@ end subroutine boz_literals
         # Note: FP converts constants to upper case
         stmts = FindNodes(Statement).visit(routine.body)
         assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == "B'00000'"
-        assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value.upper() == 'B"101010"'
+        assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value == 'b"101010"'
         assert isinstance(stmts[2].expr, IntrinsicLiteral) and stmts[2].expr.value == "O'737'"
-        assert isinstance(stmts[3].expr, IntrinsicLiteral) and stmts[3].expr.value.upper() == 'O"007"'
+        assert isinstance(stmts[3].expr, IntrinsicLiteral) and stmts[3].expr.value == 'o"007"'
         assert isinstance(stmts[4].expr, IntrinsicLiteral) and stmts[4].expr.value == "Z'CAFE'"
-        assert isinstance(stmts[5].expr, IntrinsicLiteral) and stmts[5].expr.value.upper() == 'Z"BABE"'
+        assert isinstance(stmts[5].expr, IntrinsicLiteral) and stmts[5].expr.value == 'z"babe"'
 
 
 @pytest.mark.parametrize('frontend', [

@@ -4,6 +4,14 @@ __all = ['Source', 'extract_source']
 
 
 class Source:
+    """
+    Store information about the original source for an IR node.
+
+    :param tuple line: tuple with start and (optional) end line number
+                       in original source file.
+    :param str string: the original source string.
+    :pram str file: the file name.
+    """
 
     def __init__(self, lines, string=None, file=None):
         self.lines = lines
@@ -13,6 +21,38 @@ class Source:
     def __repr__(self):
         line_end = '-{}'.format(self.lines[1]) if self.lines[1] else ''
         return 'Source<line {start}{end}>'.format(start=self.lines[0], end=line_end)
+
+    def find(self, string, ignore_case=True, ignore_space=True):
+        """
+        Find the given string in the source and return start and end index or None if not found.
+        """
+        if not self.string:
+            return None, None
+        if ignore_case:
+            string = string.lower()
+            self_string = self.string.lower()
+        if string in self_string:
+            # string is contained as is
+            idx = self_string.find(string)
+            return idx, idx + len(string)
+        if ignore_space:
+            # Split the key and try to find individual parts
+            strings = string.strip().split()
+            if strings[0] in self_string:
+                if all(substr in self_string for substr in strings):
+                    return (self_string.find(strings[0]),
+                            self_string.find(strings[-1]) + len(strings[-1]))
+        return None, None
+
+    def clone_with_string(self, string, ignore_case=True, ignore_space=True):
+        """
+        Clone the source object and extract the given string from the original source string
+        or use the provided string.
+        """
+        cstart, cend = self.find(string, ignore_case=ignore_case, ignore_space=ignore_space)
+        if cstart is not None and cend is not None:
+            string = self.string[cstart:cend]
+        return Source(self.lines, string, self.file)
 
 
 def extract_source(ast, text, label=None, full_lines=False):

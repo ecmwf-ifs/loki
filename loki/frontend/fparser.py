@@ -195,14 +195,17 @@ class FParser2IR(GenericVisitor):
 
         # Careful! Mind the many ways in which this can get called with
         # outside information (either in kwargs or maps stored on self).
-        dimensions = kwargs.get('dimensions', None)
-        external = kwargs.get('external', None)
-        dtype = kwargs.get('dtype', None)
-        parent = kwargs.get('parent', None)
-        shape = kwargs.get('shape', None)
-        initial = kwargs.get('initial', None)
+        dimensions = kwargs.get('dimensions')
+        external = kwargs.get('external')
+        dtype = kwargs.get('dtype')
+        parent = kwargs.get('parent')
+        shape = kwargs.get('shape')
+        initial = kwargs.get('initial')
         scope = kwargs.get('scope', self.scope)
-        source = kwargs.get('source', None)
+
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
 
         if parent is not None:
             basename = vname
@@ -224,7 +227,7 @@ class FParser2IR(GenericVisitor):
             dtype = dtype.clone(shape=shape)
 
         if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
+            dimensions = sym.ArraySubscript(dimensions)
 
         if external:
             if dtype is None:
@@ -234,31 +237,43 @@ class FParser2IR(GenericVisitor):
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
                             parent=parent, initial=initial, source=source)
 
-    def visit_literal(self, val, _type, kind=None, **kwargs):
+    def visit_literal(self, o, _type, kind=None, **kwargs):
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(str(o.items[0]))
+            val = source.string
+        else:
+            val = o.items[0]
         if kind is not None:
-            return sym.Literal(value=val, type=_type, kind=kind, source=kwargs.get('source'))
-        return sym.Literal(value=val, type=_type, source=kwargs.get('source'))
+            return sym.Literal(value=val, type=_type, kind=kind, source=source)
+        return sym.Literal(value=val, type=_type, source=source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(str(o.items[0]), DataType.CHARACTER, **kwargs)
+        return self.visit_literal(o, DataType.CHARACTER, **kwargs)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(int(o.items[0]), DataType.INTEGER, kind=kind, **kwargs)
+        return self.visit_literal(o, DataType.INTEGER, kind=kind, **kwargs)
 
     visit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(o.items[0], DataType.REAL, kind=kind, **kwargs)
+        return self.visit_literal(o, DataType.REAL, kind=kind, **kwargs)
 
     visit_Signed_Real_Literal_Constant = visit_Real_Literal_Constant
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(o.items[0], DataType.LOGICAL, **kwargs)
+        return self.visit_literal(o, DataType.LOGICAL, **kwargs)
 
     def visit_Complex_Literal_Constant(self, o, **kwargs):
-        return sym.IntrinsicLiteral(value=o.string, source=kwargs.get('source'))
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+            val = source.string
+        else:
+            val = o.string
+        return sym.IntrinsicLiteral(value=val, source=source)
 
     visit_Binary_Constant = visit_Complex_Literal_Constant
     visit_Octal_Constant = visit_Complex_Literal_Constant
@@ -283,10 +298,9 @@ class FParser2IR(GenericVisitor):
 
     def visit_Use_Stmt(self, o, **kwargs):
         name = o.items[2].tostr()
-        # TODO: This is probably not good
-        # symbols = as_tuple(self.visit(s, **kwargs) for s in o.items[4].items)
-        if o.items[4]:
-            symbols = as_tuple(s.tostr() for s in o.items[4].items)
+        only_list = get_child(o, Fortran2003.Only_List)  # pylint: disable=no-member
+        if only_list:
+            symbols = as_tuple(item.tostr() for item in only_list.items)
         else:
             symbols = None
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'),
@@ -352,7 +366,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Subscript_Triplet(self, o, **kwargs):
         children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
-        return sym.RangeIndex(children, source=kwargs.get('source'))
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        return sym.RangeIndex(children, source=source)
 
     visit_Assumed_Shape_Spec = visit_Subscript_Triplet
     visit_Deferred_Shape_Spec = visit_Subscript_Triplet
@@ -361,7 +378,10 @@ class FParser2IR(GenericVisitor):
         children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
         if children[0] is None:
             return children[1]
-        return sym.RangeIndex(children, source=kwargs.get('source'))
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        return sym.RangeIndex(children, source=source)
 
     visit_Allocate_Shape_Spec = visit_Explicit_Shape_Spec
 
@@ -405,7 +425,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Array_Constructor(self, o, **kwargs):
         values = self.visit(o.items[1], **kwargs)
-        return sym.LiteralList(values=values, source=kwargs.get('source'))
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        return sym.LiteralList(values=values, source=source)
 
     def visit_Ac_Implied_Do(self, o, **kwargs):
         # TODO: Implement this properly!
@@ -415,6 +438,9 @@ class FParser2IR(GenericVisitor):
         # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
         # Do not recurse here to avoid treating function names as variables
         name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
 
         if name.upper() in ('REAL', 'INT'):
             args = walk(o.items, (Fortran2003.Actual_Arg_Spec_List,))[0]
@@ -427,7 +453,7 @@ class FParser2IR(GenericVisitor):
                 kind = kind[0].items[1].tostr() if kind else args.items[1].tostr()
             else:
                 kind = None
-            return sym.Cast(name, expr, kind=kind, source=kwargs.get('source'))
+            return sym.Cast(name, expr, kind=kind, source=source)
 
         args = self.visit(o.items[1], **kwargs) if o.items[1] else None
         if args:
@@ -436,8 +462,7 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
-                              source=kwargs.get('source'))
+        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
     visit_Function_Reference = visit_Intrinsic_Function_Reference
 
@@ -482,9 +507,12 @@ class FParser2IR(GenericVisitor):
             kwarguments = None
 
         if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
+            source = kwargs.get('source')
+            if source:
+                source = source.clone_with_string(o.string)
             # This is (presumably) a function call
             return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
-                                  source=kwargs.get('source'))
+                                  source=source)
 
         # This is an array access and the arguments define the dimension.
         kwargs['dimensions'] = args
@@ -509,7 +537,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = sym.Variable(name=pname, scope=self.scope.symbols, source=kwargs.get('source'))
+        v = sym.Variable(name=pname, scope=self.scope.symbols)
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))
@@ -756,7 +784,10 @@ class FParser2IR(GenericVisitor):
             return self.visit(o.items[0], **kwargs), None
         variable = self.visit(o.items[1][0], **kwargs)
         bounds = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(o.items[1][1])))
-        return variable, sym.LoopRange(bounds, source=kwargs.get('source'))
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+        return variable, sym.LoopRange(bounds, source=source)
 
     def visit_Assignment_Stmt(self, o, **kwargs):
         ptr = isinstance(o, Fortran2003.Pointer_Assignment_Stmt)
@@ -767,11 +798,10 @@ class FParser2IR(GenericVisitor):
 
     visit_Pointer_Assignment_Stmt = visit_Assignment_Stmt
 
-    def visit_operation(self, op, exprs, **kwargs):
+    def create_operation(self, op, exprs, source):
         """
         Construct expressions from individual operations.
         """
-        source = kwargs.get('source')
         exprs = as_tuple(exprs)
         if op == '*':
             return sym.Product(exprs, source=source)
@@ -816,14 +846,17 @@ class FParser2IR(GenericVisitor):
         raise RuntimeError('FParser: Error parsing generic expression')
 
     def visit_Add_Operand(self, o, **kwargs):
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
         if len(o.items) > 2:
             # Binary operand
             exprs = [self.visit(o.items[0], **kwargs)]
             exprs += [self.visit(o.items[2], **kwargs)]
-            return self.visit_operation(op=o.items[1], exprs=exprs, **kwargs)
+            return self.create_operation(op=o.items[1], exprs=exprs, source=source)
         # Unary operand
         exprs = [self.visit(o.items[1], **kwargs)]
-        return self.visit_operation(op=o.items[0], exprs=exprs, **kwargs)
+        return self.create_operation(op=o.items[0], exprs=exprs, source=source)
 
     visit_Mult_Operand = visit_Add_Operand
     visit_And_Operand = visit_Add_Operand
@@ -831,27 +864,35 @@ class FParser2IR(GenericVisitor):
     visit_Equiv_Operand = visit_Add_Operand
 
     def visit_Level_2_Expr(self, o, **kwargs):
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
         e1 = self.visit(o.items[0], **kwargs)
         e2 = self.visit(o.items[2], **kwargs)
-        return self.visit_operation(op=o.items[1], exprs=(e1, e2), **kwargs)
+        return self.create_operation(op=o.items[1], exprs=(e1, e2), source=source)
 
     def visit_Level_2_Unary_Expr(self, o, **kwargs):
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
         exprs = as_tuple(self.visit(o.items[1], **kwargs))
-        return self.visit_operation(op=o.items[0], exprs=exprs, **kwargs)
+        return self.create_operation(op=o.items[0], exprs=exprs, source=source)
 
     visit_Level_3_Expr = visit_Level_2_Expr
     visit_Level_4_Expr = visit_Level_2_Expr
     visit_Level_5_Expr = visit_Level_2_Expr
 
     def visit_Parenthesis(self, o, **kwargs):
+        source = kwargs.get('source')
         expression = self.visit(o.items[1], **kwargs)
+        if source:
+            source = source.clone_with_string(o.string)
         if isinstance(expression, sym.Sum):
-            expression = ParenthesisedAdd(expression.children, source=kwargs.get('source'))
+            expression = ParenthesisedAdd(expression.children, source=source)
         if isinstance(expression, sym.Product):
-            expression = ParenthesisedMul(expression.children, source=kwargs.get('source'))
+            expression = ParenthesisedMul(expression.children, source=source)
         if isinstance(expression, sym.Power):
-            expression = ParenthesisedPow(expression.base, expression.exponent,
-                                          source=kwargs.get('source'))
+            expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
         return expression
 
     def visit_Associate_Construct(self, o, **kwargs):
@@ -1024,7 +1065,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(flatten(self.visit(c) for c in o.items))
-        return self.visit_operation('*', exprs, **kwargs)
+        return self.create_operation('*', exprs, **kwargs)
 
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:
