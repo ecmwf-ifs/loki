@@ -140,6 +140,17 @@ class OFP2IR(GenericVisitor):
     visit_body = visit_Element
 
     def visit_loop(self, o, label=None, source=None):
+        body = as_tuple(self.visit(o.find('body')))
+        # Store full lines with loop body for easy replacement
+        source = extract_source(o.attrib, self._raw_source, full_lines=True)
+        # Extract loop label if any
+        loop_label = o.find('do-stmt').attrib['digitString'] or None
+        construct_name = o.find('do-stmt').attrib['id'] or None
+        if construct_name:
+            # We store the construct-name as a label (with colon appended) as we can re-use
+            # the backend functionality for labels to print those, too
+            construct_name += ':'
+
         if o.find('header/index-variable') is None:
             if o.find('do-stmt').attrib['hasLoopControl'] == 'false':
                 # We are processing an unbounded do loop
@@ -147,9 +158,8 @@ class OFP2IR(GenericVisitor):
             else:
                 # We are processing a while loop
                 condition = self.visit(o.find('header'))
-            loop_label = o.find('do-stmt').attrib['digitString'] or None
-            body = as_tuple(self.visit(o.find('body')))
-            return ir.WhileLoop(condition=condition, body=body, loop_label=loop_label, source=source)
+            return ir.WhileLoop(condition=condition, body=body, loop_label=loop_label,
+                                label=construct_name, source=source)
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
@@ -160,14 +170,8 @@ class OFP2IR(GenericVisitor):
         if o.find('header/index-variable/step') is not None:
             step = self.visit(o.find('header/index-variable/step'))
         bounds = sym.LoopRange((lower, upper, step), source=source)
-
-        body = as_tuple(self.visit(o.find('body')))
-        # Extract loop label if any
-        loop_label = o.find('do-stmt').attrib['digitString'] or None
-        # Store full lines with loop body for easy replacement
-        source = extract_source(o.attrib, self._raw_source, full_lines=True)
         return ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
-                       label=label, source=source)
+                       label=construct_name, source=source)
 
     def visit_if(self, o, label=None, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
@@ -175,8 +179,15 @@ class OFP2IR(GenericVisitor):
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
         inline = o.find('if-then-stmt') is None
-        return ir.Conditional(conditions=conditions, bodies=bodies[:ncond],
-                              else_body=else_body, inline=inline, label=label, source=source)
+        construct_name = None
+        if not inline:
+            construct_name = o.find('if-then-stmt').attrib['id'] or None
+            if construct_name:
+                # We store the construct-name as a label (with colon appended) as we can re-use
+                # the backend functionality for labels to print those, too
+                construct_name += ':'
+        return ir.Conditional(conditions=conditions, bodies=bodies[:ncond], else_body=else_body,
+                              inline=inline, label=construct_name, source=source)
 
     def visit_select(self, o, label=None, source=None):
         expr = self.visit(o.find('header'))
@@ -189,8 +200,13 @@ class OFP2IR(GenericVisitor):
             else_body = as_tuple(bodies.pop(else_index))
         else:
             else_body = ()
+        construct_name = o.find('select-case-stmt').attrib['id'] or None
+        if construct_name:
+            # We store the construct-name as a label (with colon appended) as we can re-use
+            # the backend functionality for labels to print those, too
+            construct_name += ':'
         return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
-                                   else_body=else_body, label=label, source=source)
+                                   else_body=else_body, label=construct_name, source=source)
 
     def visit_case(self, o, label=None, source=None):
         value = self.visit(o.find('header'))
