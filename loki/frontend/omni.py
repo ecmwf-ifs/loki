@@ -215,8 +215,7 @@ class OMNI2IR(GenericVisitor):
             if _type.dtype == DataType.DEFERRED and _type.name in self.type_map:
                 tname = self.symbol_map[_type.name].find('name').text
                 variables = self._struct_type_variables(
-                        self.type_map[_type.name], scope=self.scope.symbols, parent=name.text,
-                        source=source)
+                    self.type_map[_type.name], scope=self.scope.symbols, parent=name.text, source=source)
                 variables = OrderedDict([(v.basename, v) for v in variables])  # pylint:disable=no-member
 
                 # Use the previous _type to keep other attributes (like allocatable, pointer, ...)

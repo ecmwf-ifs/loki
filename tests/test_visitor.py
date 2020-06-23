@@ -2,7 +2,7 @@ import pytest
 from pymbolic.primitives import Expression
 
 from loki import (
-    OFP, OMNI, FP, Source,
+    OFP, OMNI, FP,
     Module, Subroutine, Section, Loop, Statement, Conditional, Sum,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
@@ -539,6 +539,7 @@ end subroutine routine_simple
         for stmt in FindNodes(Statement).visit(ir):
             if 'matrix' in str(stmt.target) and isinstance(stmt.expr, Sum):
                 return stmt
+        return None
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.expr.children[:-1], FloatLiteral(2.)))
@@ -572,7 +573,7 @@ end subroutine routine_simple
 
     # Check that else body is untouched
     def get_else_stmt(ir):
-        return FindNodes(Conditional).visit(routine.body)[0].else_body[0]
+        return FindNodes(Conditional).visit(ir)[0].else_body[0]
 
     else_stmt = get_else_stmt(routine.body)
     assert else_stmt.source is not None
