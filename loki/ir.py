@@ -162,8 +162,8 @@ class Loop(Node):
 
     _traversable = ['variable', 'bounds', 'body']
 
-    def __init__(self, variable, body=None, bounds=None, pragma=None,
-                 pragma_post=None, loop_label=None, **kwargs):
+    def __init__(self, variable, body=None, bounds=None, pragma=None, pragma_post=None,
+                 loop_label=None, name=None, has_end_do=None, **kwargs):
         super(Loop, self).__init__(**kwargs)
 
         assert isinstance(variable, Expression)
@@ -176,6 +176,8 @@ class Loop(Node):
         self.pragma = pragma
         self.pragma_post = pragma_post
         self.loop_label = loop_label
+        self.name = name
+        self.has_end_do = has_end_do if has_end_do is not None else True
 
     @property
     def children(self):
@@ -183,7 +185,9 @@ class Loop(Node):
         return tuple((self.variable,) + (self.bounds,) + (self.body,))
 
     def __repr__(self):
-        label = ' {}'.format(self.loop_label) if self.loop_label else ''
+        label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
+        if label:
+            label = ' ' + label
         control = '{}={}'.format(str(self.variable), str(self.bounds))
         return 'Loop::{} {}'.format(label, control)
 
@@ -199,7 +203,7 @@ class WhileLoop(Node):
     _traversable = ['condition', 'body']
 
     def __init__(self, condition, body=None, pragma=None, pragma_post=None,
-                 loop_label=None, **kwargs):
+                 loop_label=None, name=None, has_end_do=None, **kwargs):
         super(WhileLoop, self).__init__(**kwargs)
 
         # Unfortunately, unbounded DO ... END DO loops exist and we capture
@@ -211,6 +215,8 @@ class WhileLoop(Node):
         self.pragma = pragma
         self.pragma_post = pragma_post
         self.loop_label = loop_label
+        self.name = name
+        self.has_end_do = has_end_do if has_end_do is not None else True
 
     @property
     def children(self):
@@ -218,7 +224,9 @@ class WhileLoop(Node):
         return tuple((self.condition,) + (self.body,))
 
     def __repr__(self):
-        label = ' {}'.format(self.loop_label) if self.loop_label else ''
+        label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
+        if label:
+            label = ' ' + label
         control = str(self.condition) if self.condition else ''
         return 'WhileLoop::{} {}'.format(label, control)
 
@@ -230,7 +238,7 @@ class Conditional(Node):
 
     _traversable = ['conditions', 'bodies', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, inline=False, **kwargs):
+    def __init__(self, conditions, bodies, else_body, inline=False, name=None, **kwargs):
         super(Conditional, self).__init__(**kwargs)
 
         assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
@@ -240,6 +248,7 @@ class Conditional(Node):
         self.bodies = as_tuple(bodies)
         self.else_body = as_tuple(else_body)
         self.inline = inline
+        self.name = name
 
     @property
     def children(self):
@@ -247,6 +256,8 @@ class Conditional(Node):
         return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
 
     def __repr__(self):
+        if self.name:
+            return 'Conditional:: {}'.format(self.name)
         return 'Conditional::'
 
 
@@ -257,7 +268,7 @@ class MultiConditional(Node):
 
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
-    def __init__(self, expr, values, bodies, else_body, **kwargs):
+    def __init__(self, expr, values, bodies, else_body, name=None, **kwargs):
         super(MultiConditional, self).__init__(**kwargs)
 
         assert isinstance(expr, Expression)
@@ -269,13 +280,15 @@ class MultiConditional(Node):
         self.values = as_tuple(values)
         self.bodies = as_tuple(bodies)
         self.else_body = as_tuple(else_body)
+        self.name = name
 
     @property
     def children(self):
         return tuple((self.expr,) + (self.values,) + (self.bodies,) + (self.else_body,))
 
     def __repr__(self):
-        return 'MultiConditional:: {}'.format(str(self.expr))
+        label = ' {}'.format(self.name) if self.name else ''
+        return 'MultiConditional::{} {}'.format(label, str(self.expr))
 
 
 class Statement(Node):

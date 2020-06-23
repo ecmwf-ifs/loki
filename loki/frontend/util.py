@@ -3,7 +3,7 @@ from enum import IntEnum
 from pathlib import Path
 import codecs
 
-from loki.visitors import Visitor, NestedTransformer
+from loki.visitors import Visitor, NestedTransformer, FindNodes
 from loki.ir import (Statement, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
 from loki.frontend.source import Source
 from loki.types import DataType, SymbolType
@@ -181,6 +181,11 @@ def inline_labels(ir):
             if pair[1].source and pair[1].source.lines[0] == pair[0].source.lines[1]:
                 mapper[pair[0]] = None  # Mark for deletion
                 mapper[pair[1]] = pair[1]._rebuild(label=pair[0].label.lstrip('0'))
+
+    # Remove any stale labels
+    for comment in FindNodes(Comment).visit(ir):
+        if comment.text == '__STATEMENT_LABEL__':
+            mapper[comment] = None
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 

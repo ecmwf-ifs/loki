@@ -146,10 +146,12 @@ class OFP2IR(GenericVisitor):
         # Extract loop label if any
         loop_label = o.find('do-stmt').attrib['digitString'] or None
         construct_name = o.find('do-stmt').attrib['id'] or None
-        if construct_name:
-            # We store the construct-name as a label (with colon appended) as we can re-use
-            # the backend functionality for labels to print those, too
-            construct_name += ':'
+        label = self.get_label(o.find('do-stmt'))
+        has_end_do = o.find('end-do-stmt') is not None
+        term_stmt = o.find('do-term-action-stmt')
+        if not has_end_do and term_stmt is not None:
+            # Yay, a special case for loops with label
+            has_end_do = term_stmt.get('endKeyword') == 'end'
 
         if o.find('header/index-variable') is None:
             if o.find('do-stmt').attrib['hasLoopControl'] == 'false':
@@ -159,7 +161,8 @@ class OFP2IR(GenericVisitor):
                 # We are processing a while loop
                 condition = self.visit(o.find('header'))
             return ir.WhileLoop(condition=condition, body=body, loop_label=loop_label,
-                                label=construct_name, source=source)
+                                label=label, name=construct_name, has_end_do=has_end_do,
+                                source=source)
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
@@ -171,7 +174,7 @@ class OFP2IR(GenericVisitor):
             step = self.visit(o.find('header/index-variable/step'))
         bounds = sym.LoopRange((lower, upper, step), source=source)
         return ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
-                       label=construct_name, source=source)
+                       label=label, name=construct_name, has_end_do=has_end_do, source=source)
 
     def visit_if(self, o, label=None, source=None):
         conditions = tuple(self.visit(h) for h in o.findall('header'))
@@ -179,15 +182,11 @@ class OFP2IR(GenericVisitor):
         ncond = len(conditions)
         else_body = bodies[-1] if len(bodies) > ncond else None
         inline = o.find('if-then-stmt') is None
-        construct_name = None
+        construct_name = None if inline else o.find('if-then-stmt').attrib['id'] or None
         if not inline:
-            construct_name = o.find('if-then-stmt').attrib['id'] or None
-            if construct_name:
-                # We store the construct-name as a label (with colon appended) as we can re-use
-                # the backend functionality for labels to print those, too
-                construct_name += ':'
+            label = self.get_label(o.find('if-then-stmt'))
         return ir.Conditional(conditions=conditions, bodies=bodies[:ncond], else_body=else_body,
-                              inline=inline, label=construct_name, source=source)
+                              inline=inline, label=label, name=construct_name, source=source)
 
     def visit_select(self, o, label=None, source=None):
         expr = self.visit(o.find('header'))
@@ -201,12 +200,9 @@ class OFP2IR(GenericVisitor):
         else:
             else_body = ()
         construct_name = o.find('select-case-stmt').attrib['id'] or None
-        if construct_name:
-            # We store the construct-name as a label (with colon appended) as we can re-use
-            # the backend functionality for labels to print those, too
-            construct_name += ':'
+        label = self.get_label(o.find('select-case-stmt'))
         return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
-                                   else_body=else_body, label=construct_name, source=source)
+                                   else_body=else_body, label=label, name=construct_name, source=source)
 
     def visit_case(self, o, label=None, source=None):
         value = self.visit(o.find('header'))

@@ -672,18 +672,17 @@ class FParser2IR(GenericVisitor):
             do_stmt = get_child(o, do_stmt_types)
         # Extract source by looking at everything between DO and END DO statements
         end_do_stmt = rget_child(o, Fortran2003.End_Do_Stmt)
+        has_end_do = True
         if end_do_stmt is None:
             # We may have a labeled loop with an explicit CONTINUE statement
+            has_end_do = False
             end_do_stmt = rget_child(o, Fortran2003.Continue_Stmt)
             assert str(end_do_stmt.item.label) == do_stmt.label.string
         lines = (do_stmt.item.span[0], end_do_stmt.item.span[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
+        label = self.get_label(do_stmt)
         construct_name = do_stmt.item.name
-        if construct_name:
-            # We store the construct-name as a label (with colon appended) as we can re-use
-            # the backend functionality for labels to print those, too
-            construct_name += ':'
         # Extract loop header and get stepping info
         variable, bounds = self.visit(do_stmt, **kwargs)
         # Extract and process the loop body
@@ -694,10 +693,10 @@ class FParser2IR(GenericVisitor):
         # Select loop type
         if bounds:
             obj = ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
-                          label=construct_name, source=source)
+                          label=label, name=construct_name, has_end_do=has_end_do, source=source)
         else:
             obj = ir.WhileLoop(condition=variable, body=body, loop_label=loop_label,
-                               label=construct_name, source=source)
+                               label=label, name=construct_name, has_end_do=has_end_do, source=source)
         return (*banter, obj, )
 
     visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
@@ -727,10 +726,7 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
         construct_name = if_then_stmt.item.name
-        if construct_name:
-            # We store the construct-name as a label (with colon appended) as we can re-use
-            # the backend functionality for labels to print those, too
-            construct_name += ':'
+        label = self.get_label(if_then_stmt)
         # Start with the condition that is always there
         conditions = [self.visit(if_then_stmt, **kwargs)]
         # Walk throught the if construct and collect statements for the if branch
@@ -753,7 +749,7 @@ class FParser2IR(GenericVisitor):
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         else_body = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(else_ast)))
         return (*banter, ir.Conditional(conditions=conditions, bodies=bodies, else_body=else_body,
-                                        inline=False, label=construct_name, source=source))
+                                        inline=False, label=label, name=construct_name, source=source))
 
     def visit_If_Then_Stmt(self, o, **kwargs):
         return self.visit(o.items[0], **kwargs)
@@ -1009,11 +1005,8 @@ class FParser2IR(GenericVisitor):
         lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
+        label = self.get_label(select_stmt)
         construct_name = select_stmt.item.name
-        if construct_name:
-            # We store the construct-name as a label (with colon appended) as we can re-use
-            # the backend functionality for labels to print those, too
-            construct_name += ':'
 
         # The SELECT argument
         expr = self.visit(select_stmt, **kwargs)
@@ -1044,8 +1037,8 @@ class FParser2IR(GenericVisitor):
         else:
             bodies.append(as_tuple(body))
         assert len(values) == len(bodies)
-        return (*banter, ir.MultiConditional(expr, values, bodies, else_body, label=construct_name,
-                                             source=source))
+        return (*banter, ir.MultiConditional(expr, values, bodies, else_body, label=label,
+                                             name=construct_name, source=source))
 
     def visit_Select_Case_Stmt(self, o, **kwargs):
         return self.visit(o.items[0], **kwargs)
