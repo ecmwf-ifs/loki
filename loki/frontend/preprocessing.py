@@ -261,6 +261,9 @@ sanitize_registry = {
         # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
         'CONTIGUOUS': PPRule(
             match=re.compile(r', CONTIGUOUS', re.I), replace='', postprocess=reinsert_contiguous),
+
+        # Strip line annotations from Fypp preprocessor
+        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
     },
     FP: {
         # Remove various IBM directives
@@ -293,5 +296,8 @@ sanitize_registry = {
             replace=lambda m: f'{m["ws"]}{m["open"]}{m["newunit_val"]}{m["delim"] or ""}' +
                               f'{m["args1"]}{m["args2"]}',
             postprocess=reinsert_open_newunit),
+
+        # Strip line annotations from Fypp preprocessor
+        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
     }
 }
