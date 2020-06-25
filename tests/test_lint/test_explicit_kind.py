@@ -28,8 +28,8 @@ def test_explicit_kind(refpath, frontend):
         # Declarations
         ('i', '16', None), ('j', '17', '1'), ('a(3)', '18', None), ('b', '19', '8'),
         # Literals
-        ('1', '21', None), ('7', '21', None), ('2', '22', None), ('3E0', '23', None),
-        ('4.0', '24', None), ('5D0', '24', None), ('6._4', '24', '4')
+        ('1', '21', None), ('7', '21', None), ('2', '22', None), ('3e0', '23', None),
+        ('4.0', '24', None), ('5d0', '24', None), ('6._4', '24', '4')
     )
     for keys, msg in zip(keywords, handler.target.messages):
         assert all(kw in msg for kw in keys if kw is not None)
