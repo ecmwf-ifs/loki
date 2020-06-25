@@ -306,10 +306,17 @@ class LokiIdentityMapper(IdentityMapper):
     """
     # pylint: disable=abstract-method
 
+    def __init__(self, invalidate_source=True):
+        super().__init__()
+        self.invalidate_source = invalidate_source
+
     def __call__(self, expr, *args, **kwargs):
         new_expr = super().__call__(expr, *args, **kwargs)
         if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
-            new_expr.update_metadata(getattr(expr, 'get_metadata', dict)())
+            metadata = getattr(expr, 'get_metadata', dict)()
+            if self.invalidate_source:
+                metadata['source'] = None
+            new_expr.update_metadata(metadata)
         return new_expr
 
     rec = __call__
@@ -379,8 +386,8 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, expr_map):
-        super(SubstituteExpressionsMapper, self).__init__()
+    def __init__(self, expr_map, invalidate_source=True):
+        super(SubstituteExpressionsMapper, self).__init__(invalidate_source=invalidate_source)
 
         self.expr_map = expr_map
         for expr in self.expr_map.keys():

@@ -1,12 +1,201 @@
 """
 Test identity of source-to-source translation.
 
-The tests in here do not verify correct representation internally,
-they only check whether at the end comes out what went in at the beginning.
+The tests in here do rarely verify correct representation internally,
+they mostly check whether at the end comes out what went in at the beginning.
 
 """
+from pathlib import Path
 import pytest
-from loki import Subroutine, OFP, OMNI, FP, fgen
+from loki import SourceFile, Subroutine, OFP, OMNI, FP, fgen, FindNodes
+import loki.ir as ir
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
+    FP])
+def test_raw_source_loop(here, frontend):
+    """Verify that the raw_source property is correctly used to annotate
+    AST nodes with source strings for loops."""
+    fcode = """
+subroutine routine_raw_source_loop (ia, ib, ic)
+integer, intent(in) :: ia, ib, ic
+
+outer: do ia=1,10
+  ib = ia
+  do 6 while (ib .lt. 20)
+    ic = ib
+    if (ic .gt. 10) then
+      print *, ic
+    else
+      print *, ib
+    end if
+6 end do
+end do outer
+end subroutine routine_raw_source_loop
+    """.strip()
+    filename = here / ('routine_raw_source_loop_%s.f90' % frontend)
+    SourceFile.to_file(fcode, filename)
+
+    source = SourceFile.from_file(filename, frontend=frontend)
+    routine = source['routine_raw_source_loop']
+
+    fcode = fcode.splitlines()
+
+    # Check the intrinsics
+    intrinsic_lines = (9, 11)
+    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+        # Verify that source string is subset of the relevant line in the original source
+        assert node.source is not None
+        assert node.source.lines in ((l, l) for l in intrinsic_lines)
+        assert node.source.string in fcode[node.source.lines[0]-1]
+
+    # Check the do loops
+    do_construct_name_found = 0  # Note: this is the construct name 'outer'
+    loop_label_found = 0  # Note: this is the do label '6'
+    do_lines = ((4, 14), (6, 13))
+    for node in FindNodes((ir.Loop, ir.WhileLoop)).visit(routine.ir):
+        # Verify that source string is subset of the relevant line in the original source
+        assert node.source is not None
+        assert node.source.lines in do_lines
+        assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in do_lines)
+        # Make sure the labels and names are correctly identified and contained
+        if node.name:
+            do_construct_name_found += 1
+            assert node.name == 'outer'
+        if node.loop_label:
+            loop_label_found += 1
+            assert node.loop_label == '6'
+    assert do_construct_name_found == 1
+    assert loop_label_found == 1
+
+    # Assert output of body matches original string (except for case)
+    ref = '\n'.join(fcode[3:-1]).replace('.lt.', '<').replace('.gt.', '>')
+    assert fgen(routine.body).strip().lower() == ref
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
+    FP])
+def test_raw_source_conditional(here, frontend):
+    """Verify that the raw_source property is correctly used to annotate
+    AST nodes with source strings for conditionals."""
+    fcode = """
+subroutine routine_raw_source_cond (ia, ib, ic)
+integer, intent(in) :: ia, ib, ic
+
+check: if (ib > 0) then
+  print *, ia
+else if (ib == 0) then check
+  print *, ib
+else check
+  print *, ic
+end if check
+if (ic == 1) print *, ic
+end subroutine routine_raw_source_cond
+    """.strip()
+    filename = here / ('routine_raw_source_cond_%s.f90' % frontend)
+    SourceFile.to_file(fcode, filename)
+
+    source = SourceFile.from_file(filename, frontend=frontend)
+    routine = source['routine_raw_source_cond']
+
+    fcode = fcode.splitlines()
+
+    # Check the intrinsics
+    intrinsic_lines = (5, 7, 9, 11)
+    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+        # Verify that source string is subset of the relevant line in the original source
+        assert node.source is not None
+        assert node.source.lines in ((l, l) for l in intrinsic_lines)
+        assert node.source.string in fcode[node.source.lines[0]-1]
+
+    # Check the conditionals
+    cond_name_found = 0
+    cond_lines = ((4, 10), (11, 11))
+    conditions = {4: (4, 6, 8), 11: (11,)}
+    for node in FindNodes(ir.Conditional).visit(routine.ir):
+        assert node.source is not None
+        assert node.source.lines in cond_lines
+        # Make sure that conditionals have source information
+        assert all(cond.source.lines[0] == cond.source.lines[1] and
+                   cond.source.lines[0] in conditions[node.source.lines[0]]
+                   for cond in node.conditions)
+        # Verify that source string is subset of the relevant lines in the original source
+        assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
+        if node.name:
+            cond_name_found += 1
+            assert node.name == 'check'
+    assert cond_name_found == 1
+
+    # Assert output of body matches original string (except for case)
+    assert fgen(routine.body).strip().lower() == '\n'.join(fcode[3:-1])
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
+    FP])
+def test_raw_source_multicond(here, frontend):
+    """Verify that the raw_source property is correctly used to annotate
+    AST nodes with source strings for multi conditionals."""
+    fcode = """
+subroutine routine_raw_source_multicond (ia, ib, ic)
+integer, intent(in) :: ia, ib, ic
+
+multicond: select case (ic)
+case (10) multicond
+  print *, ic
+case (ia) multicond
+  print *, ia
+case default multicond
+  print *, ib
+end select multicond
+end subroutine routine_raw_source_multicond
+    """.strip()
+    filename = here / ('routine_raw_source_multicond_%s.f90' % frontend)
+    SourceFile.to_file(fcode, filename)
+
+    source = SourceFile.from_file(filename, frontend=frontend)
+    routine = source['routine_raw_source_multicond']
+
+    fcode = fcode.splitlines()
+
+    # Check the intrinsics
+    intrinsic_lines = (6, 8, 10)
+    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+        # Verify that source string is subset of the relevant line in the original source
+        assert node.source is not None
+        assert node.source.lines in ((l, l) for l in intrinsic_lines)
+        assert node.source.string in fcode[node.source.lines[0]-1]
+
+    # Check the conditional
+    cond_name_found = 0
+    cond_lines = ((4, 11),)
+    conditions = {4: (5, 7)}
+    for node in FindNodes(ir.MultiConditional).visit(routine.ir):
+        assert node.source is not None
+        assert node.source.lines in cond_lines
+        # Make sure that cases have source information
+        assert all(val.source.lines[0] == val.source.lines[1] and
+                   val.source.lines[0] in conditions[node.source.lines[0]]
+                   for val in node.values)
+        # Verify that source string is subset of the relevant lines in the original source
+        assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
+        if node.name:
+            cond_name_found += 1
+            assert node.name == 'multicond'
+    assert cond_name_found == 1
+
+    # Assert output of body matches original string (except for case)
+    assert fgen(routine.body).strip().lower() == '\n'.join(fcode[3:-1])
 
 
 @pytest.mark.parametrize('frontend', [

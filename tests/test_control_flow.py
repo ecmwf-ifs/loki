@@ -188,7 +188,7 @@ end subroutine loop_labeled_continue
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     if frontend != OMNI:  # OMNI doesn't read the Loop label...
-        assert FindNodes(Loop).visit(routine.ir)[0].label == '101'
+        assert FindNodes(Loop).visit(routine.ir)[0].loop_label == '101'
 
     function = jit_compile(routine, filepath=filepath, objname='loop_labeled_continue')
 
