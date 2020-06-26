@@ -433,6 +433,8 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         'title': 'Use Fortran 90 comparison operators.'
     }
 
+    fixable = True
+
     '''
     Regex patterns for each operator that match F77 and F90 operators as
     named groups, thus allowing to easily find out which operator was used.
@@ -483,8 +485,11 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         # We only have to invalidate the source string for the expression. This will cause the
         # backend to regenerate the source string for that node and use Fortran 90 operators
         # automatically
-        mapper = {report.location: report.location._update(source=None)
-                  for report in rule_report.reports}
+        mapper = {}
+        for report in rule_report.problem_reports:
+            new_expr = report.location
+            new_expr.update_metadata({'source': None})
+            mapper[report.location] = new_expr
         return mapper
 
 

@@ -85,6 +85,7 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
         if fix:
             linter.fix(source, report, backup_suffix=backup_suffix)
     except Exception as excinfo:  # pylint: disable=broad-except
+        raise excinfo
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
     return True
@@ -214,6 +215,9 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, pr
         handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
 
     linter = Linter(reporter=Reporter(handlers), config=config_values)
+
+    if backup_suffix and not backup_suffix.startswith('.'):
+        backup_suffix = '.' + backup_suffix
 
     success_count = 0
     if worker == 1:
