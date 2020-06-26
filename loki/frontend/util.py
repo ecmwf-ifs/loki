@@ -189,12 +189,16 @@ def inline_labels(ir):
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
-def process_dimension_pragmas(typedef):
+def process_dimension_pragmas(declarations, pragmas):
     """
     Process any '!$loki dimension' pragmas to override deferred dimensions
+
+    :param declarations: List of `Node` object containing `Declaration` objects
+                         that might contain variables whose shape we override.
+    :param pragmas: List of `Pragma` objects that contain the dimension info
     """
-    pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
-    for decl in typedef.declarations:
+    pragmas = {p._source.lines[0]: p for p in pragmas}
+    for decl in FindNodes(Declaration).visit(declarations):
         # Map pragmas by declaration line, not var line
         if decl._source.lines[0]-1 in pragmas:
             pragma = pragmas[decl._source.lines[0]-1]
@@ -210,7 +214,7 @@ def process_dimension_pragmas(typedef):
                             shape += [Literal(value=int(d), type=DataType.INTEGER)]
                         else:
                             _type = SymbolType(DataType.INTEGER)
-                            shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
+                            shape += [Variable(name=d, scope=v.scope, type=_type)]
                     v.type = v.type.clone(shape=as_tuple(shape))
 
 

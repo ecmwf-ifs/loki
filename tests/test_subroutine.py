@@ -596,6 +596,41 @@ end subroutine routine_typedefs_simple
     assert fexprgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
 
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI does not like loki pragmas, yet!')),
+    FP])
+def test_routine_variables_dimension_pragmas(frontend):
+    """
+    Test that `!$loki dimension` pragmas can be used to verride the
+    conceptual `.shape` of local and argument variables.
+    """
+    fcode = """
+subroutine routine_variables_dimensions(x, yv1, v2, v3, v4)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  !$loki dimension(x,:)
+  real(kind=jprb), intent(inout) :: v1(:,:)
+  !$loki dimension(x,y,:)
+  real(kind=jprb), dimension(:,:,:), intent(inout) :: v2, v3
+  !$loki dimension(x,y)
+  real(kind=jprb), pointer, intent(inout) :: v4(:,:)
+  !$loki dimension(y,:)
+  real(kind=jprb), allocatable :: v5(:,:)
+  !$loki dimension(x+y)
+  real(kind=jprb), dimension(:), pointer :: v6
+
+end subroutine routine_variables_dimensions
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert fexprgen(routine.variable_map['v1'].shape) == '(x, :)'
+    assert fexprgen(routine.variable_map['v2'].shape) == '(x, y, :)'
+    assert fexprgen(routine.variable_map['v3'].shape) == '(x, y, :)'
+    assert fexprgen(routine.variable_map['v4'].shape) == '(x, y)'
+    assert fexprgen(routine.variable_map['v5'].shape) == '(y, :)'
+    assert fexprgen(routine.variable_map['v6'].shape) == '(x+y,)'
+
+
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_routine_type_propagation(header_path, frontend):
     """

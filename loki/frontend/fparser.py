@@ -646,7 +646,7 @@ class FParser2IR(GenericVisitor):
                                 for i in walk(o.content, (Fortran2003.Component_Part,))])
         typedef._update(declarations=declarations, symbols=typedef.symbols)
         # Infer any additional shape information from `!$loki dimension` pragmas
-        process_dimension_pragmas(typedef)
+        process_dimension_pragmas(declarations=typedef.declarations, pragmas=typedef.pragmas)
         # Now create a SymbolType instance to make the typedef known in its scope's type table
         variables = OrderedDict([(v.basename, v) for v in typedef.variables])
         dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)

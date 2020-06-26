@@ -384,7 +384,7 @@ class OFP2IR(GenericVisitor):
                 typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
 
                 # Infer any additional shape information from `!$loki dimension` pragmas
-                process_dimension_pragmas(typedef)
+                process_dimension_pragmas(declarations=typedef.declarations, pragmas=typedef.pragmas)
 
                 # Make that derived type known in the types table
                 self.scope.types[derived_name] = parent_type
