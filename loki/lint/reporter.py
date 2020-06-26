@@ -1,8 +1,6 @@
 from pathlib import Path
 from junit_xml import TestSuite, TestCase
 
-from junit_xml import TestSuite, TestCase
-
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.logging import logger
@@ -15,11 +13,6 @@ class ProblemReport:
         self.msg = msg
         self.location = location
 
-class ProblemReport(object):
-
-    def __init__(self, msg, location):
-        self.msg = msg
-        self.location = location
 
 class RuleReport:
 
@@ -42,6 +35,12 @@ class FileReport:
         if not isinstance(rule_report, RuleReport):
             raise TypeError('{} given, {} expected'.format(type(rule_report), RuleReport))
         self.reports.append(rule_report)
+
+    @property
+    def fixable_reports(self):
+        fixable_reports = [report for report in self.reports
+                           if report.rule.fixable and report.problem_reports]
+        return fixable_reports
 
 
 class Reporter:

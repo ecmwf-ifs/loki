@@ -11,10 +11,10 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, blacklist, read_file, Source, extract_source
+from loki.frontend import OMNI, OFP, FP, blacklist, read_file, Source
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
-from loki.frontend.fparser import parse_fparser_file, parse_fparser_source, extract_fparser_source
+from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
 from loki.types import TypeTable
 from loki.backend.fgen import fgen
 

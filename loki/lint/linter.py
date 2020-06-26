@@ -5,8 +5,8 @@ import time
 from pathlib import Path
 
 from loki.lint.reporter import FileReport, RuleReport
+from loki.lint.utils import Fixer
 from loki.sourcefile import SourceFile
-from loki.backend import fgen
 
 
 class Linter:
@@ -82,8 +82,7 @@ class Linter:
         assert file_path == Path(file_report.filename)
 
         # Nothing to do if there are no fixable reports
-        fixable_reports = [report for report in file_report.reports if report.rule.fixable]
-        if not fixable_reports:
+        if not file_report.fixable_reports:
             return
 
         # Make a backup copy if requested
@@ -96,11 +95,10 @@ class Linter:
         if overwrite_config:
             config.update(overwrite_config)
 
-        # Attempt to apply fixes for each rule
-        for report in fixable_reports:
-            report.rule.fix(sourcefile, report, config)
+        # Apply the fixes
+        sourcefile = Fixer.fix(sourcefile, file_report.fixable_reports, config)
 
         # Create the the source string for the output
         # TODO: this does not necessarily preserve the order of things in the file
         # as it will first generate all modules and then all subroutines
-        SourceFile.to_file(source=fgen(sourcefile, conservative=True), path=file_path)
+        sourcefile.write(conservative=True)
