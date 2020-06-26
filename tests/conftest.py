@@ -2,7 +2,6 @@ from pathlib import Path
 import contextlib
 import os
 import io
-import pytest  # pylint: disable=unused-import
 
 from loki import (
     SourceFile, fgen, FP, OFP, OMNI, compile_and_load, FindNodes, CallStatement, Linter,

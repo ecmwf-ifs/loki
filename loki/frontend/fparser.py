@@ -2,7 +2,7 @@ from collections import OrderedDict
 import re
 
 from fparser.two.parser import ParserFactory
-from fparser.two.utils import get_child
+from fparser.two.utils import get_child, BlockBase
 try:
     from fparser.two.utils import walk
 except ImportError:
@@ -107,6 +107,31 @@ def rget_child(node, node_type):
         if isinstance(child, node_type):
             return child
     return None
+
+
+def extract_fparser_source(node, raw_source):
+    """
+    Extract the py:class:`Source` object for any py:class:`fparser.two.utils.BlockBase`
+    from the raw source string.
+    """
+    assert isinstance(node, BlockBase)
+    if node.item is not None:
+        lines = node.item.span
+    else:
+        start_type = getattr(Fortran2003, node.use_names[0], None)
+        if start_type is None:
+            # If we don't have any starting point we have to bail out
+            return None
+        start_node = get_child(node, start_type)
+        end_node = node.children[-1]
+        if any(i is None or i.item is None for i in [start_node, end_node]):
+            # If we don't have source information for start/end we have to bail out
+            return None
+        lines = (start_node.item.span[0], end_node.item.span[1])
+    string = None
+    if raw_source is not None:
+        string = ''.join(raw_source.splitlines(keepends=True)[lines[0]-1:lines[1]])
+    return Source(lines, string=string)
 
 
 class FParser2IR(GenericVisitor):
@@ -787,7 +812,9 @@ class FParser2IR(GenericVisitor):
         bounds = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(o.items[1][1])))
         source = kwargs.get('source')
         if source:
-            source = source.clone_with_string(o.string)
+            variable_source = source.clone_with_string(o.string[:o.string.find('=')])
+            variable = variable.clone(source=variable_source)
+            source = source.clone_with_string(o.string[o.string.find('=')+1:])
         return variable, sym.LoopRange(bounds, source=source)
 
     def visit_Assignment_Stmt(self, o, **kwargs):

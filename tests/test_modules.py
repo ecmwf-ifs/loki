@@ -24,13 +24,16 @@ contains
     pt%array(:,:) = 42.0
   end subroutine my_routine
 end module a_module
-"""
+""".strip()
     module = Module.from_source(fcode, frontend=frontend)
     assert len([o for o in module.spec.body if isinstance(o, Declaration)]) == 2
     assert len([o for o in module.spec.body if isinstance(o, TypeDef)]) == 1
     assert 'derived_type' in module.typedefs
     assert len(module.routines) == 1
     assert module.routines[0].name == 'my_routine'
+    if frontend != OMNI:
+        assert module.source.string == fcode
+        assert module.source.lines == (1, fcode.count('\n') + 1)
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
