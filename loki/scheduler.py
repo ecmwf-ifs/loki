@@ -211,6 +211,16 @@ class Scheduler:
         for item in self.taskgraph:
             item.enrich(routines=self.routines)
 
+            if 'enrich' in item.config:
+                for routine in item.config['enrich']:
+                    path = self.find_path(routine)
+                    source = SourceFile.from_file(path, preprocess=True,
+                                                  xmods=self.xmods,
+                                                  includes=self.includes,
+                                                  typedefs=self.typedefs,
+                                                  frontend=self.frontend)
+                    item.routine.enrich_calls(source.all_subroutines)
+
     def process(self, transformation):
         """
         Process all enqueued source modules and routines with the
