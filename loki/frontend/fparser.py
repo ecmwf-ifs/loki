@@ -1090,7 +1090,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(flatten(self.visit(c) for c in o.items))
-        return self.create_operation('*', exprs, **kwargs)
+        return self.create_operation('*', exprs, source=kwargs.get('source'))
 
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:
