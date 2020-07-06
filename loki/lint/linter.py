@@ -10,7 +10,19 @@ from loki.sourcefile import SourceFile
 
 
 class Linter:
+    """
+    The operator class for Loki's linter functionality.
 
+    It allows to check `SourceFile` objects for compliance to the rules
+    implemented in `loki.lint.rules`.
+
+    :param `loki.lint.reporter.Reporter` reporter: the reporter instance to be
+        used for problem reporting.
+    :param list rules: (optional) list of rules to check files against. Defaults
+        to all rules.
+    :param dict config: (optional) config (e.g., from config file) to change
+        behaviour of rules.
+    """
     def __init__(self, reporter, rules=None, config=None):
         self.reporter = reporter
         rule_names = None
@@ -24,6 +36,9 @@ class Linter:
 
     @staticmethod
     def lookup_rules(rule_names=None):
+        """
+        Return list of all rules available or all rules contained in the given list of names.
+        """
         rules = importlib.import_module('loki.lint.rules')
         rule_list = inspect.getmembers(
             rules, lambda obj: inspect.isclass(obj) and obj.__name__ in rules.__all__)
@@ -33,6 +48,9 @@ class Linter:
 
     @staticmethod
     def default_config(rules=None):
+        """
+        Return default configuration for all or the given rules.
+        """
         config = {}
         if rules is None:
             rules = Linter.lookup_rules()
@@ -44,6 +62,9 @@ class Linter:
         return config
 
     def update_config(self, config):
+        """
+        Update the configuration using the given `config` dict.
+        """
         if config is None:
             return
         for key, val in config.items():
@@ -54,6 +75,17 @@ class Linter:
                 self.config[key] = val
 
     def check(self, sourcefile, overwrite_rules=None, overwrite_config=None):
+        """
+        Check the given `sourcefile` and compile the `FileReport`.
+        The report is then stored in the `reporter` and returned (e.g., to use it for `fix()`).
+
+        :param SourceFile sourcefile: the source file to check.
+        :param list overwrite_rules: (optional) list of rules to check.
+        :param dict overwrite_config: (optional) configuration that is used to update the
+            stored configuration.
+
+        :return: the `FileReport`.
+        """
         if not isinstance(sourcefile, SourceFile):
             raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
         # Prepare list of rules and configuration
@@ -76,6 +108,15 @@ class Linter:
         return file_report
 
     def fix(self, sourcefile, file_report, backup_suffix=None, overwrite_config=None):
+        """
+        Fix all problems reported by fixable rules.
+
+        :param SourceFile sourcefile: the source file to fix.
+        :param FileReport file_report: the report created by `check()` for that file.
+        :param str backup_suffix: (optional) suffix to use for a copy of the original file.
+        :param dict overwrite_config: (optional) configuration that is used to update the
+            stored configuration.
+        """
         if not isinstance(sourcefile, SourceFile):
             raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
         file_path = Path(sourcefile.path)

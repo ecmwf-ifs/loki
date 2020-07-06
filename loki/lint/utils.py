@@ -126,14 +126,23 @@ class GenericRule:
 
 
 class Fixer:
+    """
+    Operater class to fix problems reported by fixable rules.
+    """
 
     @classmethod
     def fix_module(cls, module, reports, config):
+        """
+        Call `fix_module` for all rules and apply the transformations.
+        """
+        # TODO: implement this!
         return module
 
     @classmethod
     def fix_subroutine(cls, subroutine, reports, config):
-
+        """
+        Call `fix_subroutine` for all rules and apply the transformations.
+        """
         mapper = {}
         for report in reports:
             rule_config = config[report.rule.__name__]
@@ -153,6 +162,10 @@ class Fixer:
 
     @classmethod
     def fix_sourcefile(cls, sourcefile, reports, config):
+        """
+        Call `fix_sourcefile` for all rules and apply the transformations.
+        """
+        # TODO: implement this!
         return sourcefile
 
     @classmethod

@@ -85,7 +85,6 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
         if fix:
             linter.fix(source, report, backup_suffix=backup_suffix)
     except Exception as excinfo:  # pylint: disable=broad-except
-        raise excinfo
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
         return False
     return True
