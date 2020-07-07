@@ -354,7 +354,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
             expr, lambda e: isinstance(e, types), recurse_cond=lambda e: not isinstance(e, excl_types))
         finder = ExpressionFinder(unique=False, retrieve=q_lit, with_ir_node=True)
 
-        for node, exprs in finder.visit(subroutine.ir):
+        for _, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
                 if not literal.kind:
                     rule_report.add('"{}" without explicit KIND declared.'.format(literal), literal)
@@ -494,4 +494,4 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
 
 
 # Create the __all__ property of the module to contain only the rule names
-__all__ = tuple(name for name in dir() if name.endswith('Rule') and 'GenericRule' != name)
+__all__ = tuple(name for name in dir() if name.endswith('Rule') and name != 'GenericRule')
