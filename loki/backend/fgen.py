@@ -118,13 +118,9 @@ class FortranCodegen(Stringifier):
 
     def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: ' &\n{}& '.format(indent))  # pylint: disable=unnecessary-lambda
+                         line_cont=lambda indent: ' &\n{}& '.format(indent),  # pylint: disable=unnecessary-lambda
+                         symgen=FCodeMapper())
         self.conservative = conservative
-        self._fsymgen = FCodeMapper()
-
-    @property
-    def fsymgen(self):
-        return self._fsymgen
 
     def apply_label(self, line, label):
         """
@@ -212,12 +208,6 @@ class FortranCodegen(Stringifier):
         """
         return self.format_line('! <', repr(o), '>')
 
-    def visit_Expression(self, o, **kwargs):
-        """
-        Call :class:`FCodeMapper` for expression trees.
-        """
-        return self.fsymgen(o)
-
     def visit_tuple(self, o, **kwargs):
         """
         Recurse for each item in the tuple and return as separate lines.
@@ -298,7 +288,7 @@ class FortranCodegen(Stringifier):
                 initial = ' {} {}'.format('=>' if v.type.pointer else '=',
                                           self.visit(v.initial, **kwargs))
             variables += ['{}{}'.format(var, initial)]
-        comment = ''
+        comment = None
         if o.comment:
             comment = str(self.visit(o.comment, **kwargs))
         return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables),
@@ -466,11 +456,11 @@ class FortranCodegen(Stringifier):
         """
         target = self.visit(o.target, **kwargs)
         expr = self.visit(o.expr, **kwargs)
-        comment = ''
+        comment = None
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
         if o.ptr:
-            return self.format_line(target, ' => ', expr, comment)
+            return self.format_line(target, ' => ', expr, comment=comment)
         return self.format_line(target, ' = ', expr, comment=comment)
 
     def visit_MaskedStatement(self, o, **kwargs):
