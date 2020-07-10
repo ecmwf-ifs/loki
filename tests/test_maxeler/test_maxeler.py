@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from conftest import jit_compile, clean_test
-from loki import Subroutine, OMNI, FP, FortranMaxTransformation
+from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
 from loki.build.max_compiler import (compile, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
@@ -161,7 +161,7 @@ def test_max_passthrough_ctypes(simulator, here):
     assert list(data_in) == list(data_out)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_axpy_scalar(here, builder, simulator, frontend):
 
     fcode = """
@@ -207,7 +207,7 @@ end subroutine routine_axpy_scalar
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_copy_scalar(here, builder, simulator, frontend):
 
     fcode = """
@@ -247,7 +247,7 @@ end subroutine routine_copy_scalar
     assert np.all(y == x)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_fixed_loop(here, builder, simulator, frontend):
 
     fcode = """
@@ -307,7 +307,7 @@ end subroutine routine_fixed_loop
     #                          [13., 23., 33., 43.]])
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_copy_stream(here, builder, simulator, frontend):
 
     fcode = """
@@ -348,7 +348,7 @@ end subroutine routine_copy_stream
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_moving_average(here, builder, simulator, frontend):
 
     fcode = """
@@ -409,7 +409,7 @@ end subroutine routine_moving_average
     assert np.all(data_out == expected)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, FP])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_laplace(here, builder, simulator, frontend):
     fcode = """
 subroutine routine_laplace(h, data_in, data_out)
