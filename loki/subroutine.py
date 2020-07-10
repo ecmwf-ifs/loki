@@ -499,28 +499,26 @@ class Subroutine:
         """
         if self.name and 'name' not in kwargs:
             kwargs['name'] = self.name
+        if self.argnames and 'args' not in kwargs:
+            kwargs['args'] = self.argnames
+        if self.members and 'members' not in kwargs:
+            kwargs['members'] = [member.clone() for member in self.members]
         if self._ast and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
-        if self._dummies and 'args' not in kwargs:
-            kwargs['args'] = self._dummies
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-        if self.docstring and 'docstring' not in kwargs:
-            kwargs['docstring'] = self.docstring
-        if self.members and 'members' not in kwargs:
-            kwargs['members'] = self.members
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
         if self.is_function and 'is_function' not in kwargs:
             kwargs['is_function'] = self.is_function
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if self.source and 'source' not in kwargs:
+            kwargs['source'] = self.source
 
-        obj = self.__class__(**kwargs)
-        obj._decl_map = self._decl_map.copy()
-        smap = {v: v.clone(scope=obj.symbols) for v in FindVariables(unique=False).visit(self.spec)}
-        obj.spec = SubstituteExpressions(smap).visit(Transformer({}).visit(self.spec))
-        bmap = {v: v.clone(scope=obj.symbols) for v in FindVariables(unique=False).visit(self.body)}
-        obj.body = SubstituteExpressions(bmap).visit(Transformer({}).visit(self.body))
-        obj.arguments = [a.clone(scope=obj.symbols) for a in self.arguments]
-        obj.variables = [v.clone(scope=obj.symbols) for v in self.variables]
+        kwargs['symbols'] = TypeTable(parent=self.symbols.parent)
+        kwargs['docstring'] = Transformer({}).visit(self.docstring)
+        spec_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.spec)}
+        kwargs['spec'] = SubstituteExpressions(spec_map).visit(Transformer({}).visit(self.spec))
+        body_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.body)}
+        kwargs['body'] = SubstituteExpressions(body_map).visit(Transformer({}).visit(self.body))
 
-        return obj
+        return type(self)(**kwargs)
