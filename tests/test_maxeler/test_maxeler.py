@@ -1,10 +1,11 @@
-import pytest
 import ctypes as ct
-import numpy as np
 import os
 from pathlib import Path
+import numpy as np
+import pytest
 
-from loki import SourceFile, OMNI, FP, FortranMaxTransformation
+from conftest import jit_compile, clean_test
+from loki import Subroutine, OMNI, FP, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
 from loki.build.max_compiler import (compile, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
@@ -23,10 +24,10 @@ pytestmark = pytest.mark.skipif(not check_maxeler(),
                                 reason='Maxeler compiler not installed')
 
 
-@pytest.fixture(scope='module')
-def simulator():
+@pytest.fixture(scope='module', name='simulator')
+def fixture_simulator():
 
-    class MaxCompilerSim(object):
+    class MaxCompilerSim:
 
         def __init__(self):
             name = '%s_pytest' % os.getlogin()
@@ -67,42 +68,22 @@ def simulator():
     return MaxCompilerSim()
 
 
-@pytest.fixture(scope='module')
-def build_dir():
-    return Path(__file__).parent / 'build'
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
-@pytest.fixture(scope='module')
-def refpath():
-    return Path(__file__).parent / 'maxeler.f90'
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(here):
+    return Builder(source_dirs=here, include_dirs=get_max_includes(), build_dir=here / 'build')
 
 
-@pytest.fixture(scope='module')
-def builder(refpath):
-    path = refpath.parent
-    return Builder(source_dirs=path, include_dirs=get_max_includes(), build_dir=path/'build')
-
-
-@pytest.fixture(scope='module')
-def reference(refpath, builder):
-    """
-    Compile and load the reference solution
-    """
-    builder.clean()
-
-    sources = ['maxeler.f90']
-    objects = [Obj(source_path=s) for s in sources]
-    lib = Lib(name='max_ref', objs=objects, shared=False)
-    lib.build(builder=builder)
-    return lib.wrap(modname='max_ref', sources=sources, builder=builder)
-
-
-def max_transpile(routine, refpath, builder, frontend, objects=None, wrap=None):
+def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
     builder.clean()
 
     # Create transformation object and apply
     f2max = FortranMaxTransformation()
-    f2max.apply(routine=routine, path=refpath.parent)
+    f2max.apply(routine, path=path)
 
     # Generate simulation object file from maxj kernel
     compile_maxj(src=f2max.maxj_kernel_path.parent, build_dir=builder.build_dir)
@@ -131,24 +112,24 @@ def test_max_simulator(simulator):
     assert True
 
 
-def test_max_passthrough(simulator, build_dir, refpath):
+def test_max_passthrough(simulator, here):
     """
     A simple test streaming data to the DFE and back to CPU.
     """
-    compile(c_src=refpath.parent / 'passthrough', maxj_src=refpath.parent / 'passthrough',
-            build_dir=build_dir, target='PassThrough', manager='PassThroughMAX5CManager',
-            package='passthrough')
+    build_dir = here / 'build'
+    compile(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+            target='PassThrough', manager='PassThroughMAX5CManager', package='passthrough')
     simulator.run(build_dir / 'PassThrough')
 
 
-def test_max_passthrough_ctypes(simulator, build_dir, refpath):
+def test_max_passthrough_ctypes(simulator, here):
     """
     A simple test streaming data to the DFE and back to CPU, called via ctypes
     """
     # First, build shared library
-    compile(c_src=refpath.parent / 'passthrough', maxj_src=refpath.parent / 'passthrough',
-            build_dir=build_dir, target='libPassThrough.so', manager='PassThroughMAX5CManager',
-            package='passthrough')
+    build_dir = here / 'build'
+    compile(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+            target='libPassThrough.so', manager='PassThroughMAX5CManager', package='passthrough')
     lib = ct.CDLL(build_dir / 'libPassThrough.so')
 
     # Extract function interfaces for CPU and DFE version
@@ -181,13 +162,29 @@ def test_max_passthrough_ctypes(simulator, build_dir, refpath):
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_axpy(refpath, reference, builder, simulator, frontend):
+def test_max_routine_axpy_scalar(here, builder, simulator, frontend):
+
+    fcode = """
+subroutine routine_axpy_scalar(a, x, y)
+  ! A simple standard routine that computes x = a * x + y for
+  ! scalar arguments
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(in) :: a, y
+  real(kind=real64), intent(inout) :: x
+
+  x = a * x + y
+end subroutine routine_axpy_scalar
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_axpy_scalar_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     # Test the reference solution
     a = -3.
     x = np.zeros(shape=(1,), order='F') + 2.
     y = np.zeros(shape=(1,), order='F') + 10.
-    reference.routine_axpy(a=a, x=x, y=y)
+    function(a=a, x=x, y=y)
     assert np.all(a * 2. + y == x)
 
     simulator.restart()
@@ -196,26 +193,42 @@ def test_max_routine_axpy(refpath, reference, builder, simulator, frontend):
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-        max_kernel = max_transpile(source['routine_axpy'], refpath, builder, frontend)
+        max_kernel = max_transpile(routine, here, builder, frontend)
 
         # Test the transpiled kernel
         a = -3.
         x = np.zeros(shape=(1,), order='F') + 2.
         y = np.zeros(shape=(1,), order='F') + 10.
-        max_kernel.routine_axpy_c_fmax_mod.routine_axpy_c_fmax(ticks=1, a=a, x=x, x_in=x, y=y)
+        max_kernel.routine_axpy_scalar_c_fc_mod.routine_axpy_scalar_c_fc(ticks=1, a=a, x=x, y=y)
         print(x)
     simulator.stop()
-#    simulator.call(max_kernel.routine_axpy_fmax_mod.routine_axpy_fmax, a, x, y)
+#    simulator.call(max_kernel.routine_axpy_scalar_fmax_mod.routine_axpy_scalar_fmax, a, x, y)
     assert np.all(a * 2. + y == x)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_copy(refpath, reference, builder, simulator, frontend):
+def test_max_routine_copy_scalar(here, builder, simulator, frontend):
+
+    fcode = """
+subroutine routine_copy_scalar(x, y)
+  ! A simple routine that copies the value of x to y
+  use iso_fortran_env, only: real64
+  implicit none
+  ! integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=real64), intent(in) :: x
+  real(kind=real64), intent(out) :: y
+
+  y = x
+end subroutine routine_copy_scalar
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_copy_scalar_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_copy_scalar')
 
     # Test the reference solution
     x = np.zeros(1) + 2.
-    y = reference.routine_copy(x=x)
+    y = function(x=x)
     assert np.all(y == x)
 
     simulator.restart()
@@ -224,19 +237,44 @@ def test_max_routine_copy(refpath, reference, builder, simulator, frontend):
     # the Maxeler language...
     for _ in range(2):
         # Generate the transpiled kernel
-        source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-        max_kernel = max_transpile(source['routine_copy'], refpath, builder, frontend)
+        max_kernel = max_transpile(routine, here, builder, frontend)
 
         # Test the transpiled kernel
         x = np.zeros(1) + 2.
-        y = max_kernel.routine_copy_c_fmax_mod.routine_copy_c_fmax(ticks=1, x=x)
+        y = max_kernel.routine_copy_scalar_c_fc_mod.routine_copy_scalar_c_fc(ticks=1, x=x)
         print(y)
     simulator.stop()
     assert np.all(y == x)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_fixed_loop(refpath, reference, builder, simulator, frontend):
+def test_max_routine_fixed_loop(here, builder, simulator, frontend):
+
+    fcode = """
+subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, parameter :: n=6, m=4
+  real(kind=real64), intent(in) :: scalar
+  real(kind=real64), intent(in) :: tensor(n, m), vector(n)
+  real(kind=real64), intent(out) :: vector_out(n)
+  integer :: i, j
+
+  ! For testing, the operation is:
+  do i=1, n
+     vector_out(i) = vector(i) + tensor(i, 1) + 1.0
+  end do
+
+  ! do j=1, m
+  !    do i=1, n
+  !       tensor_out(i, j) = 10.* j + i
+  !    end do
+  ! end do
+end subroutine routine_fixed_loop
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_fixed_loop_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
 
     # Test the reference solution
     n, m = 6, 4
@@ -244,15 +282,14 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator, frontend
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
     # tensor_out = np.zeros(shape=(n, m), order='F')
-    reference.routine_fixed_loop(scalar, vector, vector, tensor)
+    function(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor)
     assert np.all(vector == 8.)
     # ref_tensor = (np.array([range(10, 10 * (m+1), 10)] * n)
     #               + np.transpose(np.array([range(1, n+1)] * m)))
     # assert np.all(tensor_out == tensor)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_fixed_loop'], refpath, builder, frontend)
+    max_kernel = max_transpile(routine, here, builder, frontend)
 
     # Test the transpiled kernel
     n, m = 6, 4
@@ -260,7 +297,7 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator, frontend
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
     # tensor_out = np.zeros(shape=(n, m), order='F')
-    function = max_kernel.routine_fixed_loop_c_fmax_mod.routine_fixed_loop_c_fmax
+    function = max_kernel.routine_fixed_loop_c_fc_mod.routine_fixed_loop_c_fc
     simulator.call(function, ticks=1, scalar=scalar, vector=vector, vector_size=n * 8,
                    vector_out=vector, vector_out_size=n * 8, tensor=tensor, tensor_size=n * m * 8)
     assert np.all(vector == 8.)
@@ -271,30 +308,81 @@ def test_max_routine_fixed_loop(refpath, reference, builder, simulator, frontend
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_shift(refpath, reference, builder, simulator, frontend):
+def test_max_routine_copy_stream(here, builder, simulator, frontend):
+
+    fcode = """
+subroutine routine_copy_stream(length, scalar, vector_in, vector_out)
+  implicit none
+  ! A simple standard looking routine to test argument declarations
+  ! and generator toolchain
+  integer, intent(in) :: length, scalar, vector_in(length)
+  integer, intent(out) :: vector_out(length)
+  integer :: i
+
+  !$loki dataflow
+  do i=1, length
+    vector_out(i) = vector_in(i) + scalar
+  end do
+end subroutine routine_copy_stream
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_copy_stream_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     # Test the reference solution
     length = 32
     scalar = 7
     vector_in = np.array(range(length), order='F', dtype=np.intc)
     vector_out = np.zeros(length, order='F', dtype=np.intc)
-    reference.routine_shift(length, scalar, vector_in, vector_out)
+    function(length=length, scalar=scalar, vector_in=vector_in, vector_out=vector_out)
     assert np.all(vector_out == np.array(range(length)) + scalar)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_shift'], refpath, builder, frontend)
+    max_kernel = max_transpile(routine, here, builder, frontend)
 
     vec_in = np.array(range(length), order='F', dtype=np.intc)
     vec_out = np.zeros(length, order='F', dtype=np.intc)
-    function = max_kernel.routine_shift_c_fmax_mod.routine_shift_c_fmax
+    function = max_kernel.routine_copy_stream_c_fc_mod.routine_copy_stream_c_fc
     simulator.call(function, ticks=length, length=length, scalar=scalar, vector_in=vec_in,
                    vector_in_size=length * 4, vector_out=vec_out, vector_out_size=length * 4)
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_moving_average(refpath, reference, builder, simulator, frontend):
+def test_max_routine_moving_average(here, builder, simulator, frontend):
+
+    fcode = """
+subroutine routine_moving_average(length, data_in, data_out)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: length
+  real(kind=real64), intent(in) :: data_in(length)
+  real(kind=real64), intent(out) :: data_out(length)
+  integer :: i
+  real(kind=real64) :: prev, next, divisor
+
+  !$loki dataflow
+  do i=1, length
+    divisor = 1.0
+    if (i > 1) then
+      prev = data_in(i-1)
+      divisor = divisor + 1.0
+    else
+      prev = 0
+    end if
+    if (i < length) then
+      next = data_in(i+1)
+      divisor = divisor + 1.0
+    else
+      next = 0
+    end if
+    data_out(i) = (prev + data_in(i) + next) / divisor
+  end do
+end subroutine routine_moving_average
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_moving_average_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
 
     # Create random input data
     n = 32
@@ -308,22 +396,65 @@ def test_max_routine_moving_average(refpath, reference, builder, simulator, fron
 
     # Test the Fortran kernel
     data_out = np.zeros(shape=(n,), order='F')
-    reference.routine_moving_average(n, data_in, data_out)
+    function(n, data_in, data_out)
     assert np.all(data_out == expected)
 
-    # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_moving_average'], refpath, builder, frontend)
+    # Generate and test the transpiled kernel
+    max_kernel = max_transpile(routine, here, builder, frontend)
 
     data_out = np.zeros(shape=(n,), order='F')
-    function = max_kernel.routine_moving_average_c_fmax_mod.routine_moving_average_c_fmax
+    function = max_kernel.routine_moving_average_c_fc_mod.routine_moving_average_c_fc
     simulator.call(function, ticks=n, length=n, data_in=data_in, data_in_size=n * 8,
                    data_out_size=n * 8, data_out=data_out)
     assert np.all(data_out == expected)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, FP])
-def test_max_routine_laplace(refpath, reference, builder, simulator, frontend):
+def test_max_routine_laplace(here, builder, simulator, frontend):
+    fcode = """
+subroutine routine_laplace(h, data_in, data_out)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer :: m = 32, n = 32
+!  real(kind=real64), intent(in) :: h, rhs(m*n), data_in(m*n)
+!  real(kind=real64), intent(out) :: data_out(m*n)
+  real(kind=real64), intent(in) :: h, data_in(32*32)
+  real(kind=real64), intent(out) :: data_out(32*32)
+  integer :: i, i_mod_n
+  real(kind=real64) :: north, south, east, west
+
+  i_mod_n = 0
+
+  !$loki dataflow
+  do i=1, m*n
+    i_mod_n = mod(i, n)
+    if (i_mod_n /= 0) then
+        north = data_in(i+1)
+    else
+        north = 0
+    endif
+    if (i_mod_n /= 1) then
+        south = data_in(i-1)
+    else
+        south = 0
+    end if
+    if (i > n) then
+        west = data_in(i-n)
+    else
+        west = 0
+    end if
+    if (i <= (m-1)*n) then
+        east = data_in(i+n)
+    else
+        east = 0
+    end if
+    data_out(i) = (north + south + east + west - 4 * data_in(i)) / (h * h)
+  end do
+end subroutine routine_laplace
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('routine_laplace_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_laplace')
 
     # Create random input data
     m, n = 32, 32
@@ -351,15 +482,14 @@ def test_max_routine_laplace(refpath, reference, builder, simulator, frontend):
 
     # Test the Fortran kernel
     data_out = np.zeros(shape=(length,), order='F')
-    reference.routine_laplace(h, data_in, data_out)
+    function(h, data_in, data_out)
     assert np.all(abs(data_out - expected) < 1e-12)
 
     # Generate the transpiled kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    max_kernel = max_transpile(source['routine_laplace'], refpath, builder, frontend)
+    max_kernel = max_transpile(routine, here, builder, frontend)
 
     data_out = np.zeros(shape=(length,), order='F')
-    function = max_kernel.routine_laplace_c_fmax_mod.routine_laplace_c_fmax
+    function = max_kernel.routine_laplace_c_fc_mod.routine_laplace_c_fc
     simulator.call(function, ticks=length, h=h, data_in=data_in, data_in_size=length * 8,
                    data_out=data_out, data_out_size=length * 8)
     assert np.all(abs(data_out - expected) < 1e-12)
