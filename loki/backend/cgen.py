@@ -69,7 +69,9 @@ class CCodeMapper(LokiStringifyMapper):
         return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = self.rec(expr.dimensions, enclosing_prec, *args, **kwargs)
+        dims = ''
+        if expr.dimensions:
+            dims = self.rec(expr.dimensions, enclosing_prec, *args, **kwargs)
         if expr.parent is not None:
             parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
@@ -280,6 +282,9 @@ class CCodegen(Stringifier):
         # Ensure all variable types are equal, except for shape and dimension
         ignore = ['shape', 'dimensions', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
+        if types[0].parameter:
+            # Parameters should not need to be declared in C
+            return None
         dtype = self.visit(types[0], **kwargs)
         assert len(o.variables) > 0
         variables = []

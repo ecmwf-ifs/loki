@@ -11,8 +11,8 @@ from hashlib import md5
 from loki.logging import log, info, INFO
 
 
-__all__ = ['as_tuple', 'flatten', 'chunks', 'disk_cached', 'gettempdir', 'truncate_string',
-           'JoinableStringList']
+__all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
+           'filehash', 'truncate_string', 'JoinableStringList']
 
 
 def as_tuple(item, type=None, length=None):
