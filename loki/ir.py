@@ -253,7 +253,6 @@ class Conditional(Node):
 
     @property
     def children(self):
-        # Note that we currently ignore the condition itself
         return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
 
     def __repr__(self):
@@ -266,6 +265,9 @@ class ConditionalStatement(Node):
     """
     Internal representation of an inline conditional
     """
+
+    _traversable = ['condition', 'target', 'expr', 'else_expr']
+
     def __init__(self, target, condition, expr, else_expr, source=None):
         super(ConditionalStatement, self).__init__(source=source)
 
@@ -273,6 +275,10 @@ class ConditionalStatement(Node):
         self.condition = condition
         self.expr = expr
         self.else_expr = else_expr
+
+    @property
+    def children(self):
+        return tuple((self.condition,) + (self.target,) + (self.expr,) + (self.else_expr,))
 
     def __repr__(self):
         return 'CondStmt:: %s = %s ? %s : %s' % (self.target, self.condition, self.expr,
