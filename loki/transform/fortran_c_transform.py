@@ -112,11 +112,14 @@ class FortranCTransformation(Transformation):
                 return 'double'
         return None
 
-    def generate_iso_c_wrapper_routine(self, routine, c_structs):
+    @classmethod
+    def generate_iso_c_wrapper_routine(cls, routine, c_structs, bind_name=None):
         # Create initial object to have a scope
         wrapper = Subroutine(name='%s_fc' % routine.name)
 
-        interface = self.generate_iso_c_interface(routine, c_structs, wrapper)
+        if bind_name is None:
+            bind_name = '%s_c' % routine.name
+        interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, wrapper)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
@@ -154,7 +157,8 @@ class FortranCTransformation(Transformation):
         wrapper.arguments = routine.arguments
         return wrapper
 
-    def generate_iso_c_wrapper_module(self, module, c_structs):
+    @classmethod
+    def generate_iso_c_wrapper_module(cls, module, c_structs):
         """
         Generate the ISO-C wrapper module for a raw Fortran module.
         """
@@ -180,7 +184,7 @@ class FortranCTransformation(Transformation):
                 getter = Subroutine(name=gettername, parent=obj)
 
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
-                isoctype = SymbolType(v.type.dtype, kind=self.iso_c_intrinsic_kind(v.type))
+                isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
@@ -197,7 +201,8 @@ class FortranCTransformation(Transformation):
                      symbols=obj.symbols)
         return obj
 
-    def generate_iso_c_interface(self, routine, c_structs, parent):
+    @classmethod
+    def generate_iso_c_interface(cls, routine, bind_name, c_structs, parent):
         """
         Generate the ISO-C subroutine interface
         """
@@ -208,7 +213,7 @@ class FortranCTransformation(Transformation):
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_spec.body += as_tuple(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(), parent=parent,
-                                  body=None, bind='%s_c' % routine.name)
+                                  body=None, bind=bind_name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
@@ -220,7 +225,7 @@ class FortranCTransformation(Transformation):
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 ctype = SymbolType(arg.type.dtype, value=value,
-                                   kind=self.iso_c_intrinsic_kind(arg.type))
+                                   kind=cls.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                            scope=intf_routine.symbols)
