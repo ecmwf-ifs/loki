@@ -2,78 +2,82 @@ from functools import reduce
 from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM,
                                          PREC_COMPARISON)
 
-from loki.backend import CCodegen
 from loki.expression.symbol_types import Array, LokiStringifyMapper, IntLiteral, FloatLiteral
-from loki.ir import Import, Declaration
-from loki.tools import chunks
+from loki.ir import Import
 from loki.types import DataType
-from loki.visitors import Visitor, FindNodes, Transformer
+from loki.visitors import Stringifier, FindNodes, Transformer
 
-__all__ = ['maxjgen', 'maxjmanagergen', 'maxjcgen', 'MaxjCodegen', 'MaxjCodeMapper',
-           'MaxjManagerCodegen', 'MaxjCCodegen']
+__all__ = ['maxjgen', 'MaxjCodegen', 'MaxjCodeMapper']
 
 
 def maxj_local_type(_type):
+    if _type.dtype == DataType.DEFERRED:
+        return _type.name
     if _type.dtype == DataType.LOGICAL:
         return 'boolean'
-    elif _type.dtype == DataType.INTEGER:
+    if _type.dtype == DataType.INTEGER:
         return 'int'
-    elif _type.dtype == DataType.REAL:
+    if _type.dtype == DataType.REAL:
         if str(_type.kind) in ['real32']:
             return 'float'
-        else:
-            return 'double'
-    else:
-        raise ValueError(str(_type))
+        return 'double'
+    raise ValueError(str(_type))
 
 
 def maxj_dfevar_type(_type):
     if _type.dtype == DataType.LOGICAL:
         return 'dfeBool()'
-    elif _type.dtype == DataType.INTEGER:
+    if _type.dtype == DataType.INTEGER:
         return 'dfeUInt(32)'  # TODO: Distinguish between signed and unsigned
-    elif _type.dtype == DataType.REAL:
+    if _type.dtype == DataType.REAL:
         if str(_type.kind) in ['real32']:
             return 'dfeFloat(8, 24)'
-        else:
-            return 'dfeFloat(11, 53)'
-    else:
-        raise ValueError(str(_type))
+        return 'dfeFloat(11, 53)'
+    raise ValueError(str(_type))
 
 
 class MaxjCodeMapper(LokiStringifyMapper):
+    # pylint: disable=abstract-method, unused-argument
 
-    def __init__(self, constant_mapper=None):
-        super(MaxjCodeMapper, self).__init__(constant_mapper)
+    def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
+        return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
 
-    def map_string_literal(self, expr, *args, **kwargs):
+    def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return '"%s"' % expr.value
 
-    def map_scalar(self, expr, *args, **kwargs):
+    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
             return self.format('%s%s.%s', ptr, parent, expr.basename)
-        else:
-            return self.format('%s%s', ptr, expr.name)
+        return self.format('%s%s', ptr, expr.name)
 
-    def map_array(self, expr, *args, **kwargs):
-        dims = [self.rec(d, *args, **kwargs) for d in expr.dimensions]
-        dims = ''.join(['[%s]' % d for d in dims if len(d) > 0])
+    def map_array(self, expr, enclosing_prec, *args, **kwargs):
+        dims = ''
+        if expr.dimensions:
+            dims = self.rec(expr.dimensions, enclosing_prec, *args, **kwargs)
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, *args, **kwargs))
+            parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
-        else:
-            return self.format('%s%s', expr.basename, dims)
+        return self.format('%s%s', expr.basename, dims)
 
-    def map_range_index(self, expr, *args, **kwargs):
-        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
-        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
-        if expr.step:
-            return '(%s - %s + 1) / %s' % (upper, lower, self.rec(expr.step, *args, **kwargs))
-        else:
-            return '(%s - %s + 1)' % (upper, lower)
+    def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        index_str = ''
+        for index in expr.index_tuple:
+            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
+            if d:
+                index_str += self.format('[%s]', d)
+        return index_str
+
+    def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
+        return self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
+#        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
+#        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
+#        if expr.step:
+#            return '(%s - %s + 1) / %s' % (upper, lower, self.rec(expr.step, *args, **kwargs))
+#        else:
+#            return '(%s - %s + 1)' % (upper, lower)
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
@@ -128,27 +132,15 @@ class MaxjCodeMapper(LokiStringifyMapper):
         return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
 
 
-class MaxjCodegen(Visitor):
+class MaxjCodegen(Stringifier):
     """
     Tree visitor to generate Maxeler maxj kernel code from IR.
     """
 
-    def __init__(self, depth=0, linewidth=90, chunking=6):
-        super(MaxjCodegen, self).__init__()
-        self.linewidth = linewidth
-        self.chunking = chunking
-        self._depth = depth
-        self._maxjsymgen = MaxjCodeMapper()
-
-    @property
-    def indent(self):
-        return '  ' * self._depth
-
-    def segment(self, arguments, chunking=None):
-        chunking = chunking or self.chunking
-        delim = ',\n%s  ' % self.indent
-        args = list(chunks(list(arguments), chunking))
-        return delim.join(', '.join(c) for c in args)
+    def __init__(self, depth=0, indent='  ', linewidth=90):
+        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
+                         line_cont=lambda indent: '\n{}  '.format(indent),
+                         symgen=MaxjCodeMapper())
 
     def type_and_stream(self, v, is_input=True):
         """
@@ -194,152 +186,232 @@ class MaxjCodegen(Visitor):
 
         return types[-1], stream
 
-    def visit_Node(self, o):
-        return self.indent + '// <%s>' % o.__class__.__name__
+    # Handler for outer objects
 
-    def visit_tuple(self, o):
-        return '\n'.join([self.visit(i) for i in o])
+    def visit_SourceFile(self, o, **kwargs):
+        """
+        Format as
+          ...modules...
+          ...subroutines...
+        """
+        modules = self.visit_all(o.modules, **kwargs)
+        subroutines = self.visit_all(o.subroutines, **kwargs)
+        return self.join_lines(*modules, *subroutines)
 
-    visit_list = visit_tuple
+    def visit_Module(self, o, **kwargs):
+        """
+        Format modules for a kernel as:
 
-    def visit_Subroutine(self, o):
-        # Re-generate variable declarations
-        o._externalize()
+          package <name without Kernel>;
+          ...imports...
+          class <name> extends Kernel {
+            ...routines...
+          }
 
-        package = 'package %s;\n' % o.name
+        Format modules for the manager as:
+            TODO
+        """
+        is_manager = 'Manager' in o.name
+
+        # Declare package
+        package_name = o.name[:-7] if is_manager else o.name[:-6]
+        header = [self.format_line('package ', package_name, ';')]
 
         # Some boilerplate imports...
-        imports = 'import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.KernelMath;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;\n'
-        imports += self.visit(FindNodes(Import).visit(o.spec))
-
-        # Standard Kernel definitions
-        header = 'class %sKernel extends Kernel {\n' % o.name
-        self._depth += 1
-        header += '%s%sKernel(KernelParameters parameters) {\n' % (self.indent, o.name)
-        self._depth += 1
-        header += self.indent + 'super(parameters);\n'
-
-        # Generate declarations for local variables
-        local_vars = [v for v in o.variables if v not in o.arguments]
-        names = [self._maxjsymgen(v) for v in local_vars]
-        types_and_inits = [self.type_and_stream(v) if v.type.dfevar else
-                           (self.visit(v.type), self._maxjsymgen(v.initial) if v.initial else '')
-                           for v in local_vars]
-        if types_and_inits:
-            types, inits = zip(*types_and_inits)
+        if is_manager:
+            # standard_imports = ['kernelcompiler.Kernel', 'custom.blocks.KernelBlock',
+            #                     'custom.api.ManagerPCIe', 'custom.api.ManagerKernel']
+            # standard_imports_basepath = 'com.maxeler.maxcompiler.v2.'
+            standard_imports = ['maxcompiler.v2.build.EngineParameters',
+                                'maxcompiler.v2.kernelcompiler.Kernel',
+                                'maxcompiler.v2.managers.custom.blocks.KernelBlock',
+                                'platform.max5.manager.MAX5CManager']
+            standard_imports_basepath = 'com.maxeler.'
         else:
-            types, inits = [], []
-        spec = ['\n']
-        spec += ['%s %s%s%s;\n' % (t, n, ' = ' if i else '', i)
-                 for (t, n, i) in zip(types, names, inits)]
-        spec = self.indent.join(spec)
+            standard_imports = ['Kernel', 'KernelParameters', 'stdlib.KernelMath', 'types.base.DFEVar',
+                                'types.composite.DFEVector', 'types.composite.DFEVectorType']
+            standard_imports_basepath = 'com.maxeler.maxcompiler.v2.kernelcompiler.'
+        header += [self.format_line('import ', standard_imports_basepath, name, ';')
+                   for name in standard_imports]
 
-        # Remove any declarations for variables that are not arguments
-        decl_map = {}
-        for d in FindNodes(Declaration).visit(o.spec):
-            if any([v in local_vars for v in d.variables]):
-                decl_map[d] = None
-        o.spec = Transformer(decl_map).visit(o.spec)
+        # ...and the imports defined by the module
+        # TODO: include imports defined by routines
+        imports = FindNodes(Import).visit(o.spec)
+        header += self.visit_all(imports, **kwargs)
+        spec = Transformer({imprt: None for imprt in imports}).visit(o.spec)
 
-        # Generate remaining declarations
-        spec = self.visit(o.spec) + spec
+        # Class signature
+        if is_manager:
+            header += [self.format_line('class ', o.name, ' extends MAX5CManager {')]
+        else:
+            header += [self.format_line('class ', o.name, ' extends Kernel {')]
+        self.depth += 1
 
-        # Remove pointer type from scalar arguments
-        decl_map = {}
-        for d in FindNodes(Declaration).visit(o.spec):
-            if d.type.pointer:
-                new_type = d.type
-                new_type.pointer = False
-                decl_map[d] = d.clone(type=new_type)
-        o.spec = Transformer(decl_map).visit(o.spec)
+        # Rest of the spec
+        body = [self.visit(spec, **kwargs)]
+
+        # Create subroutines
+        body += self.visit_all(o.subroutines, **kwargs)
+
+        # Footer
+        self.depth -= 1
+        footer = [self.format_line('}')]
+
+        return self.join_lines(*header, *body, *footer)
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as:
+
+          <name>(<args>) {
+            ...spec without arg declarations...
+            ...body...
+          }
+        """
+        # Constructor signature
+        args = ['{} {}'.format(self.visit(arg.type, **kwargs), self.visit(arg, **kwargs))
+                for arg in o.arguments]
+        header = [self.format_line(o.name, '(', self.join_items(args), ') {')]
+        self.depth += 1
 
         # Generate body
-        body = self.visit(o.body)
+        body = [self.visit(o.spec, **kwargs)]
+        body += [self.visit(o.body, **kwargs)]
 
-        # Insert outflow statements for output variables
-        outflow = [self.type_and_stream(v, is_input=False)
-                   for v in o.arguments if v.type.intent.lower() in ('inout', 'out')]
-        outflow = '\n'.join(['%s%s;' % (self.indent, a[1]) for a in outflow])
+        # Closing brackets
+        self.depth -= 1
+        footer = [self.format_line('}')]
 
-        self._depth -= 1
-        footer = '\n%s}\n}' % self.indent
-        self._depth -= 1
+        return self.join_lines(*header, *body, *footer)
 
-        return (package + '\n' + imports + '\n' + header + '\n' + spec + '\n' +
-                body + '\n\n' + outflow + footer)
+    # Handler for AST base nodes
 
-    def visit_Section(self, o):
-        return self.visit(o.body) + '\n'
+    def visit_Node(self, o, **kwargs):
+        """
+        Format non-supported nodes as
+          // <repr(Node)>
+        """
+        return self.format_line('// <', repr(o), '>')
 
-    def visit_Declaration(self, o):
-        # Ignore parameters
-        if o.type.parameter:
-            return ''
+    # Handler for IR nodes
 
-        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
+    def visit_Intrinsic(self, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Format intrinsic nodes.
+        """
+        return self.format_line(str(o.text).lstrip())
 
-        # Determine the underlying data type and initialization value
-        vtype, vinit = zip(*[self.type_and_stream(v, is_input=True) for v in o.variables])
-        variables = ['%s%s %s = %s;' % (self.indent, t, v.name, i)
-                     for v, t, i in zip(o.variables, vtype, vinit)]
-        return self.segment(variables) + comment
+    def visit_Comment(self, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Format comments.
+        """
+        text = o.text or o.source.string
+        text = str(text).lstrip().replace('!', '//', 1)
+        return self.format_line(text, no_wrap=True)
 
-    def visit_SymbolType(self, o):
+    def visit_CommentBlock(self, o, **kwargs):
+        """
+        Format comment blocks.
+        """
+        comments = self.visit_all(o.comments, **kwargs)
+        return self.join_lines(*comments)
+
+    def visit_Declaration(self, o, **kwargs):
+        """
+        Format declaration as
+          <type> <name> = <initial>
+        """
+        comment = None
+        if o.comment:
+            comment = str(self.visit(o.comment, **kwargs))
+
+        def format_declaration(var):
+            var_type = self.visit(var.type, **kwargs)
+            var_name = self.visit(var, **kwargs)
+            if var.type.initial:
+                initial = self.visit(var.type.initial, **kwargs)
+                return self.format_line(var_type, ' ', var_name, ' = ', initial, ';')
+            return self.format_line(var_type, ' ', var_name, ';')
+
+        declarations = [format_declaration(var) for var in o.variables
+                        if not var.type.intent or var.type.dfevar]
+        return self.join_lines(comment, *declarations)
+
+    def visit_Loop(self, o, **kwargs):
+        """
+        Format loop with explicit range as
+          for (<var> = <start>; <var> <= <end>; <var> += <incr>) {
+            ...body...
+          }
+        """
+        control = 'for ({var} = {start}; {var} <= {end}; {var} += {incr})'.format(
+            var=self.visit(o.variable, **kwargs), start=self.visit(o.bounds.start, **kwargs),
+            end=self.visit(o.bounds.stop, **kwargs),
+            incr=self.visit(o.bounds.step, **kwargs) if o.bounds.step else 1)
+        header = self.format_line(control, ' {')
+        footer = self.format_line('}')
+        self.depth += 1
+        body = self.visit(o.body, **kwargs)
+        self.depth -= 1
+        return self.join_lines(header, body, footer)
+
+    def visit_Statement(self, o, **kwargs):
+        """
+        Format statement as
+          <target> = <expr>
+        or
+          <dfe_target> <== <expr>
+        """
+        target = self.visit(o.target, **kwargs)
+        expr = self.visit(o.expr, **kwargs)
+        comment = ''
+        if o.comment:
+            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+        if o.target.type.dfestream:
+            return self.format_line(target, ' <== ', expr, ';', comment=comment)
+        return self.format_line(target, ' = ', expr, ';', comment=comment)
+
+    def visit_ConditionalStatement(self, o, **kwargs):
+        """
+        Format conditional statement as
+          <target> = <condition> ? <expr> : <else_expr>
+        """
+        target = self.visit(o.target, **kwargs)
+        condition = self.visit(o.condition, **kwargs)
+        expr = self.visit(o.expr, **kwargs)
+        else_expr = self.visit(o.else_expr, **kwargs)
+        return self.format_line(target, ' = ', condition, ' ? ', expr, ' : ', else_expr, ';')
+
+    def visit_Section(self, o, **kwargs):
+        """
+        Format the section's body.
+        """
+        return self.visit(o.body, **kwargs)
+
+    def visit_CallStatement(self, o, **kwargs):
+        """
+        Format call statement as
+          <name>(<args>)
+        """
+        args = self.visit_all(o.arguments, **kwargs)
+        assert not o.kwarguments
+        return self.format_line(o.name, '(', self.join_items(args), ');')
+
+    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
         if o.dtype == DataType.DERIVED_TYPE:
-            return 'DFEStructType %s' % o.name
-        elif o.dfevar:
-            return maxj_dfevar_type(o)
-        else:
-            return maxj_local_type(o)
+            return 'DFEStructType {}'.format(o.name)
+        if o.dfevar:
+            return 'DFEVar'
+        return maxj_local_type(o)
 
     def visit_TypeDef(self, o):
-        self._depth += 1
+        self.depth += 1
         decls = self.visit(o.declarations)
-        self._depth -= 1
+        self.depth -= 1
         return 'DFEStructType %s {\n%s\n} ;' % (o.name, decls)
 
-    def visit_Comment(self, o):
-        text = o._source.string if o.text is None else o.text
-        return self.indent + text.replace('!', '//')
 
-    def visit_CommentBlock(self, o):
-        comments = [self.visit(c) for c in o.comments]
-        return '\n'.join(comments)
-
-    def visit_Statement(self, o):
-        if isinstance(o.target, Array):
-            stmt = '%s <== %s;' % (self._maxjsymgen(o.target),
-                                   self._maxjsymgen(o.expr))
-        else:
-            stmt = '%s = %s;' % (self._maxjsymgen(o.target),
-                                 self._maxjsymgen(o.expr))
-        comment = '  %s' % self.visit(o.comment) if o.comment is not None else ''
-        return self.indent + stmt + comment
-
-    def visit_ConditionalStatement(self, o):
-        stmt = '%s = %s ? %s : %s;' % (self._maxjsymgen(o.target), self._maxjsymgen(o.condition),
-                                       self._maxjsymgen(o.expr), self._maxjsymgen(o.else_expr))
-        return self.indent + stmt
-
-    def visit_Intrinsic(self, o):
-        return o.text
-
-    def visit_Loop(self, o):
-        self._depth += 1
-        body = self.visit(o.body)
-        self._depth -= 1
-        header = self.indent + 'for ({0} = {1}; {0} <= {2}; {0} += {3}) '
-        header = header.format(o.variable.name, o.bounds[0], o.bounds[1],
-                               o.bounds[2] or 1)
-        return header + '{\n' + body + '\n' + self.indent + '}\n'
-
-
-class MaxjManagerCodegen(object):
+class MaxjManagerCodegen:
 
     def __init__(self, depth=0, linewidth=90, chunking=6):
         self.linewidth = linewidth
@@ -422,32 +494,8 @@ class MaxjManagerCodegen(object):
         return imports + header + body + main_header + main_body + footer
 
 
-class MaxjCCodegen(CCodegen):
-
-    def visit_Call(self, o):
-        # astr = [csymgen(a) for a in o.arguments]
-        # astr = ['*%s' % arg.name if not arg.is_Array and arg.type.pointer else arg.name
-        #         for arg in o.arguments]
-        astr = [arg.name for arg in o.arguments]
-        return '%s%s(%s);' % (self.indent, o.name, ', '.join(astr))
-
-
 def maxjgen(ir):
     """
     Generate Maxeler maxj kernel code from one or many IR objects/trees.
     """
     return MaxjCodegen().visit(ir)
-
-
-def maxjmanagergen(ir):
-    """
-    Generate Maxeler maxj manager for the given IR objects/trees.
-    """
-    return MaxjManagerCodegen().gen(ir)
-
-
-def maxjcgen(ir):
-    """
-    Generate a C routine that wraps the call to the Maxeler kernel.
-    """
-    return MaxjCCodegen().visit(ir)
