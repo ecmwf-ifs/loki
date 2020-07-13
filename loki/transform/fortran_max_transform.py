@@ -68,6 +68,10 @@ class FortranMaxTransformation(Transformation):
         SourceFile.to_file(source=cgen(host_interface), path=self.c_path)
 
         # Generate kernel manager
+        maxj_manager_intf = self._generate_dfe_manager_intf(maxj_kernel)
+        self.maxj_manager_intf_path = (self.maxj_src / maxj_manager_intf.name).with_suffix('.maxj')
+        SourceFile.to_file(source=maxjgen(maxj_manager_intf), path=self.maxj_manager_intf_path)
+
         maxj_manager = self._generate_dfe_manager(maxj_kernel)
         self.maxj_manager_path = (self.maxj_src / maxj_manager.name).with_suffix('.maxj')
         SourceFile.to_file(source=maxjgen(maxj_manager), path=self.maxj_manager_path)
@@ -385,46 +389,57 @@ class FortranMaxTransformation(Transformation):
         return max_kernel
 
     def _generate_dfe_kernel_module(self, kernel, **kwargs):
-        max_module = Module(name=kernel.name)
+        # Some boilerplate imports
+        standard_imports = ['Kernel', 'KernelParameters', 'stdlib.KernelMath', 'types.base.DFEVar',
+                            'types.composite.DFEVector', 'types.composite.DFEVectorType']
+        standard_imports_basepath = 'com.maxeler.maxcompiler.v2.kernelcompiler.'
+        spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
+
+        max_module = Module(name=kernel.name, spec=ir.Section(body=as_tuple(spec)))
         max_kernel = kernel.clone(parent=max_module)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
         arg_type = SymbolType(DataType.DEFERRED, name='KernelParameters', intent='in')
         arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.symbols)
         max_kernel.arguments = as_tuple(arg)
-        max_kernel.spec.prepend([ir.Intrinsic('super(params);')])
+        max_kernel.spec.prepend(ir.CallStatement('super', arguments=(arg,)))
 
         # Add kernel to wrapper module
         max_module.routines = as_tuple(max_kernel)
         return max_module
 
-    def _generate_dfe_manager(self, kernel, **kwargs):
+    def _generate_dfe_manager_intf(self, kernel, **kwargs):
         """
-        Create the Maxj manager that configures the DFE kernel.
+        Create the Maxj manager interface that configures the DFE kernel.
         """
         name = kernel.name.replace('Kernel', '')
 
         # Create the manager class
-        spec = (ir.Intrinsic('public static final String kernelName = "{}";'.format(kernel.name)),)
-        manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=spec))
+        # TODO: Use a TypeDef once we have typebound procedures etc.
+        spec = [ir.Import('com.maxeler.maxcompiler.v2.kernelcompiler.Kernel')]
+        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock')]
+        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerPCIe')]
+        spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerKernel')]
+        spec += [ir.Intrinsic('static final String kernelName = "{}";'.format(kernel.name))]
+        manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
-        # Create the constructor
-        constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
-        arg_type = SymbolType(DataType.DEFERRED, name='EngineParameters', intent='in')
-        arg = sym.Variable(name='params', type=arg_type, scope=constructor.symbols)
-        constructor.arguments = as_tuple(arg)
+        # Create the setup
+        setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
 
-        body = [
-            ir.Intrinsic('super(params);'),
-            ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(kernel.name)),
-            ir.Intrinsic('KernelBlock kernelBlock = addKernel(kernel);'),
-        ]
+        body = [ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(
+            kernel.name))]
 
         # Insert in/out streams
         in_streams = [arg for arg in kernel.arguments
                       if arg.type.dfestream and arg.type.intent.lower() == 'in']
         out_streams = [arg for arg in kernel.arguments
                        if arg.type.dfestream and arg.type.intent.lower() in ('inout', 'out')]
+
+        if in_streams or out_streams:
+            body += [ir.Intrinsic('KernelBlock kernelBlock = addKernel(kernel);')]
+        else:
+            body += [ir.Intrinsic('addKernel(kernel);')]
+
         for stream in in_streams:
             body += [ir.Intrinsic(
                 'kernelBlock.getInput("{name}") <== addStreamFromCPU("{name}");'.format(
@@ -433,18 +448,51 @@ class FortranMaxTransformation(Transformation):
             body += [ir.Intrinsic(
                 'addStreamToCPU("{name}") <== kernelBlock.getOutput("{name}");'.format(
                     name=stream.name))]
+        setup.body = ir.Section(body=body)
+
+        # Insert functions into manager class
+        manager.routines = as_tuple(setup)
+        return manager
+
+    def _generate_dfe_manager(self, kernel, **kwargs):
+        """
+        Create the Maxj manager for the MAX5C platform.
+        """
+        name = kernel.name.replace('Kernel', '')
+
+        # Create the manager class
+        # TODO: Use a TypeDef once we have typebound procedures etc.
+        standard_imports = ['maxcompiler.v2.build.EngineParameters',
+                            'platform.max5.manager.MAX5CManager']
+        standard_imports_basepath = 'com.maxeler.'
+        spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
+        manager = Module(name='{}ManagerMAX5C'.format(name), spec=ir.Section(body=as_tuple(spec)))
+
+        # Create the constructor
+        constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
+        params_type = SymbolType(DataType.DEFERRED, name='EngineParameters', intent='in')
+        params = sym.Variable(name='params', type=params_type, scope=constructor.symbols)
+        body = [ir.CallStatement('super', arguments=(params,)),
+                ir.CallStatement('setup', arguments=())]
+        constructor.arguments = as_tuple(params)
         constructor.body = ir.Section(body=body)
 
         # Create the main function for maxJavaRun
         main = Subroutine(name='public static void main', parent=manager, spec=ir.Section(body=()))
-        arg_type = SymbolType(DataType.DEFERRED, name='String[]', intent='in')
-        main.arguments += (sym.Variable(name='args', type=arg_type, scope=main.symbols),)
+        args_type = SymbolType(DataType.DEFERRED, name='String[]', intent='in')
+        args = sym.Variable(name='args', type=args_type, scope=main.symbols)
+        main.arguments = as_tuple(args)
 
-        body = [
-            ir.Intrinsic('EngineParameters params = new EngineParameters(args);'),
-            ir.Intrinsic('MAX5CManager manager = new {}(params);'.format(manager.name)),
-            ir.Intrinsic('manager.build();')
-        ]
+        params_type = SymbolType(
+            DataType.DEFERRED, name='EngineParameters',
+            initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
+        params = sym.Variable(name='params', type=params_type, scope=main.symbols)
+        mgr_type = SymbolType(
+            DataType.DEFERRED, name='MAX5CManager',
+            initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
+        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.symbols)
+        main.variables += as_tuple([params, mgr])
+        body = [ir.CallStatement('manager.build', arguments=())]
         main.body = ir.Section(body=body)
 
         # Insert functions into manager class
@@ -486,7 +534,8 @@ class FortranMaxTransformation(Transformation):
         # Create the call to the DFE kernel
         variable_map = slic_routine.variable_map
 
-        # TODO: actually create a CallStatement
+        # TODO: actually create a CallStatement. Not possible currently because we don't represent
+        #       all the cases around pointer dereferencing etc that are necessary, here
         # def generate_call_arg_tuple(arg):
         #     if arg.name.endswith('_in') and arg.name not in variable_map:
         #         # For the split-up arguments we reuse the existing argument

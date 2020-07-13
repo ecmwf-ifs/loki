@@ -5,7 +5,7 @@ from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PRE
 from loki.expression.symbol_types import Array, LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import
 from loki.types import DataType
-from loki.visitors import Stringifier, FindNodes, Transformer
+from loki.visitors import Stringifier, FindNodes
 
 __all__ = ['maxjgen', 'MaxjCodegen', 'MaxjCodeMapper']
 
@@ -205,50 +205,65 @@ class MaxjCodegen(Stringifier):
           package <name without Kernel>;
           ...imports...
           class <name> extends Kernel {
+            ...spec without imports...
             ...routines...
           }
 
         Format modules for the manager as:
-            TODO
+
+          package <name without Manager>;
+          ...imports...
+          public interface <name> extends ManagerPCIe, ManagerKernel {
+            ...spec without imports...
+            ...routines...
+          }
+
+        or for the platform-specific instantiation:
+
+          package <name without ManagerMAX5C>;
+          ...imports...
+          public class <name> extends MAX5CManager implements <name without MAX5C> {
+            ...spec without imports...
+            ...routines...
+          }
         """
-        is_manager = 'Manager' in o.name
+        # Figure out what kind of module we have here
+        if o.name.endswith('ManagerMAX5C'):
+            is_manager = True
+            is_interface = False
+            package_name = o.name[:-len('ManagerMAX5C')]
+        elif o.name.endswith('Manager'):
+            is_manager = True
+            is_interface = True
+            package_name = o.name[:-len('Manager')]
+        elif o.name.endswith('Kernel'):
+            is_manager = False
+            package_name = o.name[:-len('Kernel')]
+        else:
+            raise ValueError('Module is neither Manager nor Kernel')
 
         # Declare package
-        package_name = o.name[:-7] if is_manager else o.name[:-6]
         header = [self.format_line('package ', package_name, ';')]
 
-        # Some boilerplate imports...
-        if is_manager:
-            # standard_imports = ['kernelcompiler.Kernel', 'custom.blocks.KernelBlock',
-            #                     'custom.api.ManagerPCIe', 'custom.api.ManagerKernel']
-            # standard_imports_basepath = 'com.maxeler.maxcompiler.v2.'
-            standard_imports = ['maxcompiler.v2.build.EngineParameters',
-                                'maxcompiler.v2.kernelcompiler.Kernel',
-                                'maxcompiler.v2.managers.custom.blocks.KernelBlock',
-                                'platform.max5.manager.MAX5CManager']
-            standard_imports_basepath = 'com.maxeler.'
-        else:
-            standard_imports = ['Kernel', 'KernelParameters', 'stdlib.KernelMath', 'types.base.DFEVar',
-                                'types.composite.DFEVector', 'types.composite.DFEVectorType']
-            standard_imports_basepath = 'com.maxeler.maxcompiler.v2.kernelcompiler.'
-        header += [self.format_line('import ', standard_imports_basepath, name, ';')
-                   for name in standard_imports]
-
-        # ...and the imports defined by the module
-        # TODO: include imports defined by routines
+        # Some imports
+        # TODO: include here imports defined by routines
         imports = FindNodes(Import).visit(o.spec)
         header += self.visit_all(imports, **kwargs)
-        spec = Transformer({imprt: None for imprt in imports}).visit(o.spec)
 
         # Class signature
         if is_manager:
-            header += [self.format_line('class ', o.name, ' extends MAX5CManager {')]
+            if is_interface:
+                header += [self.format_line(
+                    'public interface ', o.name, ' extends ManagerPCIe, ManagerKernel {')]
+            else:
+                header += [self.format_line(
+                    'public class ', o.name, ' extends MAX5CManager implements ', o.name[:-5], ' {')]
         else:
             header += [self.format_line('class ', o.name, ' extends Kernel {')]
         self.depth += 1
 
         # Rest of the spec
-        body = [self.visit(spec, **kwargs)]
+        body = [self.visit(o.spec, skip_imports=True, **kwargs)]
 
         # Create subroutines
         body += self.visit_all(o.subroutines, **kwargs)
@@ -275,7 +290,7 @@ class MaxjCodegen(Stringifier):
         self.depth += 1
 
         # Generate body
-        body = [self.visit(o.spec, **kwargs)]
+        body = [self.visit(o.spec, skip_imports=True, **kwargs)]
         body += [self.visit(o.body, **kwargs)]
 
         # Closing brackets
@@ -367,8 +382,8 @@ class MaxjCodegen(Stringifier):
         comment = ''
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        if o.target.type.dfestream:
-            return self.format_line(target, ' <== ', expr, ';', comment=comment)
+        # if o.target.type.dfestream:
+        #     return self.format_line(target, ' <== ', expr, ';', comment=comment)
         return self.format_line(target, ' = ', expr, ';', comment=comment)
 
     def visit_ConditionalStatement(self, o, **kwargs):
@@ -397,6 +412,16 @@ class MaxjCodegen(Stringifier):
         assert not o.kwarguments
         return self.format_line(o.name, '(', self.join_items(args), ');')
 
+    def visit_Import(self, o, **kwargs):
+        """
+        Format imports as
+          import <name>;
+        """
+        if kwargs.get('skip_imports') is True:
+            return None
+        assert not o.symbols
+        return self.format_line('import ', o.module, ';')
+
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
         if o.dtype == DataType.DERIVED_TYPE:
             return 'DFEStructType {}'.format(o.name)
@@ -409,89 +434,6 @@ class MaxjCodegen(Stringifier):
         decls = self.visit(o.declarations)
         self.depth -= 1
         return 'DFEStructType %s {\n%s\n} ;' % (o.name, decls)
-
-
-class MaxjManagerCodegen:
-
-    def __init__(self, depth=0, linewidth=90, chunking=6):
-        self.linewidth = linewidth
-        self.chunking = chunking
-        self._depth = depth
-
-    @property
-    def indent(self):
-        return '  ' * self._depth
-
-    def gen(self, o):
-        # Standard boilerplate header
-        imports = 'package %s;\n\n' % o.name
-        imports += 'import com.maxeler.maxcompiler.v2.build.EngineParameters;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;\n'
-        imports += 'import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;\n'
-        # imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;\n'
-        # imports += 'import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;\n'
-        imports += 'import com.maxeler.platform.max5.manager.MAX5CManager;\n'
-        imports += '\n'
-
-        # Class definitions
-        header = 'public class %sManager extends MAX5CManager {\n\n' % o.name
-        self._depth += 1
-        header += self.indent + 'public static final String kernelName = "%sKernel";\n\n' % o.name
-        header += self.indent + 'public %sManager(EngineParameters params) {\n' % o.name
-        self._depth += 1
-
-        # Making the kernel known
-        body = [self.indent + 'super(params);\n']
-        body += ['Kernel kernel = new %sKernel(makeKernelParameters(kernelName));\n' % o.name]
-        body += ['KernelBlock kernelBlock = addKernel(kernel);\n']
-
-        # Insert in/out streams
-        in_vars = [v for v in o.arguments
-                   if isinstance(v, Array) and v.type.intent.lower() == 'in']
-        out_vars = [v for v in o.arguments
-                    if isinstance(v, Array) and v.type.intent.lower() in ('inout', 'out')]
-        body += ['\n']
-        body += ['kernelBlock.getInput("{0}") <== addStreamFromCPU("{0}");\n'.format(v.name)
-                 for v in in_vars]
-        body += ['addStreamToCPU("{0}") <== kernelBlock.getOutput("{0}");\n'.format(v.name)
-                 for v in out_vars]
-
-        # Specify default values for interface parameters
-        # body += ['\n']
-        # body += ['EngineInterface ei = new EngineInterface("kernel");\n']
-        # body += ['ei.setTicks(kernelName, 1000);\n']  # TODO: Put a useful value here!
-
-        # Specify sizes of streams
-        # stream_template = 'ei.setStream("{0}", {1}, {2} * {1}.sizeInBytes());\n'
-        # in_sizes = [', '.join([str(d) for d in v.dimensions]) for v in in_vars]
-        # out_sizes = [', '.join([str(d) for d in v.dimensions]) for v in out_vars]
-        # body += ['\n']
-        # body += [stream_template.format(v.name, v.type.dtype.maxjManagertype, s)
-        #          for v, s in zip(in_vars, in_sizes)]
-        # body += [stream_template.format(v.name, v.type.dtype.maxjManagertype, s)
-        #          for v, s in zip(out_vars, out_sizes)]
-
-        # body += ['\n']
-        # body += ['createSLiCinterface(ei);\n']
-        body = self.indent.join(body)
-
-        # Writing the main for maxJavaRun
-        self._depth -= 1
-        main_header = self.indent + '}\n\n'
-        main_header += self.indent + 'public static void main(String[] args) {\n'
-        self._depth += 1
-
-        main_body = [self.indent + 'EngineParameters params = new EngineParameters(args);\n']
-        main_body += ['MAX5CManager manager = new %sManager(params);\n' % o.name]
-        main_body += ['manager.build();\n']
-        main_body = self.indent.join(main_body)
-
-        self._depth -= 1
-        footer = self.indent + '}\n'
-        self._depth -= 1
-        footer += self.indent + '}'
-
-        return imports + header + body + main_header + main_body + footer
 
 
 def maxjgen(ir):

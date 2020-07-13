@@ -74,7 +74,7 @@ def compile_maxj(src, build_dir):
     build_dir = Path(build_dir)
     build_dir.mkdir(exist_ok=True)
 
-    build = ['maxjc', '-classpath', get_classpath(), '-1.6']
+    build = ['maxjc', '-classpath', get_classpath(), '-1.8']
     build += ['-d', '.', str(src)]
     execute(build, cwd=build_dir)
 
