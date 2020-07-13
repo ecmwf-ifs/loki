@@ -10,8 +10,9 @@ from loki.ir import (Section, Import, Intrinsic, Interface, CallStatement, Decla
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
-                             Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper, LoopRange, ArraySubscript)
+                             IntLiteral, Literal, Array, SubstituteExpressions, FindInlineCalls,
+                             SubstituteExpressionsMapper, LoopRange, ArraySubscript,
+                             retrieve_expressions)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import DataType, SymbolType, TypeTable
@@ -419,13 +420,16 @@ class FortranCTransformation(Transformation):
         """
         Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
         """
+        def is_omni_index(dim):
+            return (isinstance(dim, RangeIndex) and dim.lower in (1, IntLiteral(1)) and
+                    dim.step is None)
         vmap = {}
         for v in kernel.variables:
             if isinstance(v, Array):
-                new_dims = [d.upper if isinstance(d, RangeIndex) and d.lower == 1 and d.step is None
-                            else d for d in v.dimensions.index_tuple]
-                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)))
-        kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+                new_dims = [d.upper if is_omni_index(d) else d for d in v.dimensions.index_tuple]
+                new_shape = [d.upper if is_omni_index(d) else d for d in v.shape]
+                new_type = v.type.clone(shape=as_tuple(new_shape))
+                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)), type=new_type)
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
     @staticmethod
