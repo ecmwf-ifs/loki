@@ -63,8 +63,9 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, typedefs=None, scope=None):
 
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
     _ir = inline_pragmas(_ir)
+    _ir = process_dimension_pragmas(_ir)
+    _ir = cluster_comments(_ir)
 
     return _ir
 
@@ -633,20 +634,20 @@ class FParser2IR(GenericVisitor):
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Fortran2003.Derived_Type_Stmt).items[1].tostr().lower()
         source = kwargs.get('source')
-        # Visit comments (and pragmas)
-        comments = [self.visit(i, **kwargs) for i in walk(o.content, (Fortran2003.Comment,))]
-        pragmas = [c for c in comments if isinstance(c, ir.Pragma)]
-        comments = [c for c in comments if not isinstance(c, ir.Pragma)]
         # Create the typedef with all the information we have so far (we need its symbol table
         # for the next step)
-        typedef = ir.TypeDef(name=name, declarations=[], pragmas=pragmas, comments=comments,
-                             source=source, label=kwargs.get('label'))
+        typedef = ir.TypeDef(name=name, body=[], source=source, label=kwargs.get('label'))
         # Create declarations and update the parent typedef
-        declarations = flatten([self.visit(i, scope=typedef, **kwargs)
-                                for i in walk(o.content, (Fortran2003.Component_Part,))])
-        typedef._update(declarations=declarations, symbols=typedef.symbols)
+        component_nodes = (Fortran2003.Component_Part, Fortran2003.Comment)
+        body = flatten([self.visit(i, scope=typedef, **kwargs)# for i in o.content])
+                        for i in walk(o.content, component_nodes)])
         # Infer any additional shape information from `!$loki dimension` pragmas
-        process_dimension_pragmas(declarations=typedef.declarations, pragmas=typedef.pragmas)
+        # Note that this needs to be done before we create `dtype` below, to allow
+        # propagation of type info through multiple typedefs in the same module.
+        body = inline_pragmas(body)
+        body = process_dimension_pragmas(body)
+        typedef._update(body=body, symbols=typedef.symbols)
+
         # Now create a SymbolType instance to make the typedef known in its scope's type table
         variables = OrderedDict([(v.basename, v) for v in typedef.variables])
         dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)

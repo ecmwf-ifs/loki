@@ -242,7 +242,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        typedef = ir.TypeDef(name=name.text, declarations=[])
+        typedef = ir.TypeDef(name=name.text, body=[])
 
         # Create the derived type...
         _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
@@ -258,7 +258,7 @@ class OMNI2IR(GenericVisitor):
 
         # Build individual declarations for each member
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in _type.variables.values())
-        typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
+        typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
         return typedef
 
     def visit_FbasicType(self, o, source=None):

@@ -272,11 +272,6 @@ class Subroutine:
             spec = ()
         spec = Section(body=flatten(spec))
 
-        # Process Loki-specific dimenions override pragmas
-        pragmas = tuple(decl.pragma for decl in FindNodes(Declaration).visit(spec)
-                        if decl.pragma is not None)
-        process_dimension_pragmas(declarations=spec, pragmas=pragmas)
-
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
             body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, typedefs=typedefs,
