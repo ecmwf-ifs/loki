@@ -342,9 +342,9 @@ class MaxjCodegen(Stringifier):
 
         def format_declaration(var):
             var_type = self.visit(var.type, **kwargs)
-            var_name = self.visit(var, **kwargs)
-            if var.type.initial:
-                initial = self.visit(var.type.initial, **kwargs)
+            var_name = self.visit(var.clone(dimensions=None), **kwargs)
+            if var.initial:
+                initial = self.visit(var.initial, **kwargs)
                 return self.format_line(var_type, ' ', var_name, ' = ', initial, ';')
             return self.format_line(var_type, ' ', var_name, ';')
 
@@ -382,8 +382,8 @@ class MaxjCodegen(Stringifier):
         comment = ''
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        # if o.target.type.dfestream:
-        #     return self.format_line(target, ' <== ', expr, ';', comment=comment)
+        if o.target.type.dfevar and o.target.type.shape:
+            return self.format_line(target, ' <== ', expr, ';', comment=comment)
         return self.format_line(target, ' = ', expr, ';', comment=comment)
 
     def visit_ConditionalStatement(self, o, **kwargs):
@@ -426,6 +426,8 @@ class MaxjCodegen(Stringifier):
         if o.dtype == DataType.DERIVED_TYPE:
             return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
+            if o.shape:
+                return 'DFEVector<{}>'.format(self.visit(o.clone(shape=o.shape[:-1]), **kwargs))
             return 'DFEVar'
         return maxj_local_type(o)
 

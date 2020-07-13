@@ -251,13 +251,13 @@ end subroutine routine_copy_scalar
 def test_max_routine_fixed_loop(here, builder, simulator, frontend):
 
     fcode = """
-subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
+subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
   use iso_fortran_env, only: real64
   implicit none
-  integer, parameter :: n=6, m=4
+  integer :: n=6, m=4
   real(kind=real64), intent(in) :: scalar
-  real(kind=real64), intent(in) :: tensor(n, m), vector(n)
-  real(kind=real64), intent(out) :: vector_out(n)
+  real(kind=real64), intent(in) :: tensor(6, 4), vector(6)
+  real(kind=real64), intent(out) :: tensor_out(4, 6), vector_out(6)
   integer :: i, j
 
   ! For testing, the operation is:
@@ -265,11 +265,11 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor)
      vector_out(i) = vector(i) + tensor(i, 1) + 1.0
   end do
 
-  ! do j=1, m
-  !    do i=1, n
-  !       tensor_out(i, j) = 10.* j + i
-  !    end do
-  ! end do
+  do j=1, n
+     do i=1, m
+        tensor_out(i, j) = tensor(j, i)
+     end do
+  end do
 end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -280,13 +280,13 @@ end subroutine routine_fixed_loop
     n, m = 6, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
-    tensor = np.zeros(shape=(n, m), order='F') + 4.
-    # tensor_out = np.zeros(shape=(n, m), order='F')
-    function(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor)
-    assert np.all(vector == 8.)
-    # ref_tensor = (np.array([range(10, 10 * (m+1), 10)] * n)
-    #               + np.transpose(np.array([range(1, n+1)] * m)))
-    # assert np.all(tensor_out == tensor)
+    tensor = np.array([list(range(i, i+m)) for i in range(n)], order='F', dtype=np.float64)
+    tensor_out = np.zeros(shape=(m, n), order='F')
+    ref_vector = vector + np.array(list(range(n)), dtype=np.float64) + 1.
+    ref_tensor = np.transpose(tensor)
+    function(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor, tensor_out=tensor_out)
+    assert np.all(vector == ref_vector)
+    assert np.all(tensor_out == ref_tensor)
 
     # Generate the transpiled kernel
     max_kernel = max_transpile(routine, here, builder, frontend)
@@ -296,15 +296,14 @@ end subroutine routine_fixed_loop
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
-    # tensor_out = np.zeros(shape=(n, m), order='F')
+    tensor = np.array([list(range(i, i+m)) for i in range(n)], order='F', dtype=np.float64)
+    tensor_out = np.zeros(shape=(m, n), order='F')
     function = max_kernel.routine_fixed_loop_c_fc_mod.routine_fixed_loop_c_fc
     simulator.call(function, ticks=1, scalar=scalar, vector=vector, vector_size=n * 8,
-                   vector_out=vector, vector_out_size=n * 8, tensor=tensor, tensor_size=n * m * 8)
-    assert np.all(vector == 8.)
-    # assert np.all(tensor_out == tensor)
-    # assert np.all(tensor == [[11., 21., 31., 41.],
-    #                          [12., 22., 32., 42.],
-    #                          [13., 23., 33., 43.]])
+                   vector_out=vector, vector_out_size=n * 8, tensor=tensor, tensor_size=n * m * 8,
+                   tensor_out=tensor_out, tensor_out_size=n * m * 8)
+    assert np.all(vector == ref_vector)
+    assert np.all(tensor_out == ref_tensor)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -422,8 +421,6 @@ subroutine routine_laplace(h, data_in, data_out)
   real(kind=real64), intent(out) :: data_out(32*32)
   integer :: i, i_mod_n
   real(kind=real64) :: north, south, east, west
-
-  i_mod_n = 0
 
   !$loki dataflow
   do i=1, m*n
