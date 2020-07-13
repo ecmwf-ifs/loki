@@ -606,7 +606,7 @@ def test_routine_variables_dimension_pragmas(frontend):
     conceptual `.shape` of local and argument variables.
     """
     fcode = """
-subroutine routine_variables_dimensions(x, yv1, v2, v3, v4)
+subroutine routine_variables_dimensions(x, y, v1, v2, v3, v4)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   !$loki dimension(x,:)
