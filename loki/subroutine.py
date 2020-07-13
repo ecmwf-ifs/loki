@@ -2,7 +2,7 @@ import weakref
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend import Frontend
+from loki.frontend import Frontend, inline_pragmas
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
@@ -296,6 +296,9 @@ class Subroutine:
             body.prepend(node)
             comment_map[node] = None
         spec = Transformer(comment_map, invalidate_source=False).visit(spec)
+
+        # Now we need to re-run the pragma detection for pragmas at the beginning of the body
+        body = inline_pragmas(body)
 
         # Parse "member" subroutines recursively
         members = None
