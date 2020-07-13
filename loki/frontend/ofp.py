@@ -547,7 +547,7 @@ class OFP2IR(GenericVisitor):
             if vname.upper() == 'RESHAPE':
                 # return reshape(indices[0], shape=indices[1])
                 raise NotImplementedError()
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG',
+            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
                 return sym.InlineCall(vname, parameters=indices, source=source)
             if vname.upper() in ['REAL', 'INT']:
