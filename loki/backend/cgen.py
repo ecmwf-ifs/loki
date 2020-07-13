@@ -1,8 +1,8 @@
 from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
                                          PREC_LOGICAL_AND, PREC_NONE, PREC_CALL)
 
-from loki.visitors import Stringifier, FindNodes, Transformer
-from loki.ir import Import, Declaration
+from loki.visitors import Stringifier, FindNodes
+from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
 from loki.types import DataType, SymbolType
 
@@ -149,7 +149,7 @@ class CCodegen(Stringifier):
 
     def __init__(self, depth=0, indent='  ', linewidth=90):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: '\n{}  '.format(indent),
+                         line_cont=lambda indent: '\n{}  '.format(indent),  # pylint: disable=unnecessary-lambda
                          symgen=CCodeMapper())
 
     # Handler for outer objects
@@ -184,10 +184,9 @@ class CCodegen(Stringifier):
         standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
         header = [self.format_line('#include <', name, '>') for name in standard_imports]
 
-        # ...and remove imports from the spec
+        # ...and imports from the spec
         spec_imports = FindNodes(Import).visit(o.spec)
         header += [self.visit(spec_imports, **kwargs)]
-        spec = Transformer({node: None for node in spec_imports}).visit(o.spec)
 
         # Generate header with argument signature
         aptr = []
@@ -207,31 +206,22 @@ class CCodegen(Stringifier):
 
         self.depth += 1
 
+        # ...and generate the spec without imports and argument declarations
+        body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
+
         # Generate the array casts for pointer arguments
-        body = [self.format_line('/* Array casts for pointer arguments */')]
-        for a in o.arguments:
-            if isinstance(a, Array):
-                dtype = self.visit(a.type, **kwargs)
-                # str(d).lower() is a bad hack to ensure caps-alignment
-                outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower()
-                                     for d in a.dimensions.index_tuple[1:])
-                body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
-                                          dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
-#                casts += self.indent + '%s (*%s)%s = (%s (*)%s) v_%s;\n' % (
-#                    dtype, a.name.lower(), outer_dims, dtype, outer_dims, a.name.lower())
+        if any(isinstance(a, Array) for a in o.arguments):
+            body += [self.format_line('/* Array casts for pointer arguments */')]
+            for a in o.arguments:
+                if isinstance(a, Array):
+                    dtype = self.visit(a.type, **kwargs)
+                    # str(d).lower() is a bad hack to ensure caps-alignment
+                    outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower()
+                                         for d in a.dimensions.index_tuple[1:])
+                    body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
+                                              dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
 
-        # Remove declarations for arguments, as C arguments are declarations!
-        decl_map = {}
-        for decl in FindNodes(Declaration).visit(spec):
-            new_vars = [v for v in decl.variables if v not in o.arguments]
-            if len(new_vars) > 0:
-                decl_map[decl] = decl.clone(variables=new_vars)
-            else:
-                decl_map[decl] = None
-        spec = Transformer(decl_map).visit(spec, **kwargs)
-
-        # ...and generate the rest of spec and body
-        body += [self.visit(spec, **kwargs)]
+        # Fill the body
         body += [self.visit(o.body, **kwargs)]
         body += [self.format_line('return 0;')]
 
@@ -282,13 +272,12 @@ class CCodegen(Stringifier):
         # Ensure all variable types are equal, except for shape and dimension
         ignore = ['shape', 'dimensions', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
-        if types[0].parameter:
-            # Parameters should not need to be declared in C
-            return None
         dtype = self.visit(types[0], **kwargs)
         assert len(o.variables) > 0
         variables = []
         for v in o.variables:
+            if kwargs.get('skip_argument_declarations') and v.type.intent:
+                continue
             var = self.visit(v, **kwargs)
             initial = ''
             if v.initial is not None:
@@ -296,6 +285,8 @@ class CCodegen(Stringifier):
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
             variables += ['{}{}'.format(var, initial)]
+        if not variables:
+            return None
         comment = None
         if o.comment:
             comment = str(self.visit(o.comment, **kwargs))
@@ -306,9 +297,9 @@ class CCodegen(Stringifier):
         Format C imports as
           #include "<name>"
         """
-        if o.c_import:
+        if not kwargs.get('skip_imports') and o.c_import:
             return self.format_line('#include "', str(o.module), '"')
-        return ''
+        return None
 
     def visit_Loop(self, o, **kwargs):
         """
