@@ -5,7 +5,7 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, Intrinsic, PreprocessorDirective, CallStatement, DataType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration
+    SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration, Loop
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
 
@@ -1167,3 +1167,29 @@ INTERFACE
   END SUBROUTINE test_subroutine_interface
 END INTERFACE
 """.strip()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_subroutine_pragma_inlining(frontend):
+    """
+    A short test that verifies pragmas that are the first statement
+    in a routines body are correctly identified and inlined.
+    """
+    fcode = """
+subroutine test_subroutine_pragma_inlining (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+  !$loki some pragma
+  do i=1,n
+    out(i) = in(i)
+  end do
+end subroutine test_subroutine_pragma_inlining
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].pragma is not None
+    assert loops[0].pragma.keyword == 'loki' and loops[0].pragma.content == 'some pragma'
