@@ -636,10 +636,6 @@ class TypeDef(Node):
         self.symbols = symbols if symbols is not None else TypeTable()
 
     @property
-    def children(self):
-        return tuple((self.body,))
-
-    @property
     def declarations(self):
         return as_tuple(c for c in self.body if isinstance(c, Declaration))
 

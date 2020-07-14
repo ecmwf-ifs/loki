@@ -793,7 +793,7 @@ class OFP2IR(GenericVisitor):
                 continue
             if 'DIMENSION' in attrs:
                 # Dimensions are provided via `dimension` keyword
-                attrib = attr[0].findall('attribute')[attrs.index('DIMENSION')]
+                attrib = attr.findall('attribute')[attrs.index('DIMENSION')]
                 deferred_shape = attrib.find('deferred-shape-spec-list')
             else:
                 deferred_shape = v.find('deferred-shape-spec-list')
