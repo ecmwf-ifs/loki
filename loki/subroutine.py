@@ -2,7 +2,7 @@ import weakref
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend import Frontend, process_dimension_pragmas
+from loki.frontend import Frontend
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
@@ -144,11 +144,6 @@ class Subroutine:
         docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=obj)
         spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source,
                              scope=obj)
-
-        # Process Loki-specific dimenions override pragmas
-        pragmas = tuple(decl.pragma for decl in FindNodes(Declaration).visit(spec)
-                        if decl.pragma is not None)
-        process_dimension_pragmas(declarations=spec, pragmas=pragmas)
 
         # Generate the subroutine body with all shape and type info
         body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=obj)

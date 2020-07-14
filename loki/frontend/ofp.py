@@ -65,11 +65,27 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None)
 
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
     _ir = inline_pragmas(_ir)
+    _ir = process_dimension_pragmas(_ir)
+    _ir = cluster_comments(_ir)
     _ir = inline_labels(_ir)
 
     return _ir
+
+
+def match_tag_sequence(sequence, patterns):
+    """
+    Return a list of tuples with all AST nodes (xml objects) that
+    match a tag pattern in the list of :param patterns:.
+    """
+    new_sequence = []
+    matches = []
+    tags = [i.tag for i in sequence]
+    for i, (elem, tag) in enumerate(zip(sequence, tags)):
+        for pattern in patterns:
+            if tuple(tags[i:i+len(pattern)]) == pattern:
+                new_sequence.append(tuple(sequence[i:i+len(pattern)]))
+    return new_sequence
 
 
 class OFP2IR(GenericVisitor):
@@ -296,98 +312,52 @@ class OFP2IR(GenericVisitor):
         if o.attrib['type'] == 'variable':
             if o.find('end-type-stmt') is not None:
                 # We are dealing with a derived type
-                derived_name = o.find('end-type-stmt').attrib['id']
+                name = o.find('end-type-stmt').attrib['id']
 
-                # Process any associated comments or pragams
-                comments = [self.visit(c) for c in o.findall('comment')]
-                pragmas = [c for c in comments if isinstance(c, ir.Pragma)]
-                comments = [c for c in comments if not isinstance(c, ir.Pragma)]
+                # Create the TypeDef object to initialize the scope
+                typedef = ir.TypeDef(name=name, body=[], label=label, source=source)
 
-                # Create the parent type...
-                typedef = ir.TypeDef(name=derived_name, declarations=[], pragmas=pragmas,
-                                     comments=comments, label=label, source=source)
-                parent_type = SymbolType(DataType.DERIVED_TYPE, name=derived_name,
-                                         variables=OrderedDict(), source=source)
+                # This is still ugly, but better than before! In order to
+                # process certain tag combinations (groups) into declaration
+                # objects, we first group them in place, while also allowing
+                # comments/pragmas through here. We then explicitly process
+                # them into the intended nodes in the order we found them.
+                grouped_elems = match_tag_sequence(o, [
+                    ('type', 'attributes', 'components'),
+                    ('type', 'components'),
+                    ('comment', ),
+                ])
 
-                # ...and derive all of its components
-                # This is customized in our dedicated branch atm,
-                # and really, really hacky! :(
-                types = o.findall('type')
-                components = o.findall('components')
-                attributes = [None] * len(types)
-                elements = list(o)
-                declarations = []
-                # YUCK!!!
-                for i, (t, comps) in enumerate(zip(types, components)):
-                    attributes[i] = elements[elements.index(t)+1:elements.index(comps)]
+                body = []
+                for group in grouped_elems:
+                    if len(group) == 1:
+                        # Process indidividual comments/pragmas
+                        body.append(self.visit(group[0]))
 
-                for t, comps, attr in zip(types, components, attributes):
-                    # Process the type of the individual declaration
-                    attrs = {}
-                    if len(attr) > 0:
-                        attrs = [a.attrib['attrKeyword'].upper()
-                                 for a in attr[0].findall('attribute/component-attr-spec')]
-                    typename = t.attrib['name']
-                    t_source = extract_source(t.attrib, self._raw_source)
-                    kind = t.find('kind/name')
-                    if kind is not None:
-                        kind = kind.attrib['id']
-                    # We have an intrinsic Fortran type
-                    if t.attrib['type'] == 'intrinsic':
-                        _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
-                                           pointer='POINTER' in attrs,
-                                           allocatable='ALLOCATABLE' in attrs, source=t_source)
+                    elif len(group) == 2:
+                        # Process declarations without attributes
+                        decl = self.create_typedef_declaration(t=group[0], comps=group[1],
+                                                               typedef=typedef, source=source)
+                        body.append(decl)
+
+                    elif len(group) == 3:
+                        # Process declarations with attributes
+                        decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
+                                                               typedef=typedef, source=source)
+                        body.append(decl)
+
                     else:
-                        # This is a derived type. Let's see if we know it already
-                        _type = self.scope.types.lookup(typename, recursive=True)
-                        if _type is not None:
-                            _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
-                                                allocatable='ALLOCATABLE' in attrs,
-                                                source=t_source)
-                        else:
-                            _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
-                                               kind=kind, pointer='POINTER' in attrs,
-                                               allocatable='ALLOCATABLE' in attrs,
-                                               variables=OrderedDict(), source=t_source)
-
-                    # Derive variables for this declaration entry
-                    variables = []
-                    for v in comps.findall('component'):
-                        if len(v.attrib) == 0:
-                            continue
-                        if 'DIMENSION' in attrs:
-                            # Dimensions are provided via `dimension` keyword
-                            attrib = attr[0].findall('attribute')[attrs.index('DIMENSION')]
-                            deferred_shape = attrib.find('deferred-shape-spec-list')
-                        else:
-                            deferred_shape = v.find('deferred-shape-spec-list')
-                        if deferred_shape is not None:
-                            dim_count = int(deferred_shape.attrib['count'])
-                            dimensions = [sym.RangeIndex((None, None, None), source=source)
-                                          for _ in range(dim_count)]
-                        else:
-                            dimensions = as_tuple(self.visit(c) for c in v)
-                        dimensions = as_tuple(d for d in dimensions if d is not None)
-                        dimensions = dimensions if len(dimensions) > 0 else None
-                        v_source = extract_source(v.attrib, self._raw_source)
-                        v_type = _type.clone(shape=dimensions, source=v_source)
-                        v_name = v.attrib['name']
-                        if dimensions:
-                            dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
-
-                        variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                                   scope=typedef.symbols, source=source)]
-
-                    parent_type.variables.update([(v.basename, v) for v in variables])  # pylint: disable=no-member
-                    declarations += [ir.Declaration(variables=variables, source=t_source)]
-
-                typedef._update(declarations=as_tuple(declarations), symbols=typedef.symbols)
+                        raise RuntimeError("Something's gone terribly wrong, man!")
 
                 # Infer any additional shape information from `!$loki dimension` pragmas
-                process_dimension_pragmas(declarations=typedef.declarations, pragmas=typedef.pragmas)
+                body = inline_pragmas(body)
+                body = process_dimension_pragmas(body)
+                typedef._update(body=as_tuple(body), symbols=typedef.symbols)
 
-                # Make that derived type known in the types table
-                self.scope.types[derived_name] = parent_type
+                # Now create a SymbolType instance to make the typedef known in its scope's type table
+                variables = OrderedDict([(v.basename, v) for v in typedef.variables])
+                dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)
+                self.scope.types[name] = dtype
 
                 return typedef
 
@@ -784,3 +754,64 @@ class OFP2IR(GenericVisitor):
 
     def visit_operator(self, o, label=None, source=None):
         return o.attrib['operator']
+
+    def create_typedef_declaration(self, t, comps, attr=None, typedef=None, source=None):
+        """
+        Utility method to create individual declarations from a group of AST nodes.
+        """
+        attrs = {}
+        if attr:
+            attrs = [a.attrib['attrKeyword'].upper()
+                     for a in attr.findall('attribute/component-attr-spec')]
+        typename = t.attrib['name']
+        t_source = extract_source(t.attrib, self._raw_source)
+        kind = t.find('kind/name')
+        if kind is not None:
+            kind = kind.attrib['id']
+        # We have an intrinsic Fortran type
+        if t.attrib['type'] == 'intrinsic':
+            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+                               pointer='POINTER' in attrs,
+                               allocatable='ALLOCATABLE' in attrs, source=t_source)
+        else:
+            # This is a derived type. Let's see if we know it already
+            _type = self.scope.types.lookup(typename, recursive=True)
+            if _type is not None:
+                _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
+                                    allocatable='ALLOCATABLE' in attrs,
+                                    source=t_source)
+            else:
+                _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                                   kind=kind, pointer='POINTER' in attrs,
+                                   allocatable='ALLOCATABLE' in attrs,
+                                   variables=OrderedDict(), source=t_source)
+
+        # Derive variables for this declaration entry
+        variables = []
+        for v in comps.findall('component'):
+            if len(v.attrib) == 0:
+                continue
+            if 'DIMENSION' in attrs:
+                # Dimensions are provided via `dimension` keyword
+                attrib = attr[0].findall('attribute')[attrs.index('DIMENSION')]
+                deferred_shape = attrib.find('deferred-shape-spec-list')
+            else:
+                deferred_shape = v.find('deferred-shape-spec-list')
+            if deferred_shape is not None:
+                dim_count = int(deferred_shape.attrib['count'])
+                dimensions = [sym.RangeIndex((None, None, None), source=source)
+                              for _ in range(dim_count)]
+            else:
+                dimensions = as_tuple(self.visit(c) for c in v)
+            dimensions = as_tuple(d for d in dimensions if d is not None)
+            dimensions = dimensions if len(dimensions) > 0 else None
+            v_source = extract_source(v.attrib, self._raw_source)
+            v_type = _type.clone(shape=dimensions, source=v_source)
+            v_name = v.attrib['name']
+            if dimensions:
+                dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
+
+            variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
+                                       scope=typedef.symbols, source=source)]
+
+        return ir.Declaration(variables=variables, source=t_source)
