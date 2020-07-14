@@ -45,6 +45,18 @@ def test_joinable_string_list_long():
            'YDMODEL%YRML_DIAG%YRMDDH%NDHVTLS + YDMODEL%YRML_DIAG%YRMDDH%NDHFTLS)')
     assert str(obj) == ref
 
+    name = 'io.output'
+    args = ['"tensor_out"', 'tensor_out',
+            'new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(dfeFloat(11, 53), m), n)']
+    args_list = JoinableStringList(args, sep=', ', width=90, cont='\n      ', separable=True)
+    items = ['    ', name, '(', args_list, ');']
+    items_list = JoinableStringList(items, sep='', width=90, cont='\n      ', separable=True)
+    line = str(items_list)
+    ref = ('    io.output("tensor_out", tensor_out, \n'
+           '      new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(dfeFloat(11, 53), \n'
+           '      m), n));')
+    assert line == ref
+
 
 @pytest.mark.parametrize('string, length, continuation, ref', [
     ('short string', 16, '...', 'short string'),

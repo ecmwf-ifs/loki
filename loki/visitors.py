@@ -322,13 +322,22 @@ class Stringifier(Visitor):
 
     # pylint: disable=arguments-differ
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent):
+    def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent,
+                 symgen=str):
         super().__init__()
 
         self.depth = depth
         self._indent = indent
         self.linewidth = linewidth
         self.line_cont = line_cont
+        self._symgen = symgen
+
+    @property
+    def symgen(self):
+        """
+        Formatter for expressions.
+        """
+        return self._symgen
 
     @property
     def indent(self):
@@ -464,12 +473,11 @@ class Stringifier(Visitor):
         """
         return self.format_node(repr(o))
 
-    @classmethod
-    def visit_Expression(cls, o, **kwargs):  # pylint: disable=unused-argument
+    def visit_Expression(self, o, **kwargs):  # pylint: disable=unused-argument
         """
         Dispatch routine to expression tree stringifier.
         """
-        return str(o)
+        return self.symgen(o)
 
     def visit_tuple(self, o, **kwargs):
         """
