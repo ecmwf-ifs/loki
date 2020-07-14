@@ -2,11 +2,13 @@ from enum import Enum
 
 from loki import SourceFile, Module, Subroutine, Transformer
 
+__all__ = ['RuleType', 'GenericRule', 'Fixer', 'get_filename_from_parent']
+
 
 class RuleType(Enum):
-    '''
+    """
     Available types for rules with increasing severity.
-    '''
+    """
 
     INFO = 1
     WARN = 2
@@ -170,7 +172,7 @@ class Fixer:
 
     @classmethod
     def fix(cls, ast, reports, config):
-        '''
+        """
         Attempt to fix problems flagged by fixable rules in the given IR object.
 
         This routine calls `fix_module`, `fix_subroutine` and `fix_file`
@@ -184,7 +186,7 @@ class Fixer:
         :param dict config: a `dict` with the config values.
 
         :return: the modified AST object.
-        '''
+        """
 
         # Fix on source file level
         if isinstance(ast, SourceFile):
@@ -216,13 +218,14 @@ class Fixer:
 
 
 def get_filename_from_parent(obj):
-    '''Try to determine filename by following ``parent`` attributes
+    """
+    Try to determine filename by following ``parent`` attributes
     until :py:class:``loki.sourcefile.SourceFile`` is encountered.
 
     :param obj: A source file, module or subroutine object.
     :return: The filename or ``None``
     :rtype: str or NoneType
-    '''
+    """
     scope = obj
     while hasattr(scope, 'parent') and scope.parent:
         # Go up until we are at SourceFile level

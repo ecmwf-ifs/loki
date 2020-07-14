@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import importlib
 from concurrent.futures import as_completed
 from itertools import chain
 from logging import FileHandler
@@ -16,13 +17,14 @@ from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
 
 
 class OutputFile:
-    '''Helper class to encapsulate opening and writing to a file.
+    """
+    Helper class to encapsulate opening and writing to a file.
     This exists because opening the file immediately and then passing
     its ``write`` function to a handler makes it impossible to pickle
     it afterwards, which would make parallel execution infeasible.
     Instead of creating a more complicated interface for the handlers
     we opted for this way of a just-in-time file handler.
-    '''
+    """
 
     def __init__(self, filename):
         self.file_name = filename
@@ -40,6 +42,14 @@ class OutputFile:
     def write(self, msg):
         self._check_open()
         self.file_handle.write(msg)
+
+
+def get_rules(module):
+    """
+    Return the list of all available rules in the named module.
+    """
+    rule_module = importlib.import_module(module)
+    return Linter.lookup_rules(rule_module=rule_module)
 
 
 def get_relative_path_and_anchor(path, anchor):
@@ -95,9 +105,12 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
               help='Enable / disable debug mode. Includes more verbose output.')
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
+@click.option('--rules-module', default='lint_rules_ifs', show_default=True,
+              help='Select Python module with rules.')
 @click.pass_context
-def cli(ctx, debug, log):  # pylint:disable=redefined-outer-name
+def cli(ctx, debug, log, rules_module):  # pylint:disable=redefined-outer-name
     ctx.obj['DEBUG'] = debug
+    ctx.obj['rules_module'] = rules_module
     if debug:
         logger.setLevel(DEBUG)
     if log:
@@ -111,7 +124,7 @@ def cli(ctx, debug, log):  # pylint:disable=redefined-outer-name
               help='Write default configuration to file.')
 @click.pass_context
 def default_config(ctx, output_file):  # pylint: disable=unused-argument
-    config = Linter.default_config()
+    config = Linter.default_config(rules=get_rules(ctx.obj['rules_module']))
     # Eliminate empty config dicts
     config = {key: val for key, val in config.items() if val}
     config_str = yaml.dump(config, default_flow_style=False)
@@ -129,8 +142,7 @@ def default_config(ctx, output_file):  # pylint: disable=unused-argument
               show_default=True, help='Sort rules by a specific criterion.')
 @click.pass_context
 def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
-    rule_list = Linter.lookup_rules()
-
+    rule_list = get_rules(ctx.obj['rules_module'])
     sort_keys = {'title': lambda rule: rule.__name__.lower(),
                  'id': lambda rule: list(map(int, rule.docs.get('id').split('.')))}
     rule_list.sort(key=sort_keys[sort_by])
@@ -205,15 +217,21 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, pr
     files, excludes = get_file_list(include, exclude, basedir)
     info('%d files selected for checking (%d files excluded).',
          len(files), len(excludes))
-    info('Using %d worker.', worker)
+
     info('')
+    info('Using %d worker.', worker)
+
+    rule_list = get_rules(ctx.obj['rules_module'])
+    info('%d rules available.', len(rule_list))
 
     handlers = [DefaultHandler(basedir=basedir)]
     if junitxml:
         junitxml_file = OutputFile(junitxml)
         handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
 
-    linter = Linter(reporter=Reporter(handlers), config=config_values)
+    linter = Linter(reporter=Reporter(handlers), rules=rule_list, config=config_values)
+    info('Checking against %d rules.', len(linter.rules))
+    info('')
 
     if backup_suffix and not backup_suffix.startswith('.'):
         backup_suffix = '.' + backup_suffix
