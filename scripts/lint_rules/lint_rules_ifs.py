@@ -139,7 +139,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         if call is None:
             fmt_string = '{} executable statement must be call to DR_HOOK.'
             msg = fmt_string.format(pos)
-            rule_report.add(msg, subroutine.body.body[-1])
+            rule_report.add(msg, subroutine)
         elif call.arguments:
             string_arg = cls._get_string_argument(subroutine)
             if not isinstance(call.arguments[0], sym.StringLiteral) or \

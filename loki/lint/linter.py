@@ -26,8 +26,9 @@ class Linter:
     def __init__(self, reporter, rules=None, config=None):
         self.reporter = reporter
         if rules is None:
-            self.rules = Linter.lookup_rules(rule_names=config.get('rules'))
-        elif config.get('rules'):
+            rule_names = config.get('rules') if config else None
+            self.rules = Linter.lookup_rules(rule_names=rule_names)
+        elif config and config.get('rules'):
             self.rules = [rule for rule in rules if rule.__name__ in config.get('rules')]
         else:
             self.rules = rules
@@ -104,7 +105,8 @@ class Linter:
         if overwrite_config:
             config.update(overwrite_config)
         # Initialize report for this file
-        file_report = FileReport(str(sourcefile.path))
+        filename = str(sourcefile.path) if sourcefile.path else None
+        file_report = FileReport(filename)
         # Run all the rules on that file
         for rule in rules:
             start_time = time.time()
