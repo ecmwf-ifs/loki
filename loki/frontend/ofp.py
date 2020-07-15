@@ -79,9 +79,8 @@ def match_tag_sequence(sequence, patterns):
     match a tag pattern in the list of :param patterns:.
     """
     new_sequence = []
-    matches = []
     tags = [i.tag for i in sequence]
-    for i, (elem, tag) in enumerate(zip(sequence, tags)):
+    for i, _ in enumerate(zip(sequence, tags)):
         for pattern in patterns:
             if tuple(tags[i:i+len(pattern)]) == pattern:
                 new_sequence.append(tuple(sequence[i:i+len(pattern)]))
@@ -347,7 +346,7 @@ class OFP2IR(GenericVisitor):
                         body.append(decl)
 
                     else:
-                        raise RuntimeError("Something's gone terribly wrong, man!")
+                        raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
 
                 # Infer any additional shape information from `!$loki dimension` pragmas
                 body = inline_pragmas(body)
