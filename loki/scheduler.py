@@ -7,8 +7,12 @@ try:
 except ImportError:
     gviz = None
 
-from loki import (as_tuple, info, warning, error, SourceFile,
-                  FindNodes, CallStatement, OFP)
+from loki.frontend import FP
+from loki.ir import CallStatement
+from loki.visitors import FindNodes
+from loki.sourcefile import SourceFile
+from loki.tools import as_tuple
+from loki.logging import info, warning, error
 
 
 __all__ = ['Task', 'TaskScheduler']
@@ -26,7 +30,7 @@ class Task:
     """
 
     def __init__(self, name, config, path, graph=None, xmods=None,
-                 includes=None, typedefs=None, frontend=OFP):
+                 includes=None, typedefs=None, frontend=FP):
         self.name = name
         self.path = path
         self.file = None
@@ -88,8 +92,11 @@ class TaskScheduler:
 
     _deadlist = ['dr_hook', 'abor1', 'abort_surf']
 
+    # TODO: Should be user-definable!
+    source_suffixes = ['.f90', '_mod.f90']
+
     def __init__(self, paths, config=None, xmods=None, includes=None,
-                 typedefs=None, frontend=OFP):
+                 typedefs=None, frontend=FP):
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
         self.xmods = xmods
@@ -122,9 +129,9 @@ class TaskScheduler:
         :param source: Name of the source routine to locate.
         """
         for path in self.paths:
-            for suffix in ['.F90', '_mod.F90']:
                 path_string = '%s/**/%s%s' % (str(path), source, suffix)
                 locs = glob.glob(path_string, recursive=True)
+            for suffix in self.source_suffixes:
                 if len(locs) > 0:
                     source_path = Path(locs[0])
                     if source_path.exists():
