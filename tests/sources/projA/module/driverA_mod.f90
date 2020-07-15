@@ -1,5 +1,5 @@
 module driverA_mod
-  use header_mod, only: jprb
+  use header_mod, only: jprb, header_type
   use kernelA_mod, only: kernelA
 
   implicit none
@@ -7,10 +7,9 @@ module driverA_mod
 contains
 
   subroutine driverA()
-    real(kind=jprb) :: arrayA(5)
-    real(kind=jprb) :: arrayB(3)
+    type(header_type) :: mystruct
 
-    call kernelA(arrayA, arrayB)
+    call kernelA(mystruct%vector, mystruct%matrix)
 
   end subroutine driverA
 

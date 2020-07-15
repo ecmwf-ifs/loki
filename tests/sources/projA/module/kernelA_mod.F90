@@ -6,15 +6,15 @@ module kernelA_mod
 
 contains
 
-  subroutine kernelA(arrayA, arrayB)
-    real(kind=jprb), intent(inout) :: arrayA(:)
-    real(kind=jprb), intent(inout) :: arrayB(:)
+  subroutine kernelA(vector, matrix)
+    real(kind=jprb), intent(inout) :: vector(:)
+    real(kind=jprb), intent(inout) :: matrix(:)
 
 #include "another_l1.intfb.h"
 
-    call compute_l1(arrayA)
+    call compute_l1(vector)
 
-    call another_l1(arrayB)
+    call another_l1(matrix)
 
   end subroutine kernelA
 

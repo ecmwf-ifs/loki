@@ -3,10 +3,10 @@ module compute_l2_mod
 
 contains
 
-  subroutine compute_l2(arrayA)
-    real(kind=jprb), intent(inout) :: arrayA(:)
+  subroutine compute_l2(vector)
+    real(kind=jprb), intent(inout) :: vector(:)
 
-    arrayA(:) = 66.0
+    vector(:) = 66.0
 
   end subroutine compute_l2
 

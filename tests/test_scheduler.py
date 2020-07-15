@@ -37,8 +37,11 @@ Test directory structure
 
 import pytest
 from pathlib import Path
+from collections import OrderedDict
 
-from loki import Scheduler, FP
+from loki import (
+    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -88,6 +91,51 @@ def test_scheduler_taskgraph_simple(here):
     assert all(e in edges for e in expected_edges)
 
 
+def test_scheduler_taskgraph_partial(here):
+    """
+    Create a simple task graph from a single sub-project:
+
+    projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |
+                           | --> another_l1 -> another_l2
+    """
+    projA = here/'sources/projA'
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routine': [
+            {
+                'name': 'compute_l1',
+                'role': 'driver',
+                'expand': True,
+            }, {
+                'name': 'another_l1',
+                'role': 'driver',
+                'expand': True,
+            },
+        ]
+    }
+    # TODO: Note this is too convoluted, but mimicking the toml file config
+    # reads we do in the current all-physics demonstrator. Needs internalising!
+    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler.append('driverA')
+    scheduler.populate()
+
+    # Check the correct sub-graph is generated
+    nodes = [n.name for n in scheduler.taskgraph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    assert all(n in nodes for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
+    assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
+
+
 def test_scheduler_taskgraph_blocked(here):
     """
     Create a simple task graph with a single branch blocked:
@@ -132,7 +180,7 @@ def test_scheduler_taskgraph_blocked(here):
     assert 'another_l1 -> another_l2' not in edges
 
 
-def test_scheduler_typedef():
+def test_scheduler_typedefs(here):
     """
     Create a simple task graph with and inject type info via `typedef`s.
 
@@ -141,19 +189,91 @@ def test_scheduler_typedef():
                      <header_type>
                            | --> another_l1 -> another_l2
     """
-    pass
+    projA = here/'sources/projA'
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routines': []
+    }
+
+    header = SourceFile.from_file(projA/'module/header_mod.f90', frontend=FP)
+
+    scheduler = Scheduler(paths=projA, typedefs=header['header_mod'].typedefs,
+                          includes=projA/'include', config=config, frontend=FP)
+    scheduler.append('driverA')
+    scheduler.populate()
+
+    driver = scheduler.item_map['driverA'].routine
+    call = FindNodes(CallStatement).visit(driver.body)[0]
+    assert call.arguments[0].parent.type.variables
+    assert fexprgen(call.arguments[0].shape) == '(:,)'
+    assert call.arguments[1].parent.type.variables
+    assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 
-def test_scheduler_apply():
+def test_scheduler_process(here):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
 
     projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |      <driver>      <kernel>
                            |
                            | --> another_l1 -> another_l2
+                                  <driver>      <kernel>
     """
-    pass
+    projA = here/'sources/projA'
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': [],
+            'whitelist': [],
+        },
+        'routine': [
+            {
+                'name': 'compute_l1',
+                'role': 'driver',
+                'expand': True,
+            }, {
+                'name': 'another_l1',
+                'role': 'driver',
+                'expand': True,
+            },
+        ]
+    }
+    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler.append(config['routines'].keys())
+    scheduler.populate()
+
+    class AppendRole(Transformation):
+        """
+        Simply append role to subroutine names.
+        """
+        def transform_subroutine(self, routine, **kwargs):
+            # TODO: This needs internalising!
+            # Determine role in bulk-processing use case
+            task = kwargs.get('task', None)
+            role = kwargs.get('role') if task is None else task.config['role']
+            routine.name += '_{}'.format(role)
+
+    # Apply re-naming transformation and check result
+    scheduler.process(transformation=AppendRole())
+    assert scheduler.item_map['compute_l1'].routine.name == 'compute_l1_driver'
+    assert scheduler.item_map['compute_l2'].routine.name == 'compute_l2_kernel'
+    assert scheduler.item_map['another_l1'].routine.name == 'another_l1_driver'
+    assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
 def test_scheduler_multiple_projects():
