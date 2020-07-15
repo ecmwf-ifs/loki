@@ -86,7 +86,7 @@ def get_file_list(includes, excludes, basedir):
 
 
 def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=False,
-                       backup_suffix=None):
+                       backup_suffix=None, ctx=None):
     debug('[%s] Parsing...', filename)
     try:
         source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
@@ -96,13 +96,16 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
             linter.fix(source, report, backup_suffix=backup_suffix)
     except Exception as excinfo:  # pylint: disable=broad-except
         linter.reporter.add_file_error(filename, type(excinfo), str(excinfo))
+        if ctx and ctx.obj.get('DEBUG'):
+            raise excinfo
         return False
     return True
 
 
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
-              help='Enable / disable debug mode. Includes more verbose output.')
+              help=('Enable / disable debug mode. This incures more verbose '
+                    'output and escalates exceptions (for debugger use).'))
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
 @click.option('--rules-module', default='lint_rules_ifs', show_default=True,
@@ -240,7 +243,7 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, pr
     if worker == 1:
         for f in files:
             success_count += check_and_fix_file(f, linter, preprocess=preprocess, fix=fix,
-                                                backup_suffix=backup_suffix)
+                                                backup_suffix=backup_suffix, ctx=ctx)
     else:
         manager = Manager()
         linter.reporter.init_parallel(manager)
