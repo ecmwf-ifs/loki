@@ -48,8 +48,7 @@ class Task:
                 self.file = SourceFile.from_file(path, preprocess=True,
                                                  xmods=xmods, includes=includes,
                                                  typedefs=typedefs, frontend=frontend)
-                # TODO: Modules should be first-class items too
-                self.routine = self.file.subroutines[0]
+                self.routine = self.file.all_subroutines[0]
 
             except Exception as excinfo:  # pylint: disable=broad-except
                 if self.graph:
