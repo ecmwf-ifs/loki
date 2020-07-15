@@ -101,6 +101,15 @@ integer foobar
 end subroutine bar
 end module module_naming_mod
 
+! This should complain about wrong file name
+module MODULE_NAMING_UPPERCASE_MOD
+integer foo
+contains
+subroutine bar
+integer foobar
+end subroutine bar
+end module MODULE_NAMING_UPPERCASE_MOD
+
 ! This should complain about wrong module and file name
 module module_naming
 integer baz
@@ -113,13 +122,14 @@ end module module_naming
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.ModuleNamingRule], handlers=[handler])
 
-    assert len(messages) == 2
+    assert len(messages) == 3
     keywords = ('ModuleNamingRule', '[1.5]')
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
-    assert all('"module_naming"' in msg for msg in messages)
-    assert all(keyword in messages[0] for keyword in ('"_mod"', 'Name of module'))
-    assert all(keyword in messages[1] for keyword in ('module_naming_mod.f90', 'filename'))
+    assert all('"module_naming' in msg.lower() for msg in messages)
+    assert all(keyword in messages[0] for keyword in ('module_naming_mod.f90', 'filename'))
+    assert all(keyword in messages[1] for keyword in ('"_mod"', 'Name of module'))
+    assert all(keyword in messages[2] for keyword in ('module_naming_mod.f90', 'filename'))
 
 
 @pytest.mark.parametrize('frontend', [FP])

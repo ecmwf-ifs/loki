@@ -70,7 +70,7 @@ class ModuleNamingRule(GenericRule):  # Coding standards 1.5
     @classmethod
     def check_module(cls, module, rule_report, config):
         '''Check the module name and the name of the source file.'''
-        if not module.name.endswith('_mod'):
+        if not module.name.lower().endswith('_mod'):
             fmt_string = 'Name of module "{}" should end with "_mod".'
             msg = fmt_string.format(module.name)
             rule_report.add(msg, module)
