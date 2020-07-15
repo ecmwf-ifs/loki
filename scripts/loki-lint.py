@@ -48,8 +48,8 @@ def get_rules(module):
     """
     Return the list of all available rules in the named module.
     """
-    rule_module = importlib.import_module('lint_rules.{}'.format(module))
-    return Linter.lookup_rules(rule_module=rule_module)
+    rules_module = importlib.import_module('lint_rules.{}'.format(module))
+    return Linter.lookup_rules(rules_module)
 
 
 def get_relative_path_and_anchor(path, anchor):

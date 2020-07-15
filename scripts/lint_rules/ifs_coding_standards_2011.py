@@ -10,7 +10,7 @@ from loki import (
     FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
     flatten, as_tuple, strip_inline_comments,
     SourceFile, Module, Subroutine, DataType)
-from loki.lint import rules, GenericRule, RuleType
+from loki.lint import GenericRule, RuleType
 import loki.ir as ir
 from loki.expression import symbol_types as sym
 
@@ -222,15 +222,30 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
             rule_report.add(msg, subroutine)
 
 
-class MaxDummyArgsRule(rules.MaxDummyArgsRule):  # Coding standards 3.6
+class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
 
     type = RuleType.INFO
 
-    docs = rules.MaxDummyArgsRule.docs
-    docs.update({'id': '3.6'})
+    docs = {
+        'id': '3.6',
+        'title': 'Routines should have no more than {max_num_arguments} dummy arguments.',
+    }
 
-    config = rules.MaxDummyArgsRule.config
-    config.update({'max_num_arguments': 50})
+    config = {
+        'max_num_arguments': 50
+    }
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        """
+        Count the number of dummy arguments and report if given
+        maximum number exceeded.
+        """
+        num_arguments = len(subroutine.arguments)
+        if num_arguments > config['max_num_arguments']:
+            fmt_string = 'Subroutine has {} dummy arguments (should not have more than {})'
+            msg = fmt_string.format(num_arguments, config['max_num_arguments'])
+            rule_report.add(msg, subroutine)
 
 
 class MplCdstringRule(GenericRule):  # Coding standards 3.12
@@ -256,12 +271,47 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
                     rule_report.add(msg, call)
 
 
-class ImplicitNoneRule(rules.ImplicitNoneRule):  # Coding standards 4.4
+class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
 
     type = RuleType.SERIOUS
 
-    docs = rules.ImplicitNoneRule.docs
-    docs.update({'id': '4.4'})
+    docs = {
+        'id': '4.4',
+        'title': '"IMPLICIT NONE" is mandatory in all routines.',
+    }
+
+    _regex = re.compile(r'implicit\s+none\b', re.I)
+
+    @staticmethod
+    def check_for_implicit_none(ast):
+        """
+        Check for intrinsic nodes that match the regex.
+        """
+        for intr in FindNodes(ir.Intrinsic).visit(ast):
+            if ImplicitNoneRule._regex.match(intr.text):
+                break
+        else:
+            return False
+        return True
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        """
+        Check for IMPLICIT NONE in the subroutine's spec or any enclosing
+        scope.
+        """
+        found_implicit_none = cls.check_for_implicit_none(subroutine.ir)
+
+        # Check if enclosing scopes contain implicit none
+        scope = subroutine.parent
+        while scope and not found_implicit_none:
+            if hasattr(scope, 'spec') and scope.spec:
+                found_implicit_none = cls.check_for_implicit_none(scope.spec)
+            scope = scope.parent if hasattr(scope, 'parent') else None
+
+        if not found_implicit_none:
+            # No 'IMPLICIT NONE' intrinsic node was found
+            rule_report.add('No "IMPLICIT NONE" found', subroutine)
 
 
 class ExplicitKindRule(GenericRule):  # Coding standards 4.7
@@ -356,18 +406,29 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         cls.check_kind_literals(subroutine, types, allowed_type_kinds, rule_report)
 
 
-class BannedStatementsRule(rules.BannedStatementsRule):  # Coding standards 4.11
+class BannedStatementsRule(GenericRule):  # Coding standards 4.11
+
     type = RuleType.WARN
 
-    docs = rules.BannedStatementsRule.docs
-    docs.update({'id': '4.11'})
+    docs = {
+        'id': '4.11',
+        'title': 'Banned statements.',
+    }
 
-    config = rules.BannedStatementsRule.config
-    config.update({
+    config = {
         'banned': ['STOP', 'PRINT', 'RETURN', 'ENTRY', 'DIMENSION',
                    'DOUBLE PRECISION', 'COMPLEX', 'GO TO', 'CONTINUE',
                    'FORMAT', 'COMMON', 'EQUIVALENCE'],
-    })
+    }
+
+    @classmethod
+    def check_subroutine(cls, subroutine, rule_report, config):
+        '''Check for banned statements in intrinsic nodes.'''
+        for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
+            for keyword in config['banned']:
+                if keyword.lower() in intr.text.lower():
+                    msg = 'Banned keyword "{}"'.format(keyword)
+                    rule_report.add(msg, intr)
 
 
 class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15

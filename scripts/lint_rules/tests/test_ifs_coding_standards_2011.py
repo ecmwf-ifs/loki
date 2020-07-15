@@ -599,8 +599,8 @@ end subroutine routine_not_okay
 
 
 @pytest.mark.parametrize('frontend', [FP])
-def test_banned_statements(rules, frontend):
-    '''Test for banned statements.'''
+def test_banned_statements_default(rules, frontend):
+    '''Test for banned statements with default.'''
     fcode = """
 subroutine banned_statements()
 integer :: dummy
@@ -622,6 +622,35 @@ end subroutine banned_statements
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
     banned_statements = ('GO TO', 'PRINT', 'CONTINUE')
     assert all(any(keyword in msg for keyword in banned_statements) for msg in messages)
+
+
+@pytest.mark.parametrize('frontend, banned_statements, passes', [
+    (FP, [], True),
+    (FP, ['GO TO'], False),
+    (FP, ['GO TO', 'RETURN'], False),
+    (FP, ['RETURN'], True)])
+def test_banned_statements_config(rules, frontend, banned_statements, passes):
+    '''Test for banned statements with custom config.'''
+    fcode = """
+subroutine banned_statements()
+integer :: dummy
+
+dummy = 5
+call foobar(dummy)
+go to 100
+print *, dummy
+100 continue
+end subroutine banned_statements
+    """
+    source = SourceFile.from_source(fcode, frontend=frontend)
+    messages = []
+    handler = DefaultHandler(target=messages.append)
+    config = {'BannedStatementsRule': {'banned': banned_statements}}
+    _ = run_linter(source, [rules.BannedStatementsRule], config=config, handlers=[handler])
+
+    assert len(messages) == (0 if passes else 1)
+    keywords = ('BannedStatementsRule', 'GO TO', '[4.11]')
+    assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
 
 @pytest.mark.parametrize('frontend', [FP])

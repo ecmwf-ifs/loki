@@ -1,30 +1,32 @@
 import pytest
 
-from loki.lint.linter import Linter
-from loki.lint.reporter import Reporter, GenericHandler
-import loki.lint.rules as rules
+from loki.lint import GenericHandler, Reporter, Linter, GenericRule
 from loki.sourcefile import SourceFile
 
+import rules
 
-def test_linter_lookup_rules():
+
+@pytest.mark.parametrize('rule_names, num_rules', [
+    (None, 1),
+    (['FooRule'], 0),
+    (['DummyRule'], 1)
+])
+def test_linter_lookup_rules(rule_names, num_rules):
     '''Make sure that linter picks up all rules by default.'''
-    rule_list = Linter.lookup_rules()
-    rule_names = [r.__name__ for r in rule_list]
-    all_rules = [r for r in rules.__dict__ if r.endswith('Rule')]
-    diff = set(all_rules) - set(rule_names)
-    assert diff == {'GenericRule'}
+    rule_list = Linter.lookup_rules(rules, rule_names=rule_names)
+    assert len(rule_list) == num_rules
 
 
 def test_linter_fail():
     '''Make sure that linter fails if it is not given a source file.'''
     with pytest.raises(TypeError, match=r'.*SourceFile.*expected.*'):
-        Linter(None).check(None)
+        Linter(None, rules).check(None)
 
 
 def test_linter_check():
-    '''Make sure that linter runs through all given rules and hands them
+    '''Make sure that linter runs through all given and hands them
     the right config.'''
-    class TestRule(rules.GenericRule):
+    class TestRule(GenericRule):
         config = {'key': 'default_value'}
 
         @classmethod
@@ -34,7 +36,7 @@ def test_linter_check():
             assert config['key'] == 'default_value'
             rule_report.add('TestRule', 'Location')
 
-    class TestRule2(rules.GenericRule):
+    class TestRule2(GenericRule):
         config = {'key': 'default_value'}
 
         @classmethod
@@ -69,5 +71,5 @@ def test_linter_check():
     }
     reporter = Reporter(handlers=[TestHandler()])
     rule_list = [TestRule2, TestRule]
-    linter = Linter(reporter, config=config, rules=rule_list)
+    linter = Linter(reporter, rule_list, config=config)
     linter.check(SourceFile('test_file'))

@@ -1,98 +1,125 @@
-import re
+from enum import Enum
 
-from loki import FindNodes
-from loki.lint import RuleType, GenericRule
-import loki.ir as ir
+from loki import SourceFile, Module, Subroutine
 
 
-class MaxDummyArgsRule(GenericRule):
+class RuleType(Enum):
+    """
+    Available types for rules with increasing severity.
+    """
 
-    type = RuleType.INFO
+    INFO = 1
+    WARN = 2
+    SERIOUS = 3
+    ERROR = 4
 
-    docs = {
-        'title': 'Routines should have no more than {max_num_arguments} dummy arguments.',
-    }
 
-    config = {
-        'max_num_arguments': 10
-    }
+class GenericRule:
+    '''
+    Generic interface for linter rules providing default values and the
+    general `check` routine that calls the specific entry points to rules
+    (subroutines, modules, and the source file).
+
+    When adding a new rule, it must inherit from :py:class:`GenericRule`
+    and define `type` and provide `title` (and `id`, if applicable) in `docs`.
+    Optional configuration values can be defined in `config` together with
+    the default value for this option. Only the relevant entry points to a
+    rule must be implemented.
+
+    '''
+    type = None
+
+    docs = None
+
+    config = {}
+
+    fixable = False
+
+    deprecated = False
+
+    replaced_by = ()
+
+    @classmethod
+    def check_module(cls, module, rule_report, config):
+        '''
+        Perform rule checks on module level. Must be implemented by
+        a rule if applicable.
+        '''
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
-        """
-        Count the number of dummy arguments and report if given
-        maximum number exceeded.
-        """
-        num_arguments = len(subroutine.arguments)
-        if num_arguments > config['max_num_arguments']:
-            fmt_string = 'Subroutine has {} dummy arguments (should not have more than {})'
-            msg = fmt_string.format(num_arguments, config['max_num_arguments'])
-            rule_report.add(msg, subroutine)
-
-
-class ImplicitNoneRule(GenericRule):
-
-    type = RuleType.SERIOUS
-
-    docs = {
-        'title': '"IMPLICIT NONE" is mandatory in all routines.',
-    }
-
-    _regex = re.compile(r'implicit\s+none\b', re.I)
-
-    @staticmethod
-    def check_for_implicit_none(ast):
-        """
-        Check for intrinsic nodes that match the regex.
-        """
-        for intr in FindNodes(ir.Intrinsic).visit(ast):
-            if ImplicitNoneRule._regex.match(intr.text):
-                break
-        else:
-            return False
-        return True
+        '''
+        Perform rule checks on subroutine level. Must be implemented by
+        a rule if applicable.
+        '''
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
-        """
-        Check for IMPLICIT NONE in the subroutine's spec or any enclosing
-        scope.
-        """
-        found_implicit_none = cls.check_for_implicit_none(subroutine.ir)
-
-        # Check if enclosing scopes contain implicit none
-        scope = subroutine.parent
-        while scope and not found_implicit_none:
-            if hasattr(scope, 'spec') and scope.spec:
-                found_implicit_none = cls.check_for_implicit_none(scope.spec)
-            scope = scope.parent if hasattr(scope, 'parent') else None
-
-        if not found_implicit_none:
-            # No 'IMPLICIT NONE' intrinsic node was found
-            rule_report.add('No "IMPLICIT NONE" found', subroutine)
-
-
-class BannedStatementsRule(GenericRule):
-
-    type = RuleType.WARN
-
-    docs = {
-        'title': 'Banned statements.',
-    }
-
-    config = {
-        'banned': ['GO TO'],
-    }
+    def check_file(cls, sourcefile, rule_report, config):
+        '''
+        Perform rule checks on file level. Must be implemented by
+        a rule if applicable.
+        '''
 
     @classmethod
-    def check_subroutine(cls, subroutine, rule_report, config):
-        '''Check for banned statements in intrinsic nodes.'''
-        for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
-            for keyword in config['banned']:
-                if keyword.lower() in intr.text.lower():
-                    msg = 'Banned keyword "{}"'.format(keyword)
-                    rule_report.add(msg, intr)
+    def check(cls, ast, rule_report, config):
+        '''
+        Perform checks on all entities in the given IR object.
 
+        This routine calls `check_module`, `check_subroutine` and `check_file`
+        as applicable for all entities in the given IR object.
 
-# Create the __all__ property of the module to contain only the rule names
-__all__ = tuple(name for name in dir() if name.endswith('Rule') and name != 'GenericRule')
+        :param ast: the IR object to be checked.
+        :type ast: :py:class:`SourceFile`, :py:class:`Module`, or
+                   :py:class:`Subroutine`
+        :param rule_report: the reporter object for the rule.
+        :type rule_report: :py:class:`RuleReport`
+        :param dict config: a `dict` with the config values.
+
+        '''
+        # Perform checks on source file level
+        if isinstance(ast, SourceFile):
+            cls.check_file(ast, rule_report, config)
+
+            # Then recurse for all modules and subroutines in that file
+            if hasattr(ast, 'modules') and ast.modules is not None:
+                for module in ast.modules:
+                    cls.check(module, rule_report, config)
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
+                    cls.check(subroutine, rule_report, config)
+
+        # Perform checks on module level
+        elif isinstance(ast, Module):
+            cls.check_module(ast, rule_report, config)
+
+            # Then recurse for all subroutines in that module
+            if hasattr(ast, 'subroutines') and ast.subroutines is not None:
+                for subroutine in ast.subroutines:
+                    cls.check(subroutine, rule_report, config)
+
+        # Peform checks on subroutine level
+        elif isinstance(ast, Subroutine):
+            cls.check_subroutine(ast, rule_report, config)
+
+            # Recurse for any procedures contained in a subroutine
+            if hasattr(ast, 'members') and ast.members is not None:
+                for member in ast.members:
+                    cls.check(member, rule_report, config)
+
+    @classmethod
+    def fix_module(cls, module, rule_report, config):
+        '''
+        Fix rule on module level. Must be implemented by a rule if applicable.
+        '''
+
+    @classmethod
+    def fix_subroutine(cls, subroutine, rule_report, config):
+        '''
+        Fix rule on subroutine level. Must be implemented by a rule if applicable.
+        '''
+
+    @classmethod
+    def fix_sourcefile(cls, sourcefile, rule_report, config):
+        '''
+        Fix rule on sourcefile level. Must be implemented by a rule if applicable.
+        '''

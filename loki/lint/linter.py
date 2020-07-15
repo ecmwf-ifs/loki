@@ -1,4 +1,3 @@
-import importlib
 import inspect
 import shutil
 import time
@@ -18,16 +17,16 @@ class Linter:
 
     :param `loki.lint.reporter.Reporter` reporter: the reporter instance to be
         used for problem reporting.
-    :param list rules: (optional) list of rules to check files against. Defaults
-        to all rules in `loki.lint.rules`.
+    :param rules: list of rules to check files against or module that contains
+        the rules.
     :param dict config: (optional) config (e.g., from config file) to change
         behaviour of rules.
     """
-    def __init__(self, reporter, rules=None, config=None):
+    def __init__(self, reporter, rules, config=None):
         self.reporter = reporter
-        if rules is None:
+        if inspect.ismodule(rules):
             rule_names = config.get('rules') if config else None
-            self.rules = Linter.lookup_rules(rule_names=rule_names)
+            self.rules = Linter.lookup_rules(rules, rule_names=rule_names)
         elif config and config.get('rules'):
             self.rules = [rule for rule in rules if rule.__name__ in config.get('rules')]
         else:
@@ -36,37 +35,32 @@ class Linter:
         self.update_config(config)
 
     @staticmethod
-    def lookup_rules(rule_names=None, rule_module=None):
+    def lookup_rules(rules_module, rule_names=None):
         """
         Return list of all rules available or all rules contained in the given list of names.
 
+        :param rules_module: the module in which rules are implemented.
         :param list rule_names: (optional) list of rule names to look for.
-        :param rule_module: (optional) module in which to look for rules, defaults to
-            `loki.lint.rules`.
 
         :return: list of rules.
         """
-        if rule_module is None:
-            rule_module = importlib.import_module('loki.lint.rules')
         rule_list = inspect.getmembers(
-            rule_module, lambda obj: inspect.isclass(obj) and obj.__name__ in rule_module.__all__)
+            rules_module, lambda obj: inspect.isclass(obj) and obj.__name__ in rules_module.__all__)
         if rule_names is not None:
             rule_list = [r for r in rule_list if r[0] in rule_names]
         return [r[1] for r in rule_list]
 
     @staticmethod
-    def default_config(rules=None):
+    def default_config(rules):
         """
         Return default configuration for all rules.
 
-        :param list rules: (optional) list of rules, defaults to the return value of
-            `lookup_rules`.
+        :param rules: list of rules or module in which rules are implemented.
+        :return: `dict` with the list of rule names and the default
+            configuration values for each rule.
         """
-        config = {}
-        if rules is None:
-            rules = Linter.lookup_rules()
         # List of rules
-        config['rules'] = [rule.__name__ for rule in rules]
+        config = {'rules': [rule.__name__ for rule in rules]}
         # Default options for rules
         for rule in rules:
             config[rule.__name__] = rule.config
