@@ -189,29 +189,29 @@ def inline_labels(ir):
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
-def process_dimension_pragmas(typedef):
+def process_dimension_pragmas(ir):
     """
     Process any '!$loki dimension' pragmas to override deferred dimensions
+
+    Note that this assumes `inline_pragmas` has been run on :param ir: to
+    attach any pragmas to the `Declaration` nodes.
     """
-    pragmas = {p._source.lines[0]: p for p in typedef.pragmas}
-    for decl in typedef.declarations:
-        # Map pragmas by declaration line, not var line
-        if decl._source.lines[0]-1 in pragmas:
-            pragma = pragmas[decl._source.lines[0]-1]
+    for decl in FindNodes(Declaration).visit(ir):
+        if decl.pragma and decl.pragma.keyword == 'loki' and decl.pragma.content.startswith('dimension'):
             for v in decl.variables:
-                if pragma.keyword == 'loki' and pragma.content.startswith('dimension'):
-                    # Found dimension override for variable
-                    dims = pragma.content.split('dimension(')[-1]
-                    dims = dims.split(')')[0].split(',')
-                    dims = [d.strip() for d in dims]
-                    shape = []
-                    for d in dims:
-                        if d.isnumeric():
-                            shape += [Literal(value=int(d), type=DataType.INTEGER)]
-                        else:
-                            _type = SymbolType(DataType.INTEGER)
-                            shape += [Variable(name=d, scope=typedef.symbols, type=_type)]
-                    v.type = v.type.clone(shape=as_tuple(shape))
+                # Found dimension override for variable
+                dims = decl.pragma.content.split('dimension(')[-1]
+                dims = dims.split(')')[0].split(',')
+                dims = [d.strip() for d in dims]
+                shape = []
+                for d in dims:
+                    if d.isnumeric():
+                        shape += [Literal(value=int(d), type=DataType.INTEGER)]
+                    else:
+                        _type = SymbolType(DataType.INTEGER)
+                        shape += [Variable(name=d, scope=v.scope, type=_type)]
+                v.type = v.type.clone(shape=as_tuple(shape))
+    return ir
 
 
 def read_file(file_path):

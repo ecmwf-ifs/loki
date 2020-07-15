@@ -85,7 +85,7 @@ class FortranCTransformation(Transformation):
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
             vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
             declarations += (Declaration(variables=(vnew,)),)
-        return TypeDef(name=typename.lower(), bind_c=True, declarations=declarations, symbols=symbols)
+        return TypeDef(name=typename.lower(), bind_c=True, body=declarations, symbols=symbols)
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -267,7 +267,7 @@ class FortranCTransformation(Transformation):
                         variables += [v.clone(name=v.name.lower())]
                 declarations += [Declaration(variables=variables, dimensions=decl.dimensions,
                                              comment=decl.comment, pragma=decl.pragma)]
-            td.declarations = declarations
+            td = td.clone(body=declarations)
             spec += [td]
 
         # Re-generate header module without subroutines

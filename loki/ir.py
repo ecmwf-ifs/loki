@@ -624,23 +624,24 @@ class TypeDef(Node):
     declarations without having them show up in the enclosing scope.
     """
 
-    _traversable = ['declarations']
+    _traversable = ['body']
 
-    def __init__(self, name, declarations, bind_c=False, comments=None, pragmas=None, symbols=None,
-                 **kwargs):
+    def __init__(self, name, body, bind_c=False, symbols=None, **kwargs):
         super(TypeDef, self).__init__(**kwargs)
-
-        assert is_iterable(declarations) and all(isinstance(d, Declaration) for d in declarations)
-        assert comments is None or (is_iterable(comments) and
-                                    all(isinstance(c, (Comment, CommentBlock)) for c in comments))
+        assert is_iterable(body)
 
         self.name = name
-        self.declarations = as_tuple(declarations)
-        self.comments = as_tuple(comments) if comments else None
-        self.pragmas = pragmas
+        self.body = as_tuple(body)
         self.bind_c = bind_c
-
         self.symbols = symbols if symbols is not None else TypeTable()
+
+    @property
+    def declarations(self):
+        return as_tuple(c for c in self.body if isinstance(c, Declaration))
+
+    @property
+    def comments(self):
+        return as_tuple(c for c in self.body if isinstance(c, Comment))
 
     @property
     def variables(self):
