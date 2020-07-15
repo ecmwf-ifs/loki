@@ -1,6 +1,5 @@
 from pathlib import Path
 from collections import deque
-import glob
 import networkx as nx
 try:
     import graphviz as gviz
@@ -11,7 +10,7 @@ from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import SourceFile
-from loki.tools import as_tuple
+from loki.tools import as_tuple, find_files
 from loki.logging import info, warning, error
 
 
@@ -128,9 +127,9 @@ class TaskScheduler:
         :param source: Name of the source routine to locate.
         """
         for path in self.paths:
-                path_string = '%s/**/%s%s' % (str(path), source, suffix)
-                locs = glob.glob(path_string, recursive=True)
             for suffix in self.source_suffixes:
+                filename = '{}{}'.format(source, suffix)
+                locs = find_files(filename, path)
                 if len(locs) > 0:
                     source_path = Path(locs[0])
                     if source_path.exists():

@@ -1,6 +1,8 @@
 import os
+import re
 import time
 import pickle
+import fnmatch
 import tempfile
 from copy import deepcopy
 from functools import wraps
@@ -12,7 +14,8 @@ from loki.logging import log, info, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
-           'filehash', 'truncate_string', 'JoinableStringList', 'strip_inline_comments']
+           'filehash', 'truncate_string', 'JoinableStringList', 'strip_inline_comments',
+           'find_files']
 
 
 def as_tuple(item, type=None, length=None):
@@ -175,6 +178,19 @@ def truncate_string(string, length=16, continuation='...'):
     if len(string) > length:
         return string[:length - len(continuation)] + continuation
     return string
+
+
+def find_files(pattern, srcdir='.'):
+    """
+    Case-insensitive alternative for glob patterns that recursively
+    walks all sub-directories and matches a case-insensitive regex pattern.
+
+    Basic idea from:
+    http://stackoverflow.com/questions/8151300/ignore-case-in-glob-on-linux
+    """
+    rule = re.compile(fnmatch.translate(pattern), re.IGNORECASE)
+    return [Path(dirpath)/fname for dirpath, _, fnames in os.walk(str(srcdir))
+            for fname in fnames if rule.match(fname)]
 
 
 class JoinableStringList:
