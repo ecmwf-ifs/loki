@@ -972,6 +972,8 @@ class FParser2IR(GenericVisitor):
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt
+    visit_Backspace_Stmt = visit_Intrinsic_Stmt
+    visit_Rewind_Stmt = visit_Intrinsic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
         return ir.PreprocessorDirective(text=o.tostr(), source=kwargs.get('source'))
@@ -1079,6 +1081,25 @@ class FParser2IR(GenericVisitor):
         return self.visit(o.items[0], **kwargs)
 
     visit_Case_Value_Range = visit_Subscript_Triplet
+
+    def visit_Select_Type_Construct(self, o, **kwargs):
+        # The banter before the construct...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, Fortran2003.Select_Type_Stmt):
+                select_stmt = ch
+                break
+            banter += [self.visit(ch, **kwargs)]
+        else:
+            select_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
+        # Extract source by looking at everything between SELECT and END SELECT
+        end_select_stmt = rget_child(o, Fortran2003.End_Select_Type_Stmt)
+        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+        label = self.get_label(select_stmt)
+        # TODO: Treat this with a dedicated IR node (LOKI-33)
+        return (*banter, ir.Intrinsic(text=string, label=label, source=source))
 
     def visit_Data_Stmt_Set(self, o, **kwargs):
         # TODO: actually parse the statements
