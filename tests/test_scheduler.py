@@ -24,9 +24,9 @@ Test directory structure
 
  - projB:
    - external
-     - ext_driver
+     - ext_driver_mod
    - module
-     - ext_kernel
+     - ext_kernel_mod
 
  - projC:
    - util
@@ -276,7 +276,7 @@ def test_scheduler_process(here):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_multiple_projects():
+def test_scheduler_taskgraph_multiple_combined(here):
     """
     Create a single task graph spanning two projects
 
@@ -284,7 +284,36 @@ def test_scheduler_multiple_projects():
                          |
     projB:          ext_driver -> ext_kernel
     """
-    pass
+    projA = here/'sources/projA'
+    projB = here/'sources/projB'
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routines': [],
+    }
+
+    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
+    scheduler.append('driverB')
+    scheduler.populate()
+
+    expected_nodes = ['driverB', 'kernelb', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel']
+    expected_edges = [
+        'driverB -> kernelb',
+        'kernelb -> compute_l1',
+        'compute_l1 -> compute_l2',
+        'kernelb -> ext_driver',
+        'ext_driver -> ext_kernel'
+    ]
+    nodes = [n.name for n in scheduler.taskgraph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    assert all(n in nodes for n in expected_nodes)
+    assert all(e in edges for e in expected_edges)
 
 
 def test_scheduler_multiple_projects_ignore():
