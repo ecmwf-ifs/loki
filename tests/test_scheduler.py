@@ -38,7 +38,7 @@ Test directory structure
 import pytest
 from pathlib import Path
 
-from loki import TaskScheduler, FP
+from loki import Scheduler, FP
 
 
 @pytest.fixture(scope='module', name='here')
@@ -67,8 +67,8 @@ def test_scheduler_taskgraph_simple(here):
         'routines': []
     }
 
-    scheduler = TaskScheduler(paths=projA, includes=projA/'include',
-                              config=config, frontend=FP)
+    scheduler = Scheduler(paths=projA, includes=projA/'include',
+                          config=config, frontend=FP)
     scheduler.append('driverA')
     scheduler.populate()
 
@@ -109,8 +109,8 @@ def test_scheduler_taskgraph_blocked(here):
         'routines': []
     }
 
-    scheduler = TaskScheduler(paths=projA, includes=projA/'include',
-                              config=config, frontend=FP)
+    scheduler = Scheduler(paths=projA, includes=projA/'include',
+                          config=config, frontend=FP)
     scheduler.append('driverA')
     scheduler.populate()
 

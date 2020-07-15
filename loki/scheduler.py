@@ -14,7 +14,7 @@ from loki.tools import as_tuple, find_files
 from loki.logging import info, warning, error
 
 
-__all__ = ['Task', 'TaskScheduler']
+__all__ = ['Task', 'Scheduler']
 
 
 class Task:
@@ -76,7 +76,7 @@ class Task:
         self.routine.enrich_calls(routines=routines)
 
 
-class TaskScheduler:
+class Scheduler:
     """
     Work queue manager to enqueue and process individual :class:`Task`
     routines/modules with a given kernel.
