@@ -12,7 +12,7 @@ from loki.logging import log, info, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
-           'filehash', 'truncate_string', 'JoinableStringList'', 'strip_inline_comments']
+           'filehash', 'truncate_string', 'JoinableStringList', 'strip_inline_comments']
 
 
 def as_tuple(item, type=None, length=None):

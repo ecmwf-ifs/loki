@@ -664,7 +664,7 @@ class FParser2IR(GenericVisitor):
         typedef = ir.TypeDef(name=name, body=[], source=source, label=kwargs.get('label'))
         # Create declarations and update the parent typedef
         component_nodes = (Fortran2003.Component_Part, Fortran2003.Comment)
-        body = flatten([self.visit(i, scope=typedef, **kwargs)# for i in o.content])
+        body = flatten([self.visit(i, scope=typedef, **kwargs)
                         for i in walk(o.content, component_nodes)])
         # Infer any additional shape information from `!$loki dimension` pragmas
         # Note that this needs to be done before we create `dtype` below, to allow
@@ -724,10 +724,6 @@ class FParser2IR(GenericVisitor):
             obj = ir.WhileLoop(condition=variable, body=body, loop_label=loop_label,
                                label=label, name=construct_name, has_end_do=has_end_do, source=source)
         return (*banter, obj, )
-
-    visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
-
-    visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
 
     visit_Block_Label_Do_Construct = visit_Block_Nonlabel_Do_Construct
 
