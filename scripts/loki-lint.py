@@ -108,8 +108,8 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
                     'output and escalates exceptions (for debugger use).'))
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
-@click.option('--rules-module', default='lint_rules_ifs', show_default=True,
-              help='Select Python module in lint_rules with rules.')
+@click.option('--rules-module', default='ifs_coding_standards_2011', show_default=True,
+              help='Select Python module with rules in lint_rules.')
 @click.pass_context
 def cli(ctx, debug, log, rules_module):  # pylint:disable=redefined-outer-name
     ctx.obj['DEBUG'] = debug

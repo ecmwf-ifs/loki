@@ -8,7 +8,7 @@ from loki.lint import Reporter, Linter, DefaultHandler
 
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
-    rules = importlib.import_module('lint_rules.lint_rules_ifs')
+    rules = importlib.import_module('lint_rules.ifs_coding_standards_2011')
     return rules
 
 
