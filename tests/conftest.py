@@ -3,15 +3,12 @@ import contextlib
 import os
 import io
 
-from loki import (
-    SourceFile, fgen, FP, OFP, OMNI, compile_and_load, FindNodes, CallStatement, Linter,
-    Reporter, DefaultHandler)
+from loki import SourceFile, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement
 from loki.tools import gettempdir, filehash
 
 
 __all__ = ['generate_identity', 'jit_compile', 'clean_test', 'clean_preprocessing',
-           'stdchannel_redirected', 'stdchannel_is_captured', 'generate_linter',
-           'generate_report_handler']
+           'stdchannel_redirected', 'stdchannel_is_captured']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -169,33 +166,3 @@ def stdchannel_is_captured(capsys):
 
     capturemanager = capsys.request.config.pluginmanager.getplugin("capturemanager")
     return capturemanager._global_capturing.out is not None
-
-
-def generate_linter(refpath, rules, config=None, frontend=FP, handlers=None):
-    """
-    Run the linter for the given source file with the specified list of rules.
-    """
-    source = SourceFile.from_file(refpath, frontend=frontend)
-    reporter = Reporter(handlers)
-    linter = Linter(reporter, rules=rules, config=config)
-    linter.check(source)
-    return linter
-
-
-def generate_report_handler(handler_cls=None):
-    """
-    Creates a handler for use with :py:class:`loki.lint.Reporter` that buffers
-    all produced messages in a list that can then be inspected.
-    """
-    class DummyLogger:
-
-        def __init__(self):
-            self.messages = []
-
-        def __call__(self, msg):
-            self.messages += [msg]
-
-    handler_cls = handler_cls or DefaultHandler
-    logger_target = DummyLogger()
-    handler = handler_cls(target=logger_target)
-    return handler
