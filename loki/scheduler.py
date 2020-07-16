@@ -29,12 +29,13 @@ class Task:
     """
 
     def __init__(self, name, config, path, graph=None, xmods=None,
-                 includes=None, typedefs=None, frontend=FP):
+                 includes=None, builddir=None, typedefs=None, frontend=FP):
         self.name = name
         self.path = path
         self.file = None
         self.routine = None
         self.graph = graph
+        self.frontend = frontend
 
         # Generate item-specific config settings
         self.config = config['default'].copy()
@@ -46,6 +47,7 @@ class Task:
                 # Read and parse source file and extract subroutine
                 self.file = SourceFile.from_file(path, preprocess=True,
                                                  xmods=xmods, includes=includes,
+                                                 builddir=builddir,
                                                  typedefs=typedefs, frontend=frontend)
                 self.routine = self.file.all_subroutines[0]
 
@@ -94,7 +96,7 @@ class Scheduler:
     source_suffixes = ['.f90', '_mod.f90']
 
     def __init__(self, paths, config=None, xmods=None, includes=None,
-                 typedefs=None, frontend=FP):
+                 builddir=None, typedefs=None, frontend=FP):
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.config = config
         self.xmods = xmods
@@ -103,6 +105,8 @@ class Scheduler:
         self.frontend = frontend
         # TODO: Remove; should be done per item
         self.blacklist = []
+
+        self.builddir = builddir
 
         self.taskgraph = nx.DiGraph()
 
@@ -148,6 +152,7 @@ class Scheduler:
                         path=self.find_path(source),
                         graph=self.graph, xmods=self.xmods,
                         includes=self.includes, typedefs=self.typedefs,
+                        builddir=self.builddir,
                         frontend=self.frontend)
             self.queue.append(item)
             self.item_map[source] = item
@@ -217,6 +222,7 @@ class Scheduler:
                     source = SourceFile.from_file(path, preprocess=True,
                                                   xmods=self.xmods,
                                                   includes=self.includes,
+                                                  builddir=self.builddir,
                                                   typedefs=self.typedefs,
                                                   frontend=self.frontend)
                     item.routine.enrich_calls(source.all_subroutines)

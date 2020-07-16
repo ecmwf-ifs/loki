@@ -54,9 +54,11 @@ class SourceFile:
             return cls.from_omni(filename, typedefs=typedefs, xmods=xmods,
                                  includes=includes, builddir=builddir)
         if frontend == OFP:
-            return cls.from_ofp(filename, preprocess=preprocess, typedefs=typedefs)
+            return cls.from_ofp(filename, typedefs=typedefs,
+                                preprocess=preprocess, builddir=builddir)
         if frontend == FP:
-            return cls.from_fparser(filename, preprocess=preprocess, typedefs=typedefs)
+            return cls.from_fparser(filename, typedefs=typedefs,
+                                    preprocess=preprocess, builddir=builddir)
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
@@ -106,7 +108,7 @@ class SourceFile:
         return obj
 
     @classmethod
-    def from_ofp(cls, filename, preprocess=False, typedefs=None):
+    def from_ofp(cls, filename, preprocess=False, typedefs=None, builddir=None):
         """
         Parse a given source file with the OFP frontend to instantiate
         a `SourceFile` object.
@@ -119,6 +121,10 @@ class SourceFile:
         # terms due to advanced bugged-ness! :(
         if preprocess:
             pp_path = file_path.with_suffix('.ofp%s' % file_path.suffix)
+            if builddir is not None:
+                pp_path = Path(builddir)/pp_path.name
+                info_path = Path(builddir)/info_path.name
+
             cls.preprocess(OFP, file_path, pp_path, info_path)
             file_path = pp_path
 
@@ -160,7 +166,7 @@ class SourceFile:
         return obj
 
     @classmethod
-    def from_fparser(cls, filename, preprocess=False, typedefs=None):
+    def from_fparser(cls, filename, typedefs=None, preprocess=False, builddir=None):
         file_path = Path(filename)
         info_path = file_path.with_suffix('.fp.info')
 
@@ -169,6 +175,10 @@ class SourceFile:
         # terms due to missing features in FP
         if preprocess:
             pp_path = file_path.with_suffix('.fp%s' % file_path.suffix)
+            if builddir is not None:
+                pp_path = Path(builddir)/pp_path.name
+                info_path = Path(builddir)/info_path.name
+
             cls.preprocess(FP, file_path, pp_path, info_path)
             file_path = pp_path
 

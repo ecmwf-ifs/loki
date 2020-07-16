@@ -38,6 +38,7 @@ Test directory structure
 """
 
 import pytest
+import shutil
 from pathlib import Path
 from collections import OrderedDict
 
@@ -51,7 +52,18 @@ def fixture_here():
     return Path(__file__).parent
 
 
-def test_scheduler_taskgraph_simple(here):
+@pytest.fixture(scope='module', name='builddir')
+def fixture_builddir(here):
+    builddir = here/'build'
+    builddir.mkdir(parents=True, exist_ok=True)
+    yield builddir
+
+    # Clean up after us
+    if builddir.exists():
+        shutil.rmtree(builddir)
+
+
+def test_scheduler_taskgraph_simple(here, builddir):
     """
     Create a simple task graph from a single sub-project:
 
@@ -73,7 +85,7 @@ def test_scheduler_taskgraph_simple(here):
     }
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
-                          config=config, frontend=FP)
+                          config=config, builddir=builddir)
     scheduler.append('driverA')
     scheduler.populate()
 
@@ -93,7 +105,7 @@ def test_scheduler_taskgraph_simple(here):
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_taskgraph_partial(here):
+def test_scheduler_taskgraph_partial(here, builddir):
     """
     Create a simple task graph from a single sub-project:
 
@@ -127,7 +139,7 @@ def test_scheduler_taskgraph_partial(here):
     # reads we do in the current all-physics demonstrator. Needs internalising!
     config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
     scheduler.append('driverA')
     scheduler.populate()
 
@@ -138,7 +150,7 @@ def test_scheduler_taskgraph_partial(here):
     assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
 
 
-def test_scheduler_taskgraph_blocked(here):
+def test_scheduler_taskgraph_blocked(here, builddir):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -160,7 +172,7 @@ def test_scheduler_taskgraph_blocked(here):
     }
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
-                          config=config, frontend=FP)
+                          config=config, builddir=builddir)
     scheduler.append('driverA')
     scheduler.populate()
 
@@ -182,7 +194,7 @@ def test_scheduler_taskgraph_blocked(here):
     assert 'another_l1 -> another_l2' not in edges
 
 
-def test_scheduler_typedefs(here):
+def test_scheduler_typedefs(here, builddir):
     """
     Create a simple task graph with and inject type info via `typedef`s.
 
@@ -204,10 +216,11 @@ def test_scheduler_typedefs(here):
         'routines': []
     }
 
-    header = SourceFile.from_file(projA/'module/header_mod.f90', frontend=FP)
+    header = SourceFile.from_file(projA/'module/header_mod.f90',
+                                  builddir=builddir, frontend=FP)
 
     scheduler = Scheduler(paths=projA, typedefs=header['header_mod'].typedefs,
-                          includes=projA/'include', config=config, frontend=FP)
+                          includes=projA/'include', config=config, builddir=builddir)
     scheduler.append('driverA')
     scheduler.populate()
 
@@ -219,7 +232,7 @@ def test_scheduler_typedefs(here):
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 
-def test_scheduler_process(here):
+def test_scheduler_process(here, builddir):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
@@ -255,7 +268,7 @@ def test_scheduler_process(here):
     }
     config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
     scheduler.append(config['routines'].keys())
     scheduler.populate()
 
@@ -278,7 +291,7 @@ def test_scheduler_process(here):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_taskgraph_multiple_combined(here):
+def test_scheduler_taskgraph_multiple_combined(here, builddir):
     """
     Create a single task graph spanning two projects
 
@@ -300,7 +313,8 @@ def test_scheduler_taskgraph_multiple_combined(here):
         'routines': [],
     }
 
-    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include',
+                          config=config, builddir=builddir)
     scheduler.append('driverB')
     scheduler.populate()
 
@@ -318,7 +332,7 @@ def test_scheduler_taskgraph_multiple_combined(here):
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_taskgraph_multiple_separate(here):
+def test_scheduler_taskgraph_multiple_separate(here, builddir):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -355,7 +369,8 @@ def test_scheduler_taskgraph_multiple_separate(here):
     # reads we do in the current all-physics demonstrator. Needs internalising!
     config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
+    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include',
+                           config=config, builddir=builddir)
     schedulerA.append('driverB')
     schedulerA.populate()
 
@@ -388,7 +403,7 @@ def test_scheduler_taskgraph_multiple_separate(here):
     # reads we do in the current all-physics demonstrator. Needs internalising!
     config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
 
-    schedulerB = Scheduler(paths=projB, config=config)
+    schedulerB = Scheduler(paths=projB, config=config, builddir=builddir)
     schedulerB.append('ext_driver')
     schedulerB.populate()
 
@@ -405,7 +420,7 @@ def test_scheduler_taskgraph_multiple_separate(here):
     assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
 
 
-def test_scheduler_module_dependency(here):
+def test_scheduler_module_dependency(here, builddir):
     """
     Ensure dependency chasing is done correctly, even with surboutines
     that do not match module names.
@@ -428,7 +443,8 @@ def test_scheduler_module_dependency(here):
         'routines': [],
     }
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
+                          config=config, builddir=builddir)
     scheduler.append('driverC')
     scheduler.populate()
 
