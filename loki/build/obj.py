@@ -71,21 +71,21 @@ class Obj:
 
     @cached_property
     def modules(self):
-        return [m.lower() for m in _re_module.findall(self.source)]
+        return [m for m in _re_module.findall(self.source)]
 
     @cached_property
     def subroutines(self):
-        return [m.lower() for m in _re_subroutine.findall(self.source)]
+        return [m for m in _re_subroutine.findall(self.source)]
 
     @cached_property
     def uses(self):
         if self.source is None:
             return []
-        return [m.lower() for m in _re_use.findall(self.source)]
+        return [m for m in _re_use.findall(self.source)]
 
     @cached_property
     def includes(self):
-        return [m.lower() for m in _re_include.findall(self.source)]
+        return [m for m in _re_include.findall(self.source)]
 
     @property
     def dependencies(self):
