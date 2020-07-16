@@ -316,9 +316,12 @@ def test_scheduler_taskgraph_multiple_combined(here):
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_multiple_projects_ignore():
+def test_scheduler_taskgraph_multiple_separate(here):
     """
-    Create two distinct task graphs using `ignore` to prune the driver graph.
+    Tests combining two scheduler graphs, where that an individual
+    sub-branch is pruned in the driver schedule, while IPA meta-info
+    is still injected to create a seamless jump between two distinct
+    schedules for projA and projB
 
     projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
                          |
@@ -326,21 +329,78 @@ def test_scheduler_multiple_projects_ignore():
 
     projB:            ext_driver -> ext_kernel
     """
-    pass
+    projA = here/'sources/projA'
+    projB = here/'sources/projB'
 
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routine': [
+            {
+                'name': 'kernelb',
+                'role': 'kernel',
+                'ignore': ['ext_driver'],
+                'enrich': ['ext_driver'],
+            },
+        ]
+    }
+    # TODO: Note this is too convoluted, but mimicking the toml file config
+    # reads we do in the current all-physics demonstrator. Needs internalising!
+    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
 
-def test_scheduler_multiple_projects_enrich():
-    """
-    Create two distinct task graphs using `ignore` to prune
-    the driver graph and using `enrich` to enable IPA passes.
+    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
+    schedulerA.append('driverB')
+    schedulerA.populate()
 
-    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
-                         |
-                     <ext_driver>
-                        < >
-    projB:            ext_driver -> ext_kernel
-    """
-    pass
+    expected_nodesA = ['driverB', 'kernelb', 'compute_l1', 'compute_l2']
+    expected_edgesA = ['driverB -> kernelb', 'kernelb -> compute_l1', 'compute_l1 -> compute_l2']
+
+    nodesA = [n.name for n in schedulerA.taskgraph.nodes]
+    edgesA = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerA.taskgraph.edges]
+    assert all(n in nodesA for n in expected_nodesA)
+    assert all(e in edgesA for e in expected_edgesA)
+    assert 'ext_driver' not in nodesA
+    assert 'ext_kernel' not in nodesA
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routine': [
+            {
+                'name': 'ext_driver',
+                'role': 'kernel',
+            },
+        ]
+    }
+    # TODO: Note this is too convoluted, but mimicking the toml file config
+    # reads we do in the current all-physics demonstrator. Needs internalising!
+    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+
+    schedulerB = Scheduler(paths=projB, config=config)
+    schedulerB.append('ext_driver')
+    schedulerB.populate()
+
+    # TODO: Technically we should check that the role=kernel has been honoured in B
+    nodesB = [n.name for n in schedulerB.taskgraph.nodes]
+    edgesB = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerB.taskgraph.edges]
+    assert 'ext_driver' in nodesB
+    assert 'ext_kernel' in nodesB
+    assert 'ext_driver -> ext_kernel' in edgesB
+
+    # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
+    call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelb'].routine.body)[1]
+    assert call.context is not None
+    assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
 
 
 def test_scheduler_module_dependencies():
