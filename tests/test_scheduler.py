@@ -89,13 +89,12 @@ def test_scheduler_taskgraph_simple(here, builddir):
     scheduler.append('driverA')
     scheduler.populate()
 
-    # TODO: Lower-casing of `kernela` is wrong, btu necessary for now. Fix!
-    expected_nodes = ['driverA', 'kernela', 'compute_l1', 'compute_l2', 'another_l1', 'another_l2']
+    expected_nodes = ['driverA', 'kernelA', 'compute_l1', 'compute_l2', 'another_l1', 'another_l2']
     expected_edges = [
-        'driverA -> kernela',
-        'kernela -> compute_l1',
+        'driverA -> kernelA',
+        'kernelA -> compute_l1',
         'compute_l1 -> compute_l2',
-        'kernela -> another_l1',
+        'kernelA -> another_l1',
         'another_l1 -> another_l2'
     ]
 
@@ -176,10 +175,10 @@ def test_scheduler_taskgraph_blocked(here, builddir):
     scheduler.append('driverA')
     scheduler.populate()
 
-    expected_nodes = ['driverA', 'kernela', 'compute_l1', 'compute_l2']
+    expected_nodes = ['driverA', 'kernelA', 'compute_l1', 'compute_l2']
     expected_edges = [
-        'driverA -> kernela',
-        'kernela -> compute_l1',
+        'driverA -> kernelA',
+        'kernelA -> compute_l1',
         'compute_l1 -> compute_l2',
     ]
 
@@ -190,7 +189,7 @@ def test_scheduler_taskgraph_blocked(here, builddir):
 
     assert 'another_l1' not in nodes
     assert 'another_l2' not in nodes
-    assert 'kernela -> another_l1' not in edges
+    assert 'kernelA -> another_l1' not in edges
     assert 'another_l1 -> another_l2' not in edges
 
 
@@ -318,12 +317,12 @@ def test_scheduler_taskgraph_multiple_combined(here, builddir):
     scheduler.append('driverB')
     scheduler.populate()
 
-    expected_nodes = ['driverB', 'kernelb', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel']
+    expected_nodes = ['driverB', 'kernelB', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel']
     expected_edges = [
-        'driverB -> kernelb',
-        'kernelb -> compute_l1',
+        'driverB -> kernelB',
+        'kernelB -> compute_l1',
         'compute_l1 -> compute_l2',
-        'kernelb -> ext_driver',
+        'kernelB -> ext_driver',
         'ext_driver -> ext_kernel'
     ]
     nodes = [n.name for n in scheduler.taskgraph.nodes]
@@ -358,7 +357,7 @@ def test_scheduler_taskgraph_multiple_separate(here, builddir):
         },
         'routine': [
             {
-                'name': 'kernelb',
+                'name': 'kernelB',
                 'role': 'kernel',
                 'ignore': ['ext_driver'],
                 'enrich': ['ext_driver'],
@@ -374,8 +373,8 @@ def test_scheduler_taskgraph_multiple_separate(here, builddir):
     schedulerA.append('driverB')
     schedulerA.populate()
 
-    expected_nodesA = ['driverB', 'kernelb', 'compute_l1', 'compute_l2']
-    expected_edgesA = ['driverB -> kernelb', 'kernelb -> compute_l1', 'compute_l1 -> compute_l2']
+    expected_nodesA = ['driverB', 'kernelB', 'compute_l1', 'compute_l2']
+    expected_edgesA = ['driverB -> kernelB', 'kernelB -> compute_l1', 'compute_l1 -> compute_l2']
 
     nodesA = [n.name for n in schedulerA.taskgraph.nodes]
     edgesA = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerA.taskgraph.edges]
@@ -415,7 +414,7 @@ def test_scheduler_taskgraph_multiple_separate(here, builddir):
     assert 'ext_driver -> ext_kernel' in edgesB
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
-    call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelb'].routine.body)[1]
+    call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
     assert call.context is not None
     assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
 
@@ -448,13 +447,12 @@ def test_scheduler_module_dependency(here, builddir):
     scheduler.append('driverC')
     scheduler.populate()
 
-    expected_nodes = ['driverC', 'kernelc', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two']
+    expected_nodes = ['driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one']
     expected_edges = [
-        'driverC -> kernelc',
-        'kernelc -> compute_l1',
+        'driverC -> kernelC',
+        'kernelC -> compute_l1',
         'compute_l1 -> compute_l2',
-        'kernelc -> routine_one',
-        'routine_one -> routine_two'
+        'kernelC -> routine_one',
     ]
     nodes = [n.name for n in scheduler.taskgraph.nodes]
     edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]

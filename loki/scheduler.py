@@ -1,11 +1,12 @@
 from pathlib import Path
-from collections import deque
+from collections import deque, OrderedDict
 import networkx as nx
 try:
     import graphviz as gviz
 except ImportError:
     gviz = None
 
+from loki.build import Obj
 from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
@@ -71,7 +72,7 @@ class Task:
         Set of all child routines that this work item calls.
         """
         members = [m.name.lower() for m in (self.routine.members or [])]
-        return tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir)
+        return tuple(call.name for call in FindNodes(CallStatement).visit(self.routine.ir)
                      if call.name.lower() not in members)
 
     def enrich(self, routines):
@@ -119,27 +120,29 @@ class Scheduler:
         else:
             self.graph = None
 
+        # Scan all source paths and create light-weight `Obj` objects for each file.
+        obj_list = []
+        for path in self.paths:
+            for ext in Obj._ext:
+                obj_list += [Obj(source_path=f) for f in path.glob('**/*%s' % ext)]
+
+        # Create a map of all potential target routines for fast lookup later
+        self.obj_map = OrderedDict((r, obj) for obj in obj_list for r in obj.subroutines)
+
     @property
     def routines(self):
         return [task.routine for task in self.taskgraph.nodes]
 
-    def find_path(self, source):
+    def find_path(self, routine):
         """
-        Attempts to find a source file from a (no endings) routine
-        name across all specified source locations.
+        Find path of file containing a given routine from the internal `obj_cache`.
 
-        :param source: Name of the source routine to locate.
+        :param routine: Name of the source routine to locate.
         """
-        for path in self.paths:
-            for suffix in self.source_suffixes:
-                filename = '{}{}'.format(source, suffix)
-                locs = find_files(filename, path)
-                if len(locs) > 0:
-                    source_path = Path(locs[0])
-                    if source_path.exists():
-                        return source_path
+        if routine in self.obj_map:
+            return self.obj_map[routine].source_path
 
-        raise RuntimeError("Source path not found: %s" % source)
+        raise RuntimeError("Source path not found for routine: %s" % routine)
 
     def append(self, sources):
         """
