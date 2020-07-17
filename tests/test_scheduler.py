@@ -65,7 +65,7 @@ def fixture_builddir(here):
         shutil.rmtree(builddir)
 
 
-def test_scheduler_taskgraph_simple(here, builddir):
+def test_scheduler_graph_simple(here, builddir):
     """
     Create a simple task graph from a single sub-project:
 
@@ -100,13 +100,13 @@ def test_scheduler_taskgraph_simple(here, builddir):
         'another_l1 -> another_l2'
     ]
 
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_taskgraph_partial(here, builddir):
+def test_scheduler_graph_partial(here, builddir):
     """
     Create a simple task graph from a single sub-project:
 
@@ -145,13 +145,13 @@ def test_scheduler_taskgraph_partial(here, builddir):
     scheduler.populate()
 
     # Check the correct sub-graph is generated
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
     assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
 
 
-def test_scheduler_taskgraph_blocked(here, builddir):
+def test_scheduler_graph_blocked(here, builddir):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -184,8 +184,8 @@ def test_scheduler_taskgraph_blocked(here, builddir):
         'compute_l1 -> compute_l2',
     ]
 
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 
@@ -278,10 +278,7 @@ def test_scheduler_process(here, builddir):
         Simply append role to subroutine names.
         """
         def transform_subroutine(self, routine, **kwargs):
-            # TODO: This needs internalising!
-            # Determine role in bulk-processing use case
-            task = kwargs.get('task', None)
-            role = kwargs.get('role') if task is None else task.role
+            role = kwargs.get('role', None)
             routine.name += '_{}'.format(role)
 
     # Apply re-naming transformation and check result
@@ -292,7 +289,7 @@ def test_scheduler_process(here, builddir):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_taskgraph_multiple_combined(here, builddir):
+def test_scheduler_graph_multiple_combined(here, builddir):
     """
     Create a single task graph spanning two projects
 
@@ -327,13 +324,13 @@ def test_scheduler_taskgraph_multiple_combined(here, builddir):
         'kernelB -> ext_driver',
         'ext_driver -> ext_kernel'
     ]
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_taskgraph_multiple_separate(here, builddir):
+def test_scheduler_graph_multiple_separate(here, builddir):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -378,8 +375,8 @@ def test_scheduler_taskgraph_multiple_separate(here, builddir):
     expected_nodesA = ['driverB', 'kernelB', 'compute_l1', 'compute_l2']
     expected_edgesA = ['driverB -> kernelB', 'kernelB -> compute_l1', 'compute_l1 -> compute_l2']
 
-    nodesA = [n.name for n in schedulerA.taskgraph.nodes]
-    edgesA = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerA.taskgraph.edges]
+    nodesA = [n.name for n in schedulerA.item_graph.nodes]
+    edgesA = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerA.item_graph.edges]
     assert all(n in nodesA for n in expected_nodesA)
     assert all(e in edgesA for e in expected_edgesA)
     assert 'ext_driver' not in nodesA
@@ -409,8 +406,8 @@ def test_scheduler_taskgraph_multiple_separate(here, builddir):
     schedulerB.populate()
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
-    nodesB = [n.name for n in schedulerB.taskgraph.nodes]
-    edgesB = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerB.taskgraph.edges]
+    nodesB = [n.name for n in schedulerB.item_graph.nodes]
+    edgesB = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerB.item_graph.edges]
     assert 'ext_driver' in nodesB
     assert 'ext_kernel' in nodesB
     assert 'ext_driver -> ext_kernel' in edgesB
@@ -457,8 +454,8 @@ def test_scheduler_module_dependency(here, builddir):
         'kernelC -> routine_one',
         'routine_one -> routine_two',
     ]
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 
@@ -504,8 +501,8 @@ def test_scheduler_module_dependencies_unqualified(here, builddir):
         'kernelD -> routine_one',
         'routine_one -> routine_two',
     ]
-    nodes = [n.name for n in scheduler.taskgraph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 

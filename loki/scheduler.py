@@ -15,18 +15,30 @@ from loki.tools import as_tuple, find_files
 from loki.logging import info, warning, error
 
 
-__all__ = ['Task', 'Scheduler']
+__all__ = ['Item', 'Scheduler']
 
 
-class Task:
+class Item:
     """
-    A work item that represents a single source routine or module to
-    be processed. Each :class:`Task` spawns new work items according
-    to its own subroutine calls and the scheduler's blacklist.
+    A work item that represents a single source routine to be
+    processed. Each `Item` spawns new work items according to its own
+    subroutine calls and can be configured to ignore individual sub-tree.
 
     Note: Each work item may have its own configuration settings that
     primarily inherit values from the 'default', but can be
-    specialised explicitly in the config file.
+    specialised explicitly in the config file or dictionary.
+
+    :param name: Name to identify items in the schedulers graph.
+    :param role: Role string to pass to the `Transformation` (eg. "kernel")
+    :param expand: Flag to generally enable/disable expansion under this node.
+    :param ignore: Individual list of subroutine calls to "ignore" during expansion.
+                   The routines will still be added to the schedulers tree, but not
+                   followed during expansion.
+    :param enrich: List of subroutines that should still be searched for and used to
+                   "enrich" `CallStatement` nodes in this `Item` for inter-procedural
+                   transformation passes.
+    :param blocked: List of subroutines that should should not be added to the scheduler
+                    tree. Note, these might still be shown in the graph visulisation.
     """
 
     def __init__(self, name, role, path, expand=True, ignore=None, enrich=None,
@@ -80,7 +92,7 @@ class Task:
 
 class Scheduler:
     """
-    Work queue manager to enqueue and process individual :class:`Task`
+    Work queue manager to enqueue and process individual `Item`
     routines/modules with a given kernel.
 
     Note: The processing module can create a callgraph and perform
@@ -101,18 +113,15 @@ class Scheduler:
         self.config = config
         self.xmods = xmods
         self.includes = includes
+        self.builddir = builddir
         self.typedefs = typedefs
         self.frontend = frontend
-        # TODO: Remove; should be done per item
-        self.blacklist = []
 
-        self.builddir = builddir
-
-        self.taskgraph = nx.DiGraph()
+        self.item_graph = nx.DiGraph()
+        self.item_map = {}
 
         self.queue = deque()
         self.processed = []
-        self.item_map = {}
 
         if gviz is not None:
             self.graph = gviz.Digraph(format='pdf', strict=True)
@@ -130,7 +139,7 @@ class Scheduler:
 
     @property
     def routines(self):
-        return [task.routine for task in self.taskgraph.nodes]
+        return [item.routine for item in self.item_graph.nodes]
 
     def find_path(self, routine):
         """
@@ -156,7 +165,7 @@ class Scheduler:
             if source in self.config['routines']:
                 rconf.update(self.config['routines'][source])
 
-            item = Task(name=source, path=self.find_path(source), role=rconf.get('role'),
+            item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
                         expand=rconf.get('expand', self.config['default']['expand']),
                         ignore=rconf.get('ignore', None), enrich=rconf.get('enrich', None),
                         blocked=rconf.get('blacklist', None),
@@ -166,7 +175,7 @@ class Scheduler:
             self.queue.append(item)
             self.item_map[source] = item
 
-            self.taskgraph.add_node(item)
+            self.item_graph.add_node(item)
 
     def populate(self):
         """
@@ -206,7 +215,7 @@ class Scheduler:
 
                     self.append(child)
 
-                    self.taskgraph.add_edge(item, self.item_map[child])
+                    self.item_graph.add_edge(item, self.item_map[child])
 
                     # Append newly created edge to graph
                     if self.graph:
@@ -216,7 +225,7 @@ class Scheduler:
                         self.graph.edge(item.name.upper(), child.upper())
 
         # Enrich subroutine calls for inter-procedural transformations
-        for item in self.taskgraph:
+        for item in self.item_graph:
             item.routine.enrich_calls(routines=self.routines)
 
             for routine in item.enrich:
@@ -236,18 +245,18 @@ class Scheduler:
         order, which ensures that :class:`CallStatement`s are always processed
         before their target :class:`Subroutine`s.
         """
-        for task in nx.topological_sort(self.taskgraph):
+        for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel
-            transformation.apply(task.routine, task=task, processor=self)
+            transformation.apply(item.routine, role=item.role)
 
             # Mark item as processed in list and graph
-            self.processed.append(task)
+            self.processed.append(item)
 
             if self.graph:
-                if task.name in self.config.get('whitelist', []):
-                    self.graph.node(task.name.upper(), color='black', shape='diamond',
+                if item.name in self.config.get('whitelist', []):
+                    self.graph.node(item.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:
-                    self.graph.node(task.name.upper(), color='black',
+                    self.graph.node(item.name.upper(), color='black',
                                     fillcolor='limegreen', style='filled')
