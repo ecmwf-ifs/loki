@@ -45,6 +45,8 @@ class SchedulerConfig:
     @classmethod
     def from_dict(cls, config):
         default = config['default']
+        if 'routine' in config:
+            config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         routines = config['routines']
         blocked = default.get('blocked', None)
         replicated = default.get('replicated', None)
@@ -57,7 +59,6 @@ class SchedulerConfig:
         with Path(path).open('r') as f:
             config = toml.load(f)
 
-        config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         return cls.from_dict(config)
 
 

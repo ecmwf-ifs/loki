@@ -65,7 +65,23 @@ def fixture_builddir(here):
         shutil.rmtree(builddir)
 
 
-def test_scheduler_graph_simple(here, builddir):
+@pytest.fixture(name='config')
+def fixture_config():
+    """
+    Default configuration dict with basic options.
+    """
+    return {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+        },
+        'routines': []
+    }
+
+
+def test_scheduler_graph_simple(here, builddir, config):
     """
     Create a simple task graph from a single sub-project:
 
@@ -74,17 +90,6 @@ def test_scheduler_graph_simple(here, builddir):
                            | --> another_l1 -> another_l2
     """
     projA = here/'sources/projA'
-
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
-        },
-        'routines': []
-    }
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
                           config=config, builddir=builddir)
@@ -106,7 +111,7 @@ def test_scheduler_graph_simple(here, builddir):
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_graph_partial(here, builddir):
+def test_scheduler_graph_partial(here, builddir, config):
     """
     Create a sub-graph from a select set of branches in  single project:
 
@@ -116,29 +121,17 @@ def test_scheduler_graph_partial(here, builddir):
     """
     projA = here/'sources/projA'
 
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
+    config['routine'] = [
+        {
+            'name': 'compute_l1',
+            'role': 'driver',
             'expand': True,
-            'strict': True,
-            'blacklist': []
+        }, {
+            'name': 'another_l1',
+            'role': 'driver',
+            'expand': True,
         },
-        'routine': [
-            {
-                'name': 'compute_l1',
-                'role': 'driver',
-                'expand': True,
-            }, {
-                'name': 'another_l1',
-                'role': 'driver',
-                'expand': True,
-            },
-        ]
-    }
-    # TODO: Note this is too convoluted, but mimicking the toml file config
-    # reads we do in the current all-physics demonstrator. Needs internalising!
-    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+    ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
     scheduler.append('driverA')
@@ -174,7 +167,7 @@ def test_scheduler_graph_config_file(here, builddir):
     assert 'compute_l2' not in nodes  # We're blocking `compute_l2` in config file
 
 
-def test_scheduler_graph_blocked(here, builddir):
+def test_scheduler_graph_blocked(here, builddir, config):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -184,16 +177,7 @@ def test_scheduler_graph_blocked(here, builddir):
     """
     projA = here/'sources/projA'
 
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blocked': ['another_l1']
-        },
-        'routines': []
-    }
+    config['default']['blocked'] = ['another_l1']
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
                           config=config, builddir=builddir)
@@ -218,7 +202,7 @@ def test_scheduler_graph_blocked(here, builddir):
     assert 'another_l1 -> another_l2' not in edges
 
 
-def test_scheduler_typedefs(here, builddir):
+def test_scheduler_typedefs(here, builddir, config):
     """
     Create a simple task graph with and inject type info via `typedef`s.
 
@@ -228,17 +212,6 @@ def test_scheduler_typedefs(here, builddir):
                            | --> another_l1 -> another_l2
     """
     projA = here/'sources/projA'
-
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
-        },
-        'routines': []
-    }
 
     header = SourceFile.from_file(projA/'module/header_mod.f90',
                                   builddir=builddir, frontend=FP)
@@ -256,7 +229,7 @@ def test_scheduler_typedefs(here, builddir):
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 
-def test_scheduler_process(here, builddir):
+def test_scheduler_process(here, builddir, config):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
@@ -269,31 +242,20 @@ def test_scheduler_process(here, builddir):
     """
     projA = here/'sources/projA'
 
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
+    config['routine'] = [
+        {
+            'name': 'compute_l1',
+            'role': 'driver',
             'expand': True,
-            'strict': True,
-            'blacklist': [],
-            'whitelist': [],
+        }, {
+            'name': 'another_l1',
+            'role': 'driver',
+            'expand': True,
         },
-        'routine': [
-            {
-                'name': 'compute_l1',
-                'role': 'driver',
-                'expand': True,
-            }, {
-                'name': 'another_l1',
-                'role': 'driver',
-                'expand': True,
-            },
-        ]
-    }
-    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+    ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
-    scheduler.append(config['routines'].keys())
+    scheduler.append([r['name'] for r in config['routine']])
     scheduler.populate()
 
     class AppendRole(Transformation):
@@ -312,7 +274,7 @@ def test_scheduler_process(here, builddir):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_graph_multiple_combined(here, builddir):
+def test_scheduler_graph_multiple_combined(here, builddir, config):
     """
     Create a single task graph spanning two projects
 
@@ -322,17 +284,6 @@ def test_scheduler_graph_multiple_combined(here, builddir):
     """
     projA = here/'sources/projA'
     projB = here/'sources/projB'
-
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
-        },
-        'routines': [],
-    }
 
     scheduler = Scheduler(paths=[projA, projB], includes=projA/'include',
                           config=config, builddir=builddir)
@@ -353,7 +304,7 @@ def test_scheduler_graph_multiple_combined(here, builddir):
     assert all(e in edges for e in expected_edges)
 
 
-def test_scheduler_graph_multiple_separate(here, builddir):
+def test_scheduler_graph_multiple_separate(here, builddir, config):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -369,29 +320,18 @@ def test_scheduler_graph_multiple_separate(here, builddir):
     projA = here/'sources/projA'
     projB = here/'sources/projB'
 
-    config = {
-        'default': {
-            'mode': 'idem',
+    configA = config.copy()
+    configA['routine'] = [
+        {
+            'name': 'kernelB',
             'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
+            'ignore': ['ext_driver'],
+            'enrich': ['ext_driver'],
         },
-        'routine': [
-            {
-                'name': 'kernelB',
-                'role': 'kernel',
-                'ignore': ['ext_driver'],
-                'enrich': ['ext_driver'],
-            },
-        ]
-    }
-    # TODO: Note this is too convoluted, but mimicking the toml file config
-    # reads we do in the current all-physics demonstrator. Needs internalising!
-    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+    ]
 
     schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include',
-                           config=config, builddir=builddir)
+                           config=configA, builddir=builddir)
     schedulerA.append('driverB')
     schedulerA.populate()
 
@@ -405,26 +345,15 @@ def test_scheduler_graph_multiple_separate(here, builddir):
     assert 'ext_driver' not in nodesA
     assert 'ext_kernel' not in nodesA
 
-    config = {
-        'default': {
-            'mode': 'idem',
+    configB = config.copy()
+    configB['routine'] = [
+        {
+            'name': 'ext_driver',
             'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
         },
-        'routine': [
-            {
-                'name': 'ext_driver',
-                'role': 'kernel',
-            },
-        ]
-    }
-    # TODO: Note this is too convoluted, but mimicking the toml file config
-    # reads we do in the current all-physics demonstrator. Needs internalising!
-    config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+    ]
 
-    schedulerB = Scheduler(paths=projB, config=config, builddir=builddir)
+    schedulerB = Scheduler(paths=projB, config=configB, builddir=builddir)
     schedulerB.append('ext_driver')
     schedulerB.populate()
 
@@ -441,7 +370,7 @@ def test_scheduler_graph_multiple_separate(here, builddir):
     assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
 
 
-def test_scheduler_module_dependency(here, builddir):
+def test_scheduler_module_dependency(here, builddir, config):
     """
     Ensure dependency chasing is done correctly, even with surboutines
     that do not match module names.
@@ -452,17 +381,6 @@ def test_scheduler_module_dependency(here, builddir):
     """
     projA = here/'sources/projA'
     projC = here/'sources/projC'
-
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
-        },
-        'routines': [],
-    }
 
     scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
                           config=config, builddir=builddir)
@@ -487,7 +405,7 @@ def test_scheduler_module_dependency(here, builddir):
     assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
 
 
-def test_scheduler_module_dependencies_unqualified(here, builddir):
+def test_scheduler_module_dependencies_unqualified(here, builddir, config):
     """
     Ensure dependency chasing is done correctly for unqualified module imports.
 
@@ -499,17 +417,6 @@ def test_scheduler_module_dependencies_unqualified(here, builddir):
     """
     projA = here/'sources/projA'
     projC = here/'sources/projC'
-
-    config = {
-        'default': {
-            'mode': 'idem',
-            'role': 'kernel',
-            'expand': True,
-            'strict': True,
-            'blacklist': []
-        },
-        'routines': [],
-    }
 
     scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
                           config=config, builddir=builddir)
