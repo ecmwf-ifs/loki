@@ -447,12 +447,13 @@ def test_scheduler_module_dependency(here, builddir):
     scheduler.append('driverC')
     scheduler.populate()
 
-    expected_nodes = ['driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one']
+    expected_nodes = ['driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two']
     expected_edges = [
         'driverC -> kernelC',
         'kernelC -> compute_l1',
         'compute_l1 -> compute_l2',
         'kernelC -> routine_one',
+        'routine_one -> routine_two',
     ]
     nodes = [n.name for n in scheduler.taskgraph.nodes]
     edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]

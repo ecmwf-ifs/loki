@@ -187,11 +187,6 @@ class Scheduler:
 
                 # Append child to work queue if expansion is configured
                 if item.config['expand']:
-                    # Do not propagate to subroutines contained in this item
-                    internals = [s.name.lower() for s in item.file.all_subroutines]
-                    if child.lower() in internals:
-                        continue
-
                     # Do not propagate to dependencies marked as "ignore"
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
