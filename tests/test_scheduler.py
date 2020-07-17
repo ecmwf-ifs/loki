@@ -169,8 +169,9 @@ def test_scheduler_graph_config_file(here, builddir):
     # Check the correct sub-graph is generated
     nodes = [n.name for n in scheduler.item_graph.nodes]
     edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
-    assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
+    assert all(n in nodes for n in ['compute_l1', 'another_l1', 'another_l2'])
+    assert all(e in edges for e in ['another_l1 -> another_l2'])
+    assert 'compute_l2' not in nodes  # We're blocking `compute_l2` in config file
 
 
 def test_scheduler_graph_blocked(here, builddir):
@@ -189,7 +190,7 @@ def test_scheduler_graph_blocked(here, builddir):
             'role': 'kernel',
             'expand': True,
             'strict': True,
-            'blacklist': ['another_l1']
+            'blocked': ['another_l1']
         },
         'routines': []
     }

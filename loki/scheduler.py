@@ -218,7 +218,7 @@ class Scheduler:
             item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
                         expand=rconf.get('expand', self.config.default['expand']),
                         strict=rconf.get('strict', True), ignore=rconf.get('ignore', None),
-                        enrich=rconf.get('enrich', None), blocked=rconf.get('blacklist', None),
+                        enrich=rconf.get('enrich', None), blocked=rconf.get('blocked', None),
                         graph=self.graph, xmods=self.xmods,
                         includes=self.includes, typedefs=self.typedefs,
                         builddir=self.builddir, frontend=self.frontend)
