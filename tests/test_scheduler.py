@@ -462,6 +462,9 @@ def test_scheduler_module_dependency(here, builddir):
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
 
+    # Ensure that we got the right routines from the module
+    assert scheduler.item_map['routine_one'].routine.name == 'routine_one'
+    assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
 
 
 def test_scheduler_module_dependencies_unqualified(here, builddir):
@@ -505,3 +508,7 @@ def test_scheduler_module_dependencies_unqualified(here, builddir):
     edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
     assert all(n in nodes for n in expected_nodes)
     assert all(e in edges for e in expected_edges)
+
+    # Ensure that we got the right routines from the module
+    assert scheduler.item_map['routine_one'].routine.name == 'routine_one'
+    assert scheduler.item_map['routine_two'].routine.name == 'routine_two'

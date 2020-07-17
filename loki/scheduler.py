@@ -33,7 +33,7 @@ class Task:
                  includes=None, builddir=None, typedefs=None, frontend=FP):
         self.name = name
         self.path = path
-        self.file = None
+        self.source = None
         self.routine = None
         self.graph = graph
         self.frontend = frontend
@@ -46,11 +46,11 @@ class Task:
         if path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.file = SourceFile.from_file(path, preprocess=True,
-                                                 xmods=xmods, includes=includes,
-                                                 builddir=builddir,
-                                                 typedefs=typedefs, frontend=frontend)
-                self.routine = self.file.all_subroutines[0]
+                self.source = SourceFile.from_file(path, preprocess=True,
+                                                   xmods=xmods, includes=includes,
+                                                   builddir=builddir,
+                                                   typedefs=typedefs, frontend=frontend)
+                self.routine = self.source[self.name]
 
             except Exception as excinfo:  # pylint: disable=broad-except
                 if self.graph:
