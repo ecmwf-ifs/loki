@@ -281,7 +281,7 @@ def test_scheduler_process(here, builddir):
             # TODO: This needs internalising!
             # Determine role in bulk-processing use case
             task = kwargs.get('task', None)
-            role = kwargs.get('role') if task is None else task.config['role']
+            role = kwargs.get('role') if task is None else task.role
             routine.name += '_{}'.format(role)
 
     # Apply re-naming transformation and check result

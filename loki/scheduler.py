@@ -29,19 +29,21 @@ class Task:
     specialised explicitly in the config file.
     """
 
-    def __init__(self, name, config, path, graph=None, xmods=None,
+    def __init__(self, name, role, path, expand=True, ignore=None, enrich=None,
+                 blocked=None, graph=None, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
         self.name = name
+        self.role = role
+        self.expand = expand
+        self.strict = strict
+        self.ignore = as_tuple(ignore)
+        self.enrich = as_tuple(enrich)
+        self.blocked = as_tuple(blocked)
+
         self.path = path
         self.source = None
         self.routine = None
         self.graph = graph
-        self.frontend = frontend
-
-        # Generate item-specific config settings
-        self.config = config['default'].copy()
-        if name in config['routines']:
-            self.config.update(config['routines'][name])
 
         if path.exists():
             try:
@@ -74,9 +76,6 @@ class Task:
         members = [m.name.lower() for m in (self.routine.members or [])]
         return tuple(call.name for call in FindNodes(CallStatement).visit(self.routine.ir)
                      if call.name.lower() not in members)
-
-    def enrich(self, routines):
-        self.routine.enrich_calls(routines=routines)
 
 
 class Scheduler:
@@ -151,12 +150,19 @@ class Scheduler:
         for source in as_tuple(sources):
             if source in self.item_map:
                 continue
-            item = Task(name=source, config=self.config,
-                        path=self.find_path(source),
+
+            # Use defaults as base and overrid individual options
+            rconf = self.config['default'].copy()
+            if source in self.config['routines']:
+                rconf.update(self.config['routines'][source])
+
+            item = Task(name=source, path=self.find_path(source), role=rconf.get('role'),
+                        expand=rconf.get('expand', self.config['default']['expand']),
+                        ignore=rconf.get('ignore', None), enrich=rconf.get('enrich', None),
+                        blocked=rconf.get('blacklist', None),
                         graph=self.graph, xmods=self.xmods,
                         includes=self.includes, typedefs=self.typedefs,
-                        builddir=self.builddir,
-                        frontend=self.frontend)
+                        builddir=self.builddir, frontend=self.frontend)
             self.queue.append(item)
             self.item_map[source] = item
 
@@ -176,8 +182,8 @@ class Scheduler:
                 if child in self._deadlist:
                     continue
 
-                # Mark blacklisted children in graph, but skip
-                if child in item.config['blacklist']:
+                # Mark blocked children in graph, but skip
+                if child in item.blocked:
                     if self.graph:
                         self.graph.node(child.upper(), color='black',
                                         fillcolor='orangered', style='filled')
@@ -186,13 +192,12 @@ class Scheduler:
                     continue
 
                 # Append child to work queue if expansion is configured
-                if item.config['expand']:
+                if item.expand:
                     # Do not propagate to dependencies marked as "ignore"
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
-                    ignore_list = item.config.get('ignore', [])
-                    if child in ignore_list:
+                    if child in item.ignore:
                         if self.graph:
                             self.graph.node(child.upper(), color='black', shape='box'
                                             , fillcolor='lightblue', style='filled')
@@ -212,18 +217,17 @@ class Scheduler:
 
         # Enrich subroutine calls for inter-procedural transformations
         for item in self.taskgraph:
-            item.enrich(routines=self.routines)
+            item.routine.enrich_calls(routines=self.routines)
 
-            if 'enrich' in item.config:
-                for routine in item.config['enrich']:
-                    path = self.find_path(routine)
-                    source = SourceFile.from_file(path, preprocess=True,
-                                                  xmods=self.xmods,
-                                                  includes=self.includes,
-                                                  builddir=self.builddir,
-                                                  typedefs=self.typedefs,
-                                                  frontend=self.frontend)
-                    item.routine.enrich_calls(source.all_subroutines)
+            for routine in item.enrich:
+                path = self.find_path(routine)
+                source = SourceFile.from_file(path, preprocess=True,
+                                              xmods=self.xmods,
+                                              includes=self.includes,
+                                              builddir=self.builddir,
+                                              typedefs=self.typedefs,
+                                              frontend=self.frontend)
+                item.routine.enrich_calls(source.all_subroutines)
 
     def process(self, transformation):
         """
@@ -241,7 +245,7 @@ class Scheduler:
             self.processed.append(task)
 
             if self.graph:
-                if task.name in task.config['whitelist']:
+                if task.name in self.config.get('whitelist', []):
                     self.graph.node(task.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:
