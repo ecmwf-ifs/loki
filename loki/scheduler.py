@@ -18,6 +18,49 @@ from loki.logging import info, warning, error
 __all__ = ['Item', 'Scheduler']
 
 
+class SchedulerConfig:
+    """
+    Configuration object for the transformation `Scheduler` that
+    encapsulates default behaviour and item-specific behaviour.
+    Cna be create eitehr froma raw dictionary or TOML, configration
+    file.
+
+    :param defaults: Dict of default options for each item
+    :param routines: List of routine-specific option dicts.
+    :param blocked: List or subroutine names that are blocked from the tree.
+    :param replicated: List or subroutine names that need to be replicated.
+                       Note, this only sets a flag for external build systems
+                       to align source injection mechanics.
+    """
+
+    def __init__(self, default, routines, blocked=None, replicated=None):
+        self.default = default
+        if isinstance(routines, dict):
+            self.routines = routines
+        else:
+            self.routines = OrderedDict((r.name, r) for r in as_tuple(routines))
+        self.blocked = as_tuple(blocked)
+        self.replicated = as_tuple(replicated)
+
+    @classmethod
+    def from_dict(cls, config):
+        default = config['default']
+        routines = config['routines']
+        blocked = default.get('blocked', None)
+        replicated = default.get('replicated', None)
+        return cls(default=default, routines=routines, blocked=blocked, replicated=replicated)
+
+    @classmethod
+    def from_file(cls, path):
+        import toml
+        # Load configuration file and process options
+        with Path(path).open('r') as f:
+            config = toml.load(f)
+
+        config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+        return cls.from_dict(config)
+
+
 class Item:
     """
     A work item that represents a single source routine to be
@@ -41,7 +84,7 @@ class Item:
                     tree. Note, these might still be shown in the graph visulisation.
     """
 
-    def __init__(self, name, role, path, expand=True, ignore=None, enrich=None,
+    def __init__(self, name, role, path, expand=True, strict=True, ignore=None, enrich=None,
                  blocked=None, graph=None, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
         self.name = name
@@ -71,7 +114,7 @@ class Item:
                     self.graph.node(self.name.upper(), color='red', style='filled')
 
                 warning('Could not parse %s:', path)
-                if self.config['strict']:
+                if self.strict:
                     raise excinfo
                 error(excinfo)
 
@@ -109,8 +152,15 @@ class Scheduler:
 
     def __init__(self, paths, config=None, xmods=None, includes=None,
                  builddir=None, typedefs=None, frontend=FP):
+        # Derive config from file or dict
+        if isinstance(config, SchedulerConfig):
+            self.config = config
+        elif isinstance(config, str) or isinstance(config, Path):
+            self.config = SchedulerConfig.from_file(config)
+        else:
+            self.config = SchedulerConfig.from_dict(config)
+
         self.paths = [Path(p) for p in as_tuple(paths)]
-        self.config = config
         self.xmods = xmods
         self.includes = includes
         self.builddir = builddir
@@ -160,15 +210,15 @@ class Scheduler:
             if source in self.item_map:
                 continue
 
-            # Use defaults as base and overrid individual options
-            rconf = self.config['default'].copy()
-            if source in self.config['routines']:
-                rconf.update(self.config['routines'][source])
+            # Use default as base and overrid individual options
+            rconf = self.config.default.copy()
+            if source in self.config.routines:
+                rconf.update(self.config.routines[source])
 
             item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
-                        expand=rconf.get('expand', self.config['default']['expand']),
-                        ignore=rconf.get('ignore', None), enrich=rconf.get('enrich', None),
-                        blocked=rconf.get('blacklist', None),
+                        expand=rconf.get('expand', self.config.default['expand']),
+                        strict=rconf.get('strict', True), ignore=rconf.get('ignore', None),
+                        enrich=rconf.get('enrich', None), blocked=rconf.get('blacklist', None),
                         graph=self.graph, xmods=self.xmods,
                         includes=self.includes, typedefs=self.typedefs,
                         builddir=self.builddir, frontend=self.frontend)
@@ -254,7 +304,7 @@ class Scheduler:
             self.processed.append(item)
 
             if self.graph:
-                if item.name in self.config.get('whitelist', []):
+                if item.name in self.config.replicated:
                     self.graph.node(item.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:

@@ -108,11 +108,11 @@ def test_scheduler_graph_simple(here, builddir):
 
 def test_scheduler_graph_partial(here, builddir):
     """
-    Create a simple task graph from a single sub-project:
+    Create a sub-graph from a select set of branches in  single project:
 
-    projA: driverA -> kernelA -> compute_l1 -> compute_l2
-                           |
-                           | --> another_l1 -> another_l2
+    projA: compute_l1 -> compute_l2
+
+           another_l1 -> another_l2
     """
     projA = here/'sources/projA'
 
@@ -139,6 +139,28 @@ def test_scheduler_graph_partial(here, builddir):
     # TODO: Note this is too convoluted, but mimicking the toml file config
     # reads we do in the current all-physics demonstrator. Needs internalising!
     config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
+    scheduler.append('driverA')
+    scheduler.populate()
+
+    # Check the correct sub-graph is generated
+    nodes = [n.name for n in scheduler.item_graph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
+    assert all(n in nodes for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
+    assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
+
+
+def test_scheduler_graph_config_file(here, builddir):
+    """
+    Create a sub-graph from a branches using a config file:
+
+    projA: compute_l1 -> compute_l2
+
+           another_l1 -> another_l2
+    """
+    projA = here/'sources/projA'
+    config = projA/'scheduler_partial.config'
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
     scheduler.append('driverA')
