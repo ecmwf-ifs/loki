@@ -23,6 +23,8 @@ Test directory structure
      - kernelB_mod
      - driverC_mod
      - kernelC_mod
+     - driverD_mod
+     - kernelD_mod
 
  - projB:
    - external
@@ -462,9 +464,44 @@ def test_scheduler_module_dependency(here, builddir):
 
 
 
-@pytest.mark.skip
-def test_scheduler_module_dependencies_unqualified():
+def test_scheduler_module_dependencies_unqualified(here, builddir):
     """
     Ensure dependency chasing is done correctly for unqualified module imports.
+
+    projA: driverD -> kernelD -> compute_l1<replicated> -> compute_l2
+                           |
+                    < proj_c_util_mod>
+                           |
+    projC:                 | --> routine_one -> routine_two
     """
-    pass
+    projA = here/'sources/projA'
+    projC = here/'sources/projC'
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'blacklist': []
+        },
+        'routines': [],
+    }
+
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
+                          config=config, builddir=builddir)
+    scheduler.append('driverD')
+    scheduler.populate()
+
+    expected_nodes = ['driverD', 'kernelD', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two']
+    expected_edges = [
+        'driverD -> kernelD',
+        'kernelD -> compute_l1',
+        'compute_l1 -> compute_l2',
+        'kernelD -> routine_one',
+        'routine_one -> routine_two',
+    ]
+    nodes = [n.name for n in scheduler.taskgraph.nodes]
+    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.taskgraph.edges]
+    assert all(n in nodes for n in expected_nodes)
+    assert all(e in edges for e in expected_edges)

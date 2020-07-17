@@ -1,19 +1,19 @@
-module kernelC_mod
+module kernelD_mod
   use header_mod, only: jprb
   use compute_l1_mod, only: compute_l1
-  use proj_c_util_mod, only: routine_one
+  use proj_c_util_mod
 
   implicit none
 
 contains
 
-  subroutine kernelC(vector, matrix)
+  subroutine kernelD(vector, matrix)
     real(kind=jprb), intent(inout) :: vector(:)
     real(kind=jprb), intent(inout) :: matrix(:)
 
     call compute_l1(vector)
 
     call routine_one(matrix)
-  end subroutine kernelC
+  end subroutine kernelD
 
-end module kernelC_mod
+end module kernelD_mod
