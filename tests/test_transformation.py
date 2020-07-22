@@ -277,8 +277,8 @@ END SUBROUTINE kernel
     assert driver.subroutines[0].name == 'driver'
 
     # Check that the import has been updated
-    assert '#include "kernel.intfb.h"' not in driver.source
-    assert '#include "kernel_test.intfb.h"' in driver.source
+    assert '#include "kernel.intfb.h"' not in driver.to_fortran()
+    assert '#include "kernel_test.intfb.h"' in driver.to_fortran()
 
     # Check that header file was generated and clean up
     assert header_file.exists()

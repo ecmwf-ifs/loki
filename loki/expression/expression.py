@@ -71,7 +71,7 @@ class ExpressionFinder(Visitor):
 
     def _return(self, node, expressions):
         """
-        Form the return value from the found expressions.
+        Create the return value from the found expressions.
         """
         if not expressions:
             return ()

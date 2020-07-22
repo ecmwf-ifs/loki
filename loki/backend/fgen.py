@@ -141,16 +141,24 @@ class FortranCodegen(Stringifier):
 
     def visit(self, o, *args, **kwargs):
         """
-        Overwrite standard visit routine to inject original source in conservative
-        mode and print labels.
+        Overwrite standard visit routine to inject original source in conservative mode.
         """
-        has_source = hasattr(o, 'source') and o.source is not None
-        if self.conservative and has_source and o.source.string is not None:
+        if self.conservative and hasattr(o, 'source') and getattr(o.source, 'string', None) is not None:
             # Re-use original source associated with node
             return o.source.string
         return super().visit(o, *args, **kwargs)
 
     # Handler for outer objects
+
+    def visit_SourceFile(self, o, **kwargs):
+        """
+        Format as
+          ...modules...
+          ...subroutines...
+        """
+        modules = self.visit_all(o.modules, **kwargs)
+        subroutines = self.visit_all(o.subroutines, **kwargs)
+        return self.join_lines(*modules, *subroutines)
 
     def visit_Module(self, o, **kwargs):
         """
@@ -252,7 +260,8 @@ class FortranCodegen(Stringifier):
         """
         Format comment blocks.
         """
-        return self.visit(o.comments)
+        comments = self.visit_all(o.comments, **kwargs)
+        return self.join_lines(*comments)
 
     def visit_PreprocessorDirective(self, o, **kwargs):
         """

@@ -2,7 +2,7 @@ from collections import OrderedDict
 import re
 
 from fparser.two.parser import ParserFactory
-from fparser.two.utils import get_child
+from fparser.two.utils import get_child, BlockBase
 try:
     from fparser.two.utils import walk
 except ImportError:
@@ -107,6 +107,31 @@ def rget_child(node, node_type):
         if isinstance(child, node_type):
             return child
     return None
+
+
+def extract_fparser_source(node, raw_source):
+    """
+    Extract the py:class:`Source` object for any py:class:`fparser.two.utils.BlockBase`
+    from the raw source string.
+    """
+    assert isinstance(node, BlockBase)
+    if node.item is not None:
+        lines = node.item.span
+    else:
+        start_type = getattr(Fortran2003, node.use_names[0], None)
+        if start_type is None:
+            # If we don't have any starting point we have to bail out
+            return None
+        start_node = get_child(node, start_type)
+        end_node = node.children[-1]
+        if any(i is None or i.item is None for i in [start_node, end_node]):
+            # If we don't have source information for start/end we have to bail out
+            return None
+        lines = (start_node.item.span[0], end_node.item.span[1])
+    string = None
+    if raw_source is not None:
+        string = ''.join(raw_source.splitlines(keepends=True)[lines[0]-1:lines[1]])
+    return Source(lines, string=string)
 
 
 class FParser2IR(GenericVisitor):
@@ -639,7 +664,7 @@ class FParser2IR(GenericVisitor):
         typedef = ir.TypeDef(name=name, body=[], source=source, label=kwargs.get('label'))
         # Create declarations and update the parent typedef
         component_nodes = (Fortran2003.Component_Part, Fortran2003.Comment)
-        body = flatten([self.visit(i, scope=typedef, **kwargs)# for i in o.content])
+        body = flatten([self.visit(i, scope=typedef, **kwargs)
                         for i in walk(o.content, component_nodes)])
         # Infer any additional shape information from `!$loki dimension` pragmas
         # Note that this needs to be done before we create `dtype` below, to allow
@@ -712,7 +737,7 @@ class FParser2IR(GenericVisitor):
     visit_Label_Do_Stmt = visit_Nonlabel_Do_Stmt
 
     def visit_If_Construct(self, o, **kwargs):
-        # The banter before the loop...
+        # The banter before the construct...
         banter = []
         for ch in o.content:
             if isinstance(ch, Fortran2003.If_Then_Stmt):
@@ -783,7 +808,9 @@ class FParser2IR(GenericVisitor):
         bounds = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(o.items[1][1])))
         source = kwargs.get('source')
         if source:
-            source = source.clone_with_string(o.string)
+            variable_source = source.clone_with_string(o.string[:o.string.find('=')])
+            variable = variable.clone(source=variable_source)
+            source = source.clone_with_string(o.string[o.string.find('=')+1:])
         return variable, sym.LoopRange(bounds, source=source)
 
     def visit_Assignment_Stmt(self, o, **kwargs):
@@ -818,17 +845,17 @@ class FParser2IR(GenericVisitor):
             return sym.LogicalAnd(exprs, source=source)
         if op.lower() == '.or.':
             return sym.LogicalOr(exprs, source=source)
-        if op == '==' or op.lower() == '.eq.':
+        if op.lower() in ('==', '.eq.'):
             return sym.Comparison(exprs[0], '==', exprs[1], source=source)
-        if op == '/=' or op.lower() == '.ne.':
+        if op.lower() in ('/=', '.ne.'):
             return sym.Comparison(exprs[0], '!=', exprs[1], source=source)
-        if op == '>' or op.lower() == '.gt.':
+        if op.lower() in ('>', '.gt.'):
             return sym.Comparison(exprs[0], '>', exprs[1], source=source)
-        if op == '<' or op.lower() == '.lt.':
+        if op.lower() in ('<', '.lt.'):
             return sym.Comparison(exprs[0], '<', exprs[1], source=source)
-        if op == '>=' or op.lower() == '.ge.':
+        if op.lower() in ('>=', '.ge.'):
             return sym.Comparison(exprs[0], '>=', exprs[1], source=source)
-        if op == '<=' or op.lower() == '.le.':
+        if op.lower() in ('<=', '.le.'):
             return sym.Comparison(exprs[0], '<=', exprs[1], source=source)
         if op.lower() == '.not.':
             return sym.LogicalNot(exprs[0], source=source)
@@ -941,6 +968,8 @@ class FParser2IR(GenericVisitor):
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt
+    visit_Backspace_Stmt = visit_Intrinsic_Stmt
+    visit_Rewind_Stmt = visit_Intrinsic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
         return ir.PreprocessorDirective(text=o.tostr(), source=kwargs.get('source'))
@@ -976,8 +1005,8 @@ class FParser2IR(GenericVisitor):
         else:
             body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
                                     Fortran2003.End_Where_Stmt)
-        body = as_tuple(flatten(self.visit(ch) for ch in body_ast))
-        default = as_tuple(flatten(self.visit(ch) for ch in default_ast))
+        body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
+        default = as_tuple(self.visit(ch, **kwargs) for ch in default_ast)
         return (*banter, ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
                                             source=kwargs.get('source')))
 
@@ -1049,6 +1078,25 @@ class FParser2IR(GenericVisitor):
 
     visit_Case_Value_Range = visit_Subscript_Triplet
 
+    def visit_Select_Type_Construct(self, o, **kwargs):
+        # The banter before the construct...
+        banter = []
+        for ch in o.content:
+            if isinstance(ch, Fortran2003.Select_Type_Stmt):
+                select_stmt = ch
+                break
+            banter += [self.visit(ch, **kwargs)]
+        else:
+            select_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
+        # Extract source by looking at everything between SELECT and END SELECT
+        end_select_stmt = rget_child(o, Fortran2003.End_Select_Type_Stmt)
+        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+        label = self.get_label(select_stmt)
+        # TODO: Treat this with a dedicated IR node (LOKI-33)
+        return (*banter, ir.Intrinsic(text=string, label=label, source=source))
+
     def visit_Data_Stmt_Set(self, o, **kwargs):
         # TODO: actually parse the statements
         # pylint: disable=no-member
@@ -1059,7 +1107,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Data_Stmt_Value(self, o, **kwargs):
         exprs = as_tuple(flatten(self.visit(c) for c in o.items))
-        return self.create_operation('*', exprs, **kwargs)
+        return self.create_operation('*', exprs, source=kwargs.get('source'))
 
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:

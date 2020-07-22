@@ -11,12 +11,12 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, blacklist, read_file
+from loki.frontend import OMNI, OFP, FP, blacklist, read_file, Source
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
-from loki.backend import fgen
 from loki.types import TypeTable
+from loki.backend.fgen import fgen
 
 
 __all__ = ['SourceFile']
@@ -26,23 +26,26 @@ class SourceFile:
     """
     Class to handle and manipulate source files.
 
-    :param filename: Name of the source file
-    :param routines: Subroutines (functions) contained in this source
-    :param modules: Fortran modules contained in this source
-    :param ast: Optional parser-AST of the original source file
-    :param symbols: Instance of class:``TypeTable`` used to cache type information
-                    for all symbols defined within this module's scope.
-    :param types: Instance of class:``TypeTable`` used to cache type information
-                  for all (derived) types defined within this module's scope.
+    :param str path: the name of the source file
+    :param tuple routines: the subroutines (functions) contained in this source.
+    :param tuple modules: the Fortran modules contained in this source.
+    :param ast: optional parser-AST of the original source file
+    :param TypeTable symbols: existing type information for all symbols defined within this
+            file's scope.
+    :param TypeTable types: existing type information for all (derived) types defined within
+            this file's scope.
+    :param Source source: string and line information about the original source file.
     """
 
-    def __init__(self, path, routines=None, modules=None, ast=None, symbols=None, types=None):
+    def __init__(self, path, routines=None, modules=None, ast=None, symbols=None, types=None,
+                 source=None):
         self.path = Path(path) if path is not None else path
         self._routines = routines
         self._modules = modules
         self._ast = ast
         self.symbols = symbols if symbols is not None else TypeTable(None)
         self.types = types if types is not None else TypeTable(None)
+        self._source = source
 
     @classmethod
     def from_file(cls, filename, preprocess=False, typedefs=None,
@@ -89,17 +92,18 @@ class SourceFile:
         obj = cls(path=path, ast=ast)
 
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
-        routines = [Subroutine.from_omni(ast=ast, typedefs=typedefs, raw_source=raw_source,
-                                         typetable=typetable, parent=obj) for ast in ast_r]
+        routines = [Subroutine.from_omni(ast=routine, typedefs=typedefs, raw_source=raw_source,
+                                         typetable=typetable, parent=obj) for routine in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
-        modules = [Module.from_omni(ast=ast, typedefs=typedefs, raw_source=raw_source,
-                                    typetable=typetable, parent=obj) for ast in ast_m]
+        modules = [Module.from_omni(ast=module, typedefs=typedefs, raw_source=raw_source,
+                                    typetable=typetable, parent=obj) for module in ast_m]
 
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source, file=path)
         obj.__init__(path=path, routines=routines, modules=modules, ast=ast,
-                     symbols=obj.symbols, types=obj.types)
+                     symbols=obj.symbols, types=obj.types, source=source)
         return obj
-
 
     @classmethod
     def from_ofp(cls, filename, preprocess=False, typedefs=None):
@@ -140,17 +144,19 @@ class SourceFile:
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
         obj = cls(path=path, ast=ast)
-        routines = [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
-                                        parent=obj, pp_info=pp_info)
-                    for r in ast.findall('file/subroutine')]
-        routines += [Subroutine.from_ofp(ast=r, raw_source=raw_source, typedefs=typedefs,
-                                         parent=obj, pp_info=pp_info)
-                     for r in ast.findall('file/function')]
-        modules = [Module.from_ofp(ast=m, typedefs=typedefs, parent=obj, raw_source=raw_source)
-                   for m in ast.findall('file/module')]
 
+        routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, typedefs=typedefs,
+                                        parent=obj, pp_info=pp_info)
+                    for routine in list(ast.find('file'))
+                    if routine.tag in ('subroutine', 'function')]
+
+        modules = [Module.from_ofp(ast=module, typedefs=typedefs, parent=obj, raw_source=raw_source,
+                                   pp_info=pp_info) for module in ast.findall('file/module')]
+
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source, file=path)
         obj.__init__(path=path, routines=routines, modules=modules,
-                     ast=ast, symbols=obj.symbols, types=obj.types)
+                     ast=ast, symbols=obj.symbols, types=obj.types, source=source)
         return obj
 
     @classmethod
@@ -178,7 +184,7 @@ class SourceFile:
         if info_path.exists():
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
-        return cls._from_fparser_ast(path=file_path, ast=ast, typedefs=typedefs,
+        return cls._from_fparser_ast(path=filename, ast=ast, typedefs=typedefs,
                                      pp_info=pp_info, raw_source=raw_source)
 
     @classmethod
@@ -189,61 +195,59 @@ class SourceFile:
         obj = cls(path=path, ast=ast)
 
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-        routine_asts = [r for r in ast.content if isinstance(r, routine_types)]
-        routines = [Subroutine.from_fparser(ast=r, typedefs=typedefs, parent=obj, pp_info=pp_info,
-                                            raw_source=raw_source)
-                    for r in routine_asts]
+        routines = [Subroutine.from_fparser(ast=routine, typedefs=typedefs, parent=obj,
+                                            pp_info=pp_info, raw_source=raw_source)
+                    for routine in ast.content if isinstance(routine, routine_types)]
+        modules = [Module.from_fparser(ast=module, typedefs=typedefs, parent=obj,
+                                       pp_info=pp_info, raw_source=raw_source)
+                   for module in ast.content if isinstance(module, Fortran2003.Module)]
 
-        module_asts = [r for r in ast.content if isinstance(r, Fortran2003.Module)]
-        modules = [Module.from_fparser(ast=r, typedefs=typedefs, parent=obj,
-                                       raw_source=raw_source)
-                   for r in module_asts]
-
+        lines = (1, raw_source.count('\n') + 1)
+        source = Source(lines, string=raw_source, file=path)
         obj.__init__(path=path, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
-                     types=obj.types)
+                     types=obj.types, source=source)
         return obj
 
     @classmethod
     def from_source(cls, source, xmods=None, includes=None, typedefs=None, frontend=OFP):
+
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
-            return cls._from_omni_ast(path=None, ast=ast, raw_source=source,
-                                      typedefs=typedefs, typetable=typetable,
-                                      xmods=xmods, includes=includes)
+            return cls._from_omni_ast(path=None, ast=ast, raw_source=source, typedefs=typedefs,
+                                      typetable=typetable, xmods=xmods, includes=includes)
 
         if frontend == OFP:
             ast = parse_ofp_source(source)
-            return cls._from_ofp_ast(path=None, ast=ast, raw_source=source,
-                                     typedefs=typedefs)
+            return cls._from_ofp_ast(path=None, ast=ast, raw_source=source, typedefs=typedefs)
 
         if frontend == FP:
             ast = parse_fparser_source(source)
-            return cls._from_fparser_ast(path=None, ast=ast, raw_source=source,
-                                         typedefs=typedefs)
+            return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, typedefs=typedefs)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def preprocess(cls, frontend, file_path, pp_path, info_path, kinds=None):
+    def preprocess(cls, frontend, file_path, pp_path, info_path):
         """
         A dedicated pre-processing step to ensure smooth source parsing.
-
-        Note: The OFP drops and/or jumbles up valid expression nodes
-        if it encounters _KIND type casts (issue #48). To avoid this,
-        we remove these here and create a record of the literals and
-        their _KINDs, indexed by line. This allows us to the re-insert
-        this information after the AST parse when creating `Subroutine`s.
         """
-        if pp_path.exists():
+        # Check for previous preprocessing of this file
+        if pp_path.exists() and info_path.exists():
+            # Make sure the existing PP data belongs to this file
             if pp_path.stat().st_mtime > file_path.stat().st_mtime:
-                # Already pre-processed this one, skip!
-                return
+                with info_path.open('rb') as f:
+                    pp_info = pickle.load(f)
+                    if pp_info.get('original_file_path') == str(file_path):
+                        # Already pre-processed this one, skip!
+                        return
+
         info("Pre-processing %s => %s" % (file_path, pp_path))
         source = read_file(file_path)
 
         # Apply preprocessing rules and store meta-information
         pp_info = OrderedDict()
+        pp_info['original_file_path'] = str(file_path)
         for name, rule in blacklist[frontend].items():
             # Apply rule filter over source file
             rule.reset()
@@ -264,8 +268,10 @@ class SourceFile:
 
     @property
     def source(self):
-        content = as_tuple(self.modules) + as_tuple(self.subroutines)
-        return '\n\n'.join(fgen(s) for s in content)
+        return self._source
+
+    def to_fortran(self, conservative=False):
+        return fgen(self, conservative=conservative)
 
     @property
     def modules(self):
@@ -302,15 +308,16 @@ class SourceFile:
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
 
-    def write(self, path=None, source=None):
+    def write(self, path=None, source=None, conservative=False):
         """
         Write content to file
 
-        :param path: Optional filepath; if not provided, `self.path` is used
-        :param source: Optional source string; if not provided `self.source` is used
+        :param str path: Optional filepath; if not provided, `self.path` is used
+        :param str source: Optional source string; if not provided `self.to_fortran()` is used
+        :param bool conservative: Enable conservative output of the backend.
         """
         path = self.path if path is None else Path(path)
-        source = self.source if source is None else source
+        source = self.to_fortran(conservative) if source is None else source
         self.to_file(source=source, path=path)
 
     @classmethod

@@ -129,7 +129,7 @@ def cluster_comments(ir):
         # and map remaining comments to None for removal
         if all(c._source is not None for c in comments):
             if all(c.source.string is not None for c in comments):
-                string = ''.join(c.source.string for c in comments)
+                string = '\n'.join(c.source.string for c in comments)
             else:
                 string = None
             lines = (comments[0].source.lines[0], comments[-1].source.lines[1])
