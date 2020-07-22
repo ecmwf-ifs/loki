@@ -11,7 +11,7 @@ from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import SourceFile
-from loki.tools import as_tuple, find_files
+from loki.tools import as_tuple
 from loki.logging import info, warning, error
 
 
@@ -54,7 +54,7 @@ class SchedulerConfig:
 
     @classmethod
     def from_file(cls, path):
-        import toml
+        import toml  # pylint: disable=import-outside-toplevel
         # Load configuration file and process options
         with Path(path).open('r') as f:
             config = toml.load(f)
@@ -156,7 +156,7 @@ class Scheduler:
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
-        elif isinstance(config, str) or isinstance(config, Path):
+        elif isinstance(config, (str, Path)):
             self.config = SchedulerConfig.from_file(config)
         else:
             self.config = SchedulerConfig.from_dict(config)

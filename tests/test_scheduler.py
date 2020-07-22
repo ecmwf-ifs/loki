@@ -39,10 +39,9 @@ Test directory structure
        * routine_two
 """
 
-import pytest
 import shutil
 from pathlib import Path
-from collections import OrderedDict
+import pytest
 
 from loki import (
     Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation
