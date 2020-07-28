@@ -1,10 +1,6 @@
 from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
-try:
-    import graphviz as gviz
-except ImportError:
-    gviz = None
 
 from loki.build import Obj
 from loki.frontend import FP
@@ -85,23 +81,21 @@ class Item:
                   tree. Note, these might still be shown in the graph visulisation.
     """
 
-    def __init__(self, name, path, role, mode=None, expand=True, strict=True, is_blocked=False,
-                 is_ignored=False, ignore=None, enrich=None, block=None, graph=None, xmods=None,
+    def __init__(self, name, path, role, mode=None, expand=True, strict=True,
+                 ignore=None, enrich=None, block=None, replicate=False, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
         # Essential item attributes
         self.name = name
         self.path = path
         self.source = None
         self.routine = None
-        self.graph = graph
 
         # Item-specific markers and attributes
         self.role = role
         self.mode = mode
         self.expand = expand
         self.strict = strict
-        self.is_blocked = is_blocked
-        self.is_ignored = is_ignored
+        self.replicate = replicate
 
         # Lists of subtree markers
         self.ignore = as_tuple(ignore)
@@ -118,17 +112,12 @@ class Item:
                 self.routine = self.source[self.name]
 
             except Exception as excinfo:  # pylint: disable=broad-except
-                if self.graph:
-                    self.graph.node(self.name.upper(), color='red', style='filled')
-
                 warning('Could not parse %s:', path)
                 if self.strict:
                     raise excinfo
                 error(excinfo)
 
         else:
-            if self.graph:
-                self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
             info("Could not find source file %s; skipping...", name)
 
     def __repr__(self):
@@ -194,11 +183,6 @@ class Scheduler:
         self.queue = deque()
         self.processed = []
 
-        if gviz is not None:
-            self.graph = gviz.Digraph(format='pdf', strict=True)
-        else:
-            self.graph = None
-
         # Scan all source paths and create light-weight `Obj` objects for each file.
         obj_list = []
         for path in self.paths:
@@ -256,7 +240,7 @@ class Scheduler:
 
         name = item_conf.pop('name', source)
         item = Item(name=name, **item_conf, path=self.find_path(source),
-                    graph=self.graph, xmods=self.xmods,
+                    xmods=self.xmods,
                     includes=self.includes, typedefs=self.typedefs,
                     builddir=self.builddir, frontend=self.frontend)
 
@@ -296,11 +280,6 @@ class Scheduler:
 
                 # Mark blocked children in graph, but skip
                 if child in item.block:
-                    if self.graph:
-                        self.graph.node(child.name.upper(), color='black',
-                                        fillcolor='orangered', style='filled')
-                        self.graph.edge(item.name.upper(), child.name.upper())
-
                     continue
 
                 # Append child to work queue if expansion is configured
@@ -310,22 +289,11 @@ class Scheduler:
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
                     if child in item.ignore:
-                        if self.graph:
-                            self.graph.node(child.name.upper(), color='black', shape='box'
-                                            , fillcolor='lightblue', style='filled')
-                            self.graph.edge(item.name.upper(), child.name.upper())
                         continue
 
                     self.append(child)
 
                     self.item_graph.add_edge(item, self.item_map[child])
-
-                    # Append newly created edge to graph
-                    if self.graph:
-                        if child not in [r.name for r in self.processed]:
-                            self.graph.node(child.name.upper(), color='black',
-                                            fillcolor='lightblue', style='filled')
-                        self.graph.edge(item.name.upper(), child.name.upper())
 
         # Enrich subroutine calls for inter-procedural transformations
         for item in self.item_graph:
@@ -356,10 +324,40 @@ class Scheduler:
             # Mark item as processed in list and graph
             self.processed.append(item)
 
-            if self.graph:
-                if item.name in self.config.replicate:
-                    self.graph.node(item.name.upper(), color='black', shape='diamond',
-                                    fillcolor='limegreen', style='rounded,filled')
-                else:
-                    self.graph.node(item.name.upper(), color='black',
-                                    fillcolor='limegreen', style='filled')
+    def callgraph(self, path):
+        """
+        Generate a callgraph visualization and dump to file.
+
+        :param path: Path to write the callgraph figure to.
+        """
+        import graphviz as gviz
+
+        cg_path = Path(path)
+        callgraph = gviz.Digraph(format='pdf', strict=True)
+
+        # Insert all nodes in the schedulers graph
+        for item in self.items:
+            if item.replicate:
+                callgraph.node(item.name.upper(), color='black', shape='diamond',
+                                fillcolor='limegreen', style='rounded,filled')
+            else:
+                callgraph.node(item.name.upper(), color='black', shape='box',
+                                fillcolor='limegreen', style='filled')
+
+        # Insert all edges in the schedulers graph
+        for parent, child in self.dependencies:
+            callgraph.edge(parent.name.upper(), child.name.upper())
+
+        # Insert all nodes we were told to either block or ignore
+        for item in self.items:
+            for child in item.block:
+                callgraph.node(child.upper(), color='black', shape='box',
+                               fillcolor='orangered', style='filled')
+                callgraph.edge(item.name.upper(), child.upper())
+
+            for child in item.ignore:
+                callgraph.node(child.upper(), color='black', shape='box',
+                                fillcolor='lightblue', style='filled')
+                callgraph.edge(item.name.upper(), child.upper())
+
+        callgraph.render(cg_path, view=False)
