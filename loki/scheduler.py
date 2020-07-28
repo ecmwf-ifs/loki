@@ -170,6 +170,7 @@ class Scheduler:
         else:
             self.config = SchedulerConfig.from_dict(config)
 
+        # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.xmods = xmods
         self.includes = includes
@@ -177,11 +178,9 @@ class Scheduler:
         self.typedefs = typedefs
         self.frontend = frontend
 
+        # Internal data structures to store the callgraph
         self.item_graph = nx.DiGraph()
         self.item_map = {}
-
-        self.queue = deque()
-        self.processed = []
 
         # Scan all source paths and create light-weight `Obj` objects for each file.
         obj_list = []
@@ -239,37 +238,28 @@ class Scheduler:
             item_conf.update(self.config.routines[source])
 
         name = item_conf.pop('name', source)
-        item = Item(name=name, **item_conf, path=self.find_path(source),
+        return Item(name=name, **item_conf, path=self.find_path(source),
                     xmods=self.xmods,
                     includes=self.includes, typedefs=self.typedefs,
                     builddir=self.builddir, frontend=self.frontend)
 
-        return item
-
-    def append(self, sources):
+    def populate(self, routines):
         """
-        Add names of source routines or modules to find and process.
-        """
-        for source in as_tuple(sources):
-            # TODO: Dirty workaround...
-            if isinstance(source, str):
-                item = self.create_item(source)
-            else:
-                item = source
+        Populate the callgraph of this scheduler through automatic expansion of
+        subroutine-call induced dependencies from a set of starting routines.
 
-            # Update internal data structures
-            self.queue.append(item)
-            self.item_map[source] = item
+        :param routines: Names of root routines from which to populate the callgraph.
+        """
+        queue = deque()
+        for routine in as_tuple(routines):
+            item = self.create_item(routine)
+            queue.append(item)
+
+            self.item_map[routine] = item
             self.item_graph.add_node(item)
 
-    def populate(self):
-        """
-        Process all enqueued source modules and routines with the
-        stored kernel.
-        """
-
-        while len(self.queue) > 0:
-            item = self.queue.popleft()
+        while len(queue) > 0:
+            item = queue.popleft()
 
             for c in item.children:
                 child = self.create_item(c)
@@ -291,14 +281,18 @@ class Scheduler:
                     if child in item.ignore:
                         continue
 
-                    self.append(child)
+                    if child not in self.item_map:
+                        queue.append(child)
+                        self.item_map[child.name] = child
+                        self.item_graph.add_node(child)
 
-                    self.item_graph.add_edge(item, self.item_map[child])
+                    self.item_graph.add_edge(item, child)
 
         # Enrich subroutine calls for inter-procedural transformations
         for item in self.item_graph:
             item.routine.enrich_calls(routines=self.routines)
 
+            # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
                 path = self.find_path(routine)
                 source = SourceFile.from_file(path, preprocess=True,
@@ -320,9 +314,6 @@ class Scheduler:
 
             # Process work item with appropriate kernel
             transformation.apply(item.routine, role=item.role)
-
-            # Mark item as processed in list and graph
-            self.processed.append(item)
 
     def callgraph(self, path):
         """

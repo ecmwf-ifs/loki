@@ -92,8 +92,7 @@ def test_scheduler_graph_simple(here, builddir, config):
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
                           config=config, builddir=builddir)
-    scheduler.append('driverA')
-    scheduler.populate()
+    scheduler.populate('driverA')
 
     expected_items = [
         'driverA', 'kernelA', 'compute_l1', 'compute_l2', 'another_l1', 'another_l2'
@@ -143,8 +142,7 @@ def test_scheduler_graph_partial(here, builddir, config):
     ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
-    scheduler.append('driverA')
-    scheduler.populate()
+    scheduler.populate('driverA')
 
     # Check the correct sub-graph is generated
     assert all(n in scheduler.items for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
@@ -163,8 +161,7 @@ def test_scheduler_graph_config_file(here, builddir):
     config = projA/'scheduler_partial.config'
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
-    scheduler.append('driverA')
-    scheduler.populate()
+    scheduler.populate('driverA')
 
     # Check the correct sub-graph is generated
     assert all(n in scheduler.items for n in ['compute_l1', 'another_l1', 'another_l2'])
@@ -186,8 +183,7 @@ def test_scheduler_graph_blocked(here, builddir, config):
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
                           config=config, builddir=builddir)
-    scheduler.append('driverA')
-    scheduler.populate()
+    scheduler.populate('driverA')
 
     expected_items = [
         'driverA', 'kernelA', 'compute_l1', 'compute_l2'
@@ -223,8 +219,7 @@ def test_scheduler_typedefs(here, builddir, config):
 
     scheduler = Scheduler(paths=projA, typedefs=header['header_mod'].typedefs,
                           includes=projA/'include', config=config, builddir=builddir)
-    scheduler.append('driverA')
-    scheduler.populate()
+    scheduler.populate('driverA')
 
     driver = scheduler.item_map['driverA'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
@@ -260,8 +255,7 @@ def test_scheduler_process(here, builddir, config):
     ]
 
     scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
-    scheduler.append([r['name'] for r in config['routine']])
-    scheduler.populate()
+    scheduler.populate([r['name'] for r in config['routine']])
 
     class AppendRole(Transformation):
         """
@@ -292,8 +286,7 @@ def test_scheduler_graph_multiple_combined(here, builddir, config):
 
     scheduler = Scheduler(paths=[projA, projB], includes=projA/'include',
                           config=config, builddir=builddir)
-    scheduler.append('driverB')
-    scheduler.populate()
+    scheduler.populate('driverB')
 
     expected_items = [
         'driverB', 'kernelB', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel'
@@ -337,8 +330,7 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
 
     schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include',
                            config=configA, builddir=builddir)
-    schedulerA.append('driverB')
-    schedulerA.populate()
+    schedulerA.populate('driverB')
 
     expected_itemsA = [
         'driverB', 'kernelB', 'compute_l1', 'compute_l2'
@@ -363,8 +355,7 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     ]
 
     schedulerB = Scheduler(paths=projB, config=configB, builddir=builddir)
-    schedulerB.append('ext_driver')
-    schedulerB.populate()
+    schedulerB.populate('ext_driver')
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
     assert 'ext_driver' in schedulerB.items
@@ -391,8 +382,7 @@ def test_scheduler_module_dependency(here, builddir, config):
 
     scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
                           config=config, builddir=builddir)
-    scheduler.append('driverC')
-    scheduler.populate()
+    scheduler.populate('driverC')
 
     expected_items = [
         'driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two'
@@ -427,8 +417,7 @@ def test_scheduler_module_dependencies_unqualified(here, builddir, config):
 
     scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
                           config=config, builddir=builddir)
-    scheduler.append('driverD')
-    scheduler.populate()
+    scheduler.populate('driverD')
 
     expected_items = [
         'driverD', 'kernelD', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two'
