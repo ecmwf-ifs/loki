@@ -85,7 +85,7 @@ class Item:
                   tree. Note, these might still be shown in the graph visulisation.
     """
 
-    def __init__(self, name, path, role, expand=True, strict=True, is_blocked=False,
+    def __init__(self, name, path, role, mode=None, expand=True, strict=True, is_blocked=False,
                  is_ignored=False, ignore=None, enrich=None, block=None, graph=None, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
         # Essential item attributes
@@ -97,6 +97,7 @@ class Item:
 
         # Item-specific markers and attributes
         self.role = role
+        self.mode = mode
         self.expand = expand
         self.strict = strict
         self.is_blocked = is_blocked
@@ -237,29 +238,44 @@ class Scheduler:
 
         raise RuntimeError("Source path not found for routine: %s" % routine)
 
+    def create_item(self, source):
+        """
+        Create an `Item` by looking up the path and setting all inferred properties.
+
+        Note that this takes a `SchedulerConfig` object for default options and an
+        item-specific dict with override options, as well as given attributes that
+        might be forced on this item from its paretn (like "is_ignored").
+        """
+        if source in self.item_map:
+            return self.item_map[source]
+
+        # Use default as base and overrid individual options
+        item_conf = self.config.default.copy()
+        if source in self.config.routines:
+            item_conf.update(self.config.routines[source])
+
+        name = item_conf.pop('name', source)
+        item = Item(name=name, **item_conf, path=self.find_path(source),
+                    graph=self.graph, xmods=self.xmods,
+                    includes=self.includes, typedefs=self.typedefs,
+                    builddir=self.builddir, frontend=self.frontend)
+
+        return item
+
     def append(self, sources):
         """
         Add names of source routines or modules to find and process.
         """
         for source in as_tuple(sources):
-            if source in self.item_map:
-                continue
+            # TODO: Dirty workaround...
+            if isinstance(source, str):
+                item = self.create_item(source)
+            else:
+                item = source
 
-            # Use default as base and overrid individual options
-            rconf = self.config.default.copy()
-            if source in self.config.routines:
-                rconf.update(self.config.routines[source])
-
-            item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
-                        expand=rconf.get('expand', self.config.default['expand']),
-                        strict=rconf.get('strict', True), ignore=rconf.get('ignore', None),
-                        enrich=rconf.get('enrich', None), block=rconf.get('block', None),
-                        graph=self.graph, xmods=self.xmods,
-                        includes=self.includes, typedefs=self.typedefs,
-                        builddir=self.builddir, frontend=self.frontend)
+            # Update internal data structures
             self.queue.append(item)
             self.item_map[source] = item
-
             self.item_graph.add_node(item)
 
     def populate(self):
@@ -271,17 +287,19 @@ class Scheduler:
         while len(self.queue) > 0:
             item = self.queue.popleft()
 
-            for child in item.children:
+            for c in item.children:
+                child = self.create_item(c)
+
                 # Skip "deadlisted" items immediately
                 if child in self._deadlist:
                     continue
 
                 # Mark blocked children in graph, but skip
-                if child.lower() in item.block:
+                if child in item.block:
                     if self.graph:
-                        self.graph.node(child.upper(), color='black',
+                        self.graph.node(child.name.upper(), color='black',
                                         fillcolor='orangered', style='filled')
-                        self.graph.edge(item.name.upper(), child.upper())
+                        self.graph.edge(item.name.upper(), child.name.upper())
 
                     continue
 
@@ -291,11 +309,11 @@ class Scheduler:
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
-                    if child.lower() in item.ignore:
+                    if child in item.ignore:
                         if self.graph:
-                            self.graph.node(child.upper(), color='black', shape='box'
+                            self.graph.node(child.name.upper(), color='black', shape='box'
                                             , fillcolor='lightblue', style='filled')
-                            self.graph.edge(item.name.upper(), child.upper())
+                            self.graph.edge(item.name.upper(), child.name.upper())
                         continue
 
                     self.append(child)
@@ -305,9 +323,9 @@ class Scheduler:
                     # Append newly created edge to graph
                     if self.graph:
                         if child not in [r.name for r in self.processed]:
-                            self.graph.node(child.upper(), color='black',
+                            self.graph.node(child.name.upper(), color='black',
                                             fillcolor='lightblue', style='filled')
-                        self.graph.edge(item.name.upper(), child.upper())
+                        self.graph.edge(item.name.upper(), child.name.upper())
 
         # Enrich subroutine calls for inter-procedural transformations
         for item in self.item_graph:
