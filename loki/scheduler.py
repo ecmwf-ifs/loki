@@ -39,9 +39,9 @@ class SchedulerConfig:
     def __init__(self, default, routines, block=None, replicate=None, disable=None):
         self.default = default
         if isinstance(routines, dict):
-            self.routines = routines
+            self.routines = CaseInsensitiveDict(routines)
         else:
-            self.routines = OrderedDict((r.name, r) for r in as_tuple(routines))
+            self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.block = as_tuple(block)
         self.replicate = as_tuple(replicate)
         self.disable = as_tuple(disable)
@@ -146,9 +146,9 @@ class Item:
         """
         Set of all child routines that this work item calls.
         """
-        members = [m.name.lower() for m in (self.routine.members or [])]
-        return tuple(call.name for call in FindNodes(CallStatement).visit(self.routine.ir)
-                     if call.name.lower() not in members)
+        members = [m.name.lower() for m in as_tuple(self.routine.members)]
+        calls = tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        return tuple(call for call in calls if call not in members)
 
 
 class Scheduler:
@@ -347,14 +347,16 @@ class Scheduler:
 
         # Insert all nodes we were told to either block or ignore
         for item in self.items:
-            for child in item.block:
-                callgraph.node(child.upper(), color='black', shape='box',
-                               fillcolor='orangered', style='filled')
-                callgraph.edge(item.name.upper(), child.upper())
+            for child in item.children:
+                if child in item.block:
+                    callgraph.node(child.upper(), color='black', shape='box',
+                                   fillcolor='orangered', style='filled')
+                    callgraph.edge(item.name.upper(), child.upper())
 
-            for child in item.ignore:
-                callgraph.node(child.upper(), color='black', shape='box',
-                                fillcolor='lightblue', style='filled')
-                callgraph.edge(item.name.upper(), child.upper())
+            for child in item.children:
+                if child in item.ignore:
+                    callgraph.node(child.upper(), color='black', shape='box',
+                                   fillcolor='lightblue', style='filled')
+                    callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
