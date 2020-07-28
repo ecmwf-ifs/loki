@@ -24,12 +24,19 @@ class SchedulerConfig:
     :param defaults: Dict of default options for each item
     :param routines: List of routine-specific option dicts.
     :param block: List or subroutine names that are blocked from the tree.
+                  Note that these will still be shown in the visualisation
+                  of the callgraph.
     :param replicate: List or subroutine names that need to be replicated.
                       Note, this only sets a flag for external build systems
                       to align source injection mechanics.
+    :param disbale: List or subroutine names that are entirely disabled and
+                    will not be added to either the callgraph that we traverse,
+                    nor the visualisation. These are intended for utility routines
+                    that pop up in many routines but can be ignored in terms of
+                    program control flow, like `flush` or `abort`.
     """
 
-    def __init__(self, default, routines, block=None, replicate=None):
+    def __init__(self, default, routines, block=None, replicate=None, disable=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = routines
@@ -37,6 +44,7 @@ class SchedulerConfig:
             self.routines = OrderedDict((r.name, r) for r in as_tuple(routines))
         self.block = as_tuple(block)
         self.replicate = as_tuple(replicate)
+        self.disable = as_tuple(disable)
 
     @classmethod
     def from_dict(cls, config):
@@ -155,8 +163,6 @@ class Scheduler:
     :param paths: List of locations to search for source files.
     """
 
-    _deadlist = ['dr_hook', 'abor1', 'abort_surf', 'flush']
-
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '_mod.f90']
 
@@ -265,7 +271,7 @@ class Scheduler:
                 child = self.create_item(c)
 
                 # Skip "deadlisted" items immediately
-                if child in self._deadlist:
+                if child in self.config.disable:
                     continue
 
                 # Mark blocked children in graph, but skip
