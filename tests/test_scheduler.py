@@ -182,7 +182,7 @@ def test_scheduler_graph_blocked(here, builddir, config):
     """
     projA = here/'sources/projA'
 
-    config['default']['blocked'] = ['another_l1']
+    config['default']['block'] = ['another_l1']
 
     scheduler = Scheduler(paths=projA, includes=projA/'include',
                           config=config, builddir=builddir)

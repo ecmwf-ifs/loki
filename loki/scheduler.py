@@ -27,20 +27,20 @@ class SchedulerConfig:
 
     :param defaults: Dict of default options for each item
     :param routines: List of routine-specific option dicts.
-    :param blocked: List or subroutine names that are blocked from the tree.
-    :param replicated: List or subroutine names that need to be replicated.
-                       Note, this only sets a flag for external build systems
-                       to align source injection mechanics.
+    :param block: List or subroutine names that are blocked from the tree.
+    :param replicate: List or subroutine names that need to be replicated.
+                      Note, this only sets a flag for external build systems
+                      to align source injection mechanics.
     """
 
-    def __init__(self, default, routines, blocked=None, replicated=None):
+    def __init__(self, default, routines, block=None, replicate=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = routines
         else:
             self.routines = OrderedDict((r.name, r) for r in as_tuple(routines))
-        self.blocked = as_tuple(blocked)
-        self.replicated = as_tuple(replicated)
+        self.block = as_tuple(block)
+        self.replicate = as_tuple(replicate)
 
     @classmethod
     def from_dict(cls, config):
@@ -48,9 +48,9 @@ class SchedulerConfig:
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         routines = config['routines']
-        blocked = default.get('blocked', None)
-        replicated = default.get('replicated', None)
-        return cls(default=default, routines=routines, blocked=blocked, replicated=replicated)
+        block = default.get('blocke', None)
+        replicate = default.get('replicate', None)
+        return cls(default=default, routines=routines, block=block, replicate=replicate)
 
     @classmethod
     def from_file(cls, path):
@@ -81,25 +81,31 @@ class Item:
     :param enrich: List of subroutines that should still be searched for and used to
                    "enrich" `CallStatement` nodes in this `Item` for inter-procedural
                    transformation passes.
-    :param blocked: List of subroutines that should should not be added to the scheduler
-                    tree. Note, these might still be shown in the graph visulisation.
+    :param block: List of subroutines that should should not be added to the scheduler
+                  tree. Note, these might still be shown in the graph visulisation.
     """
 
-    def __init__(self, name, role, path, expand=True, strict=True, ignore=None, enrich=None,
-                 blocked=None, graph=None, xmods=None,
+    def __init__(self, name, path, role, expand=True, strict=True, is_blocked=False,
+                 is_ignored=False, ignore=None, enrich=None, block=None, graph=None, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
+        # Essential item attributes
         self.name = name
-        self.role = role
-        self.expand = expand
-        self.strict = strict
-        self.ignore = as_tuple(ignore)
-        self.enrich = as_tuple(enrich)
-        self.blocked = as_tuple(blocked)
-
         self.path = path
         self.source = None
         self.routine = None
         self.graph = graph
+
+        # Item-specific markers and attributes
+        self.role = role
+        self.expand = expand
+        self.strict = strict
+        self.is_blocked = is_blocked
+        self.is_ignored = is_ignored
+
+        # Lists of subtree markers
+        self.ignore = as_tuple(ignore)
+        self.enrich = as_tuple(enrich)
+        self.block = as_tuple(block)
 
         if path.exists():
             try:
@@ -247,7 +253,7 @@ class Scheduler:
             item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
                         expand=rconf.get('expand', self.config.default['expand']),
                         strict=rconf.get('strict', True), ignore=rconf.get('ignore', None),
-                        enrich=rconf.get('enrich', None), blocked=rconf.get('blocked', None),
+                        enrich=rconf.get('enrich', None), block=rconf.get('block', None),
                         graph=self.graph, xmods=self.xmods,
                         includes=self.includes, typedefs=self.typedefs,
                         builddir=self.builddir, frontend=self.frontend)
@@ -271,7 +277,7 @@ class Scheduler:
                     continue
 
                 # Mark blocked children in graph, but skip
-                if child.lower() in item.blocked:
+                if child.lower() in item.block:
                     if self.graph:
                         self.graph.node(child.upper(), color='black',
                                         fillcolor='orangered', style='filled')
@@ -333,7 +339,7 @@ class Scheduler:
             self.processed.append(item)
 
             if self.graph:
-                if item.name in self.config.replicated:
+                if item.name in self.config.replicate:
                     self.graph.node(item.name.upper(), color='black', shape='diamond',
                                     fillcolor='limegreen', style='rounded,filled')
                 else:
