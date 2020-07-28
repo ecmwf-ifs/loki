@@ -108,6 +108,17 @@ def test_scheduler_graph_simple(here, builddir, config):
     assert all(n in scheduler.items for n in expected_items)
     assert all(e in scheduler.dependencies for e in expected_dependencies)
 
+    # On-the-fly testing of callgraph visualisation
+    cg_path = here/'callgraph_simple'
+    scheduler.graph.render(cg_path, view=False)
+
+    with cg_path.open('r') as f:
+        cg_graph = f.read()
+    graph_nodes = ['{} [color=black'.format(n.upper()) for n in expected_items[1:]]
+    graph_edges = ['{} -> {}'.format(e1.upper(), e2.upper()) for e1, e2 in expected_dependencies]
+    assert all(n in cg_graph for n in graph_nodes)
+    assert all(e in cg_graph for e in graph_edges)
+
 
 def test_scheduler_graph_partial(here, builddir, config):
     """
