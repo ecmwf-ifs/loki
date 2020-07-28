@@ -1,4 +1,4 @@
-module kernelA_mod
+module KERNELA_MOD
   use header_mod, only: jprb
   use compute_l1_mod, only: compute_l1
 
@@ -6,16 +6,16 @@ module kernelA_mod
 
 contains
 
-  subroutine kernelA(vector, matrix)
+  subroutine KERNELA(vector, matrix)
     real(kind=jprb), intent(inout) :: vector(:)
     real(kind=jprb), intent(inout) :: matrix(:)
 
 #include "another_l1.intfb.h"
 
-    call compute_l1(vector)
+    call COMPUTE_L1(vector)
 
-    call another_l1(matrix)
+    call ANOTHER_L1(matrix)
 
-  end subroutine kernelA
+  end subroutine KERNELA
 
-end module kernelA_mod
+end module KERNELA_MOD

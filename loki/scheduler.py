@@ -11,7 +11,7 @@ from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import SourceFile
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import info, warning, error
 
 
@@ -124,6 +124,19 @@ class Item:
                 self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
             info("Could not find source file %s; skipping...", name)
 
+    def __repr__(self):
+        return 'loki.scheduler.Item<{}>'.format(self.name)
+
+    def __eq__(self, other):
+        if isinstance(other, Item):
+            return self.name.lower() == other.name.lower()
+        if isinstance(other, str):
+            return self.name.lower() == other.lower()
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.name)
+
     @property
     def children(self):
         """
@@ -186,11 +199,26 @@ class Scheduler:
                 obj_list += [Obj(source_path=f) for f in path.glob('**/*%s' % ext)]
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = OrderedDict((r, obj) for obj in obj_list for r in obj.subroutines)
+        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in obj.subroutines)
 
     @property
     def routines(self):
         return [item.routine for item in self.item_graph.nodes]
+
+    @property
+    def items(self):
+        """
+        All `Items` contained in the `Scheduler`s call graph.
+        """
+        return as_tuple(self.item_graph.nodes)
+
+    @property
+    def dependencies(self):
+        """
+        All individual pairs of `Item`s that represent a dependency
+        and form an edge in the `Scheduler`s call graph.
+        """
+        return as_tuple(self.item_graph.edges)
 
     def find_path(self, routine):
         """
@@ -243,7 +271,7 @@ class Scheduler:
                     continue
 
                 # Mark blocked children in graph, but skip
-                if child in item.blocked:
+                if child.lower() in item.blocked:
                     if self.graph:
                         self.graph.node(child.upper(), color='black',
                                         fillcolor='orangered', style='filled')
@@ -257,7 +285,7 @@ class Scheduler:
                     # Note that, unlike blackisted items, "ignore" items
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
-                    if child in item.ignore:
+                    if child.lower() in item.ignore:
                         if self.graph:
                             self.graph.node(child.upper(), color='black', shape='box'
                                             , fillcolor='lightblue', style='filled')

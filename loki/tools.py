@@ -8,6 +8,7 @@ from copy import deepcopy
 from functools import wraps
 from pathlib import Path
 from hashlib import md5
+from collections import OrderedDict
 
 
 from loki.logging import log, info, INFO
@@ -191,6 +192,23 @@ def find_files(pattern, srcdir='.'):
     rule = re.compile(fnmatch.translate(pattern), re.IGNORECASE)
     return [Path(dirpath)/fname for dirpath, _, fnames in os.walk(str(srcdir))
             for fname in fnames if rule.match(fname)]
+
+
+class CaseInsensitiveDict(OrderedDict):
+    """
+    Dict that ignores the casing of string keys.
+
+    Basic idea from:
+    https://stackoverflow.com/questions/2082152/case-insensitive-dictionary
+    """
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
+
+    def __getitem__(self, key):
+        return super().__getitem__(key.lower())
+
+    def __contains__(self, key):
+        return super().__contains__(key.lower())
 
 
 class JoinableStringList:

@@ -95,19 +95,18 @@ def test_scheduler_graph_simple(here, builddir, config):
     scheduler.append('driverA')
     scheduler.populate()
 
-    expected_nodes = ['driverA', 'kernelA', 'compute_l1', 'compute_l2', 'another_l1', 'another_l2']
-    expected_edges = [
-        'driverA -> kernelA',
-        'kernelA -> compute_l1',
-        'compute_l1 -> compute_l2',
-        'kernelA -> another_l1',
-        'another_l1 -> another_l2'
+    expected_items = [
+        'driverA', 'kernelA', 'compute_l1', 'compute_l2', 'another_l1', 'another_l2'
     ]
-
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in expected_nodes)
-    assert all(e in edges for e in expected_edges)
+    expected_dependencies = [
+        ('driverA', 'kernelA'),
+        ('kernelA', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+        ('kernelA', 'another_l1'),
+        ('another_l1', 'another_l2'),
+    ]
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
 
 
 def test_scheduler_graph_partial(here, builddir, config):
@@ -137,10 +136,8 @@ def test_scheduler_graph_partial(here, builddir, config):
     scheduler.populate()
 
     # Check the correct sub-graph is generated
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
-    assert all(e in edges for e in ['compute_l1 -> compute_l2', 'another_l1 -> another_l2'])
+    assert all(n in scheduler.items for n in ['compute_l1', 'compute_l2', 'another_l1', 'another_l2'])
+    assert all(e in scheduler.dependencies for e in [('compute_l1', 'compute_l2'), ('another_l1', 'another_l2')])
 
 
 def test_scheduler_graph_config_file(here, builddir):
@@ -159,11 +156,9 @@ def test_scheduler_graph_config_file(here, builddir):
     scheduler.populate()
 
     # Check the correct sub-graph is generated
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in ['compute_l1', 'another_l1', 'another_l2'])
-    assert all(e in edges for e in ['another_l1 -> another_l2'])
-    assert 'compute_l2' not in nodes  # We're blocking `compute_l2` in config file
+    assert all(n in scheduler.items for n in ['compute_l1', 'another_l1', 'another_l2'])
+    assert all(e in scheduler.dependencies for e in [('another_l1', 'another_l2')])
+    assert 'compute_l2' not in scheduler.items  # We're blocking `compute_l2` in config file
 
 
 def test_scheduler_graph_blocked(here, builddir, config):
@@ -183,22 +178,22 @@ def test_scheduler_graph_blocked(here, builddir, config):
     scheduler.append('driverA')
     scheduler.populate()
 
-    expected_nodes = ['driverA', 'kernelA', 'compute_l1', 'compute_l2']
-    expected_edges = [
-        'driverA -> kernelA',
-        'kernelA -> compute_l1',
-        'compute_l1 -> compute_l2',
+    expected_items = [
+        'driverA', 'kernelA', 'compute_l1', 'compute_l2'
+    ]
+    expected_dependencies = [
+        ('driverA', 'kernelA'),
+        ('kernelA', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
     ]
 
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in expected_nodes)
-    assert all(e in edges for e in expected_edges)
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
 
-    assert 'another_l1' not in nodes
-    assert 'another_l2' not in nodes
-    assert 'kernelA -> another_l1' not in edges
-    assert 'another_l1 -> another_l2' not in edges
+    assert 'another_l1' not in scheduler.items
+    assert 'another_l2' not in scheduler.items
+    assert ('kernelA', 'another_l1') not in scheduler.dependencies
+    assert ('another_l1', 'another_l2') not in scheduler.dependencies
 
 
 def test_scheduler_typedefs(here, builddir, config):
@@ -289,18 +284,18 @@ def test_scheduler_graph_multiple_combined(here, builddir, config):
     scheduler.append('driverB')
     scheduler.populate()
 
-    expected_nodes = ['driverB', 'kernelB', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel']
-    expected_edges = [
-        'driverB -> kernelB',
-        'kernelB -> compute_l1',
-        'compute_l1 -> compute_l2',
-        'kernelB -> ext_driver',
-        'ext_driver -> ext_kernel'
+    expected_items = [
+        'driverB', 'kernelB', 'compute_l1', 'compute_l2', 'ext_driver', 'ext_kernel'
     ]
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in expected_nodes)
-    assert all(e in edges for e in expected_edges)
+    expected_dependencies = [
+        ('driverB', 'kernelB'),
+        ('kernelB', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+        ('kernelB', 'ext_driver'),
+        ('ext_driver', 'ext_kernel'),
+    ]
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
 
 
 def test_scheduler_graph_multiple_separate(here, builddir, config):
@@ -334,15 +329,19 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     schedulerA.append('driverB')
     schedulerA.populate()
 
-    expected_nodesA = ['driverB', 'kernelB', 'compute_l1', 'compute_l2']
-    expected_edgesA = ['driverB -> kernelB', 'kernelB -> compute_l1', 'compute_l1 -> compute_l2']
+    expected_itemsA = [
+        'driverB', 'kernelB', 'compute_l1', 'compute_l2'
+    ]
+    expected_dependenciesA = [
+        ('driverB', 'kernelB'),
+        ('kernelB', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+     ]
 
-    nodesA = [n.name for n in schedulerA.item_graph.nodes]
-    edgesA = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerA.item_graph.edges]
-    assert all(n in nodesA for n in expected_nodesA)
-    assert all(e in edgesA for e in expected_edgesA)
-    assert 'ext_driver' not in nodesA
-    assert 'ext_kernel' not in nodesA
+    assert all(n in schedulerA.items for n in expected_itemsA)
+    assert all(e in schedulerA.dependencies for e in expected_dependenciesA)
+    assert 'ext_driver' not in schedulerA.items
+    assert 'ext_kernel' not in schedulerA.items
 
     configB = config.copy()
     configB['routine'] = [
@@ -357,11 +356,9 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     schedulerB.populate()
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
-    nodesB = [n.name for n in schedulerB.item_graph.nodes]
-    edgesB = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in schedulerB.item_graph.edges]
-    assert 'ext_driver' in nodesB
-    assert 'ext_kernel' in nodesB
-    assert 'ext_driver -> ext_kernel' in edgesB
+    assert 'ext_driver' in schedulerB.items
+    assert 'ext_kernel' in schedulerB.items
+    assert ('ext_driver', 'ext_kernel') in schedulerB.dependencies
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
@@ -386,18 +383,18 @@ def test_scheduler_module_dependency(here, builddir, config):
     scheduler.append('driverC')
     scheduler.populate()
 
-    expected_nodes = ['driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two']
-    expected_edges = [
-        'driverC -> kernelC',
-        'kernelC -> compute_l1',
-        'compute_l1 -> compute_l2',
-        'kernelC -> routine_one',
-        'routine_one -> routine_two',
+    expected_items = [
+        'driverC', 'kernelC', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two'
     ]
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in expected_nodes)
-    assert all(e in edges for e in expected_edges)
+    expected_dependencies = [
+        ('driverC', 'kernelC'),
+        ('kernelC', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+        ('kernelC', 'routine_one'),
+        ('routine_one', 'routine_two'),
+    ]
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
 
     # Ensure that we got the right routines from the module
     assert scheduler.item_map['routine_one'].routine.name == 'routine_one'
@@ -422,18 +419,18 @@ def test_scheduler_module_dependencies_unqualified(here, builddir, config):
     scheduler.append('driverD')
     scheduler.populate()
 
-    expected_nodes = ['driverD', 'kernelD', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two']
-    expected_edges = [
-        'driverD -> kernelD',
-        'kernelD -> compute_l1',
-        'compute_l1 -> compute_l2',
-        'kernelD -> routine_one',
-        'routine_one -> routine_two',
+    expected_items = [
+        'driverD', 'kernelD', 'compute_l1', 'compute_l2', 'routine_one', 'routine_two'
     ]
-    nodes = [n.name for n in scheduler.item_graph.nodes]
-    edges = ['{} -> {}'.format(e1.name, e2.name) for e1, e2 in scheduler.item_graph.edges]
-    assert all(n in nodes for n in expected_nodes)
-    assert all(e in edges for e in expected_edges)
+    expected_dependencies = [
+        ('driverD', 'kernelD'),
+        ('kernelD', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+        ('kernelD', 'routine_one'),
+        ('routine_one', 'routine_two'),
+    ]
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
 
     # Ensure that we got the right routines from the module
     assert scheduler.item_map['routine_one'].routine.name == 'routine_one'
