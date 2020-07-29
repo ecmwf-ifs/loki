@@ -20,7 +20,7 @@ from loki.transform import DependencyTransformation, FortranCTransformation
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
-from transformations import DerivedTypeArgumentsTransformation
+from transformations import DerivedTypeArgumentsTransformation, InferArgShapeTransformation
 from transformations import DataOffloadTransformation
 from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import SingleColumnCoalescedTransformation
@@ -346,7 +346,7 @@ class CMakePlanner(Transformation):
 
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
 @click.option('--config', '-cfg', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
@@ -393,6 +393,96 @@ def plan(mode, config, header, source, build, root, include, frontend, callgraph
     # Output the resulting callgraph
     if callgraph:
         scheduler.callgraph(callgraph)
+
+
+@cli.command('ecphys')
+@click.option('--mode', '-m', default='sca',
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+@click.option('--config', '-cfg', type=click.Path(),
+              help='Path to configuration file.')
+@click.option('--header', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s).')
+@click.option('--source', '-s', type=click.Path(), multiple=True,
+              help='Path to source files to transform.')
+@click.option('--build', '-s', type=click.Path(), default=None,
+              help='Path to build directory for source generation.')
+@click.option('--include', '-I', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
+@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni', 'fp']),
+              help='Frontend parser to use (default OFP)')
+def ecphys(mode, config, header, source, build, include, frontend):
+    """
+    Physics bulk-processing option that employs a :class:`Scheduler` to apply
+    source-to-source transformations, such as the Single Column Abstraction (SCA),
+    to large sets of interdependent subroutines.
+    """
+
+    info('[Loki] Bulk-processing physics using config: %s ', config)
+    config = SchedulerConfig.from_file(config)
+
+    frontend = Frontend[frontend.upper()]
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+
+    headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
+    definitions = flatten(h.modules for h in headers)
+
+    # Create and setup the scheduler for bulk-processing
+    paths = [Path(s).resolve().parent for s in source]
+    paths += [Path(h).resolve().parent for h in header]
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler.populate(routines=config.routines.keys())
+
+    # First, remove all derived-type arguments; caller first!
+    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+
+    # Backward insert argument shapes (for surface routines)
+    scheduler.process(transformation=InferArgShapeTransformation())
+
+    # Now we instantiate our transformation pipeline and apply the main changes
+    transformation = None
+    if mode == 'idem':
+        transformation = IdemTransformation()
+
+    if mode == 'sca':
+        # Define the target dimension to strip from kernel and caller
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = ExtractSCATransformation(horizontal=horizontal)
+
+    if mode in ['scc', 'scc-hoist']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        transformation = SingleColumnCoalescedTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+            directive='openacc', hoist_column_arrays='hoist' in mode
+        )
+
+    if transformation:
+        scheduler.process(transformation=transformation)
+    else:
+        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
+
+    # Apply the dependency-injection transformation
+    dependency = DependencyTransformation(mode='module', module_suffix='_MOD',
+                                          suffix=f'_{mode.upper()}')
+    scheduler.process(transformation=dependency)
+
+    class FileWriteTransformation(Transformation):
+        """
+        Write out modified source files to a select build directory
+        """
+        def __init__(self, builddir=None):
+            self.builddir = Path(builddir)
+
+        def transform_file(self, sourcefile, **kwargs):
+            item = kwargs.get('item', None)
+
+            sourcepath = Path(item.path).with_suffix(f'.{mode.lower()}.F90')
+            if self.builddir is not None:
+                sourcepath = self.builddir/sourcepath.name
+            sourcefile.write(path=sourcepath)
+
+    scheduler.process(transformation=FileWriteTransformation(builddir=build))
 
 
 if __name__ == "__main__":
