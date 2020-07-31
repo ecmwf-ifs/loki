@@ -51,6 +51,8 @@ class SchedulerConfig:
         default = config['default']
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+        else:
+            config['routines'] = []
         routines = config['routines']
         disable = default.get('disable', None)
 
