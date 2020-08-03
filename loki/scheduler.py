@@ -267,11 +267,11 @@ class Scheduler:
             for c in item.children:
                 child = self.create_item(c)
 
-                # Skip "deadlisted" items immediately
+                # Skip "disabled" items immediately
                 if child in self.config.disable:
                     continue
 
-                # Mark blocked children in graph, but skip
+                # Skip blocked children as well
                 if child in item.block:
                     continue
 
@@ -324,7 +324,7 @@ class Scheduler:
 
         :param path: Path to write the callgraph figure to.
         """
-        import graphviz as gviz
+        import graphviz as gviz  # pylint: disable=import-outside-toplevel
 
         cg_path = Path(path)
         callgraph = gviz.Digraph(format='pdf', strict=True)
