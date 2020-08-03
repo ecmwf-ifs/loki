@@ -42,8 +42,6 @@ class SchedulerConfig:
             self.routines = CaseInsensitiveDict(routines)
         else:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
-        self.block = as_tuple(block)
-        self.replicate = as_tuple(replicate)
         self.disable = as_tuple(disable)
 
     @classmethod
@@ -52,9 +50,8 @@ class SchedulerConfig:
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         routines = config['routines']
-        block = default.get('blocke', None)
-        replicate = default.get('replicate', None)
-        return cls(default=default, routines=routines, block=block, replicate=replicate)
+        disable = default.get('disable', None)
+        return cls(default=default, routines=routines, disable=disable)
 
     @classmethod
     def from_file(cls, path):
