@@ -1,17 +1,13 @@
 from pathlib import Path
 from collections import deque, OrderedDict
 import networkx as nx
-try:
-    import graphviz as gviz
-except ImportError:
-    gviz = None
 
 from loki.build import Obj
 from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import SourceFile
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import info, warning, error
 
 
@@ -27,20 +23,26 @@ class SchedulerConfig:
 
     :param defaults: Dict of default options for each item
     :param routines: List of routine-specific option dicts.
-    :param blocked: List or subroutine names that are blocked from the tree.
-    :param replicated: List or subroutine names that need to be replicated.
-                       Note, this only sets a flag for external build systems
-                       to align source injection mechanics.
+    :param block: List or subroutine names that are blocked from the tree.
+                  Note that these will still be shown in the visualisation
+                  of the callgraph.
+    :param replicate: List or subroutine names that need to be replicated.
+                      Note, this only sets a flag for external build systems
+                      to align source injection mechanics.
+    :param disbale: List or subroutine names that are entirely disabled and
+                    will not be added to either the callgraph that we traverse,
+                    nor the visualisation. These are intended for utility routines
+                    that pop up in many routines but can be ignored in terms of
+                    program control flow, like `flush` or `abort`.
     """
 
-    def __init__(self, default, routines, blocked=None, replicated=None):
+    def __init__(self, default, routines, block=None, replicate=None, disable=None):
         self.default = default
         if isinstance(routines, dict):
-            self.routines = routines
+            self.routines = CaseInsensitiveDict(routines)
         else:
-            self.routines = OrderedDict((r.name, r) for r in as_tuple(routines))
-        self.blocked = as_tuple(blocked)
-        self.replicated = as_tuple(replicated)
+            self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
+        self.disable = as_tuple(disable)
 
     @classmethod
     def from_dict(cls, config):
@@ -48,9 +50,8 @@ class SchedulerConfig:
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         routines = config['routines']
-        blocked = default.get('blocked', None)
-        replicated = default.get('replicated', None)
-        return cls(default=default, routines=routines, blocked=blocked, replicated=replicated)
+        disable = default.get('disable', None)
+        return cls(default=default, routines=routines, disable=disable)
 
     @classmethod
     def from_file(cls, path):
@@ -81,25 +82,30 @@ class Item:
     :param enrich: List of subroutines that should still be searched for and used to
                    "enrich" `CallStatement` nodes in this `Item` for inter-procedural
                    transformation passes.
-    :param blocked: List of subroutines that should should not be added to the scheduler
-                    tree. Note, these might still be shown in the graph visulisation.
+    :param block: List of subroutines that should should not be added to the scheduler
+                  tree. Note, these might still be shown in the graph visulisation.
     """
 
-    def __init__(self, name, role, path, expand=True, strict=True, ignore=None, enrich=None,
-                 blocked=None, graph=None, xmods=None,
+    def __init__(self, name, path, role, mode=None, expand=True, strict=True,
+                 ignore=None, enrich=None, block=None, replicate=False, xmods=None,
                  includes=None, builddir=None, typedefs=None, frontend=FP):
+        # Essential item attributes
         self.name = name
-        self.role = role
-        self.expand = expand
-        self.strict = strict
-        self.ignore = as_tuple(ignore)
-        self.enrich = as_tuple(enrich)
-        self.blocked = as_tuple(blocked)
-
         self.path = path
         self.source = None
         self.routine = None
-        self.graph = graph
+
+        # Item-specific markers and attributes
+        self.role = role
+        self.mode = mode
+        self.expand = expand
+        self.strict = strict
+        self.replicate = replicate
+
+        # Lists of subtree markers
+        self.ignore = as_tuple(ignore)
+        self.enrich = as_tuple(enrich)
+        self.block = as_tuple(block)
 
         if path.exists():
             try:
@@ -111,27 +117,35 @@ class Item:
                 self.routine = self.source[self.name]
 
             except Exception as excinfo:  # pylint: disable=broad-except
-                if self.graph:
-                    self.graph.node(self.name.upper(), color='red', style='filled')
-
                 warning('Could not parse %s:', path)
                 if self.strict:
                     raise excinfo
                 error(excinfo)
 
         else:
-            if self.graph:
-                self.graph.node(self.name.upper(), color='lightsalmon', style='filled')
             info("Could not find source file %s; skipping...", name)
+
+    def __repr__(self):
+        return 'loki.scheduler.Item<{}>'.format(self.name)
+
+    def __eq__(self, other):
+        if isinstance(other, Item):
+            return self.name.lower() == other.name.lower()
+        if isinstance(other, str):
+            return self.name.lower() == other.lower()
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.name)
 
     @property
     def children(self):
         """
         Set of all child routines that this work item calls.
         """
-        members = [m.name.lower() for m in (self.routine.members or [])]
-        return tuple(call.name for call in FindNodes(CallStatement).visit(self.routine.ir)
-                     if call.name.lower() not in members)
+        members = [m.name.lower() for m in as_tuple(self.routine.members)]
+        calls = tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        return tuple(call for call in calls if call not in members)
 
 
 class Scheduler:
@@ -146,8 +160,6 @@ class Scheduler:
     :param paths: List of locations to search for source files.
     """
 
-    _deadlist = ['dr_hook', 'abor1', 'abort_surf', 'flush']
-
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '_mod.f90']
 
@@ -161,6 +173,7 @@ class Scheduler:
         else:
             self.config = SchedulerConfig.from_dict(config)
 
+        # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.xmods = xmods
         self.includes = includes
@@ -168,16 +181,9 @@ class Scheduler:
         self.typedefs = typedefs
         self.frontend = frontend
 
+        # Internal data structures to store the callgraph
         self.item_graph = nx.DiGraph()
         self.item_map = {}
-
-        self.queue = deque()
-        self.processed = []
-
-        if gviz is not None:
-            self.graph = gviz.Digraph(format='pdf', strict=True)
-        else:
-            self.graph = None
 
         # Scan all source paths and create light-weight `Obj` objects for each file.
         obj_list = []
@@ -186,11 +192,26 @@ class Scheduler:
                 obj_list += [Obj(source_path=f) for f in path.glob('**/*%s' % ext)]
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = OrderedDict((r, obj) for obj in obj_list for r in obj.subroutines)
+        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in obj.subroutines)
 
     @property
     def routines(self):
         return [item.routine for item in self.item_graph.nodes]
+
+    @property
+    def items(self):
+        """
+        All `Items` contained in the `Scheduler`s call graph.
+        """
+        return as_tuple(self.item_graph.nodes)
+
+    @property
+    def dependencies(self):
+        """
+        All individual pairs of `Item`s that represent a dependency
+        and form an edge in the `Scheduler`s call graph.
+        """
+        return as_tuple(self.item_graph.edges)
 
     def find_path(self, routine):
         """
@@ -203,52 +224,55 @@ class Scheduler:
 
         raise RuntimeError("Source path not found for routine: %s" % routine)
 
-    def append(self, sources):
+    def create_item(self, source):
         """
-        Add names of source routines or modules to find and process.
+        Create an `Item` by looking up the path and setting all inferred properties.
+
+        Note that this takes a `SchedulerConfig` object for default options and an
+        item-specific dict with override options, as well as given attributes that
+        might be forced on this item from its paretn (like "is_ignored").
         """
-        for source in as_tuple(sources):
-            if source in self.item_map:
-                continue
+        if source in self.item_map:
+            return self.item_map[source]
 
-            # Use default as base and overrid individual options
-            rconf = self.config.default.copy()
-            if source in self.config.routines:
-                rconf.update(self.config.routines[source])
+        # Use default as base and overrid individual options
+        item_conf = self.config.default.copy()
+        if source in self.config.routines:
+            item_conf.update(self.config.routines[source])
 
-            item = Item(name=source, path=self.find_path(source), role=rconf.get('role'),
-                        expand=rconf.get('expand', self.config.default['expand']),
-                        strict=rconf.get('strict', True), ignore=rconf.get('ignore', None),
-                        enrich=rconf.get('enrich', None), blocked=rconf.get('blocked', None),
-                        graph=self.graph, xmods=self.xmods,
-                        includes=self.includes, typedefs=self.typedefs,
-                        builddir=self.builddir, frontend=self.frontend)
-            self.queue.append(item)
-            self.item_map[source] = item
+        name = item_conf.pop('name', source)
+        return Item(name=name, **item_conf, path=self.find_path(source),
+                    xmods=self.xmods,
+                    includes=self.includes, typedefs=self.typedefs,
+                    builddir=self.builddir, frontend=self.frontend)
 
+    def populate(self, routines):
+        """
+        Populate the callgraph of this scheduler through automatic expansion of
+        subroutine-call induced dependencies from a set of starting routines.
+
+        :param routines: Names of root routines from which to populate the callgraph.
+        """
+        queue = deque()
+        for routine in as_tuple(routines):
+            item = self.create_item(routine)
+            queue.append(item)
+
+            self.item_map[routine] = item
             self.item_graph.add_node(item)
 
-    def populate(self):
-        """
-        Process all enqueued source modules and routines with the
-        stored kernel.
-        """
+        while len(queue) > 0:
+            item = queue.popleft()
 
-        while len(self.queue) > 0:
-            item = self.queue.popleft()
+            for c in item.children:
+                child = self.create_item(c)
 
-            for child in item.children:
-                # Skip "deadlisted" items immediately
-                if child in self._deadlist:
+                # Skip "disabled" items immediately
+                if child in self.config.disable:
                     continue
 
-                # Mark blocked children in graph, but skip
-                if child in item.blocked:
-                    if self.graph:
-                        self.graph.node(child.upper(), color='black',
-                                        fillcolor='orangered', style='filled')
-                        self.graph.edge(item.name.upper(), child.upper())
-
+                # Skip blocked children as well
+                if child in item.block:
                     continue
 
                 # Append child to work queue if expansion is configured
@@ -258,27 +282,20 @@ class Scheduler:
                     # are still marked as targets during bulk-processing,
                     # so that calls to "ignore" routines will be renamed.
                     if child in item.ignore:
-                        if self.graph:
-                            self.graph.node(child.upper(), color='black', shape='box'
-                                            , fillcolor='lightblue', style='filled')
-                            self.graph.edge(item.name.upper(), child.upper())
                         continue
 
-                    self.append(child)
+                    if child not in self.item_map:
+                        queue.append(child)
+                        self.item_map[child.name] = child
+                        self.item_graph.add_node(child)
 
-                    self.item_graph.add_edge(item, self.item_map[child])
-
-                    # Append newly created edge to graph
-                    if self.graph:
-                        if child not in [r.name for r in self.processed]:
-                            self.graph.node(child.upper(), color='black',
-                                            fillcolor='lightblue', style='filled')
-                        self.graph.edge(item.name.upper(), child.upper())
+                    self.item_graph.add_edge(item, child)
 
         # Enrich subroutine calls for inter-procedural transformations
         for item in self.item_graph:
             item.routine.enrich_calls(routines=self.routines)
 
+            # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
                 path = self.find_path(routine)
                 source = SourceFile.from_file(path, preprocess=True,
@@ -301,13 +318,42 @@ class Scheduler:
             # Process work item with appropriate kernel
             transformation.apply(item.routine, role=item.role)
 
-            # Mark item as processed in list and graph
-            self.processed.append(item)
+    def callgraph(self, path):
+        """
+        Generate a callgraph visualization and dump to file.
 
-            if self.graph:
-                if item.name in self.config.replicated:
-                    self.graph.node(item.name.upper(), color='black', shape='diamond',
-                                    fillcolor='limegreen', style='rounded,filled')
-                else:
-                    self.graph.node(item.name.upper(), color='black',
-                                    fillcolor='limegreen', style='filled')
+        :param path: Path to write the callgraph figure to.
+        """
+        import graphviz as gviz  # pylint: disable=import-outside-toplevel
+
+        cg_path = Path(path)
+        callgraph = gviz.Digraph(format='pdf', strict=True)
+
+        # Insert all nodes in the schedulers graph
+        for item in self.items:
+            if item.replicate:
+                callgraph.node(item.name.upper(), color='black', shape='diamond',
+                                fillcolor='limegreen', style='rounded,filled')
+            else:
+                callgraph.node(item.name.upper(), color='black', shape='box',
+                                fillcolor='limegreen', style='filled')
+
+        # Insert all edges in the schedulers graph
+        for parent, child in self.dependencies:
+            callgraph.edge(parent.name.upper(), child.name.upper())
+
+        # Insert all nodes we were told to either block or ignore
+        for item in self.items:
+            for child in item.children:
+                if child in item.block:
+                    callgraph.node(child.upper(), color='black', shape='box',
+                                   fillcolor='orangered', style='filled')
+                    callgraph.edge(item.name.upper(), child.upper())
+
+            for child in item.children:
+                if child in item.ignore:
+                    callgraph.node(child.upper(), color='black', shape='box',
+                                   fillcolor='lightblue', style='filled')
+                    callgraph.edge(item.name.upper(), child.upper())
+
+        callgraph.render(cg_path, view=False)

@@ -21,4 +21,4 @@ pytest
 pytest-cov
 coverage2clover
 pylint
-pytest-pylint < 0.16.0
+pytest-pylint
