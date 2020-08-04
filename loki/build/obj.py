@@ -14,8 +14,8 @@ __all__ = ['Obj']
 _re_use = re.compile(r'^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
 _re_include = re.compile(r'\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
 # Please note that the below regexes are fairly expensive due to .* with re.DOTALL
-_re_module = re.compile(r'module\s+(\w+).*end module', re.IGNORECASE | re.DOTALL)
-_re_subroutine = re.compile(r'subroutine\s+(\w+).*end subroutine', re.IGNORECASE | re.DOTALL)
+_re_module = re.compile(r'module\s+(\w+).*?end module', re.IGNORECASE | re.DOTALL)
+_re_subroutine = re.compile(r'subroutine\s+(\w+).*?end subroutine', re.IGNORECASE | re.DOTALL)
 
 
 class Obj:
@@ -71,21 +71,21 @@ class Obj:
 
     @cached_property
     def modules(self):
-        return [m.lower() for m in _re_module.findall(self.source)]
+        return [m for m in _re_module.findall(self.source)]
 
     @cached_property
     def subroutines(self):
-        return [m.lower() for m in _re_subroutine.findall(self.source)]
+        return [m for m in _re_subroutine.findall(self.source)]
 
     @cached_property
     def uses(self):
         if self.source is None:
             return []
-        return [m.lower() for m in _re_use.findall(self.source)]
+        return [m for m in _re_use.findall(self.source)]
 
     @cached_property
     def includes(self):
-        return [m.lower() for m in _re_include.findall(self.source)]
+        return [m for m in _re_include.findall(self.source)]
 
     @property
     def dependencies(self):
