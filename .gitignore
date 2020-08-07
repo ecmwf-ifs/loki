@@ -39,3 +39,5 @@ tests/test_transpile/CMakeFiles/*
 tests/test_transpile/CMakeCache.txt
 tests/test_transpile/Makefile
 tests/test_transpile/cmake_install.cmake
+
+loki-activate

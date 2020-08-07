@@ -6,19 +6,21 @@ LOKI_HOME=$(git rev-parse --show-toplevel)
 VENV_HOME=${1:-$LOKI_HOME/loki_env}
 ANT_VERSION=1.10.8
 JAVA_VERSION=11.0.1
+PYTHON_VERSION=3.7.1-01
+CMAKE_VERSION=3.15.0
 
 # Derived variables
-ANT_INSTALL_DIR=${LOKI_HOME}/externals/ant
+ANT_INSTALL_DIR=${VENV_HOME}/opt/ant
 export ANT_HOME=${ANT_INSTALL_DIR}/apache-ant-${ANT_VERSION}
 export ANT_OPTS="-Dhttp.proxyHost=proxy.ecmwf.int -Dhttp.proxyPort=3333 -Dhttps.proxyHost=proxy.ecmwf.int -Dhttps.proxyPort=3333"
 
-CLAW_INSTALL_DIR=${LOKI_HOME}/externals/claw
+CLAW_INSTALL_DIR=${VENV_HOME}/opt/claw
 OFP_HOME=${VENV_HOME}/src/open-fortran-parser
 
 # Load modules
-module load python3/3.7.1-01
+module load python3/${PYTHON_VERSION}
 module load java/${JAVA_VERSION}
-module load cmake/3.15.0
+module load cmake/${CMAKE_VERSION}
 
 #
 # Create Python virtualenv
@@ -26,6 +28,7 @@ module load cmake/3.15.0
 
 python3 -m venv "${VENV_HOME}"
 source "${VENV_HOME}/bin/activate"
+pip install --upgrade pip
 
 #
 # Clone and install dev version of Loki
@@ -94,12 +97,13 @@ echo "
 # This script activates Loki's virtual environment, loads additional modules and sets dependend paths.
 #
 # Run as 'source loki-activate'
-. ${VENV_HOME}/bin/activate
+VENV_HOME=${VENV_HOME}
+. \${VENV_HOME}/bin/activate
 _OLD_CLASSPATH=\"\${CLASSPATH}\"
-CLASSPATH=\"\${CLASSPATH}:${VENV_HOME}/src/open-fortran-parser/open_fortran_parser/*\"
+CLASSPATH=\"\${CLASSPATH}:\${VENV_HOME}/src/open-fortran-parser/open_fortran_parser/*\"
 export CLASSPATH
 module load java/${JAVA_VERSION}
-export PATH=\"${CLAW_INSTALL_DIR}/bin:$PATH\"
+export PATH=\"${CLAW_INSTALL_DIR}/bin:\${PATH}\"
 " > "${LOKI_HOME}/loki-activate"
 
 #
