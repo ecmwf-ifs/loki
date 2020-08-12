@@ -7,7 +7,7 @@ import pytest
 from conftest import jit_compile, clean_test
 from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation
 from loki.build import Builder, Obj, Lib, execute
-from loki.build.max_compiler import (compile, compile_maxj, compile_max, generate_max,
+from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
 
 
@@ -117,8 +117,8 @@ def test_max_passthrough(simulator, here):
     A simple test streaming data to the DFE and back to CPU.
     """
     build_dir = here / 'build'
-    compile(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
-            target='PassThrough', manager='PassThroughMAX5CManager', package='passthrough')
+    compile_all(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+                target='PassThrough', manager='PassThroughMAX5CManager', package='passthrough')
     simulator.run(build_dir / 'PassThrough')
 
 
@@ -128,8 +128,8 @@ def test_max_passthrough_ctypes(simulator, here):
     """
     # First, build shared library
     build_dir = here / 'build'
-    compile(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
-            target='libPassThrough.so', manager='PassThroughMAX5CManager', package='passthrough')
+    compile_all(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+                target='libPassThrough.so', manager='PassThroughMAX5CManager', package='passthrough')
     lib = ct.CDLL(build_dir / 'libPassThrough.so')
 
     # Extract function interfaces for CPU and DFE version

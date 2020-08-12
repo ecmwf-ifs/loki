@@ -224,7 +224,7 @@ class FortranMaxTransformation(Transformation):
                 else_stmts[stmt.target] = else_stmts.get(stmt.target, []) + [stmt]
 
             # Collect all the statements grouped by their target
-            targets = set([t for slist in (stmts + [else_stmts]) for t in slist.keys()])
+            targets = set(t for slist in (stmts + [else_stmts]) for t in slist.keys())
             target_stmts = {t: [slist.get(t, []) for slist in stmts] for t in targets}
 
             # Hacky heuristic: We use the first body to hangle us along the order of statements
@@ -255,7 +255,7 @@ class FortranMaxTransformation(Transformation):
         # Add the attribute `dfevar` to the type of all variables that depend on a
         # `dfevar` variable (which are initially all 'in', 'inout'-arguments and dataflow loop
         # variables)
-        def is_dfevar(expr, *args, **kwargs):
+        def is_dfevar(expr, *args, **kwargs):  # pylint: disable=unused-argument
             return {isinstance(expr, (sym.Scalar, sym.Array)) and expr.type.dfevar is True}
         dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar, combine=lambda v: {any(v)})
         node_fields = {ir.Statement: ('expr',),
@@ -304,7 +304,7 @@ class FortranMaxTransformation(Transformation):
                     elif v not in vmap:  # We have to create/use an offset stream
                         # Hacky: Replace dataflow index (loop variable) by zero
                         dmap = {d: sym.Literal(0) for d in retrieve_expressions(
-                            v, lambda e: isinstance(e, sym.Scalar) and str(e) == dim)}
+                            v, lambda e, dim=dim: isinstance(e, sym.Scalar) and str(e) == dim)}
                         offset = SubstituteExpressionsMapper(dmap)(index)
                         # Create the offset-variable
                         initial = sym.InlineCall('stream.offset', parameters=(stream, offset))
@@ -412,7 +412,11 @@ class FortranMaxTransformation(Transformation):
 
         return max_kernel
 
-    def _generate_dfe_kernel_module(self, kernel, **kwargs):
+    @staticmethod
+    def _generate_dfe_kernel_module(kernel, **kwargs):  # pylint: disable=unused-argument
+        """
+        Create the Maxj kernel module that wraps the DFE kernel routine.
+        """
         # Some boilerplate imports
         standard_imports = ['Kernel', 'KernelParameters', 'stdlib.KernelMath', 'types.base.DFEVar',
                             'types.composite.DFEVector', 'types.composite.DFEVectorType']
@@ -432,7 +436,8 @@ class FortranMaxTransformation(Transformation):
         max_module.routines = as_tuple(max_kernel)
         return max_module
 
-    def _generate_dfe_manager_intf(self, kernel, **kwargs):
+    @staticmethod
+    def _generate_dfe_manager_intf(kernel, **kwargs):  # pylint: disable=unused-argument
         """
         Create the Maxj manager interface that configures the DFE kernel.
         """
@@ -468,7 +473,7 @@ class FortranMaxTransformation(Transformation):
             body += [ir.Intrinsic(
                 'kernelBlock.getInput("{name}") <== addStreamFromCPU("{name}");'.format(
                     name=stream.name))]
-        for stream in (streams['inout'] + streams['out']):
+        for stream in streams['inout'] + streams['out']:
             body += [ir.Intrinsic(
                 'addStreamToCPU("{name}") <== kernelBlock.getOutput("{name}");'.format(
                     name=stream.name))]
@@ -478,7 +483,8 @@ class FortranMaxTransformation(Transformation):
         manager.routines = as_tuple(setup)
         return manager
 
-    def _generate_dfe_manager(self, kernel, **kwargs):
+    @staticmethod
+    def _generate_dfe_manager(kernel, **kwargs):  # pylint: disable=unused-argument
         """
         Create the Maxj manager for the MAX5C platform.
         """
@@ -521,7 +527,8 @@ class FortranMaxTransformation(Transformation):
         manager.routines = (constructor, main)
         return manager
 
-    def _generate_slic_interface(self, routine, kernel, **kwargs):
+    @staticmethod
+    def _generate_slic_interface(routine, kernel, **kwargs):  # pylint: disable=unused-argument
         """
         Create the SLiC interface that calls the DFE kernel.
         """
@@ -554,7 +561,7 @@ class FortranMaxTransformation(Transformation):
 
         # TODO: actually create a CallStatement. Not possible currently because we don't represent
         #       all the cases around pointer dereferencing etc that are necessary here
-        call_arguments = [ticks_argument.name]
+        call_arguments = [ticks_argument.name]  # pylint: disable=no-member
         for arg in kernel.arguments:
             if arg.name.endswith('_in') and arg.name not in variable_map:
                 if isinstance(arg, sym.Array) or arg.type.dfestream:
@@ -571,7 +578,8 @@ class FortranMaxTransformation(Transformation):
         slic_routine.body = ir.Section(body=as_tuple(call))
         return slic_routine
 
-    def _replace_intrinsics(self, kernel, **kwargs):
+    @staticmethod
+    def _replace_intrinsics(kernel, **kwargs):  # pylint: disable=unused-argument
         """
         Replace known numerical intrinsic functions.
         """

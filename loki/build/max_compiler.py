@@ -6,7 +6,7 @@ from loki.build.compiler import clean
 from loki.build.tools import as_tuple, delete, execute, flatten
 
 
-__all__ = ['clean_max', 'compile', 'compile_c', 'compile_maxj', 'generate_max',
+__all__ = ['clean_max', 'compile_all', 'compile_c', 'compile_maxj', 'generate_max',
            'get_max_includes', 'get_max_libdirs', 'get_max_libs', 'link_obj']
 
 
@@ -159,14 +159,18 @@ def link_obj(objs, target, build_dir):
     objs = set(str(o) for o in objs)  # Convert to set of str to eliminate doubles
     build = ['gcc']
     if Path(target).suffix == '.so':
-        build += ['-shared'] 
+        build += ['-shared']
     libs = flatten([('-l', str(l)) for l in get_max_libs()])
     libdirs = flatten([('-L', str(l)) for l in get_max_libdirs()])
-    build += ['-o', str(target)] + list(objs) + libdirs + libs 
+    build += ['-o', str(target)] + list(objs) + libdirs + libs
     execute(build, cwd=build_dir)
 
 
-def compile(maxj_src, c_src, build_dir, target, manager, package=None):
+def compile_all(maxj_src, c_src, build_dir, target, manager, package=None):
+    """
+    Compiles given MaxJ kernel and manager, generates the max object file from it and compiles
+    the corresponding SLiC interface.
+    """
     clean(build_dir)
     clean_max(build_dir, package)
 
@@ -177,4 +181,3 @@ def compile(maxj_src, c_src, build_dir, target, manager, package=None):
 
     obj_filename = compile_c(c_src, build_dir, include_dirs=[Path(max_filename).parent])
     link_obj(obj_filename + [mobj_filename], target, build_dir)
-

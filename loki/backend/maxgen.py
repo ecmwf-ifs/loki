@@ -1,8 +1,7 @@
-from functools import reduce
 from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM,
                                          PREC_COMPARISON)
 
-from loki.expression.symbol_types import Array, LokiStringifyMapper, IntLiteral, FloatLiteral
+from loki.expression.symbol_types import LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import
 from loki.types import DataType
 from loki.visitors import Stringifier, FindNodes
@@ -72,12 +71,6 @@ class MaxjCodeMapper(LokiStringifyMapper):
 
     def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
-#        lower = self.rec(expr.lower, *args, **kwargs) if expr.lower else ''
-#        upper = self.rec(expr.upper, *args, **kwargs) if expr.upper else ''
-#        if expr.step:
-#            return '(%s - %s + 1) / %s' % (upper, lower, self.rec(expr.step, *args, **kwargs))
-#        else:
-#            return '(%s - %s + 1)' % (upper, lower)
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
@@ -92,25 +85,23 @@ class MaxjCodeMapper(LokiStringifyMapper):
                             {'==': 'eq', '!=': 'neq'}[expr.operator],
                             self.rec(expr.right, PREC_NONE, *args, **kwargs)),
                 enclosing_prec, PREC_COMPARISON)
-        else:
-            return super().map_comparison(expr, enclosing_prec, *args, **kwargs)
+        return super().map_comparison(expr, enclosing_prec, *args, **kwargs)
 
     def map_sum(self, expr, enclosing_prec, *args, **kwargs):
-        """
-        Since substraction and unary minus are mapped to multiplication with (-1), we are here
-        looking for such cases and determine the matching operator for the output.
-        """
         def get_neg_product(expr):
+            """
+            Since substraction and unary minus are mapped to multiplication with (-1), we are here
+            looking for such cases and determine the matching operator for the output.
+            """
+            # pylint: disable=import-outside-toplevel
             from pymbolic.primitives import is_zero, Product
 
-            if isinstance(expr, Product) and len(expr.children) and is_zero(expr.children[0]+1):
+            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return expr.children[1]
-                else:
-                    return Product(expr.children[1:])
-            else:
-                return None
+                return Product(expr.children[1:])
+            return None
 
         terms = []
         is_neg_term = []
@@ -139,52 +130,7 @@ class MaxjCodegen(Stringifier):
 
     def __init__(self, depth=0, indent='  ', linewidth=90):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: '\n{}  '.format(indent),
-                         symgen=MaxjCodeMapper())
-
-    def type_and_stream(self, v, is_input=True):
-        """
-        Builds the string representation of the nested parameterized type for vectors and scalars
-        and the matching initialization function or output stream.
-        """
-        base_type = self.visit(v.type)
-        L = len(v.dimensions) if isinstance(v, Array) else 0
-
-        # Build nested parameterized type
-        types = ['DFEVar'] + ['DFEVector<%s>'] * L
-        types = [reduce(lambda p, n: n % p, types[:i]) for i in range(1, L+2)]
-
-        # Deduce matching type constructor
-        init_templates = ['new DFEVectorType<%s>(%s, %s)'] * L
-        inits = [base_type]
-        for i in range(L):
-            inits += [init_templates[i] % (types[i], inits[i],
-                                           self._maxjsymgen(v.dimensions[-(i+1)]))]
-
-        if is_input:
-            if v.initial is not None:
-                # Assign a given initial value...
-                stream = self._maxjsymgen(v.initial)
-            elif v.type.intent is not None and v.type.intent.lower() == 'in':
-                # ...or determine matching stream routine...
-                stream_name = 'input' if isinstance(v, Array) or v.type.dfestream else 'scalarInput'
-                stream = 'io.%s("%s", %s)' % (stream_name, v.name, inits[-1])
-            else:
-                # ...or create an empty instance
-                if isinstance(v, Array):
-                    stream = '%s.newInstance(this)' % inits[-1]
-                else:
-                    stream = '%s.newInstance(this, 0)' % inits[-1]
-
-        else:
-            # Matching outflow statement
-            if v.type.intent is not None and v.type.intent.lower() in ('inout', 'out'):
-                sname = 'output' if isinstance(v, Array) or v.type.dfestream else 'scalarOutput'
-                stream = 'io.{0}("{1}", {1}, {2})'.format(sname, v.name, inits[-1])
-            else:
-                stream = None
-
-        return types[-1], stream
+                         line_cont='\n{}  '.format, symgen=MaxjCodeMapper())
 
     # Handler for outer objects
 
