@@ -3,7 +3,7 @@ source /usr/local/apps/module/init/bash
 
 # Parameters 
 LOKI_HOME=$(git rev-parse --show-toplevel)
-VENV_HOME=${1:-$LOKI_HOME/loki_env}
+VENV_HOME=$(realpath ${1:-$LOKI_HOME/loki_env})
 ANT_VERSION=1.10.8
 JAVA_VERSION=11.0.1
 PYTHON_VERSION=3.7.1-01
