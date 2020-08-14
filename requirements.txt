@@ -15,6 +15,7 @@ PyYAML
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/reuterbal/fparser.git@loki_integration
+git+https://github.com/spcl/dace.git
 
 # For tests
 pytest
