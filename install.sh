@@ -3,32 +3,38 @@ source /usr/local/apps/module/init/bash
 
 # Parameters 
 LOKI_HOME=$(git rev-parse --show-toplevel)
-VENV_HOME=$(realpath ${1:-$LOKI_HOME/loki_env})
-ANT_VERSION=1.10.8
-JAVA_VERSION=11.0.1
-PYTHON_VERSION=3.7.1-01
-CMAKE_VERSION=3.15.0
+VENV_HOME=$(realpath ${VIRTUAL_ENV:-${1:-$LOKI_HOME/loki_env}})
+USE_ANT_VERSION=1.10.8
+USE_JAVA_VERSION=11.0.1
+USE_PYTHON_VERSION=3.7.1-01
+USE_CMAKE_VERSION=3.15.0
 
 # Derived variables
 ANT_INSTALL_DIR=${VENV_HOME}/opt/ant
-export ANT_HOME=${ANT_INSTALL_DIR}/apache-ant-${ANT_VERSION}
+export ANT_HOME=${ANT_INSTALL_DIR}/apache-ant-${USE_ANT_VERSION}
 export ANT_OPTS="-Dhttp.proxyHost=proxy.ecmwf.int -Dhttp.proxyPort=3333 -Dhttps.proxyHost=proxy.ecmwf.int -Dhttps.proxyPort=3333"
 
 CLAW_INSTALL_DIR=${VENV_HOME}/opt/claw
 OFP_HOME=${VENV_HOME}/src/open-fortran-parser
 
 # Load modules
-module load python3/${PYTHON_VERSION}
-module load java/${JAVA_VERSION}
-module load cmake/${CMAKE_VERSION}
+module unload java cmake
+module load java/${USE_JAVA_VERSION}
+module load cmake/${USE_CMAKE_VERSION}
 
 #
 # Create Python virtualenv
 #
 
-python3 -m venv "${VENV_HOME}"
-source "${VENV_HOME}/bin/activate"
+if [ -z $VIRTUAL_ENV ]
+then
+  module unload python3
+  module load python3/${USE_PYTHON_VERSION}
+  python3 -m venv "${VENV_HOME}"
+  source "${VENV_HOME}/bin/activate"
+fi
 pip install --upgrade pip
+pip install wheel
 
 #
 # Clone and install dev version of Loki
@@ -52,7 +58,7 @@ then
 fi
 
 # Download, unpack and install ant
-ANT_ARCHIVE=apache-ant-${ANT_VERSION}-bin.tar.gz
+ANT_ARCHIVE=apache-ant-${USE_ANT_VERSION}-bin.tar.gz
 mkdir -p "${ANT_INSTALL_DIR}"
 rm -rf "${ANT_HOME}" "${ANT_INSTALL_DIR}/${ANT_ARCHIVE}"
 cd "${ANT_INSTALL_DIR}"
@@ -102,7 +108,7 @@ VENV_HOME=${VENV_HOME}
 _OLD_CLASSPATH=\"\${CLASSPATH}\"
 CLASSPATH=\"\${CLASSPATH}:\${VENV_HOME}/src/open-fortran-parser/open_fortran_parser/*\"
 export CLASSPATH
-module load java/${JAVA_VERSION}
+module load java/${USE_JAVA_VERSION}
 export PATH=\"${CLAW_INSTALL_DIR}/bin:\${PATH}\"
 " > "${LOKI_HOME}/loki-activate"
 
