@@ -106,6 +106,8 @@ class Scalar(ExprMetadataMixin, pmbl.Variable):
         args = [('scope', self.scope)]
         if self.parent:
             args += [('parent', self.parent)]
+        if self.initial:
+            args += [('initial', self.initial)]
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_scalar')
@@ -225,6 +227,8 @@ class Array(ExprMetadataMixin, pmbl.Variable):
             args += [('dimensions', self.dimensions)]
         if self.parent:
             args += [('parent', self.parent)]
+        if self.initial:
+            args += [('initial', self.initial)]
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_array')

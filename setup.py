@@ -11,6 +11,5 @@ setup(name='loki',
       packages=find_packages(exclude=['tests']),
       install_requires=['open-fortran-parser'],
       test_requires=['pytest', 'flake8'],
-      scripts=['scripts/loki-transform.py'],
-)
-
+      scripts=['scripts/loki-transform.py', 'scripts/loki-lint.py'],
+     )

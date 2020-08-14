@@ -492,3 +492,33 @@ class Subroutine:
         String representation.
         """
         return '{}:: {}'.format('Function' if self.is_function else 'Subroutine', self.name)
+
+    def clone(self, **kwargs):
+        """
+        Create a copy of the subroutine.
+        """
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.argnames and 'args' not in kwargs:
+            kwargs['args'] = self.argnames
+        if self.members and 'members' not in kwargs:
+            kwargs['members'] = [member.clone() for member in self.members]
+        if self._ast and 'ast' not in kwargs:
+            kwargs['ast'] = self._ast
+        if self.bind and 'bind' not in kwargs:
+            kwargs['bind'] = self.bind
+        if self.is_function and 'is_function' not in kwargs:
+            kwargs['is_function'] = self.is_function
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if self.source and 'source' not in kwargs:
+            kwargs['source'] = self.source
+
+        kwargs['symbols'] = TypeTable(parent=self.symbols.parent)
+        kwargs['docstring'] = Transformer({}).visit(self.docstring)
+        spec_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.spec)}
+        kwargs['spec'] = SubstituteExpressions(spec_map).visit(Transformer({}).visit(self.spec))
+        body_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.body)}
+        kwargs['body'] = SubstituteExpressions(body_map).visit(Transformer({}).visit(self.body))
+
+        return type(self)(**kwargs)

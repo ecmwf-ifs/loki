@@ -11,7 +11,8 @@ from loki.types import TypeTable
 __all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective']
+           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective',
+           'ConditionalStatement']
 
 
 class Node:
@@ -252,13 +253,36 @@ class Conditional(Node):
 
     @property
     def children(self):
-        # Note that we currently ignore the condition itself
         return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
 
     def __repr__(self):
         if self.name:
             return 'Conditional:: {}'.format(self.name)
         return 'Conditional::'
+
+
+class ConditionalStatement(Node):
+    """
+    Internal representation of an inline conditional
+    """
+
+    _traversable = ['condition', 'target', 'expr', 'else_expr']
+
+    def __init__(self, target, condition, expr, else_expr, source=None):
+        super(ConditionalStatement, self).__init__(source=source)
+
+        self.target = target
+        self.condition = condition
+        self.expr = expr
+        self.else_expr = else_expr
+
+    @property
+    def children(self):
+        return tuple((self.condition,) + (self.target,) + (self.expr,) + (self.else_expr,))
+
+    def __repr__(self):
+        return 'CondStmt:: %s = %s ? %s : %s' % (self.target, self.condition, self.expr,
+                                                 self.else_expr)
 
 
 class MultiConditional(Node):
