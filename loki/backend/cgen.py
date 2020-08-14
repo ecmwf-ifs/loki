@@ -64,16 +64,16 @@ class CCodeMapper(LokiStringifyMapper):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
+            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
             return self.format('%s%s.%s', ptr, parent, expr.basename)
         return self.format('%s%s', ptr, expr.name)
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims = ''
         if expr.dimensions:
-            dims = self.rec(expr.dimensions, enclosing_prec, *args, **kwargs)
+            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
         if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, enclosing_prec, *args, **kwargs))
+            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
             return self.format('%s.%s%s', parent, expr.basename, dims)
         return self.format('%s%s', expr.basename, dims)
 
@@ -115,10 +115,11 @@ class CCodegen(Stringifier):
     Tree visitor to generate standardized C code from IR.
     """
 
+    # pylint: disable=no-self-use
+
     def __init__(self, depth=0, indent='  ', linewidth=90):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: '\n{}  '.format(indent),  # pylint: disable=unnecessary-lambda
-                         symgen=CCodeMapper())
+                         line_cont='\n{}  '.format, symgen=CCodeMapper())
 
     # Handler for outer objects
 
