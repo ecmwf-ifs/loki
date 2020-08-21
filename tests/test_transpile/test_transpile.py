@@ -2,8 +2,14 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import SourceFile, OFP, OMNI, FP, FortranCTransformation
+from conftest import jit_compile, clean_test
+from loki import SourceFile, Subroutine, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.fixture(scope='module', name='refpath')
@@ -12,9 +18,8 @@ def fixture_refpath():
 
 
 @pytest.fixture(scope='module', name='builder')
-def fixture_builder(refpath):
-    path = refpath.parent
-    return Builder(source_dirs=path, build_dir=path/'build')
+def fixture_builder(here):
+    return Builder(source_dirs=here, build_dir=here/'build')
 
 
 @pytest.fixture(scope='module', name='reference')
@@ -31,7 +36,7 @@ def fixture_reference(builder):
     return lib.wrap(modname='ref', sources=sources, builder=builder)
 
 
-def c_transpile(routine, refpath, builder, frontend, header_modules=None, objects=None, wrap=None):
+def c_transpile(routine, path, builder, frontend, header_modules=None, objects=None, wrap=None):
     """
     Generate the ISO-C bindings wrapper and C-transpiled source code
     """
@@ -39,7 +44,7 @@ def c_transpile(routine, refpath, builder, frontend, header_modules=None, object
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=header_modules)
-    f2c.apply(source=routine, path=refpath.parent)
+    f2c.apply(source=routine, path=path)
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
@@ -52,44 +57,107 @@ def c_transpile(routine, refpath, builder, frontend, header_modules=None, object
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_simple_loops(refpath, reference, builder, frontend):
+def test_transpile_simple_loops(here, builder, frontend):
     """
     A simple test routine to test C transpilation of loops
     """
 
-    # Test the reference solution
+    fcode = """
+subroutine transpile_simple_loops(n, m, scalar, vector, tensor)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: n, m
+  real(kind=real64), intent(inout) :: scalar
+  real(kind=real64), intent(inout) :: vector(n), tensor(n, m)
+
+  integer :: i, j
+
+  ! For testing, the operation is:
+  do i=1, n
+     vector(i) = vector(i) + tensor(i, 1) + 1.0
+  end do
+
+  do j=1, m
+     do i=1, n
+        tensor(i, j) = 10.* j + i
+     end do
+  end do
+end subroutine transpile_simple_loops
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_simple_loops_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_simple_loops')
+
     n, m = 3, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
-    reference.transpile_simple_loops(n, m, scalar, vector, tensor)
-    assert np.all(vector == 8.)
-    assert np.all(tensor == [[11., 21., 31., 41.],
-                             [12., 22., 32., 42.],
-                             [13., 23., 33., 43.]])
-
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_simple_loops'], refpath, builder, frontend)
-
-    # Test the transpiled C kernel
-    n, m = 3, 4
-    scalar = 2.0
-    vector = np.zeros(shape=(n,), order='F') + 3.
-    tensor = np.zeros(shape=(n, m), order='F') + 4.
-    function = c_kernel.transpile_simple_loops_fc_mod.transpile_simple_loops_fc
     function(n, m, scalar, vector, tensor)
+
     assert np.all(vector == 8.)
     assert np.all(tensor == [[11., 21., 31., 41.],
                              [12., 22., 32., 42.],
                              [13., 23., 33., 43.]])
+
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_simple_loops_fc_mod.transpile_simple_loops_fc
+
+    n, m = 3, 4
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    tensor = np.zeros(shape=(n, m), order='F') + 4.
+    fc_function(n, m, scalar, vector, tensor)
+
+    assert np.all(vector == 8.)
+    assert np.all(tensor == [[11., 21., 31., 41.],
+                             [12., 22., 32., 42.],
+                             [13., 23., 33., 43.]])
+
+    clean_test(filepath)
+    # TODO: Need to clean C/FC files too!
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_arguments(refpath, reference, builder, frontend):
+def test_transpile_arguments(here, builder, frontend):
     """
     A test the correct exchange of arguments with varying intents
     """
+
+    fcode = """
+subroutine transpile_arguments(n, array, array_io, a, b, c, a_io, b_io, c_io)
+  use iso_fortran_env, only: real32, real64
+  implicit none
+
+  integer, intent(in) :: n
+  real(kind=real64), intent(inout) :: array(n)
+  real(kind=real64), intent(out) :: array_io(n)
+
+  integer, intent(out) :: a
+  real(kind=real32), intent(out) :: b
+  real(kind=real64), intent(out) :: c
+  integer, intent(inout) :: a_io
+  real(kind=real32), intent(inout) :: b_io
+  real(kind=real64), intent(inout) :: c_io
+
+  integer :: i
+
+  do i=1, n
+     array(i) = 3.
+     array_io(i) = array_io(i) + 3.
+  end do
+
+  a = 2**3
+  b = 3.2_real32
+  c = 4.1_real64
+
+  a_io = a_io + 2
+  b_io = b_io + real(3.2, kind=real32)
+  c_io = c_io + 4.1
+end subroutine transpile_arguments
+"""
 
     # Test the reference solution
     n = 3
@@ -100,28 +168,34 @@ def test_transpile_arguments(refpath, reference, builder, frontend):
     b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
     c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
 
-    a, b, c = reference.transpile_arguments(n, array, array_io, a_io, b_io, c_io)
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_arguments_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_arguments')
+    a, b, c = function(n, array, array_io, a_io, b_io, c_io)
+
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_arguments'], refpath, builder, frontend)
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc
 
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
     a_io = np.zeros(shape=(1,), order='F', dtype=np.int32) + 1
     b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
     c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
+    a, b, c = fc_function(n, array, array_io, a_io, b_io, c_io)
 
-    a, b, c = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc(n, array, array_io,
-                                                                         a_io, b_io, c_io)
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
+
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -151,7 +225,7 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type'], refpath, builder, frontend,
+    c_kernel = c_transpile(source['transpile_derived_type'], refpath.parent, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -196,7 +270,7 @@ def test_transpile_associates(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_associates'], refpath, builder, frontend,
+    c_kernel = c_transpile(source['transpile_associates'], refpath.parent, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -237,7 +311,7 @@ def test_transpile_derived_type_array(refpath, reference, builder, frontend):
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
                                   typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath, builder, frontend,
+    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath.parent, builder, frontend,
                            objects=[Obj(source_path='transpile_type.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
 
@@ -268,7 +342,7 @@ def test_transpile_module_variables(refpath, reference, builder, frontend):
     FortranCTransformation().apply(source=typemod, path=refpath.parent)
 
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_module_variables'], refpath, builder, frontend,
+    c_kernel = c_transpile(source['transpile_module_variables'], refpath.parent, builder, frontend,
                            objects=[Obj(source_path=refpath.parent / 'transpile_type.f90'),
                                     Obj(source_path=refpath.parent / 'transpile_type_fc.f90')],
                            wrap=['transpile_type.f90'], header_modules=[typemod])
@@ -298,7 +372,7 @@ def test_transpile_vectorization(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_vectorization'], refpath, builder, frontend)
+    c_kernel = c_transpile(source['transpile_vectorization'], refpath.parent, builder, frontend)
 
     # Test the trnapiled C kernel
     n, m = 3, 4
@@ -325,7 +399,7 @@ def test_transpile_intrinsics(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_intrinsics'], refpath, builder, frontend)
+    c_kernel = c_transpile(source['transpile_intrinsics'], refpath.parent, builder, frontend)
 
     results = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc(v1, v2, v3, v4)
     vmin, vmax, vabs, vmin_nested, vmax_nested = results
@@ -356,7 +430,7 @@ def test_transpile_loop_indices(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_loop_indices'], refpath, builder, frontend)
+    c_kernel = c_transpile(source['transpile_loop_indices'], refpath.parent, builder, frontend)
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
@@ -390,7 +464,7 @@ def test_transpile_logical_statements(refpath, reference, builder, frontend):
 
     # Generate the C kernel
     source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_logical_statements'], refpath, builder, frontend)
+    c_kernel = c_transpile(source['transpile_logical_statements'], refpath.parent, builder, frontend)
     function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
 
     for v1 in range(2):
