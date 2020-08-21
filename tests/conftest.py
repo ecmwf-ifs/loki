@@ -3,12 +3,13 @@ import contextlib
 import os
 import io
 
-from loki import SourceFile, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement
+from loki import SourceFile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement
+from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
 
 
-__all__ = ['generate_identity', 'jit_compile', 'clean_test', 'clean_preprocessing',
-           'stdchannel_redirected', 'stdchannel_is_captured']
+__all__ = ['generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
+           'clean_preprocessing', 'stdchannel_redirected', 'stdchannel_is_captured']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -60,6 +61,49 @@ def jit_compile(source, filepath=None, objname=None):
     if objname:
         return getattr(pymod, objname)
     return pymod
+
+
+def jit_compile_lib(sources, path, name, wrap=None, builder=None):
+    """
+    Generate, just-in-time compile and load a set of items into a
+    library and import dynamically into the Python runtime.
+
+    :param source: Source items or filepath to compile and add to lib
+    :param path: Basepath for on-the-fly creation of source files
+    :param name: Name of created lib
+    :param wrap: Optional list of files names to pass to f90wrap.
+                 Defaults to list of source files.
+    :param builder: Builder object to use for lib compilation and linking
+    """
+    builder = builder or Builder(source_dirs=path, build_dir=path)
+    sourcefiles = []
+
+    for source in sources:
+        if isinstance(source, (str, Path)):
+            sourcefiles.append(source)
+
+        if isinstance(source, SourceFile):
+            filepath = source.path or path/'{}.f90'.format(source.name)
+            source.write(path=filepath)
+            sourcefiles.append(source.path)
+
+        elif isinstance(source, Module):
+            filepath = path/'{}.f90'.format(source.name)
+            source = SourceFile(filepath, modules=[source])
+            source.write(path=filepath)
+            sourcefiles.append(source.path)
+
+        elif isinstance(source, Subroutine):
+            filepath = path/'{}.f90'.format(source.name)
+            source = SourceFile(filepath, routines=[source])
+            source.write(path=filepath)
+            sourcefiles.append(source.path)
+
+    objects = [Obj(source_path=s) for s in sourcefiles]
+    lib = Lib(name=name, objs=objects, shared=False)
+    lib.build(builder=builder)
+    wrap = wrap or sourcefiles
+    return lib.wrap(modname=name, sources=wrap, builder=builder)
 
 
 def clean_test(filepath):

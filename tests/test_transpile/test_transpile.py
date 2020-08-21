@@ -2,8 +2,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import SourceFile, Subroutine, OFP, OMNI, FP, FortranCTransformation
+from conftest import jit_compile, jit_compile_lib, clean_test
+from loki import SourceFile, Subroutine, Module, OFP, OMNI, FP, FortranCTransformation
 from loki.build import Builder, Obj, Lib
 
 
@@ -199,17 +199,43 @@ end subroutine transpile_arguments
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_derived_type(refpath, reference, builder, frontend):
+def test_transpile_derived_type(here, builder, frontend):
     """
     Tests handling and type-conversion of various argument types
-
-    a_struct%a = a_struct%a + 4   # int
-    a_struct%b = a_struct%b + 5.  # float
-    a_struct%c = a_struct%c + 6.  # double
     """
 
+    fcode_type = """
+module transpile_type_mod
+  use iso_fortran_env, only: real32, real64
+  implicit none
+
+  type my_struct
+     integer :: a
+     real(kind=real32) :: b
+     real(kind=real64) :: c
+  end type my_struct
+end module transpile_type_mod
+"""
+
+    fcode_routine = """
+subroutine transpile_derived_type(a_struct)
+  use transpile_type_mod, only: my_struct
+  implicit none
+  type(my_struct), intent(inout) :: a_struct
+
+  a_struct%a = a_struct%a + 4
+  a_struct%b = a_struct%b + 5.
+  a_struct%c = a_struct%c + 6.
+end subroutine transpile_derived_type
+"""
+
+    module = Module.from_source(fcode_type, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
+
     # Test the reference solution
-    a_struct = reference.transpile_type.my_struct()
+    a_struct = reference.transpile_type_mod.my_struct()
     a_struct.a = 4
     a_struct.b = 5.
     a_struct.c = 6.
@@ -219,17 +245,18 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
     assert a_struct.c == 12.
 
     # Translate the header module to expose parameters
-    typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
-    FortranCTransformation().apply(source=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=module, path=here)
 
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
-                                  typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type'], refpath.parent, builder, frontend,
-                           objects=[Obj(source_path='transpile_type.f90')],
-                           wrap=['transpile_type.f90'], header_modules=[typemod])
+    # Create transformation object and apply
+    f2c = FortranCTransformation(header_modules=[module])
+    f2c.apply(source=routine, path=here)
 
-    a_struct = reference.transpile_type.my_struct()
+    # Build and wrap the cross-compiled library
+    libname = 'fc_%s_%s' % (routine.name, frontend)
+    sources = [module, f2c.wrapperpath, f2c.c_path]
+    c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
+
+    a_struct = c_kernel.transpile_type_mod.my_struct()
     a_struct.a = 4
     a_struct.b = 5.
     a_struct.c = 6.
@@ -239,22 +266,49 @@ def test_transpile_derived_type(refpath, reference, builder, frontend):
     assert a_struct.b == 10.
     assert a_struct.c == 12.
 
+    builder.clean()
+
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_associates(refpath, reference, builder, frontend):
+def test_transpile_associates(here, builder, frontend):
     """
-    Tests associate statements
+    Tests C-transpilation of associate statements
+    """
 
-    associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
-    & a_struct_c=>a_struct%c)
-    a_struct%a = a_struct_a + 4.
-    a_struct_b = a_struct%b + 5.
-    a_struct_c = a_struct_a + a_struct%b + a_struct_c
-    end associate
-    """
+    fcode_type = """
+module transpile_type_mod
+  use iso_fortran_env, only: real32, real64
+  implicit none
+
+  type my_struct
+     integer :: a
+     real(kind=real32) :: b
+     real(kind=real64) :: c
+  end type my_struct
+end module transpile_type_mod
+"""
+
+    fcode_routine = """
+subroutine transpile_associates(a_struct)
+  use transpile_type_mod, only: my_struct
+  implicit none
+  type(my_struct), intent(inout) :: a_struct
+
+  associate(a_struct_a=>a_struct%a, a_struct_b=>a_struct%b,&
+   & a_struct_c=>a_struct%c)
+  a_struct%a = a_struct_a + 4.
+  a_struct_b = a_struct%b + 5.
+  a_struct_c = a_struct_a + a_struct%b + a_struct_c
+  end associate
+end subroutine transpile_associates
+"""
+    module = Module.from_source(fcode_type, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
 
     # Test the reference solution
-    a_struct = reference.transpile_type.my_struct()
+    a_struct = reference.transpile_type_mod.my_struct()
     a_struct.a = 4
     a_struct.b = 5.
     a_struct.c = 6.
@@ -264,17 +318,18 @@ def test_transpile_associates(refpath, reference, builder, frontend):
     assert a_struct.c == 24.
 
     # Translate the header module to expose parameters
-    typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
-    FortranCTransformation().apply(source=typemod, path=refpath.parent)
+    FortranCTransformation().apply(source=module, path=here)
 
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
-                                  typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_associates'], refpath.parent, builder, frontend,
-                           objects=[Obj(source_path='transpile_type.f90')],
-                           wrap=['transpile_type.f90'], header_modules=[typemod])
+    # Create transformation object and apply
+    f2c = FortranCTransformation(header_modules=[module])
+    f2c.apply(source=routine, path=here)
 
-    a_struct = reference.transpile_type.my_struct()
+    # Build and wrap the cross-compiled library
+    libname = 'fc_%s_%s' % (routine.name, frontend)
+    sources = [module, f2c.wrapperpath, f2c.c_path]
+    c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
+
+    a_struct = c_kernel.transpile_type_mod.my_struct()
     a_struct.a = 4
     a_struct.b = 5.
     a_struct.c = 6.
@@ -284,74 +339,105 @@ def test_transpile_associates(refpath, reference, builder, frontend):
     assert a_struct.b == 10.
     assert a_struct.c == 24.
 
+    builder.clean()
+
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
-def test_transpile_derived_type_array(refpath, reference, builder, frontend):
+def test_transpile_derived_type_array(here, builder, frontend):
     """
     Tests handling of multi-dimensional arrays and pointers.
 
     a_struct%scalar = 3.
     a_struct%vector(i) = a_struct%scalar + 2.
     a_struct%matrix(j,i) = a_struct%vector(i) + 1.
+
+! subroutine transpile_derived_type_array(a_struct)
+!   use transpile_type, only: array_struct
+!   implicit none
+!      ! real(kind=real64) :: vector(:)
+!      ! real(kind=real64) :: matrix(:,:)
+!   type(array_struct), intent(inout) :: a_struct
+!   integer :: i, j
+
+!   a_struct%scalar = 3.
+!   do i=1, 3
+!     a_struct%vector(i) = a_struct%scalar + 2.
+!   end do
+!   do i=1, 3
+!     do j=1, 3
+!       a_struct%matrix(j,i) = a_struct%vector(i) + 1.
+!     end do
+!   end do
+
+! end subroutine transpile_derived_type_array
     """
 
-    # Test the reference solution
-    a_struct = reference.transpile_type.array_struct()
-    reference.transpile_type.alloc_arrays(a_struct)
-    reference.transpile_derived_type_array(a_struct)
-    assert a_struct.scalar == 3.
-    assert (a_struct.vector == 5.).all()
-    assert (a_struct.matrix == 6.).all()
-    reference.transpile_type.free_arrays(a_struct)
-
-    # Translate the header module to expose parameters
-    typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
-    FortranCTransformation().apply(source=typemod, path=refpath.parent)
-
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent],
-                                  typedefs=typemod.typedefs)
-    c_kernel = c_transpile(source['transpile_derived_type_array'], refpath.parent, builder, frontend,
-                           objects=[Obj(source_path='transpile_type.f90')],
-                           wrap=['transpile_type.f90'], header_modules=[typemod])
-
-    a_struct = reference.transpile_type.array_struct()
-    reference.transpile_type.alloc_arrays(a_struct)
-    function = c_kernel.transpile_derived_type_array_fc_mod.transpile_derived_type_fc
-    function(a_struct)
-    assert a_struct.scalar == 3.
-    assert (a_struct.vector == 5.).all()
-    assert (a_struct.matrix == 6.).all()
-    reference.transpile_type.free_arrays(a_struct)
-
-
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_module_variables(refpath, reference, builder, frontend):
+def test_transpile_module_variables(here, refpath, reference, builder, frontend):
     """
     Tests the use of imported module variables (via getter routines in C)
     """
-    reference.transpile_type.param1 = 2
-    reference.transpile_type.param2 = 4.
-    reference.transpile_type.param3 = 3.
+
+    fcode_type = """
+module transpile_type_mod
+  use iso_fortran_env, only: real32, real64
+  implicit none
+
+  save
+
+  integer :: param1
+  real(kind=real32) :: param2
+  real(kind=real64) :: param3
+end module transpile_type_mod
+"""
+
+    fcode_routine = """
+subroutine transpile_module_variables(a, b, c)
+  use iso_fortran_env, only: real32, real64
+  use transpile_type_mod, only: param1, param2, param3
+
+  integer, intent(out) :: a
+  real(kind=real32), intent(out) :: b
+  real(kind=real64), intent(out) :: c
+
+  a = 1 + param1
+  b = 1. + param2
+  c = 1. + param3
+end subroutine transpile_module_variables
+"""
+
+    module = Module.from_source(fcode_type, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
+
+    reference.transpile_type_mod.param1 = 2
+    reference.transpile_type_mod.param2 = 4.
+    reference.transpile_type_mod.param3 = 3.
     a, b, c = reference.transpile_module_variables()
     assert a == 3 and b == 5. and c == 4.
 
     # Translate the header module to expose parameters
-    typepath = refpath.parent/'transpile_type.f90'
-    typemod = SourceFile.from_file(typepath, frontend=frontend)['transpile_type']
-    FortranCTransformation().apply(source=typemod, path=refpath.parent)
+    mod2c = FortranCTransformation()
+    mod2c.apply(source=module, path=here)
 
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_module_variables'], refpath.parent, builder, frontend,
-                           objects=[Obj(source_path=refpath.parent / 'transpile_type.f90'),
-                                    Obj(source_path=refpath.parent / 'transpile_type_fc.f90')],
-                           wrap=['transpile_type.f90'], header_modules=[typemod])
+    # Create transformation object and apply
+    f2c = FortranCTransformation(header_modules=[module])
+    f2c.apply(source=routine, path=here)
 
-    c_kernel.transpile_type.param1 = 2
-    c_kernel.transpile_type.param2 = 4.
-    c_kernel.transpile_type.param3 = 3.
+    # Build and wrap the cross-compiled library
+    libname = 'fc_%s_%s' % (routine.name, frontend)
+    sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
+    wrap = [here/'transpile_type_mod.f90', f2c.wrapperpath.name]
+    c_kernel = jit_compile_lib(sources=sources, wrap=wrap, path=here, name=libname, builder=builder)
+
+    c_kernel.transpile_type_mod.param1 = 2
+    c_kernel.transpile_type_mod.param2 = 4.
+    c_kernel.transpile_type_mod.param3 = 3.
     a, b, c = c_kernel.transpile_module_variables_fc_mod.transpile_module_variables_fc()
     assert a == 3 and b == 5. and c == 4.
+
+    builder.clean()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
