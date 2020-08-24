@@ -210,6 +210,7 @@ subroutine transpile_derived_type(a_struct)
   a_struct%c = a_struct%c + 6.
 end subroutine transpile_derived_type
 """
+    builder.clean()
 
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
@@ -284,6 +285,8 @@ subroutine transpile_associates(a_struct)
   end associate
 end subroutine transpile_associates
 """
+    builder.clean()
+
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
