@@ -17,26 +17,6 @@ def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
 
 
-def c_transpile(routine, path, builder, frontend, header_modules=None, objects=None, wrap=None):
-    """
-    Generate the ISO-C bindings wrapper and C-transpiled source code
-    """
-    builder.clean()
-
-    # Create transformation object and apply
-    f2c = FortranCTransformation(header_modules=header_modules)
-    f2c.apply(source=routine, path=path)
-
-    # Build and wrap the cross-compiled library
-    objects = (objects or []) + [Obj(source_path=f2c.wrapperpath),
-                                 Obj(source_path=f2c.c_path)]
-    lib = Lib(name='fc_%s_%s' % (routine.name, frontend), objs=objects, shared=False)
-    lib.build(builder=builder)
-
-    return lib.wrap(modname='mod_%s_%s' % (routine.name, frontend), builder=builder,
-                    sources=(wrap or []) + [f2c.wrapperpath.name])
-
-
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
 def test_transpile_simple_loops(here, builder, frontend):
     """
@@ -83,7 +63,10 @@ end subroutine transpile_simple_loops
                              [13., 23., 33., 43.]])
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_simple_loops_fc_mod.transpile_simple_loops_fc
 
     n, m = 3, 4
@@ -99,6 +82,8 @@ end subroutine transpile_simple_loops
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -161,7 +146,10 @@ end subroutine transpile_arguments
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc
 
     array = np.zeros(shape=(n,), order='F')
@@ -178,6 +166,8 @@ end subroutine transpile_arguments
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -228,15 +218,16 @@ end subroutine transpile_derived_type
     assert a_struct.c == 12.
 
     # Translate the header module to expose parameters
-    FortranCTransformation().apply(source=module, path=here)
+    mod2c = FortranCTransformation()
+    mod2c.apply(source=module, path=here)
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
     f2c.apply(source=routine, path=here)
 
     # Build and wrap the cross-compiled library
-    libname = 'fc_%s_%s' % (routine.name, frontend)
     sources = [module, f2c.wrapperpath, f2c.c_path]
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
     c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
 
     a_struct = c_kernel.transpile_type_mod.my_struct()
@@ -250,6 +241,12 @@ end subroutine transpile_derived_type
     assert a_struct.c == 12.
 
     builder.clean()
+    mod2c.wrapperpath.unlink()
+    mod2c.c_path.unlink()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -303,15 +300,16 @@ end subroutine transpile_associates
     assert a_struct.c == 24.
 
     # Translate the header module to expose parameters
-    FortranCTransformation().apply(source=module, path=here)
+    mod2c = FortranCTransformation()
+    mod2c.apply(source=module, path=here)
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
     f2c.apply(source=routine, path=here)
 
     # Build and wrap the cross-compiled library
-    libname = 'fc_%s_%s' % (routine.name, frontend)
     sources = [module, f2c.wrapperpath, f2c.c_path]
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
     c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
 
     a_struct = c_kernel.transpile_type_mod.my_struct()
@@ -325,6 +323,12 @@ end subroutine transpile_associates
     assert a_struct.c == 24.
 
     builder.clean()
+    mod2c.wrapperpath.unlink()
+    mod2c.c_path.unlink()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
 
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
@@ -411,9 +415,9 @@ end subroutine transpile_module_variables
     f2c.apply(source=routine, path=here)
 
     # Build and wrap the cross-compiled library
-    libname = 'fc_%s_%s' % (routine.name, frontend)
     sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
     wrap = [here/'transpile_type_mod.f90', f2c.wrapperpath.name]
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
     c_kernel = jit_compile_lib(sources=sources, wrap=wrap, path=here, name=libname, builder=builder)
 
     c_kernel.transpile_type_mod.param1 = 2
@@ -423,6 +427,12 @@ end subroutine transpile_module_variables
     assert a == 3 and b == 5. and c == 4.
 
     builder.clean()
+    mod2c.wrapperpath.unlink()
+    mod2c.c_path.unlink()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -465,7 +475,10 @@ end subroutine transpile_vectorization
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_vectorization_fc_mod.transpile_vectorization_fc
 
     # Test the trnapiled C kernel
@@ -480,6 +493,8 @@ end subroutine transpile_vectorization
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -515,7 +530,10 @@ end subroutine transpile_intrinsics
     assert vmin_nested == 1. and vmax_nested == 5.
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc
 
     vmin, vmax, vabs, vmin_nested, vmax_nested = fc_function(v1, v2, v3, v4)
@@ -524,6 +542,8 @@ end subroutine transpile_intrinsics
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -578,7 +598,10 @@ end subroutine transpile_loop_indices
     assert mask3[-1] == 3.
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_loop_indices_fc_mod.transpile_loop_indices_fc
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
@@ -594,6 +617,8 @@ end subroutine transpile_loop_indices
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -634,7 +659,10 @@ end subroutine transpile_logical_statements
             assert v_val[0] and not v_val[1]
 
     # Generate and test the transpiled C kernel
-    c_kernel = c_transpile(routine, here, builder, frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
 
     for v1 in range(2):
@@ -649,3 +677,5 @@ end subroutine transpile_logical_statements
 
     builder.clean()
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
