@@ -12,28 +12,9 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='refpath')
-def fixture_refpath():
-    return Path(__file__).parent / 'transpile.f90'
-
-
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
-
-
-@pytest.fixture(scope='module', name='reference')
-def fixture_reference(builder):
-    """
-    Compile and load the reference solution
-    """
-    builder.clean()
-
-    sources = ['transpile_type.f90', 'transpile.f90']
-    objects = [Obj(source_path=s) for s in sources]
-    lib = Lib(name='ref', objs=objects, shared=False)
-    lib.build(builder=builder)
-    return lib.wrap(modname='ref', sources=sources, builder=builder)
 
 
 def c_transpile(routine, path, builder, frontend, header_modules=None, objects=None, wrap=None):
@@ -116,8 +97,8 @@ end subroutine transpile_simple_loops
                              [12., 22., 32., 42.],
                              [13., 23., 33., 43.]])
 
+    builder.clean()
     clean_test(filepath)
-    # TODO: Need to clean C/FC files too!
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
@@ -195,6 +176,7 @@ end subroutine transpile_arguments
     assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
+    builder.clean()
     clean_test(filepath)
 
 
@@ -373,7 +355,7 @@ def test_transpile_derived_type_array(here, builder, frontend):
     """
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_module_variables(here, refpath, reference, builder, frontend):
+def test_transpile_module_variables(here, builder, frontend):
     """
     Tests the use of imported module variables (via getter routines in C)
     """
@@ -441,63 +423,141 @@ end subroutine transpile_module_variables
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_vectorization(refpath, reference, builder, frontend):
+def test_transpile_vectorization(here, builder, frontend):
     """
     Tests vector-notation conversion and local multi-dimensional arrays.
     """
 
-    # Test the reference solution
+    fcode = """
+subroutine transpile_vectorization(n, m, scalar, v1, v2)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: n, m
+  real(kind=real64), intent(inout) :: scalar
+  real(kind=real64), intent(inout) :: v1(n), v2(n)
+
+  real(kind=real64) :: matrix(n, m)
+
+  integer :: i
+
+  v1(:) = scalar + 1.0
+  matrix(:, :) = scalar + 2.
+  v2(:) = matrix(:, 2)
+  v2(1) = 1.
+end subroutine transpile_vectorization
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_vectorization_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_vectorization')
+
     n, m = 3, 4
     scalar = 2.0
     v1 = np.zeros(shape=(n,), order='F')
     v2 = np.zeros(shape=(n,), order='F')
+    function(n, m, scalar, v1, v2)
 
-    reference.transpile_vectorization(n, m, scalar, v1, v2)
     assert np.all(v1 == 3.)
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_vectorization'], refpath.parent, builder, frontend)
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_vectorization_fc_mod.transpile_vectorization_fc
 
     # Test the trnapiled C kernel
     n, m = 3, 4
     scalar = 2.0
     v1 = np.zeros(shape=(n,), order='F')
     v2 = np.zeros(shape=(n,), order='F')
-    function = c_kernel.transpile_vectorization_fc_mod.transpile_vectorization_fc
-    function(n, m, scalar, v1, v2)
+    fc_function(n, m, scalar, v1, v2)
+
     assert np.all(v1 == 3.)
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
+    builder.clean()
+    clean_test(filepath)
+
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_intrinsics(refpath, reference, builder, frontend):
+def test_transpile_intrinsics(here, builder, frontend):
     """
     A simple test routine to test supported intrinsic functions
     """
 
+    fcode = """
+subroutine transpile_intrinsics(v1, v2, v3, v4, vmin, vmax, vabs, vmin_nested, vmax_nested)
+  ! Test supported intrinsic functions
+  use iso_fortran_env, only: real64
+  real(kind=real64), intent(in) :: v1, v2, v3, v4
+  real(kind=real64), intent(out) :: vmin, vmax, vabs, vmin_nested, vmax_nested
+
+  vmin = min(v1, v2)
+  vmax = max(v1, v2)
+  vabs = abs(v1 - v2)
+  vmin_nested = min(min(v1, v2), min(v3, v4))
+  vmax_nested = max(max(v1, v2), max(v3, v4))
+end subroutine transpile_intrinsics
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_intrinsics_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_intrinsics')
+
     # Test the reference solution
     v1, v2, v3, v4 = 2., 4., 1., 5.
-    vmin, vmax, vabs, vmin_nested, vmax_nested = reference.transpile_intrinsics(v1, v2, v3, v4)
+    vmin, vmax, vabs, vmin_nested, vmax_nested = function(v1, v2, v3, v4)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
 
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_intrinsics'], refpath.parent, builder, frontend)
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc
 
-    results = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc(v1, v2, v3, v4)
-    vmin, vmax, vabs, vmin_nested, vmax_nested = results
+    vmin, vmax, vabs, vmin_nested, vmax_nested = fc_function(v1, v2, v3, v4)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
+
+    builder.clean()
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_loop_indices(refpath, reference, builder, frontend):
+def test_transpile_loop_indices(here, builder, frontend):
     """
     Test to ensure loop indexing translates correctly
     """
+
+    fcode = """
+subroutine transpile_loop_indices(n, idx, mask1, mask2, mask3)
+  ! Test to ensure loop indexing translates correctly
+  use iso_fortran_env, only: real64
+  integer, intent(in) :: n, idx
+  integer, intent(inout) :: mask1(n), mask2(n)
+  real(kind=real64), intent(inout) :: mask3(n)
+
+  integer :: i
+
+  do i=1, n
+     if (i < idx) then
+        mask1(i) = 1
+     end if
+
+     if (i == idx) then
+        mask1(i) = 2
+     end if
+
+     mask2(i) = i
+  end do
+  mask3(n) = 3.0
+end subroutine transpile_loop_indices
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_loop_indices_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_loop_indices')
 
     # Test the reference solution
     n = 6
@@ -506,22 +566,6 @@ def test_transpile_loop_indices(refpath, reference, builder, frontend):
     mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
 
-    reference.transpile_loop_indices(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
-    assert np.all(mask1[:cidx-1] == 1)
-    assert mask1[cidx] == 2
-    assert np.all(mask1[cidx+1:] == 0)
-    assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
-    assert np.all(mask3[:-1] == 0.)
-    assert mask3[-1] == 3.
-
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_loop_indices'], refpath.parent, builder, frontend)
-
-    mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
-    mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
-    mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
-    function = c_kernel.transpile_loop_indices_fc_mod.transpile_loop_indices_fc
     function(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
     assert np.all(mask1[:cidx-1] == 1)
     assert mask1[cidx] == 2
@@ -530,29 +574,52 @@ def test_transpile_loop_indices(refpath, reference, builder, frontend):
     assert np.all(mask3[:-1] == 0.)
     assert mask3[-1] == 3.
 
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_loop_indices_fc_mod.transpile_loop_indices_fc
+
+    mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
+    fc_function(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
+    assert np.all(mask1[:cidx-1] == 1)
+    assert mask1[cidx] == 2
+    assert np.all(mask1[cidx+1:] == 0)
+    assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
+    assert np.all(mask3[:-1] == 0.)
+    assert mask3[-1] == 3.
+
+    builder.clean()
+    clean_test(filepath)
+
 
 @pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
-def test_transpile_logical_statements(refpath, reference, builder, frontend):
+def test_transpile_logical_statements(here, builder, frontend):
     """
     A simple test routine to test logical statements
     """
 
+    fcode = """
+subroutine transpile_logical_statements(v1, v2, v_xor, v_xnor, v_nand, v_neqv, v_val)
+  logical, intent(in) :: v1, v2
+  logical, intent(out) :: v_xor, v_nand, v_xnor, v_neqv, v_val(2)
+
+  v_xor = (v1 .and. .not. v2) .or. (.not. v1 .and. v2)
+  v_xnor = v1 .eqv. v2
+  v_nand = .not. (v1 .and. v2)
+  v_neqv = v1 .neqv. v2
+  v_val(1) = .true.
+  v_val(2) = .false.
+
+end subroutine transpile_logical_statements
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_logical_statements_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_logical_statements')
+
     # Test the reference solution
-    for v1 in range(2):
-        for v2 in range(2):
-            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
-            v_xor, v_xnor, v_nand, v_neqv = reference.transpile_logical_statements(v1, v2, v_val)
-            assert v_xor == (v1 and not v2) or (not v1 and v2)
-            assert v_xnor == (v1 and v2) or not (v1 or v2)
-            assert v_nand == (not (v1 and v2))
-            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
-            assert v_val[0] and not v_val[1]
-
-    # Generate the C kernel
-    source = SourceFile.from_file(refpath, frontend=frontend, xmods=[refpath.parent])
-    c_kernel = c_transpile(source['transpile_logical_statements'], refpath.parent, builder, frontend)
-    function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
-
     for v1 in range(2):
         for v2 in range(2):
             v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
@@ -562,3 +629,20 @@ def test_transpile_logical_statements(refpath, reference, builder, frontend):
             assert v_nand == (not (v1 and v2))
             assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
             assert v_val[0] and not v_val[1]
+
+    # Generate and test the transpiled C kernel
+    c_kernel = c_transpile(routine, here, builder, frontend)
+    fc_function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
+
+    for v1 in range(2):
+        for v2 in range(2):
+            v_val = np.zeros(shape=(2,), order='F', dtype=np.int32)
+            v_xor, v_xnor, v_nand, v_neqv = fc_function(v1, v2, v_val)
+            assert v_xor == (v1 and not v2) or (not v1 and v2)
+            assert v_xnor == (v1 and v2) or not (v1 or v2)
+            assert v_nand == (not (v1 and v2))
+            assert v_neqv == ((not (v1 and v2)) and (v1 or v2))
+            assert v_val[0] and not v_val[1]
+
+    builder.clean()
+    clean_test(filepath)
