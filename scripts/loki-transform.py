@@ -10,18 +10,20 @@ from pathlib import Path
 import click
 
 from loki import (
-    SourceFile, Transformation, Transformer, FindNodes, Loop, Array, Pragma,
-    DependencyTransformation, FortranCTransformation, Frontend, OMNI, OFP, JoinableStringList
+    SourceFile, Transformation, Transformer, FindNodes, Loop, Array,
+    Pragma, Frontend, JoinableStringList
 )
+# Generalize transformations provided by Loki
+from loki.transform import DependencyTransformation, FortranCTransformation
 
-# Bootstrap the locally defined transformations directory
+# Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
 from transformations import SCATransformation
 
 
-def get_typedefs(typedef, xmods=None, frontend=OFP):
+def get_typedefs(typedef, xmods=None, frontend=Frontend.OFP):
     """
     Read derived type definitions from typedef modules.
     """
@@ -141,8 +143,8 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     kernel_name = 'CLOUDSC'
 
     frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(header, xmods=xmod,
-                            frontend=OFP if frontend == OMNI else frontend)
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
                                   frontend=frontend, typedefs=typedefs,
                                   builddir=out_path)
@@ -224,8 +226,8 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     kernel_name = 'CLOUDSC'
 
     frontend = Frontend[frontend.upper()]
-    typedefs = get_typedefs(header, xmods=xmod,
-                            frontend=OFP if frontend == OMNI else frontend)
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
                                   frontend=frontend, typedefs=typedefs,
                                   builddir=out_path)
@@ -291,12 +293,12 @@ def transpile(out_path, header, source, driver, xmod, include):
     kernel_name = 'CLOUDSC'
 
     # Parse original driver and kernel routine, and enrich the driver
-    typedefs = get_typedefs(header, xmods=xmod, frontend=OFP)
+    typedefs = get_typedefs(header, xmods=xmod, frontend=Frontend.OFP)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=OMNI, typedefs=typedefs,
+                                  frontend=Frontend.OMNI, typedefs=typedefs,
                                   builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=OMNI, builddir=out_path)
+                                  frontend=Frontend.OMNI, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
@@ -305,7 +307,7 @@ def transpile(out_path, header, source, driver, xmod, include):
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     typepaths = [Path(h) for h in header]
-    typemods = [SourceFile.from_file(tp, frontend=OFP)[tp.stem] for tp in typepaths]
+    typemods = [SourceFile.from_file(tp, frontend=Frontend.OFP)[tp.stem] for tp in typepaths]
     for typemod in typemods:
         FortranCTransformation().apply(source=typemod, path=out_path)
 
