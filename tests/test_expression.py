@@ -5,9 +5,9 @@ import pytest
 import numpy as np
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic,
+    OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions
+    FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
 )
 from loki.tools import gettempdir, filehash
 from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
@@ -716,3 +716,33 @@ end subroutine parameter_stmt
     out1 = function()
     assert out1 == 2.0
     clean_test(filepath)
+
+
+def test_string_compare():
+    """
+    Test that we can identify symbols and expressions by equivalent strings.
+
+    Note that this only captures comparsion of a canonical string representation,
+    not full symbolic equivalence.
+    """
+    # Utility objects for manual expression creation
+    scope = TypeTable()
+    type_int = SymbolType(dtype=DataType.INTEGER)
+    type_real = SymbolType(dtype=DataType.REAL)
+
+    i = Variable(name='i', scope=scope, type=type_int)
+    j = Variable(name='j', scope=scope, type=type_int)
+
+    # Test a scalar variable
+    u = Variable(name='u', scope=scope, type=SymbolType(dtype=DataType.REAL))
+    assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
+    assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
+
+    # Test an array variable
+    v = Variable(name='v', dimensions=(i, j), scope=scope, type=type_real)
+    assert all(v == exp for exp in ['v(i,j)', 'v(i, j)', 'v (i , j)', 'V(i,j)', 'V(I, J)'])
+    assert not all(v == exp for exp in ['v(i,j())', 'v(i,_j)', '_V(i,j)'])
+
+    # Test array variable dimensions (ArraySubscript)
+    assert all(v.dimensions == exp for exp in ['(i,j)', '(i, j)', ' (i ,  j)', '(i,J)', '(I, J)'])
+    assert not all(v.dimensions == exp for exp in ['i, j', '(j, i)', '[i, j]'])

@@ -44,7 +44,26 @@ class ExprMetadataMixin:
         return LokiStringifyMapper()
 
 
-class Scalar(ExprMetadataMixin, pmbl.Variable):
+class StrCompareMixin:
+    """
+    String comparison overrides to reliably and flexibly identify
+    expression symbols from equivalent strings.
+    """
+
+    def __hash__(self):
+        return hash(super().__str__().lower().replace(' ', ''))
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            # Do comparsion based on canonical string representations (lower-case, no spaces)
+            sexpr = super().__str__().lower().replace(' ', '')
+            other = other.lower().replace(' ', '')
+            return sexpr == other
+
+        return super().__eq__(other)
+
+
+class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
@@ -134,7 +153,7 @@ class Scalar(ExprMetadataMixin, pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Array(ExprMetadataMixin, pmbl.Variable):
+class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     """
     Expression node for array variables.
 
@@ -609,7 +628,7 @@ class LoopRange(Range):
     mapper_method = intern('map_loop_range')
 
 
-class ArraySubscript(ExprMetadataMixin, pmbl.Subscript):
+class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of an array subscript.
     """
