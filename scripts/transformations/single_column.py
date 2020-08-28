@@ -49,14 +49,14 @@ class ExtractSCATransformation(Transformation):
         # Remove all loops over the target dimensions
         loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
-            if str(loop.variable).upper() == target.variable:
+            if loop.variable == target.variable:
                 loop_map[loop] = loop.body
 
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
         # Note that this also removes arguments and their declarations!
-        routine.variables = [v for v in routine.variables if str(v).upper() not in target.variables]
+        routine.variables = [v for v in routine.variables if v not in target.variables]
 
         # Establish the new dimensions and shapes first, before cloning the variables
         # The reason for this is that shapes of all variable instances are linked
@@ -75,9 +75,9 @@ class ExtractSCATransformation(Transformation):
         vmap = {}
         for v in variables:
             old_shape = shape_map[v.name]
-            new_shape = as_tuple(s for s in old_shape if fgen(s).upper() not in size_expressions)
+            new_shape = as_tuple(s for s in old_shape if s not in size_expressions)
             new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
-                                if fgen(s).upper() not in size_expressions)
+                                if s not in size_expressions)
             new_dims = None if len(new_dims) == 0 else ArraySubscript(new_dims)
             if len(old_shape) != len(new_shape):
                 new_type = v.type.clone(shape=new_shape)
