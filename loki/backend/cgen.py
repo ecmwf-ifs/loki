@@ -103,38 +103,6 @@ class CCodeMapper(LokiStringifyMapper):
     def map_range_index(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr.upper, enclosing_prec, *args, **kwargs) if expr.upper else ''
 
-    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
-        def get_neg_product(expr):
-            """
-            Since substraction and unary minus are mapped to multiplication with (-1), we are here
-            looking for such cases and determine the matching operator for the output.
-            """
-            # pylint: disable=import-outside-toplevel
-            from pymbolic.primitives import is_zero, Product
-
-            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
-                if len(expr.children) == 2:
-                    # only the minus sign and the other child
-                    return expr.children[1]
-                return Product(expr.children[1:])
-            return None
-
-        terms = []
-        is_neg_term = []
-        for ch in expr.children:
-            neg_prod = get_neg_product(ch)
-            is_neg_term.append(neg_prod is not None)
-            if neg_prod is not None:
-                terms.append(self.rec(neg_prod, PREC_PRODUCT, *args, **kwargs))
-            else:
-                terms.append(self.rec(ch, PREC_SUM, *args, **kwargs))
-
-        result = ['%s%s' % ('-' if is_neg_term[0] else '', terms[0])]
-        result += [' %s %s' % ('-' if is_neg else '+', term)
-                   for is_neg, term in zip(is_neg_term[1:], terms[1:])]
-
-        return self.parenthesize_if_needed(''.join(result), enclosing_prec, PREC_SUM)
-
     def map_power(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
             self.format('pow(%s, %s)', self.rec(expr.base, PREC_NONE, *args, **kwargs),
