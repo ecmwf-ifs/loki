@@ -587,7 +587,7 @@ class Cast(ExprMetadataMixin, pmbl.Call):
         return self.function.name
 
 
-class Range(ExprMetadataMixin, pmbl.Slice):
+class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
     """
     Internal representation of a loop or index range.
     """

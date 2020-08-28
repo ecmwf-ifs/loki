@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, fgen, Cast, Statement, Intrinsic, Variable,
+    OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Statement, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
 )
@@ -746,3 +746,8 @@ def test_string_compare():
     # Test array variable dimensions (ArraySubscript)
     assert all(v.dimensions == exp for exp in ['(i,j)', '(i, j)', ' (i ,  j)', '(i,J)', '(I, J)'])
     assert not all(v.dimensions == exp for exp in ['i, j', '(j, i)', '[i, j]'])
+
+    # Test a standard array dimension range
+    r = Range(children=(i, j))
+    w = Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
+    assert all(w == exp for exp in ['w(i:j)', 'w (i : j)', 'W(i:J)', ' w( I:j)'])
