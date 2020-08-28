@@ -513,35 +513,35 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
         return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
 
 
-class Sum(ExprMetadataMixin, pmbl.Sum):
+class Sum(ExprMetadataMixin, StrCompareMixin, pmbl.Sum):
     """Representation of a sum."""
 
 
-class Product(ExprMetadataMixin, pmbl.Product):
+class Product(ExprMetadataMixin, StrCompareMixin, pmbl.Product):
     """Representation of a product."""
 
 
-class Quotient(ExprMetadataMixin, pmbl.Quotient):
+class Quotient(ExprMetadataMixin, StrCompareMixin, pmbl.Quotient):
     """Representation of a quotient."""
 
 
-class Power(ExprMetadataMixin, pmbl.Power):
+class Power(ExprMetadataMixin, StrCompareMixin, pmbl.Power):
     """Representation of a power."""
 
 
-class Comparison(ExprMetadataMixin, pmbl.Comparison):
+class Comparison(ExprMetadataMixin, StrCompareMixin, pmbl.Comparison):
     """Representation of a comparison operation."""
 
 
-class LogicalAnd(ExprMetadataMixin, pmbl.LogicalAnd):
+class LogicalAnd(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalAnd):
     """Representation of an 'and' in a logical expression."""
 
 
-class LogicalOr(ExprMetadataMixin, pmbl.LogicalOr):
+class LogicalOr(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalOr):
     """Representation of an 'or' in a logical expression."""
 
 
-class LogicalNot(ExprMetadataMixin, pmbl.LogicalNot):
+class LogicalNot(ExprMetadataMixin, StrCompareMixin, pmbl.LogicalNot):
     """Representation of a negation in a logical expression."""
 
 

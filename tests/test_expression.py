@@ -9,6 +9,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
 )
+from loki.expression import symbol_types as symbols
 from loki.tools import gettempdir, filehash
 from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 
@@ -751,3 +752,13 @@ def test_string_compare():
     r = Range(children=(i, j))
     w = Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
     assert all(w == exp for exp in ['w(i:j)', 'w (i : j)', 'W(i:J)', ' w( I:j)'])
+
+    # Test simple arithmetic expressions
+    assert all(symbols.Sum((i, u)) == exp for exp in ['i+u', 'i + u', 'i +  U', ' I + u'])
+    assert all(symbols.Product((i, u)) == exp for exp in ['i*u', 'i * u', 'i *  U', ' I * u'])
+    assert all(symbols.Quotient(i, u) == exp for exp in ['i/u', 'i / u', 'i /  U', ' I / u'])
+    assert all(symbols.Power(i, u) == exp for exp in ['i**u', 'i ** u', 'i **  U', ' I ** u'])
+    assert all(symbols.Comparison(i, '==', u) == exp for exp in ['i==u', 'i == u', 'i ==  U', ' I == u'])
+    assert all(symbols.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
+    assert all(symbols.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
+    assert all(symbols.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])

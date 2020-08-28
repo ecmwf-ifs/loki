@@ -70,7 +70,7 @@ def test_extract_sca_iteration(frontend):
   SUBROUTINE compute_column(jstart, jend, nlon, nz, q, t)
     INTEGER, INTENT(IN)   :: jstart, jend  ! Explicit iteration bounds of the kernel
     INTEGER, INTENT(IN)   :: nlon, nz      ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: t(nlon,nz)
+    REAL, INTENT(INOUT)   :: t(jend-jstart+1,nz)
     REAL, INTENT(INOUT)   :: q(nlon,nz)
     INTEGER :: jl, jk
     REAL :: c
