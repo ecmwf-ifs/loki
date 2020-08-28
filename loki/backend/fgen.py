@@ -105,7 +105,8 @@ class FCodeMapper(LokiStringifyMapper):
     def map_loop_range(self, expr, enclosing_prec, *args, **kwargs):
         children = [self.rec(child, PREC_NONE, *args, **kwargs) if child is not None else ''
                     for child in expr.children]
-        if expr.step is None:
+        # Do not unnecessarily print `:1` stepping for loops
+        if expr.step is None or str(expr.step) == '1':
             children = children[:-1]
         return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
 
