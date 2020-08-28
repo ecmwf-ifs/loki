@@ -10,10 +10,10 @@ from loki import (
     LoopRange, RangeIndex, SymbolType, DataType, fgen, as_tuple
 )
 
-__all__ = ['SCATransformation']
+__all__ = ['ExtractSCATransformation']
 
 
-class SCATransformation(Transformation):
+class ExtractSCATransformation(Transformation):
     """
     Transformation to transform vectorized Frotran kernel into SCA format.
 
