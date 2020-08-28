@@ -9,18 +9,16 @@ import sys
 from pathlib import Path
 import click
 
-from loki import (
-    SourceFile, Transformation, Transformer, FindNodes, Loop, Array,
-    Pragma, Frontend, JoinableStringList
-)
-# Generalize transformations provided by Loki
+from loki import SourceFile, Transformation, Transformer, FindNodes, Loop, Pragma, Frontend
+
+# Get generalized transformations provided by Loki
 from loki.transform import DependencyTransformation, FortranCTransformation
 
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
-from transformations import Dimension, ExtractSCATransformation
+from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
 
 
 def get_typedefs(typedef, xmods=None, frontend=Frontend.OFP):
@@ -32,26 +30,6 @@ def get_typedefs(typedef, xmods=None, frontend=Frontend.OFP):
         source = SourceFile.from_file(tfile, xmods=xmods, frontend=frontend)
         definitions.update(source.modules[0].typedefs)
     return definitions
-
-
-def insert_claw_directives(routine, driver, claw_scalars, target):
-    """
-    Insert the necessary pragmas and directives to instruct the CLAW.
-
-    Note: Must be run after generic SCA conversion.
-    """
-    # Insert loop pragmas in driver (in-place)
-    for loop in FindNodes(Loop).visit(driver.body):
-        if str(loop.variable).upper() == target.variable:
-            pragma = Pragma(keyword='claw', content='sca forward create update')
-            loop._update(pragma=pragma)
-
-    # Generate CLAW directives and insert into routine spec
-    segmented_scalars = JoinableStringList(claw_scalars, sep=', ', width=80, cont=' &\n & ')
-    directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
-                  Pragma(keyword='claw', content='sca &'),
-                  Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
-    routine.spec.append(directives)
 
 
 def remove_omp_do(routine):
@@ -191,10 +169,6 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
-    if mode == 'claw':
-        claw_scalars = [v.name.lower() for v in kernel[kernel_name].variables
-                        if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
-
     # First, remove all derived-type arguments; caller first!
     driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
@@ -204,13 +178,12 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                            variable='JL', iteration=('KIDIA', 'KFDIA'))
 
     # Now we instantiate our SCA pipeline and apply the changes
-    sca_transform = ExtractSCATransformation(dimension=horizontal)
+    if mode == 'sca':
+        sca_transform = ExtractSCATransformation(dimension=horizontal)
+    elif mode == 'claw':
+        sca_transform = CLAWTransformation(dimension=horizontal)
     driver.apply(sca_transform, role='driver')
     kernel.apply(sca_transform, role='kernel')
-
-    if mode == 'claw':
-        insert_claw_directives(kernel[kernel_name], driver[driver_name],
-                               claw_scalars, target=horizontal)
 
     if strip_omp_do:
         remove_omp_do(driver[driver_name])

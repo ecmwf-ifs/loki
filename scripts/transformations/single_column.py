@@ -6,11 +6,57 @@ Single Column Abstraction (SCA), as defined by CLAW (Clement et al., 2018)
 from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    SubstituteExpressionsMapper, CallStatement, Loop, Variable, Array, ArraySubscript,
-    LoopRange, RangeIndex, SymbolType, DataType, fgen, as_tuple
+    SubstituteExpressionsMapper, CallStatement, Loop, Variable, Array, Pragma,
+    ArraySubscript, LoopRange, RangeIndex, SymbolType, DataType, JoinableStringList,
+    fgen, as_tuple,
 )
 
-__all__ = ['ExtractSCATransformation']
+__all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
+
+
+class Dimension:
+    """
+    Dimension that defines a one-dimensional iteration space.
+
+    :param name: Name of the dimension, as used in data array declarations
+    :param variable: Name of the iteration variable used in loops in this
+                     dimension.
+    :param iteration: Tuple defining the start/end variable names or values for
+                      loops in this dimension.
+    """
+
+    def __init__(self, name=None, aliases=None, variable=None, iteration=None):
+        self.name = name
+        self.aliases = aliases
+        self.variable = variable
+        self.iteration = iteration
+
+    @property
+    def variables(self):
+        return (self.name, self.variable) + self.iteration
+
+    @property
+    def size_expressions(self):
+        """
+        Return a list of expression strings all signifying "dimension size".
+        """
+        iteration = ['%s - %s + 1' % (self.iteration[1], self.iteration[0])]
+        # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
+        iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
+        iteration += ['1:%s' % self.name]
+        iteration += ['1:%s' % alias for alias in self.aliases]
+        return [self.name] + self.aliases + iteration
+
+    @property
+    def index_expressions(self):
+        """
+        Return a list of expression strings all signifying potential
+        dimension indices, including range accesses like `START:END`.
+        """
+        i_range = ['%s:%s' % (self.iteration[0], self.iteration[1])]
+        # A somewhat strange expression used in VMASS bracnhes
+        i_range += ['%s-%s+1' % (self.variable, self.iteration[0])]
+        return [self.variable] + i_range
 
 
 class ExtractSCATransformation(Transformation):
@@ -171,3 +217,35 @@ class ExtractSCATransformation(Transformation):
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(DataType.INTEGER, kind='JPIM')
             caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.symbols),)
+
+
+class CLAWTransformation(ExtractSCATransformation):
+    """
+    Transformation to extract SCA Fortran and apply the necessary CLAW annotations.
+
+    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
+    """
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs.get('role')
+
+        claw_scalars = [v.name.lower() for v in routine.variables
+                        if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
+
+        # Invoke the actual SCA format extraction
+        super().transform_subroutine(routine, **kwargs)
+
+        if role == 'kernel':
+            # Generate CLAW directives and insert into routine spec
+            segmented_scalars = JoinableStringList(claw_scalars, sep=', ', width=80, cont=' &\n & ')
+            directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
+                          Pragma(keyword='claw', content='sca &'),
+                          Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
+            routine.spec.append(directives)
+
+        if role == 'driver':
+            # Insert loop pragmas in driver (in-place)
+            for loop in FindNodes(Loop).visit(routine.body):
+                if loop.variable == self.dimension.variable:
+                    pragma = Pragma(keyword='claw', content='sca forward create update')
+                    loop._update(pragma=pragma)
