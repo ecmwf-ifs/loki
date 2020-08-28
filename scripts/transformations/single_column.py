@@ -7,8 +7,8 @@ from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, CallStatement, Loop, Variable, Array, Pragma,
-    ArraySubscript, LoopRange, RangeIndex, SymbolType, DataType, JoinableStringList,
-    fgen, as_tuple,
+    Declaration, ArraySubscript, LoopRange, RangeIndex, SymbolType, DataType,
+    JoinableStringList, fgen, as_tuple,
 )
 
 __all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
@@ -229,19 +229,28 @@ class CLAWTransformation(ExtractSCATransformation):
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs.get('role')
 
-        claw_scalars = [v.name.lower() for v in routine.variables
-                        if isinstance(v, Array) and len(v.dimensions.index_tuple) == 1]
+        claw_vars = [v.name for v in routine.variables
+                     if isinstance(v, Array) and v.shape[0] in self.dimension.size_expressions]
 
         # Invoke the actual SCA format extraction
         super().transform_subroutine(routine, **kwargs)
 
         if role == 'kernel':
-            # Generate CLAW directives and insert into routine spec
-            segmented_scalars = JoinableStringList(claw_scalars, sep=', ', width=80, cont=' &\n & ')
-            directives = [Pragma(keyword='claw', content='define dimension jl(1:nproma) &'),
-                          Pragma(keyword='claw', content='sca &'),
-                          Pragma(keyword='claw', content='scalar(%s)\n\n\n' % segmented_scalars)]
-            routine.spec.append(directives)
+            # Gather all declarations for variables that have been demoted during SCA
+            declarations = FindNodes(Declaration).visit(routine.spec)
+            decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+            claw_decls = [decl for v, decl in decl_map.items() if v.name in claw_vars]
+
+            # Remove declarations from spec temporarily
+            routine.spec = Transformer({decl: None for decl in claw_decls}).visit(routine.spec)
+
+            # Create CLAW declarations and mark with `!$claw model-data` pragmas
+            claw_decls = [Pragma(keyword='claw', content='model-data')] + claw_decls
+            claw_decls += [Pragma(keyword='claw', content='end model-data')]
+            routine.spec.append(claw_decls)
+
+            # Add the `!$claw sca` pragma
+            routine.spec.append([Pragma(keyword='claw', content='sca')])
 
         if role == 'driver':
             # Insert loop pragmas in driver (in-place)
