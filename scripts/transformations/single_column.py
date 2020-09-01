@@ -6,9 +6,9 @@ Single Column Abstraction (SCA), as defined by CLAW (Clement et al., 2018)
 from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    SubstituteExpressionsMapper, CallStatement, Loop, Variable, Array, Pragma,
-    Declaration, ArraySubscript, LoopRange, RangeIndex, SymbolType, DataType,
-    JoinableStringList, fgen, as_tuple,
+    SubstituteExpressionsMapper, Statement, CallStatement, Loop, Variable,
+    Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
+    SymbolType, DataType, JoinableStringList, fgen, as_tuple,
 )
 
 __all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
@@ -229,8 +229,37 @@ class CLAWTransformation(ExtractSCATransformation):
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs.get('role')
 
+        # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
                      if isinstance(v, Array) and v.shape[0] in self.dimension.size_expressions]
+
+        # The CLAW assumes that variables defining dimension sizes or iteration spaces
+        # exist in both driver and kernel as local variables. We often rely on implicit
+        # association in the function call though, so we generate local version of the
+        # dimension variables in the calling driver routine before applying SCA.
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.context is not None and call.context.active:
+
+                # Explicitly create and assign local variables
+                # that mimic dimension variables in the kernel
+                assignments = []
+                for arg, val in call.context.arg_iter(call):
+                    if arg == self.dimension.name and not arg.name in routine.variables:
+                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        assignments.append(Statement(target=local_var, expr=val))
+                        routine.spec.append(Declaration(variables=[local_var]))
+
+                    if arg == self.dimension.iteration[0] and not arg.name in routine.variables:
+                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        assignments.append(Statement(target=local_var, expr=val))
+                        routine.spec.append(Declaration(variables=[local_var]))
+
+                    if arg == self.dimension.iteration[1] and not arg.name in routine.variables:
+                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        assignments.append(Statement(target=local_var, expr=val))
+                        routine.spec.append(Declaration(variables=[local_var]))
+
+                routine.body = Transformer({call: assignments + [call]}).visit(routine.body)
 
         # Invoke the actual SCA format extraction
         super().transform_subroutine(routine, **kwargs)
