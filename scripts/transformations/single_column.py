@@ -122,8 +122,11 @@ class ExtractSCATransformation(Transformation):
         for v in variables:
             old_shape = shape_map[v.name]
             new_shape = as_tuple(s for s in old_shape if s not in size_expressions)
-            new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
-                                if s not in size_expressions)
+            if v.dimensions:
+                new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
+                                    if s not in size_expressions)
+            else:
+                new_dims = ()
             new_dims = None if len(new_dims) == 0 else ArraySubscript(new_dims)
             if len(old_shape) != len(new_shape):
                 new_type = v.type.clone(shape=new_shape)
@@ -168,14 +171,14 @@ class ExtractSCATransformation(Transformation):
                     new_dims = None
 
                     # Insert ':' for all missing dimensions in argument
-                    if arg.shape is not None and len(val.dimensions.index_tuple) == 0:
+                    if arg.shape is not None and not val.dimensions:
                         new_dims = tuple(RangeIndex((None, None)) for _ in arg.shape)
 
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        v_dims = val.dimensions.index_tuple or new_dims
+                        v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
                         new_dims = tuple(Variable(name=target.variable, scope=caller.symbols)
-                                         if str(tdim).upper() in size_expressions else ddim
+                                         if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
@@ -189,16 +192,16 @@ class ExtractSCATransformation(Transformation):
                 dim_lower = None
                 dim_upper = None
                 for arg, val in call.context.arg_iter(call):
-                    if str(arg).upper() == target.iteration[0]:
+                    if arg == target.iteration[0]:
                         dim_lower = val
-                    if str(arg).upper() == target.iteration[1]:
+                    if arg == target.iteration[1]:
                         dim_upper = val
 
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(arguments, routine.arguments)
-                                  if str(karg).upper() not in target.variables)
+                                  if karg not in target.variables)
                 kwarguments = list((darg, karg) for darg, karg in kwarguments
-                                   if str(karg).upper() not in target.variables)
+                                   if karg not in target.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
                 # Create and insert new loop over target dimension
