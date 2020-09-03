@@ -8,7 +8,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, Statement, CallStatement, Loop, Variable,
     Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
-    SymbolType, DataType, JoinableStringList, fgen, as_tuple,
+    SymbolType, DataType, JoinableStringList, CaseInsensitiveDict, fgen, as_tuple,
 )
 
 __all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
@@ -229,8 +229,21 @@ class CLAWTransformation(ExtractSCATransformation):
     Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # We need to keep track of the depth of items in the tree
+        self.item_depth = CaseInsensitiveDict()
+
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs.get('role')
+        targets = as_tuple(kwargs.get('targets', None))
+
+        if role == 'driver':
+            self.item_depth[routine.name] = 0
+
+        for target in targets:
+            self.item_depth[target] = self.item_depth[routine.name] + 1
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
@@ -281,8 +294,16 @@ class CLAWTransformation(ExtractSCATransformation):
             claw_decls += [Pragma(keyword='claw', content='end model-data')]
             routine.spec.append(claw_decls)
 
-            # Add the `!$claw sca` pragma
-            routine.spec.append([Pragma(keyword='claw', content='sca')])
+            # Add the `!$claw sca` and `!$claw sca routine` pragmas
+            if self.item_depth[routine.name] == 1:
+                routine.spec.append([Pragma(keyword='claw', content='sca')])
+            else:
+                routine.spec.append([Pragma(keyword='claw', content='sca routine')])
+
+            # Insert `!$claw sca forward` pragmas to propagate the SCA region
+            for call in FindNodes(CallStatement).visit(routine.body):
+                if call.name.upper() in targets:
+                    call._update(pragma=Pragma(keyword='claw', content='sca forward'))
 
         if role == 'driver':
             # Insert loop pragmas in driver (in-place)

@@ -15,8 +15,8 @@ from loki.logging import log, info, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
-           'filehash', 'truncate_string', 'JoinableStringList', 'strip_inline_comments',
-           'find_files']
+           'filehash', 'truncate_string', 'JoinableStringList', 'CaseInsensitiveDict',
+           'strip_inline_comments', 'find_files']
 
 
 def as_tuple(item, type=None, length=None):
