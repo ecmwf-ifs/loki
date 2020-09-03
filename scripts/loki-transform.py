@@ -86,6 +86,11 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
+    cuadjtq_path = Path(source).parent/'cuadjtq.F90'
+    cuadjtq = SourceFile.from_file(cuadjtq_path, xmods=xmod, includes=include,
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
+
     class IdemTransformation(Transformation):
         """
         Define a custom transformation pipeline that optionally inserts
@@ -114,13 +119,17 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
         kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     # Now we instantiate our pipeline and apply the "idempotence" changes
+    cuadjtq.apply(IdemTransformation())
     kernel.apply(IdemTransformation())
     driver.apply(IdemTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel')
+    kernel.apply(dependency, role='kernel', targets=['CUADJTQ'])
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
+
+    cuadjtq.apply(dependency, role='kernel')
+    cuadjtq.write(path=Path(out_path)/cuadjtq.path.with_suffix('.idem.F90').name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
@@ -166,12 +175,20 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                                   builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
+    cuadjtq_path = Path(source).parent/'cuadjtq.F90'
+    cuadjtq = SourceFile.from_file(cuadjtq_path, xmods=xmod, includes=include,
+                                  frontend=frontend, typedefs=typedefs,
+                                  builddir=out_path)
+
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
+    kernel[kernel_name].enrich_calls(routines=cuadjtq['cuadjtq'])
+
 
     # First, remove all derived-type arguments; caller first!
     driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
+    cuadjtq.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
@@ -182,8 +199,9 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
         sca_transform = ExtractSCATransformation(dimension=horizontal)
     elif mode == 'claw':
         sca_transform = CLAWTransformation(dimension=horizontal)
-    driver.apply(sca_transform, role='driver')
-    kernel.apply(sca_transform, role='kernel')
+    driver.apply(sca_transform, role='driver', targets=['CLOUDSC'])
+    kernel.apply(sca_transform, role='kernel', targets=['CUADJTQ'])
+    cuadjtq.apply(sca_transform, role='kernel')
 
     if strip_omp_do:
         remove_omp_do(driver[driver_name])
@@ -191,8 +209,11 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
                                           mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel')
+    kernel.apply(dependency, role='kernel', targets=['CUADJTQ'])
     kernel.write(path=Path(out_path)/kernel.path.with_suffix('.%s.F90' % mode).name)
+
+    cuadjtq.apply(dependency, role='kernel')
+    cuadjtq.write(path=Path(out_path)/cuadjtq.path.with_suffix('.%s.F90' % mode).name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
