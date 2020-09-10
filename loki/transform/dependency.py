@@ -194,7 +194,7 @@ class DependencyTransformation(Transformation):
 
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
-                if targets is None or routine.name+self.suffix in targets:
+                if targets is None or routine.name in targets:
                     # Create wrapper module and insert into file
                     modname = '{}{}'.format(routine.name, self.module_suffix)
                     module = Module(name=modname, routines=[routine])

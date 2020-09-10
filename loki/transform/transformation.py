@@ -61,14 +61,14 @@ class Transformation:
         if not isinstance(sourcefile, SourceFile):
             raise TypeError('Transformation.apply_file can only be applied to SourceFile object')
 
+        # Apply file-level transformations
+        self.transform_file(sourcefile, **kwargs)
+
         for module in sourcefile.modules:
             self.apply(module, **kwargs)
 
         for routine in sourcefile.subroutines:
             self.apply(routine, **kwargs)
-
-        # Aply file-level transformations
-        self.transform_file(sourcefile, **kwargs)
 
     def apply_subroutine(self, subroutine, **kwargs):
         """
