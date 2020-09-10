@@ -453,8 +453,13 @@ class FortranCTransformation(Transformation):
         for v in kernel.variables:
             if isinstance(v, Array):
                 rdim = as_tuple(reversed(v.dimensions.index_tuple))
-                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
-        kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
+                if v.shape:
+                    rshape = as_tuple(reversed(v.shape))
+                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim),
+                                      type=v.type.clone(shape=rshape))
+                else:
+                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
+        # kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
         kernel.variables = [vmap.get(v, v) for v in kernel.variables]
 
     @staticmethod
