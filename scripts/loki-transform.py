@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 import click
 
-from loki import SourceFile, Transformation, Transformer, FindNodes, Loop, Pragma, Frontend
+from loki import SourceFile, Transformation, Transformer, FindNodes, Loop, Pragma, Frontend, flatten
 
 # Get generalized transformations provided by Loki
 from loki.transform import DependencyTransformation, FortranCTransformation
@@ -52,7 +52,7 @@ def cli():
 @cli.command('idem')
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated source files.')
-@click.option('--source', '-s', type=click.Path(),
+@click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
@@ -78,18 +78,22 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
     typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
-    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=frontend, typedefs=typedefs,
-                                  builddir=out_path)
+
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
-    # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
+    kernels = [SourceFile.from_file(src, typedefs=typedefs, frontend=frontend,
+                                    xmods=xmod, includes=include, builddir=out_path)
+               for src in source]
 
-    cuadjtq_path = Path(source).parent/'cuadjtq.F90'
-    cuadjtq = SourceFile.from_file(cuadjtq_path, xmods=xmod, includes=include,
-                                  frontend=frontend, typedefs=typedefs,
-                                  builddir=out_path)
+    # Get a separate list of routine objects ad names for transformations
+    kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
+    kernel_targets = [routine.name.upper() for routine in kernel_routines]
+
+    # Ensure that the kernel calls have all meta-information
+    driver[driver_name].enrich_calls(routines=kernel_routines)
+    for kernel in kernels:
+        for routine in kernel.all_subroutines:
+            routine.enrich_calls(routines=kernel_routines)
 
     class IdemTransformation(Transformation):
         """
@@ -116,20 +120,19 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
         # Unroll derived-type arguments into multiple arguments
         # Caller must go first, as it needs info from routine
         driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
-        kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
+        for kernel in kernels:
+            kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     # Now we instantiate our pipeline and apply the "idempotence" changes
-    cuadjtq.apply(IdemTransformation())
-    kernel.apply(IdemTransformation())
     driver.apply(IdemTransformation())
+    for kernel in kernels:
+        kernel.apply(IdemTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel', targets=['CUADJTQ'])
-    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
-
-    cuadjtq.apply(dependency, role='kernel')
-    cuadjtq.write(path=Path(out_path)/cuadjtq.path.with_suffix('.idem.F90').name)
+    for kernel in kernels:
+        kernel.apply(dependency, role='kernel', targets=kernel_targets)
+        kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.
@@ -140,7 +143,7 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
-@click.option('--source', '-s', type=click.Path(),
+@click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
@@ -170,25 +173,27 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
     typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
-    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=frontend, typedefs=typedefs,
-                                  builddir=out_path)
+
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
-    cuadjtq_path = Path(source).parent/'cuadjtq.F90'
-    cuadjtq = SourceFile.from_file(cuadjtq_path, xmods=xmod, includes=include,
-                                  frontend=frontend, typedefs=typedefs,
-                                  builddir=out_path)
+    kernels = [SourceFile.from_file(src, typedefs=typedefs, frontend=frontend,
+                                    xmods=xmod, includes=include, builddir=out_path)
+               for src in source]
 
-    # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich_calls(routines=kernel[kernel_name])
-    kernel[kernel_name].enrich_calls(routines=cuadjtq['cuadjtq'])
+    # Get a separate list of routine objects ad names for transformations
+    kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
+    kernel_targets = [routine.name.upper() for routine in kernel_routines]
 
+    # Ensure that the kernel calls have all IPA meta-information
+    driver[driver_name].enrich_calls(routines=kernel_routines)
+    for kernel in kernels:
+        for routine in kernel.all_subroutines:
+            routine.enrich_calls(routines=kernel_routines)
 
     # First, remove all derived-type arguments; caller first!
     driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
-    kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
-    cuadjtq.apply(DerivedTypeArgumentsTransformation(), role='kernel')
+    for kernel in kernels:
+        kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
@@ -200,8 +205,8 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     elif mode == 'claw':
         sca_transform = CLAWTransformation(dimension=horizontal)
     driver.apply(sca_transform, role='driver', targets=['CLOUDSC'])
-    kernel.apply(sca_transform, role='kernel', targets=['CUADJTQ'])
-    cuadjtq.apply(sca_transform, role='kernel')
+    for kernel in kernels:
+        kernel.apply(sca_transform, role='kernel', targets=kernel_targets)
 
     if strip_omp_do:
         remove_omp_do(driver[driver_name])
@@ -209,11 +214,9 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
                                           mode='module', module_suffix='_MOD')
-    kernel.apply(dependency, role='kernel', targets=['CUADJTQ'])
-    kernel.write(path=Path(out_path)/kernel.path.with_suffix('.%s.F90' % mode).name)
-
-    cuadjtq.apply(dependency, role='kernel')
-    cuadjtq.write(path=Path(out_path)/cuadjtq.path.with_suffix('.%s.F90' % mode).name)
+    for kernel in kernels:
+        kernel.apply(dependency, role='kernel', targets=kernel_targets)
+        kernel.write(path=Path(out_path)/kernel.path.with_suffix('.%s.F90' % mode).name)
 
     # Re-generate the driver that mimicks the original source file,
     # but imports and calls our re-generated kernel.

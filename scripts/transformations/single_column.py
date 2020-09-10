@@ -242,8 +242,10 @@ class CLAWTransformation(ExtractSCATransformation):
         if role == 'driver':
             self.item_depth[routine.name] = 0
 
-        for target in targets:
-            self.item_depth[target] = self.item_depth[routine.name] + 1
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.context is not None and call.context.active:
+                if call.name in targets:
+                    self.item_depth[call.name] = self.item_depth[routine.name] + 1
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
