@@ -5,7 +5,7 @@ from loki.visitors import Visitor, Transformer, FindNodes
 from loki.transform import Transformation, FortranCTransformation
 from loki.types import DataType
 from loki.expression import symbol_types as sym, FindVariables, SubstituteExpressions
-from loki.backend import cgen, pygen
+from loki.backend import pygen
 from loki import ir, Subroutine, SourceFile
 
 

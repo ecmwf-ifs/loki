@@ -23,6 +23,10 @@ def dace_type(_type):
 class PyCodeMapper(LokiStringifyMapper):
     # pylint: disable=abstract-method, unused-argument
 
+    def __init__(self, with_dace=False):
+        super().__init__()
+        self.with_dace = with_dace
+
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return 'True' if bool(expr.value) else 'False'
 
@@ -41,11 +45,14 @@ class PyCodeMapper(LokiStringifyMapper):
         return self.format('%s%s', expr.name, dims)
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
-        index_str = ''
-        for index in expr.index_tuple:
-            d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
-            if d:
-                index_str += self.format('[%s]', d)
+        dims = [self.format(self.rec(d, PREC_NONE, *args, **kwargs)) for d in expr.index_tuple]
+        dims = [d for d in dims if d]
+        if not dims:
+            index_str = ''
+        elif self.with_dace:
+            index_str = '[{}]'.format(', '.join(dims))
+        else:
+            index_str = '[' + ']['.join(dims) + ']'
         return index_str
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
@@ -62,7 +69,7 @@ class PyCodegen(Stringifier):
 
     def __init__(self, with_dace=False, depth=0, indent='  ', linewidth=100):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont='\n{}  '.format, symgen=PyCodeMapper())
+                         line_cont='\n{}  '.format, symgen=PyCodeMapper(with_dace=with_dace))
         self.with_dace = with_dace
 
     # Handler for outer objects
@@ -174,7 +181,9 @@ class PyCodegen(Stringifier):
         var = self.visit(o.variable, **kwargs)
         start = self.visit(o.bounds.start, **kwargs)
         end = self.visit(o.bounds.stop, **kwargs)
-        if self.with_dace:
+        is_dataflow_loop = (o.pragma is not None and o.pragma.keyword == 'loki' and
+                            o.pragma.content.startswith('dataflow'))
+        if self.with_dace and is_dataflow_loop:
             if o.bounds.step:
                 incr = self.visit(o.bounds.step, **kwargs)
                 cntrl = 'dace.map[{start}:{end}+{inc}:{inc}]'.format(start=start, end=end, inc=incr)
@@ -262,10 +271,8 @@ class PyCodegen(Stringifier):
         dtype = dace_type(o)
         shape = ''
         if o.shape is not None:
-            for dim in o.shape:
-                d = self.visit(dim, **kwargs)
-                if d:
-                    shape += '[{}]'.format(d)
+            dims = [self.visit(dim, **kwargs) for dim in o.shape]
+            shape = '[{}]'.format(', '.join(d for d in dims if d))
         return '{}{}'.format(dtype, shape)
 
 

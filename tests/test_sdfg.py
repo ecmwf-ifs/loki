@@ -1,4 +1,5 @@
 import importlib
+import itertools
 from pathlib import Path
 import numpy as np
 import pytest
@@ -92,7 +93,7 @@ end subroutine routine_axpy_scalar
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the reference solution
-    filepath = here/('routine_axpy_scalar_%s.f90' % frontend)
+    filepath = here/('sdfg_routine_axpy_scalar_%s.f90' % frontend)
     function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     a = np.float64(23)
@@ -139,7 +140,7 @@ end subroutine routine_copy_stream
     # TODO: make alpha a true scalar, which doesn't seem to work with SDFG at the moment???
 
     # Test the reference solution
-    filepath = here/('routine_copy_stream_%s.f90' % frontend)
+    filepath = here/('sdfg_routine_copy_stream_%s.f90' % frontend)
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     length = 32
@@ -163,3 +164,104 @@ end subroutine routine_copy_stream
     assert np.all(vec_out == np.array(range(length)) + alpha)
 
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_sdfg_routine_fixed_loop(here, frontend):
+
+    fcode = """
+subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
+  use iso_fortran_env, only: real64
+  implicit none
+  ! integer :: n=6, m=4
+  real(kind=real64), intent(in) :: scalar(1)
+  real(kind=real64), intent(in) :: tensor(6, 4), vector(6)
+  real(kind=real64), intent(out) :: tensor_out(4, 6), vector_out(6)
+  integer :: i, j
+
+  ! For testing, the operation is:
+  !$loki dataflow
+  do j=1, 6
+     vector_out(j) = vector(j) + tensor(j, 1) + 1.0
+     !$loki dataflow
+     do i=1, 4
+        tensor_out(i, j) = tensor(j, i)
+     end do
+  end do
+end subroutine routine_fixed_loop
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('sdfg_routine_fixed_loop_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
+
+    # Test the reference solution
+    n, m = 6, 4
+    scalar = np.array([2.0], dtype=np.float64)
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    tensor = np.array([list(range(i, i+m)) for i in range(n)], order='F', dtype=np.float64)
+    tensor_out = np.zeros(shape=(m, n), order='F')
+    ref_vector = vector + np.array(list(range(n)), dtype=np.float64) + 1.
+    ref_tensor = np.transpose(tensor)
+    function(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor, tensor_out=tensor_out)
+    assert np.all(vector == ref_vector)
+    assert np.all(tensor_out == ref_tensor)
+
+    # Create and compile the SDFG
+    sdfg = create_sdfg(routine, here)
+    assert sdfg.validate() is None
+
+    csdfg = sdfg.compile()
+    assert csdfg
+
+    # Test the transpiled kernel
+    n, m = 6, 4
+    scalar = np.array([2.0], dtype=np.float64)
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    tensor = np.zeros(shape=(n, m), order='F') + 4.
+    tensor = np.array([list(range(i, i+m)) for i in range(n)], order='F', dtype=np.float64)
+    tensor_out = np.zeros(shape=(m, n), order='F')
+    csdfg(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor, tensor_out=tensor_out)
+    assert np.all(vector == ref_vector)
+    assert np.all(tensor_out == ref_tensor)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_sdfg_routine_loop_carried_dependency(here, frontend):
+
+    fcode = """
+subroutine routine_loop_carried_dependency(vector)
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(inout) :: vector(32)
+  integer :: i
+
+  !$loki dataflow
+  do i=2, 32
+     vector(i) = vector(i) + vector(i-1)
+  end do
+end subroutine routine_loop_carried_dependency
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('sdfg_routine_loop_carried_dependency_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_loop_carried_dependency')
+
+    # Test the reference solution
+    n = 32
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    ref_vector = np.array(list(itertools.accumulate(vector)))
+    function(vector=vector)
+    assert np.all(vector == ref_vector)
+
+    # Create and compile the SDFG
+    sdfg = create_sdfg(routine, here)
+    assert sdfg.validate() is None
+
+    csdfg = sdfg.compile()
+    assert csdfg
+
+    # Test the transpiled kernel
+    n = 32
+    vector = np.zeros(shape=(n,), order='F') + 3.
+    ref_vector = np.array(list(itertools.accumulate(vector)))
+    csdfg(vector=vector)
+    assert np.all(vector == ref_vector)
