@@ -1,31 +1,33 @@
 from itertools import zip_longest
 from pymbolic.mapper.stringifier import PREC_NONE
 
-from loki.expression import LokiStringifyMapper, symbol_types as sym, retrieve_expressions
+from loki.expression import LokiStringifyMapper
 from loki.visitors import Stringifier
 from loki.types import DataType
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
 
-def dace_type(_type):
+
+def numpy_type(_type):
+    if _type.shape is not None:
+        return 'np.ndarray'
     if _type.dtype == DataType.LOGICAL:
-        return 'dace.bool'
+        return 'np.bool'
     if _type.dtype == DataType.INTEGER:
-        return 'dace.int32'
+        return 'np.int32'
     if _type.dtype == DataType.REAL:
         if str(_type.kind) in ('real32',):
-            return 'dace.float32'
-        return 'dace.float64'
+            return 'np.float32'
+        return 'np.float64'
     raise ValueError(str(_type))
 
 
 class PyCodeMapper(LokiStringifyMapper):
+    """
+    Generate Python representation of expression trees using numpy syntax.
+    """
     # pylint: disable=abstract-method, unused-argument
-
-    def __init__(self, with_dace=False):
-        super().__init__()
-        self.with_dace = with_dace
 
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return 'True' if bool(expr.value) else 'False'
@@ -49,10 +51,8 @@ class PyCodeMapper(LokiStringifyMapper):
         dims = [d for d in dims if d]
         if not dims:
             index_str = ''
-        elif self.with_dace:
-            index_str = '[{}]'.format(', '.join(dims))
         else:
-            index_str = '[' + ']['.join(dims) + ']'
+            index_str = '[{}]'.format(', '.join(dims))
         return index_str
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
@@ -61,16 +61,14 @@ class PyCodeMapper(LokiStringifyMapper):
 
 class PyCodegen(Stringifier):
     """
-    Tree visitor to generate standardized Python code from IR
-    (optionally using the reduced and annotated syntax understood by DaCe).
+    Tree visitor to generate standard Python code (with Numpy) from IR.
     """
 
     # pylint: disable=no-self-use
 
-    def __init__(self, with_dace=False, depth=0, indent='  ', linewidth=100):
+    def __init__(self, depth=0, indent='  ', linewidth=100):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont='\n{}  '.format, symgen=PyCodeMapper(with_dace=with_dace))
-        self.with_dace = with_dace
+                         line_cont='\n{}  '.format, symgen=PyCodeMapper())
 
     # Handler for outer objects
 
@@ -96,28 +94,15 @@ class PyCodegen(Stringifier):
                 ...body...
         """
         # Some boilerplate imports...
-        standard_imports = []
-        if self.with_dace:
-            standard_imports += ['dace']
+        standard_imports = ['numpy as np']
         header = [self.format_line('import ', name) for name in standard_imports]
 
         # ...and imports from the spec
         # TODO
 
         # Generate header with argument signature
-        if self.with_dace:
-            symbols = set()
-            for arg in o.arguments:
-                if isinstance(arg, sym.Array):
-                    shape_vars = retrieve_expressions(arg.shape, lambda e: isinstance(e, sym.Scalar))
-                    symbols |= set(v.name.lower() for v in shape_vars)
-            arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
-                         for arg in o.arguments if arg.name.lower() not in symbols]
-            header += [self.format_line('{name} = dace.symbol("{name}")'.format(name=s))
-                       for s in symbols]
-            header += [self.format_line('@dace.program')]
-        else:
-            arguments = [arg.name.lower() for arg in o.arguments]
+        arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
+                     for arg in o.arguments]
         header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arguments), '):')]
 
         # ...and generate the spec without imports and only declarations with initial value
@@ -181,20 +166,11 @@ class PyCodegen(Stringifier):
         var = self.visit(o.variable, **kwargs)
         start = self.visit(o.bounds.start, **kwargs)
         end = self.visit(o.bounds.stop, **kwargs)
-        is_dataflow_loop = (o.pragma is not None and o.pragma.keyword == 'loki' and
-                            o.pragma.content.startswith('dataflow'))
-        if self.with_dace and is_dataflow_loop:
-            if o.bounds.step:
-                incr = self.visit(o.bounds.step, **kwargs)
-                cntrl = 'dace.map[{start}:{end}+{inc}:{inc}]'.format(start=start, end=end, inc=incr)
-            else:
-                cntrl = 'dace.map[{start}:{end}+1]'.format(start=start, end=end)
+        if o.bounds.step:
+            incr = self.visit(o.bounds.step, **kwargs)
+            cntrl = 'range({start}, {end} + {inc}, {inc})'.format(start=start, end=end, inc=incr)
         else:
-            if o.bounds.step:
-                incr = self.visit(o.bounds.step, **kwargs)
-                cntrl = 'range({start}, {end} + {inc}, {inc})'.format(start=start, end=end, inc=incr)
-            else:
-                cntrl = 'range({start}, {end} + 1)'.format(start=start, end=end)
+            cntrl = 'range({start}, {end} + 1)'.format(start=start, end=end)
         header = self.format_line('for ', var, ' in ', cntrl, ':')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
@@ -266,19 +242,11 @@ class PyCodegen(Stringifier):
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
     def visit_SymbolType(self, o, **kwargs):
-        if not self.with_dace:
-            return None
-        dtype = dace_type(o)
-        shape = ''
-        if o.shape is not None:
-            dims = [self.visit(dim, **kwargs) for dim in o.shape]
-            shape = '[{}]'.format(', '.join(d for d in dims if d))
-        return '{}{}'.format(dtype, shape)
+        return numpy_type(o)
 
 
-def pygen(ir, with_dace=False):
+def pygen(ir):
     """
-    Generate standardized Python 3 code from one or many IR objects/trees
-    (optionally using the reduced and annotated syntax understood by DaCe).
+    Generate standard Python 3 code (that uses Numpy) from one or many IR objects/trees.
     """
-    return PyCodegen(with_dace=with_dace).visit(ir)
+    return PyCodegen().visit(ir)

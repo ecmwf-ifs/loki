@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FortranSDFGTransformation
+from loki import Subroutine, OFP, OMNI, FP, FortranPythonTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -19,8 +19,8 @@ def load_module(path):
 
 
 def create_sdfg(routine, here):
-    trafo = FortranSDFGTransformation()
-    routine.apply(trafo, path=here)
+    trafo = FortranPythonTransformation()
+    routine.apply(trafo, path=here, with_dace=True)
 
     mod = load_module(trafo.py_path)
     function = getattr(mod, '{}_py'.format(routine.name))
@@ -265,3 +265,75 @@ end subroutine routine_loop_carried_dependency
     ref_vector = np.array(list(itertools.accumulate(vector)))
     csdfg(vector=vector)
     assert np.all(vector == ref_vector)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_sdfg_routine_moving_average(here, frontend):
+
+    fcode = """
+subroutine routine_moving_average(length, data_in, data_out)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: length
+  real(kind=real64), intent(in) :: data_in(length)
+  real(kind=real64), intent(out) :: data_out(length)
+  integer :: i
+  real(kind=real64) :: prev, next, divisor, incr
+
+  data_out(1) = (data_in(1) + data_in(2)) / 2.0
+
+  !$loki dataflow
+  do i=2, length-1
+    ! TODO: range check prohibits this for some reason
+    incr = 1.0
+    divisor = 2.0
+    if (i > 1) then
+      prev = data_in(i-1)
+      ! divisor = 2.0
+    else
+      divisor = divisor - incr
+      prev = 0
+      ! divisor = 1.0
+    end if
+    if (i < length) then
+      next = data_in(i+1)
+      divisor = divisor + incr
+    else
+      next = 0
+    end if
+    data_out(i) = (prev + data_in(i) + next) / divisor
+  end do
+
+  data_out(length) = (data_in(length-1) + data_in(length)) / 2.0
+end subroutine routine_moving_average
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('sdfg_routine_moving_average_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
+
+    # Create random input data
+    n = 32
+    data_in = np.array(np.random.rand(n), order='F')
+
+    # Compute reference solution
+    expected = np.zeros(shape=(n,), order='F')
+    expected[0] = (data_in[0] + data_in[1]) / 2.
+    expected[1:-1] = (data_in[:-2] + data_in[1:-1] + data_in[2:]) / 3.
+    expected[-1] = (data_in[-2] + data_in[-1]) / 2.
+
+    # Test the Fortran kernel
+    data_out = np.zeros(shape=(n,), order='F')
+    function(length=n, data_in=data_in, data_out=data_out)
+    assert np.all(data_out == expected)
+
+    # Create and compile the SDFG
+    sdfg = create_sdfg(routine, here)
+    assert sdfg.validate() is None
+
+    csdfg = sdfg.compile()
+    assert csdfg
+
+    # Test the transpiled kernel
+    data_out = np.zeros(shape=(n,), order='F')
+    csdfg(length=n, data_in=data_in, data_out=data_out)
+    assert np.all(data_out == expected)
