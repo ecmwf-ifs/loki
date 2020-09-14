@@ -238,14 +238,16 @@ class CLAWTransformation(ExtractSCATransformation):
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs.get('role')
         targets = as_tuple(kwargs.get('targets', None))
+        if targets:
+            targets = tuple(t.lower() for t in targets)
 
         if role == 'driver':
-            self.item_depth[routine.name] = 0
+            self.item_depth[routine.name.lower()] = 0
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.context is not None and call.context.active:
-                if call.name in targets:
-                    self.item_depth[call.name] = self.item_depth[routine.name] + 1
+                if call.name.lower() in targets:
+                    self.item_depth[call.name.lower()] = self.item_depth[routine.name.lower()] + 1
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
@@ -297,14 +299,14 @@ class CLAWTransformation(ExtractSCATransformation):
             routine.spec.append(claw_decls)
 
             # Add the `!$claw sca` and `!$claw sca routine` pragmas
-            if self.item_depth[routine.name] == 1:
+            if self.item_depth[routine.name.lower()] == 1:
                 routine.spec.append([Pragma(keyword='claw', content='sca')])
             else:
                 routine.spec.append([Pragma(keyword='claw', content='sca routine')])
 
             # Insert `!$claw sca forward` pragmas to propagate the SCA region
             for call in FindNodes(CallStatement).visit(routine.body):
-                if call.name.upper() in targets:
+                if call.name.lower() in targets:
                     call._update(pragma=Pragma(keyword='claw', content='sca forward'))
 
         if role == 'driver':
