@@ -1,9 +1,9 @@
 from itertools import zip_longest
-from pymbolic.mapper.stringifier import PREC_NONE
+from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
-from loki.expression import LokiStringifyMapper
+from loki.expression import symbol_types as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
-from loki.types import DataType
+from loki.types import DataType, SymbolType
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
@@ -36,6 +36,14 @@ class PyCodeMapper(LokiStringifyMapper):
         return str(expr.value)
 
     map_int_literal = map_float_literal
+
+    def map_cast(self, expr, enclosing_prec, *args, **kwargs):
+        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
+        expression = self.parenthesize_if_needed(
+            self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
+            PREC_CALL, PREC_NONE)
+        return self.parenthesize_if_needed(
+            self.format('%s(%s)', numpy_type(_type), expression), enclosing_prec, PREC_CALL)
 
     def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
         return expr.name
@@ -101,16 +109,26 @@ class PyCodegen(Stringifier):
         # TODO
 
         # Generate header with argument signature
+        # Note: we skip scalar out arguments and add a return statement for those below
+        inout_args = [arg for arg in o.arguments
+                      if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'inout']
+        out_args = [arg for arg in o.arguments
+                    if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'out']
         arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
-                     for arg in o.arguments]
+                     for arg in o.arguments if arg not in out_args]
         header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arguments), '):')]
 
-        # ...and generate the spec without imports and only declarations with initial value
+        # ...and generate the spec without imports and only declarations for variables that
+        # either are local arrays or are assigned an initial value
         self.depth += 1
         body = [self.visit(o.spec, **kwargs)]
 
-        # Fill the body and close everything off
+        # Fill the body
         body += [self.visit(o.body, **kwargs)]
+
+        # Add return statement for scalar out arguments and close everything off
+        ret_args = [arg for arg in o.arguments if arg in inout_args + out_args]
+        body += [self.format_line('return ', self.join_items(self.visit_all(ret_args, **kwargs)))]
         self.depth -= 1
 
         return self.join_lines(*header, *body)
@@ -142,11 +160,15 @@ class PyCodegen(Stringifier):
         """
         Format declaration as
           <name> = <initial>
-        and skip any without an initial value
+        and skip any arguments or scalars without an initial value
         """
         decls = []
         if o.comment:
             decls += [self.visit(o.comment, **kwargs)]
+        local_arrays = [v for v in o.variables if isinstance(v, sym.Array) and not v.type.intent]
+        decls += [self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
+                                   self.join_items(self.visit_all(v.shape, **kwargs)), ',))')
+                  for v in local_arrays]
         decls += [self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
                   for v in o.variables if v.initial is not None]
         return self.join_lines(*decls)
