@@ -110,12 +110,11 @@ def clean_test(filepath):
     """
     Clean test directory based on JIT'ed source file.
     """
-    filepath.with_suffix('.f90').unlink()
-    filepath.with_suffix('.o').unlink()
-    filepath.with_suffix('.py').unlink()
-    f90wrap_toplevel = filepath.parent/'f90wrap_toplevel.f90'
-    if f90wrap_toplevel.exists():
-        f90wrap_toplevel.unlink()
+    file_list = [filepath.with_suffix('.f90'), filepath.with_suffix('.o'),
+                 filepath.with_suffix('.py'), filepath.parent/'f90wrap_toplevel.f90']
+    for f in file_list:
+        if f.exists():
+            f.unlink()
     for sofile in filepath.parent.glob('_%s.*.so' % filepath.stem):
         sofile.unlink()
 
