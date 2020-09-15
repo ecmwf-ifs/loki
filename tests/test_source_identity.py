@@ -7,6 +7,7 @@ they mostly check whether at the end comes out what went in at the beginning.
 """
 from pathlib import Path
 import pytest
+from conftest import clean_test
 from loki import SourceFile, Subroutine, OFP, OMNI, FP, fgen, FindNodes
 import loki.ir as ir
 
@@ -83,6 +84,8 @@ end subroutine routine_raw_source_loop
     ref = '\n'.join(fcode[3:-1]).replace('.lt.', '<').replace('.gt.', '>')
     assert fgen(routine.body).strip().lower() == ref
 
+    clean_test(filename)
+
 
 @pytest.mark.parametrize('frontend', [
     OFP,
@@ -146,6 +149,8 @@ end subroutine routine_raw_source_cond
     # Assert output of body matches original string (except for case)
     assert fgen(routine.body).strip().lower() == '\n'.join(fcode[3:-1])
 
+    clean_test(filename)
+
 
 @pytest.mark.parametrize('frontend', [
     OFP,
@@ -208,6 +213,8 @@ end subroutine routine_raw_source_multicond
 
     # Assert output of body matches original string (except for case)
     assert fgen(routine.body).strip().lower() == '\n'.join(fcode[3:-1])
+
+    clean_test(filename)
 
 
 @pytest.mark.parametrize('frontend', [

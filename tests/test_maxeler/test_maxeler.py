@@ -6,7 +6,7 @@ import pytest
 
 from conftest import jit_compile, clean_test
 from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation
-from loki.build import Builder, Obj, Lib, execute
+from loki.build import Builder, Obj, Lib, execute, delete
 from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
 
@@ -204,7 +204,9 @@ end subroutine routine_axpy_scalar
     simulator.stop()
 #    simulator.call(max_kernel.routine_axpy_scalar_fmax_mod.routine_axpy_scalar_fmax, a, x, y)
     assert np.all(a * 2. + y == x)
+
     clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -245,6 +247,9 @@ end subroutine routine_copy_scalar
         print(y)
     simulator.stop()
     assert np.all(y == x)
+
+    clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -305,6 +310,9 @@ end subroutine routine_fixed_loop
     assert np.all(vector == ref_vector)
     assert np.all(tensor_out == ref_tensor)
 
+    clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources
+
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_max_routine_copy_stream(here, builder, simulator, frontend):
@@ -345,6 +353,9 @@ end subroutine routine_copy_stream
     simulator.call(function, ticks=length, length=length, scalar=scalar, vector_in=vec_in,
                    vector_in_size=length * 4, vector_out=vec_out, vector_out_size=length * 4)
     assert np.all(vec_out == np.array(range(length)) + scalar)
+
+    clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -406,6 +417,9 @@ end subroutine routine_moving_average
     simulator.call(function, ticks=n, length=n, data_in=data_in, data_in_size=n * 8,
                    data_out_size=n * 8, data_out=data_out)
     assert np.all(data_out == expected)
+
+    clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -490,3 +504,6 @@ end subroutine routine_laplace
     simulator.call(function, ticks=length, h=h, data_in=data_in, data_in_size=length * 8,
                    data_out=data_out, data_out_size=length * 8)
     assert np.all(abs(data_out - expected) < 1e-12)
+
+    clean_test(filepath)
+    delete(here / routine.name, force=True)  # Delete MaxJ sources

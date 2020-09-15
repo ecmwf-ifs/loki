@@ -72,6 +72,7 @@ end subroutine routine_copy
     assert all(x_ref == y)
 
     clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
 
 
 @pytest.mark.xfail(reason='Scalar inout arguments do not work in dace')
@@ -116,6 +117,7 @@ end subroutine routine_axpy_scalar
     assert x_out == a * x + y
 
     clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -164,6 +166,7 @@ end subroutine routine_copy_stream
     assert np.all(vec_out == np.array(range(length)) + alpha)
 
     clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -224,6 +227,9 @@ end subroutine routine_fixed_loop
     assert np.all(vector == ref_vector)
     assert np.all(tensor_out == ref_tensor)
 
+    clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
+
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_sdfg_routine_loop_carried_dependency(here, frontend):
@@ -265,6 +271,9 @@ end subroutine routine_loop_carried_dependency
     ref_vector = np.array(list(itertools.accumulate(vector)))
     csdfg(vector=vector)
     assert np.all(vector == ref_vector)
+
+    clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -337,3 +346,6 @@ end subroutine routine_moving_average
     data_out = np.zeros(shape=(n,), order='F')
     csdfg(length=n, data_in=data_in, data_out=data_out)
     assert np.all(data_out == expected)
+
+    clean_test(filepath)
+    (here / (routine.name + '_py.py')).unlink()
