@@ -68,31 +68,6 @@ class FCodeMapper(LokiStringifyMapper):
                         self.rec(expr.right, PREC_COMPARISON, *args, **kwargs)),
             enclosing_prec, PREC_COMPARISON)
 
-    def map_sum(self, expr, enclosing_prec, *args, **kwargs):
-        """
-        Since substraction and unary minus are mapped to multiplication with (-1), we are here
-        looking for such cases and determine the matching operator for the output.
-        """
-        def get_op_prec_expr(expr):
-            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
-                if len(expr.children) == 2:
-                    # only the minus sign and the other child
-                    return '-', PREC_PRODUCT, expr.children[1]
-                return '-', PREC_PRODUCT, Product(expr.children[1:])
-            return '+', PREC_SUM, expr
-
-        terms = []
-        for ch in expr.children:
-            op, prec, expr = get_op_prec_expr(ch)
-            terms += [op, self.rec(expr, prec, *args, **kwargs)]
-
-        # Remove leading '+'
-        if terms[0] == '-':
-            terms[1] = '%s%s' % (terms[0], terms[1])
-        terms = terms[1:]
-
-        return self.parenthesize_if_needed(self.join(' ', terms), enclosing_prec, PREC_SUM)
-
     def map_literal_list(self, expr, enclosing_prec, *args, **kwargs):
         return '(/' + ','.join(str(c) for c in expr.elements) + '/)'
 
