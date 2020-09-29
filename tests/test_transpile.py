@@ -205,7 +205,7 @@ end subroutine transpile_derived_type
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
-    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     # Test the reference solution
     a_struct = reference.transpile_type_mod.my_struct()
@@ -287,7 +287,7 @@ end subroutine transpile_associates
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
-    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     # Test the reference solution
     a_struct = reference.transpile_type_mod.my_struct()
@@ -398,7 +398,7 @@ end subroutine transpile_module_variables
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
-    reference = jit_compile_lib([routine, module], path=here, name=refname, builder=builder)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     reference.transpile_type_mod.param1 = 2
     reference.transpile_type_mod.param2 = 4.
