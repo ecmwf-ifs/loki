@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import importlib
 from concurrent.futures import as_completed
 from itertools import chain
@@ -14,6 +15,9 @@ from loki.sourcefile import SourceFile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
+
+# Bootstrap the local linting rules directory
+sys.path.insert(0, str(Path(__file__).parent))
 
 
 class OutputFile:
