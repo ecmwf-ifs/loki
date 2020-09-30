@@ -75,7 +75,7 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='builder')
 def fixture_builder(here):
-    return Builder(source_dirs=here, include_dirs=get_max_includes(), build_dir=here / 'build')
+    return Builder(source_dirs=here, include_dirs=get_max_includes(), build_dir=here/'build')
 
 
 def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
@@ -91,7 +91,7 @@ def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
                             max_filename=routine.name, build_dir=builder.build_dir,
                             package=routine.name)
     max_obj = compile_max(max_path, '%s_max.o' % max_path.stem, build_dir=builder.build_dir)
-    max_include = max_obj.parent / ('%s_MAX5C_DFE_SIM/results' % routine.name)
+    max_include = max_obj.parent/('%s_MAX5C_DFE_SIM/results' % routine.name)
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2max.c_path), Obj(source_path=f2max.wrapperpath)]
@@ -116,10 +116,10 @@ def test_max_passthrough(simulator, here):
     """
     A simple test streaming data to the DFE and back to CPU.
     """
-    build_dir = here / 'build'
-    compile_all(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+    build_dir = here/'build'
+    compile_all(c_src=here/'passthrough', maxj_src=here/'passthrough', build_dir=build_dir,
                 target='PassThrough', manager='PassThroughMAX5CManager', package='passthrough')
-    simulator.run(build_dir / 'PassThrough')
+    simulator.run(build_dir/'PassThrough')
 
 
 def test_max_passthrough_ctypes(simulator, here):
@@ -127,10 +127,10 @@ def test_max_passthrough_ctypes(simulator, here):
     A simple test streaming data to the DFE and back to CPU, called via ctypes
     """
     # First, build shared library
-    build_dir = here / 'build'
-    compile_all(c_src=here / 'passthrough', maxj_src=here / 'passthrough', build_dir=build_dir,
+    build_dir = here/'build'
+    compile_all(c_src=here/'passthrough', maxj_src=here/'passthrough', build_dir=build_dir,
                 target='libPassThrough.so', manager='PassThroughMAX5CManager', package='passthrough')
-    lib = ct.CDLL(build_dir / 'libPassThrough.so')
+    lib = ct.CDLL(build_dir/'libPassThrough.so')
 
     # Extract function interfaces for CPU and DFE version
     func_cpu = lib.PassThroughCPU
@@ -206,7 +206,7 @@ end subroutine routine_axpy_scalar
     assert np.all(a * 2. + y == x)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -249,7 +249,7 @@ end subroutine routine_copy_scalar
     assert np.all(y == x)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -311,7 +311,7 @@ end subroutine routine_fixed_loop
     assert np.all(tensor_out == ref_tensor)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -355,7 +355,7 @@ end subroutine routine_copy_stream
     assert np.all(vec_out == np.array(range(length)) + scalar)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -419,7 +419,7 @@ end subroutine routine_moving_average
     assert np.all(data_out == expected)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -506,4 +506,4 @@ end subroutine routine_laplace
     assert np.all(abs(data_out - expected) < 1e-12)
 
     clean_test(filepath)
-    delete(here / routine.name, force=True)  # Delete MaxJ sources
+    delete(here/routine.name, force=True)  # Delete MaxJ sources
