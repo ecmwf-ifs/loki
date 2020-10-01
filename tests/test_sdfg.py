@@ -231,6 +231,9 @@ end subroutine routine_fixed_loop
     (here / (routine.name + '_py.py')).unlink()
 
 
+@pytest.mark.skip(reason=('This translates successfully but the generated OpenMP code does not '
+                          'honour the loop-carried dependency, thus creating data races for more '
+                          'than 1 thread.'))
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_sdfg_routine_loop_carried_dependency(here, frontend):
 
