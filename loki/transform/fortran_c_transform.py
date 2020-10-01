@@ -43,7 +43,7 @@ class FortranCTransformation(Transformation):
 
         # Generate Fortran wrapper module
         wrapper = self.generate_iso_c_wrapper_module(module, self.c_structs)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
+        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
         SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
         # Generate C header file from module
@@ -60,7 +60,7 @@ class FortranCTransformation(Transformation):
 
         # Generate Fortran wrapper module
         wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.f90')
+        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
         module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
         SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
 
