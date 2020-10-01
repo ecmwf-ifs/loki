@@ -5,6 +5,7 @@ loki.egg-info/*
 .eggs/*
 .cache/*
 .pytest_cache/*
+.dacecache/*
 
 # Basic Fortran compilation overheads
 *.o
