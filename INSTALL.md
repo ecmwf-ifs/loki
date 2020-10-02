@@ -1,14 +1,64 @@
 ## Installation
 
-Loki is pure Python package that depends on a range of upstream packages,
+Loki is a pure Python package that depends on a range of upstream packages,
 including some dependencies on dev branches. It is therefore recommended
-to create a Loki-specific virtual environment.
+to create a Loki-specific virtual environment. The provided install script will do this automatically.
 
 ### Requirements
-- Python 3.6+
-- For OpenFortranParser/OMNI: JDK 1.8+ with ant
 
-### Installation with OFP and OMNI using virtual environment
+- Python 3.6+ with virtualenv and pip
+- For OpenFortranParser/OMNI+CLAW: JDK 1.8+ with ant (can be installed using the install script)
+- For graphical output from the scheduler: graphviz
+
+### Installation using 
+
+To install Loki with selected dependencies and using a local virtual environment `loki_env` use the provided [install script](install).
+Call it with `-h` to display usage information:
+
+```
+$ ./install -h
+Loki install script. This installs Loki and selected dependencies.
+
+Usage: ./install [-v] [--ecmwf] [--use-venv[=]<path>] [--with-*]
+
+Available options:
+  -h                    Display this help message
+  -v                    Enable verbose output
+  --ecmwf               Load ECMWF workstation specific modules and settings
+  --use-venv[=]<path>   Use existing virtual environment at <path>
+  --with-jdk            Install JDK instead of using system version
+  --with-ant            Install ant instead of using system version
+  --with-claw           Install CLAW and OMNI Compiler
+```
+
+On an ECMWF machine the `--ecmwf` flag is recommended as it makes sure the proxy settings are correct.
+
+The default command on an ECMWF workstation is
+
+```
+./install --ecmwf --with-ant --with-claw
+```
+
+On the `volta` host it requires a local installation of JDK (note that it will mention missing modules but it doesn't cause problems because system-versions are sufficiently up-to-date)
+
+```
+./install --ecmwf --with-jdk --with-ant --with-claw
+```
+
+On standard Linux hosts with up-to-date JDK and ant, it is as easy as
+
+```
+./install --with-claw
+```
+
+To update the installation (e.g., to add JDK), the existing virtual environment can be provided, e.g.,
+
+```
+./install --with-claw --with-jdk --with-ant --use-venv=loki_env
+```
+
+### Manual installation
+
 The following uses a virtual environment to install Loki on your local machine. You can create an empty directory and copy-paste the following steps to obtain a working version:
 
 1. Clone the Loki repository:
@@ -59,6 +109,6 @@ popd
 6.  Verify everything is working:
 ```
 pushd loki
-py.test -v tests
+py.test
 popd
 ```
