@@ -203,7 +203,9 @@ if [ "$with_ant" == true ]; then
   cd "${ANT_INSTALL_DIR}"
   wget -O "${ANT_ARCHIVE}" http://mirror.ox.ac.uk/sites/rsync.apache.org/ant/binaries/${ANT_ARCHIVE}
   tar -xzf "${ANT_ARCHIVE}"
-  "${ANT_HOME}/bin/ant" -f "${ANT_HOME}/fetch.xml" -Ddest=optional
+
+  export PATH="${ANT_HOME}/bin:${PATH}"
+  ant -f "${ANT_HOME}/fetch.xml" -Ddest=optional
 fi
 
 #
@@ -242,7 +244,7 @@ mkdir -p lib
 cp open_fortran_parser/*.jar lib
 
 # Rebuild OFP binaries to include custom changes
-"${ANT_HOME}/bin/ant"
+ant
 
 #
 # Writing loki-activate script
