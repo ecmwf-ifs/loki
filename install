@@ -45,10 +45,11 @@ while getopts "$optspec" optchar; do
           is_ecmwf=true
           ;;
         use-venv)    # Specify existing virtual environment
-          venv_path="${!OPTIND}"; OPTIND=$(( OPTIND + 1 ))
+          venv_path=$(realpath "${!OPTIND}")
+          OPTIND=$(( OPTIND + 1 ))
           ;;
         use-venv=*)  # Specify existing virtual environment
-          venv_path=${OPTARG#*=}
+          venv_path=$(realpath "${OPTARG#*=}")
           ;;
         with-jdk)    # Enable installation of Java
           with_jdk=true
@@ -73,7 +74,9 @@ while getopts "$optspec" optchar; do
       print_usage
       echo
       echo "Available options:"
+      echo "  -h                    Display this help message"
       echo "  -v                    Enable verbose output"
+      echo "  --ecmwf               Load ECMWF workstation specific modules and settings"
       echo "  --use-venv[=]<path>   Use existing virtual environment at <path>"
       echo "  --with-jdk            Install JDK instead of using system version"
       echo "  --with-ant            Install ant instead of using system version"
@@ -264,9 +267,11 @@ export CLASSPATH=\"${OFP_HOME}/open_fortran_parser/*:\${CLASSPATH}\"
 
 # Load ECMWF modules, if required
 if [ "${is_ecmwf}" == true ]; then
-  echo "
+  if [ "$with_jdk" == false ]; then
+    echo "
 module load java/${ecmwf_java_version}
 " >> "${loki_path}/loki-activate"
+  fi
 fi
 
 # Inject self-installed JDK into env
