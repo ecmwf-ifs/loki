@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+
+# Configuration of package versions:
+loki_ant_version=1.10.8
+
+ecmwf_java_version=11.0.1
+ecmwf_python_version=3.7.1-01
+ecmwf_cmake_version=3.15.0
+
+# Determine base path for loki
+# Either take the root of the current git tree or, if not inside a git repository, then
+# use the path of this install script
+if [ $(git rev-parse --git-dir > /dev/null 2>&1) ]; then
+  loki_path=$(git rev-parse --show-toplevel)
+else
+  loki_path=$(realpath $(dirname "$0"))
+fi
+
+# Configuration default values
+verbose=false
+is_ecmwf=false
+venv_path=
+with_jdk=false
+with_ant=false
+
+# Helper functions
+print_usage() {
+  echo "Usage: $0 [-v] [--ecmwf] [--use-venv[=]<path>] [--with-*]" >&2
+}
+
+print_step() {
+  echo "------------------------------------------------------"
+  echo "  $1"
+  echo "------------------------------------------------------"
+}
+
+# Parse arguments
+# (see https://stackoverflow.com/a/7680682)
+optspec=":hv-:"
+while getopts "$optspec" optchar; do
+  case "${optchar}" in
+    -)
+      case "${OPTARG}" in
+        ecmwf)       # Load ECMWF workstation specific modules and settings
+          is_ecmwf=true
+          ;;
+        use-venv)    # Specify existing virtual environment
+          venv_path="${!OPTIND}"; OPTIND=$(( OPTIND + 1 ))
+          ;;
+        use-venv=*)  # Specify existing virtual environment
+          venv_path=${OPTARG#*=}
+          ;;
+        with-jdk)    # Enable installation of Java
+          with_jdk=true
+          ;;
+        with-ant)    # Enable installation of ant
+          with_ant=true
+          ;;
+        with-claw)   # Enable installation of OMNI+CLAW
+          with_claw=true
+          ;;
+        *)
+          echo "Unknown option '--${OPTARG}'." >&2
+          print_usage
+          echo "Try '$0 -h' for more options."
+          exit 1
+          ;;
+      esac
+      ;;
+    h)
+      echo "Loki install script. This installs Loki and selected dependencies."
+      echo
+      print_usage
+      echo
+      echo "Available options:"
+      echo "  -v                    Enable verbose output"
+      echo "  --use-venv[=]<path>   Use existing virtual environment at <path>"
+      echo "  --with-jdk            Install JDK instead of using system version"
+      echo "  --with-ant            Install ant instead of using system version"
+      echo "  --with-claw           Install CLAW and OMNI Compiler"
+      exit 2
+      ;;
+    v)
+      verbose=true
+      ;;
+    *)          
+      echo "Unknown option '-${OPTARG}'." >&2
+      print_usage
+      echo "Try '$0 -h' for more options."
+      exit 1
+      ;;
+  esac
+done
+
+# Print configuration
+if [ "$verbose" == true ]; then
+  print_step "Installation configuration:"
+
+  [[ "$is_ecmwf" == true ]]  && echo "    --ecmwf"
+  [[ "$venv_path" != "" ]]   && echo "    --use-venv='$venv_path'"
+  [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
+  [[ "$with_ant" == true ]]  && echo "    --with-ant"
+  [[ "$with_claw" == true ]] && echo "    --with-claw"
+fi
+
+# Load modules
+if [ "$is_ecmwf" == true ]; then
+  print_step "Loading ECMWF modules and settings"
+
+  module unload cmake
+  module load cmake/${ecmwf_cmake_version}
+
+  if [ "$with_jdk" == false ]]; then
+    module unload java
+    module load java/${ecmwf_java_version}
+  fi
+
+  export ANT_OPTS="-Dhttp.proxyHost=proxy.ecmwf.int -Dhttp.proxyPort=3333 -Dhttps.proxyHost=proxy.ecmwf.int -Dhttps.proxyPort=3333"
+  
+  if [ "$venv_path" == "" ]; then
+    module unload python3
+    module load python3/${ecmwf_python_version}
+  fi
+fi
+
+#
+# Create Python virtualenv
+#
+
+if [ "$venv_path" == "" ]; then
+  print_step "Creating virtualenv"
+  venv_path=${loki_path}/loki_env
+  python3 -m venv "${venv_path}"
+fi
+
+#
+# Activate Python virtualenv
+#
+
+[[ "$VIRTUAL_ENV" != "" ]] && deactivate
+print_step "Activating virtualenv"
+source "${venv_path}/bin/activate"
+
+#
+# Install Loki with Python dependencies
+#
+
+print_step "Installing Loki and Python dependencies"
+
+pip install --upgrade pip
+pip install wheel
+pip install numpy  # Needed during next step
+
+cd "$loki_path"
+
+pip install -r requirements.txt
+pip install -e .  # Installs Loki dev copy in editable mode
+
+#
+# Install Java
+#
+
+if [ "$with_jdk" == true ]; then
+  print_step "Downloading and installing JDK"
+
+  JDK_ARCHIVE=openjdk-11.0.2_linux-x64_bin.tar.gz
+  JDK_URL=https://download.java.net/java/GA/jdk11/9/GPL/${JDK_ARCHIVE}
+  JAVA_INSTALL_DIR=${venv_path}/opt/java
+  export JAVA_HOME=${JAVA_INSTALL_DIR}/jdk-11.0.2
+
+  mkdir -p "${JAVA_INSTALL_DIR}"
+  rm -rf "${JAVA_HOME}" "${JAVA_INSTALL_DIR}/${JDK_ARCHIVE}"
+  cd "${JAVA_INSTALL_DIR}"
+  wget -O "${JDK_ARCHIVE}" "${JDK_URL}"
+  tar -xzf "${JDK_ARCHIVE}"
+fi
+
+#
+# Install ant
+#
+
+if [ "$with_ant" == true ]; then
+  print_step "Downloading and installing ANT"
+
+  ANT_INSTALL_DIR=${venv_path}/opt/ant
+  export ANT_HOME=${ANT_INSTALL_DIR}/apache-ant-${loki_ant_version}
+
+  # Cache NetRexx if it doesn't exist (Download fails from time to time)
+  NETREXX_TEMP=${HOME}/.ant/tempcache/NetRexx.zip
+  mkdir -p "${HOME}/.ant/tempcache"
+  if [[ $(shasum -a 1 "${NETREXX_TEMP}" | cut -d ' ' -f1) != "1a47bf7b5d0055d4a94befc999c593d15b66c119" ]]
+  then
+    wget -O "${NETREXX_TEMP}" ftp://ftp.software.ibm.com/software/awdtools/netrexx/NetRexx.zip
+  fi
+
+  # Download, unpack and install ant
+  ANT_ARCHIVE=apache-ant-${loki_ant_version}-bin.tar.gz
+  mkdir -p "${ANT_INSTALL_DIR}"
+  rm -rf "${ANT_HOME}" "${ANT_INSTALL_DIR}/${ANT_ARCHIVE}"
+  cd "${ANT_INSTALL_DIR}"
+  wget -O "${ANT_ARCHIVE}" http://mirror.ox.ac.uk/sites/rsync.apache.org/ant/binaries/${ANT_ARCHIVE}
+  tar -xzf "${ANT_ARCHIVE}"
+  "${ANT_HOME}/bin/ant" -f "${ANT_HOME}/fetch.xml" -Ddest=optional
+fi
+
+#
+# Install CLAW+OMNI
+#
+
+if [ "$with_claw" == true ]; then
+  print_step "Downloading and installing CLAW and OMNI Compiler"
+
+  CLAW_INSTALL_DIR=${venv_path}/opt/claw
+  mkdir -p "${CLAW_INSTALL_DIR}"
+  cd "${CLAW_INSTALL_DIR}"
+  rm -rf claw-compiler
+  git clone --recursive https://github.com/claw-project/claw-compiler.git claw-compiler
+  cd claw-compiler
+  cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+  make
+  make install
+fi
+
+#
+# Install OFP
+#
+
+print_step "Patching OFP"
+
+OFP_HOME=${venv_path}/src/open-fortran-parser
+
+# HACK: Force OFP version and install Java deps
+echo "VERSION = '0.5.3'" > "${OFP_HOME}/open_fortran_parser/_version.py"
+python3 -m open_fortran_parser --deps
+
+# Copy downloaded binaries to lib
+cd "${OFP_HOME}" 
+mkdir -p lib
+cp open_fortran_parser/*.jar lib
+
+# Rebuild OFP binaries to include custom changes
+"${ANT_HOME}/bin/ant"
+
+#
+# Writing loki-activate script
+#
+
+print_step "Writing loki-activate script"
+
+path_var=\${PATH}
+
+echo "
+# This script activates Loki's virtual environment, loads additional modules and sets dependend paths.
+#
+# Run as 'source loki-activate'
+
+# Load virtualenv
+. ${venv_path}/bin/activate
+
+# Setup Java
+export _OLD_CLASSPATH=\"\${CLASSPATH}\"
+export CLASSPATH=\"${OFP_HOME}/open_fortran_parser/*:\${CLASSPATH}\"
+" > "${loki_path}/loki-activate"
+
+# Load ECMWF modules, if required
+if [ "${is_ecmwf}" == true ]; then
+  echo "
+module load java/${ecmwf_java_version}
+" >> "${loki_path}/loki-activate"
+fi
+
+# Inject self-installed JDK into env
+if [ "$with_jdk" == true ]; then
+  echo "
+export JAVA_HOME=\"\${JAVA_HOME}\"
+" >> "${loki_path}/loki-activate"
+  path_var=${JAVA_HOME}/bin:$path_var
+fi
+
+# Inject CLAW into env
+if [ "$with_claw" == true ]; then
+  path_var=${CLAW_INSTALL_DIR}/bin:$path_var
+fi
+
+# Update path variable
+echo "
+export PATH=\"$path_var\"
+
+echo \"Activated loki environment. Unload with 'deactivate'.\"
+" >> "${loki_path}/loki-activate"
+
+#
+# Finish
+#
+
+print_step "Installation finished"
+echo
+echo "Activate the Loki environment with"
+echo
+echo "    source loki-activate"
+echo
+echo "You can test the installation then by calling 'py.test'"
+echo
