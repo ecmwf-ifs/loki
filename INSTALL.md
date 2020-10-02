@@ -10,7 +10,7 @@ to create a Loki-specific virtual environment. The provided install script will 
 - For OpenFortranParser/OMNI+CLAW: JDK 1.8+ with ant (can be installed using the install script)
 - For graphical output from the scheduler: graphviz
 
-### Installation using 
+### Installation using install script
 
 To install Loki with selected dependencies and using a local virtual environment `loki_env` use the provided [install script](install).
 Call it with `-h` to display usage information:
