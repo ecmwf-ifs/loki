@@ -110,6 +110,7 @@ fi
 if [ "$is_ecmwf" == true ]; then
   print_step "Loading ECMWF modules and settings"
 
+  source /usr/local/apps/module/init/bash
   module unload cmake
   module load cmake/${ecmwf_cmake_version}
 
