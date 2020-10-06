@@ -22,7 +22,7 @@ from loki.expression import (
     SubstituteExpressions, ProcedureSymbol
 )
 from loki.visitors import Transformer, FindNodes
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, TypeTable, Scope
 
 
@@ -289,9 +289,9 @@ class FortranCTransformation(Transformation):
         # Change imports to C header includes
         imports = []
         getter_calls = []
-        header_map = {m.name.lower(): m for m in as_tuple(self.header_modules)}
+        header_map = CaseInsensitiveDict({m.name: m for m in as_tuple(self.header_modules)})
         for imp in FindNodes(Import).visit(routine.spec):
-            if imp.module.lower() in header_map:
+            if imp.module in header_map:
                 # Create a C-header import
                 imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
 
