@@ -679,3 +679,69 @@ end subroutine transpile_logical_statements
     clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_multibody_conditionals(here, builder, frontend):
+    """
+    Test correct transformation of multi-body conditionals.
+    """
+    fcode = """
+subroutine transpile_multibody_conditionals(in1, out1, out2)
+  integer, intent(in) :: in1
+  integer, intent(out) :: out1, out2
+
+  if (in1 > 5) then
+    out1 = 5
+  else
+    out1 = 1
+  end if
+
+  if (in1 < 0) then
+    out2 = 0
+  else if (in1 > 5) then
+    out2 = 6
+    out2 = out2 - 1
+  else if (3 < in1 .and. in1 <= 5) then
+    out2 = 4
+  else
+    out2 = in1
+  end if
+end subroutine transpile_multibody_conditionals
+"""
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_multibody_conditionals_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_multibody_conditionals')
+
+    out1, out2 = function(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = function(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = function(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = function(10)
+    assert out1 == 5 and out2 == 5
+
+    # Generate and test the transpiled C kernel
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_multibody_conditionals_fc_mod.transpile_multibody_conditionals_fc
+
+    out1, out2 = fc_function(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = fc_function(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = fc_function(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = fc_function(10)
+    assert out1 == 5 and out2 == 5
+    clean_test(filepath)

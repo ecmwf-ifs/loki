@@ -1,3 +1,4 @@
+from itertools import zip_longest
 from pymbolic.mapper.stringifier import (
     PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
@@ -313,23 +314,26 @@ class CCodegen(Stringifier):
         Format conditional as
           if (<condition>) {
             ...body...
-          } [ else { ]
+          [ } else if (<condition>) { ]
             [...body...]
-          [}]
+          [ } else { ]
+            [...body...]
+          }
         """
-        condition = self.visit(o.conditions[0], **kwargs)
-        header = self.format_line('if (', condition, ') {')
-        else_header = None
+        header = ('if', '')
+        footer = self.format_line('}')
+        other_case = ('} else if','')
+        conditions = self.visit_all(o.conditions, **kwargs)
+        conditions = [self.format_line(items[0], ' (', cond, ') {', items[1])
+                      for items, cond in zip_longest([header], conditions, fillvalue=other_case)]
         if o.else_body:
-            else_header = self.format_line('} else {')
-        footer = '}'
+            conditions.append(self.format_line('} else {'))
+
         self.depth += 1
-        bodies = self.visit_all(o.bodies, **kwargs)
-        else_body = self.visit(o.else_body, **kwargs)
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
         self.depth -= 1
-        if len(bodies) > 1:
-            raise NotImplementedError('Multi-body conditionals not yet supported')
-        return self.join_lines(header, *bodies, else_header, else_body, footer)
+        branches = [item for branch in zip(conditions, bodies) for item in branch]
+        return self.join_lines(*branches, footer)
 
     def visit_Assignment(self, o, **kwargs):
         """
