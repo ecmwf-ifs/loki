@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Configuration of package versions:
-loki_ant_version=1.10.8
+loki_ant_version=1.10.9
 
 ecmwf_java_version=11.0.1
 ecmwf_python_version=3.7.1-01
