@@ -86,7 +86,7 @@ while getopts "$optspec" optchar; do
     v)
       verbose=true
       ;;
-    *)          
+    *)
       echo "Unknown option '-${OPTARG}'." >&2
       print_usage
       echo "Try '$0 -h' for more options."
@@ -113,13 +113,13 @@ if [ "$is_ecmwf" == true ]; then
   module unload cmake
   module load cmake/${ecmwf_cmake_version}
 
-  if [ "$with_jdk" == false ]]; then
+  if [ "$with_jdk" == false ]; then
     module unload java
     module load java/${ecmwf_java_version}
   fi
 
   export ANT_OPTS="-Dhttp.proxyHost=proxy.ecmwf.int -Dhttp.proxyPort=3333 -Dhttps.proxyHost=proxy.ecmwf.int -Dhttps.proxyPort=3333"
-  
+
   if [ "$venv_path" == "" ]; then
     module unload python3
     module load python3/${ecmwf_python_version}
@@ -239,7 +239,7 @@ echo "VERSION = '0.5.3'" > "${OFP_HOME}/open_fortran_parser/_version.py"
 python3 -m open_fortran_parser --deps
 
 # Copy downloaded binaries to lib
-cd "${OFP_HOME}" 
+cd "${OFP_HOME}"
 mkdir -p lib
 cp open_fortran_parser/*.jar lib
 
