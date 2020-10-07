@@ -217,8 +217,9 @@ class FortranCTransformation(Transformation):
         isoc_import = Import(module='iso_c_binding',
                              symbols=('c_int', 'c_double', 'c_float'))
         intf_spec = Section(body=as_tuple(isoc_import))
-        intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
-        intf_spec.body += as_tuple(c_structs.values())
+        intf_spec.append(im for im in FindNodes(Import).visit(routine.spec) if not im.c_import)
+        intf_spec.append(Intrinsic(text='implicit none'))
+        intf_spec.append(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, body=None,
                                   args=(), scope=scope, bind=bind_name)
 
@@ -293,7 +294,7 @@ class FortranCTransformation(Transformation):
         for imp in FindNodes(Import).visit(routine.spec):
             if imp.module in header_map:
                 # Create a C-header import
-                imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
+                imports += [Import(module='%s_c.h' % imp.module.lower(), c_import=True)]
 
                 # For imported modulevariables, create a declaration and call the getter
                 module = header_map[imp.module]
