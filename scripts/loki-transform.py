@@ -231,20 +231,26 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
               help='Path for additional module file(s)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
-def transpile(out_path, header, source, driver, xmod, include):
+@click.option('--frontend', default='omni', type=click.Choice(['fp', 'ofp', 'omni']),
+              help='Frontend parser to use (default FP)')
+def transpile(out_path, header, source, driver, xmod, include, frontend):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
     driver_name = 'CLOUDSC_DRIVER'
     kernel_name = 'CLOUDSC'
 
+    frontend = Frontend[frontend.upper()]
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+
     # Parse original driver and kernel routine, and enrich the driver
-    definitions = flatten(SourceFile.from_file(h, xmods=xmod, frontend=Frontend.OFP).modules for h in header)
+    definitions = flatten(SourceFile.from_file(h, xmods=xmod,
+                                               frontend=frontend_type).modules for h in header)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=Frontend.OMNI, definitions=definitions,
+                                  frontend=frontend, definitions=definitions,
                                   builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=Frontend.OMNI, builddir=out_path)
+                                  frontend=frontend, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
@@ -253,7 +259,7 @@ def transpile(out_path, header, source, driver, xmod, include):
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
     typepaths = [Path(h) for h in header]
-    typemods = [SourceFile.from_file(tp, frontend=Frontend.OFP)[tp.stem] for tp in typepaths]
+    typemods = [SourceFile.from_file(tp, frontend=frontend_type)[tp.stem] for tp in typepaths]
     for typemod in typemods:
         FortranCTransformation().apply(source=typemod, path=out_path)
 
