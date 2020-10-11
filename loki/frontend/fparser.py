@@ -325,10 +325,10 @@ class FParser2IR(GenericVisitor):
     def visit_Use_Stmt(self, o, **kwargs):
         name = o.items[2].tostr()
         only_list = get_child(o, Fortran2003.Only_List)  # pylint: disable=no-member
+        symbols = None
         if only_list:
-            symbols = as_tuple(item.tostr() for item in only_list.items)
-        else:
-            symbols = None
+            symbols = as_tuple(sym.Variable(name=item.tostr(), scope=self.scope.symbols)
+                               for item in only_list.items)
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'),
                          label=kwargs.get('label'))
 
@@ -437,7 +437,10 @@ class FParser2IR(GenericVisitor):
         dtype = o.items[0]
         kind = get_child(o, Fortran2003.Kind_Selector)
         if kind is not None:
-            kind = kind.items[1].tostr()
+            if kind.items[1].tostr().isnumeric():
+                kind = sym.Literal(value=kind.items[1].tostr())
+            else:
+                kind = sym.Variable(name=kind.items[1].tostr(), scope=self.scope.symbols)
         length = get_child(o, Fortran2003.Length_Selector)
         if length is not None:
             length = length.items[1].tostr()

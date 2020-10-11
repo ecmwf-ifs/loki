@@ -365,7 +365,10 @@ class OFP2IR(GenericVisitor):
             typename = o.find('type').attrib['name']
             kind = o.find('type/kind/name')
             if kind is not None:
-                kind = kind.attrib['id']
+                if kind.attrib['id'].isnumeric():
+                    kind = sym.Literal(value=kind.attrib['id'])
+                else:
+                    kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
             intent = o.find('intent').attrib['type'] if o.find('intent') else None
             allocatable = o.find('attribute-allocatable') is not None
             pointer = o.find('attribute-pointer') is not None
@@ -459,8 +462,12 @@ class OFP2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, label=label, source=source)
 
     def visit_use(self, o, label=None, source=None):
-        symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return ir.Import(module=o.attrib['name'], symbols=symbols, label=label, source=source)
+        name = o.attrib['name']
+        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
+        symbols = None
+        if len(symbol_names) > 0:
+            symbols = as_tuple(sym.Variable(name=s, scope=self.scope.symbols) for s in symbol_names)
+        return ir.Import(module=name, symbols=symbols, label=label, source=source)
 
     def visit_directive(self, o, label=None, source=None):
         if '#include' in o.attrib['text']:
@@ -766,7 +773,10 @@ class OFP2IR(GenericVisitor):
         t_source = extract_source(t.attrib, self._raw_source)
         kind = t.find('kind/name')
         if kind is not None:
-            kind = kind.attrib['id']
+            if kind.attrib['id'].isnumeric():
+                kind = sym.Literal(value=kind.attrib['id'])
+            else:
+                kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
             _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,

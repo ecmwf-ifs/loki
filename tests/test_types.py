@@ -198,3 +198,34 @@ end module test_type_derived_type_mod
     assert routine.symbols['b%b'].shape == (':',':')
     assert routine.symbols['c%a'].shape == (':',)
     assert routine.symbols['c%b'].shape == (':',':')
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI cannot deal with deferred type info')),
+    FP])
+def test_type_module_imports(frontend):
+    """
+    Test the detection of known / unknown symbols types from module imports.
+    """
+    fcode = """
+subroutine test_type_module_imports(arg_a, arg_b)
+  use my_types_mod, only: a_kind, a_dim, a_type
+  implicit none
+
+  real(kind=a_kind), intent(in) :: arg_a(a_dim)
+  type(a_type), intent(in) :: arg_b
+end subroutine test_type_module_imports
+"""
+    # Ensure types are deferred without a-priori context info
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert routine.symbols['a_kind'].dtype == DataType.DEFERRED
+    assert routine.symbols['a_dim'].dtype == DataType.DEFERRED
+    assert routine.symbols['a_type'].dtype == DataType.DEFERRED
+
+    # Ensure local variable info is correct, as far as known
+    arg_a, arg_b = routine.variables
+    assert arg_a.type.kind.type == routine.symbols['a_kind']
+    assert arg_a.dimensions.index_tuple[0].type == routine.symbols['a_dim']
+    assert arg_b.type.dtype == DataType.DERIVED_TYPE
+    assert not arg_b.type.variables
