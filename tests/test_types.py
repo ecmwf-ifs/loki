@@ -2,8 +2,8 @@ from random import choice
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, DataType, SymbolType, FCodeMapper,
-    Subroutine
+    OFP, OMNI, FP, SourceFile, Module, Subroutine, DataType,
+    SymbolType, Array, Scalar, FCodeMapper
 )
 
 
@@ -145,3 +145,56 @@ end module types
 
     assert fsymgen(pragma_type.variables['matrix'].shape) == '(3, 3)'
     assert fsymgen(pragma_type.variables['tensor'].shape) == '(klon, klat, 2)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_type_derived_type(frontend):
+    """
+    Test the detection of known derived type definitions.
+    """
+
+    fcode = """
+module test_type_derived_type_mod
+  implicit none
+  integer, parameter :: a_kind = 4
+
+  type my_struct
+    real(kind=a_kind) :: a(:), b(:,:)
+  end type my_struct
+
+  contains
+  subroutine test_type_derived_type(a, b, c)
+    type(my_struct), target, intent(inout) :: a
+    type(my_struct), allocatable :: b(:)
+    type(my_struct), pointer :: c
+
+  end subroutine test_type_derived_type
+end module test_type_derived_type_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['test_type_derived_type']
+
+    a, b, c = routine.variables
+    assert isinstance(a, Scalar)
+    assert a.type.dtype == DataType.DERIVED_TYPE
+    assert a.type.target
+    assert isinstance(b, Array)
+    assert b.type.dtype == DataType.DERIVED_TYPE
+    assert b.type.allocatable
+    assert isinstance(c, Scalar)
+    assert c.type.dtype == DataType.DERIVED_TYPE
+    assert c.type.pointer
+
+    # Ensure derived types have links to type definition and correct scope
+    assert len(a.type.variables) == len(b.type.variables) == len(c.type.variables) == 2
+    assert all(v.scope == routine.symbols for _, v in a.type.variables.items())
+    assert all(v.scope == routine.symbols for _, v in b.type.variables.items())
+    assert all(v.scope == routine.symbols for _, v in c.type.variables.items())
+
+    # Ensure all member variable have an entry in the local symbol table
+    assert routine.symbols['a%a'].shape == (':',)
+    assert routine.symbols['a%b'].shape == (':',':')
+    assert routine.symbols['b%a'].shape == (':',)
+    assert routine.symbols['b%b'].shape == (':',':')
+    assert routine.symbols['c%a'].shape == (':',)
+    assert routine.symbols['c%b'].shape == (':',':')
