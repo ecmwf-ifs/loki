@@ -184,7 +184,14 @@ class Module:
     def to_fortran(self, conservative=False):
         return fgen(self, conservative=conservative)
 
+    def __contains__(self, name):
+        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        return name in subroutine_map
+
     def __getitem__(self, name):
+        if not isinstance(name, str):
+            raise TypeError('Subroutine lookup requires a string!')
+
         subroutine_map = {s.name.lower(): s for s in self.subroutines}
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]
