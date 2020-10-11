@@ -23,7 +23,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten
-from loki.types import DataType, SymbolType
+from loki.types import DataType, DerivedType, SymbolType
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
@@ -244,7 +244,7 @@ class FParser2IR(GenericVisitor):
         # If a parent variable is given, try to infer type from the
         # derived type definition
         if parent is not None and dtype is None:
-            if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+            if parent.type is not None and isinstance(parent.type.dtype, DerivedType):
                 if parent.type.variables is not None and \
                         basename in parent.type.variables:
                     dtype = parent.type.variables[basename].type
@@ -632,12 +632,11 @@ class FParser2IR(GenericVisitor):
                                     parameter='parameter' in attrs, target='target' in attrs,
                                     contiguous='contiguous' in attrs, shape=dimensions)
             else:
-                # TODO: Insert variable information from stored TypeDef!
+                # Associate TypeDef if known, otherwise leave blank!
+                typedef = None
                 if self.typedefs is not None and typename in self.typedefs:
-                    variables = OrderedDict([(v.basename, v) for v in self.typedefs[typename].variables])
-                else:
-                    variables = None
-                dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
+                    typedef = self.typedefs[typename]
+                dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
                                    intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,
                                    parameter='parameter' in attrs, target='target' in attrs,
@@ -677,9 +676,8 @@ class FParser2IR(GenericVisitor):
         typedef._update(body=body, symbols=typedef.symbols)
 
         # Now create a SymbolType instance to make the typedef known in its scope's type table
-        variables = OrderedDict([(v.basename, v) for v in typedef.variables])
-        dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)
-        self.scope.types[name] = dtype
+        self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
+
         return typedef
 
     def visit_Component_Part(self, o, **kwargs):

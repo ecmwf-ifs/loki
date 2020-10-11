@@ -1,9 +1,10 @@
 import weakref
 from enum import IntEnum
+from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['DataType', 'SymbolType', 'TypeTable']
+__all__ = ['DataType', 'DerivedType', 'SymbolType', 'TypeTable']
 
 
 class DataType(IntEnum):
@@ -16,7 +17,6 @@ class DataType(IntEnum):
     - `REAL`
     - `CHARACTER`
     - `COMPLEX`
-    - `DERIVED_TYPE`
     and, to mark symbols without a known type, `DEFERRED` (e.g., for members of an externally
     defined derived type on use).
 
@@ -30,7 +30,6 @@ class DataType(IntEnum):
     REAL = 3
     CHARACTER = 4
     COMPLEX = 5
-    DERIVED_TYPE = 6
 
     @classmethod
     def from_str(cls, value):
@@ -76,6 +75,28 @@ class DataType(IntEnum):
         return type_map[value]
 
 
+class DerivedType:
+    """
+    Representation of a complex derived data types that may have an associated `TypeDef`.
+
+    Please note that the typedef attribute may be of `ir.TypeDef` or `DataType.DEFERRED`,
+    depending on the scope of the derived type declaration.
+    """
+
+    def __init__(self, name=None, typedef=None, scope=None):
+        assert name or typedef
+        self.name = name or typedef.name
+        self.typedef = typedef if typedef is not None else DataType.DEFERRED
+
+        # This is intentionally left blank, as the parent variable
+        # generation will populate this, if the typedef is known.
+        self.variables = tuple()
+
+    @property
+    def variable_map(self):
+        return OrderedDict([(v.basename, v) for v in self.variables])
+
+
 class SymbolType:
     """
     Representation of a symbols type.
@@ -91,7 +112,7 @@ class SymbolType:
     """
 
     def __init__(self, dtype, **kwargs):
-        self.dtype = dtype if isinstance(dtype, DataType) else DataType.from_str(dtype)
+        self.dtype = dtype if isinstance(dtype, (DataType, DerivedType)) else DataType.from_str(dtype)
 
         for k, v in kwargs.items():
             if v is not None:

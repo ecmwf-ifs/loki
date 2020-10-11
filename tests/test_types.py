@@ -3,7 +3,7 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, SourceFile, Module, Subroutine, DataType,
-    SymbolType, Array, Scalar, FCodeMapper
+    SymbolType, DerivedType, Array, Scalar, FCodeMapper
 )
 
 
@@ -143,8 +143,8 @@ end module types
     source = SourceFile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].types['pragma_type']
 
-    assert fsymgen(pragma_type.variables['matrix'].shape) == '(3, 3)'
-    assert fsymgen(pragma_type.variables['tensor'].shape) == '(klon, klat, 2)'
+    assert fsymgen(pragma_type.dtype.variable_map['matrix'].shape) == '(3, 3)'
+    assert fsymgen(pragma_type.dtype.variable_map['tensor'].shape) == '(klon, klat, 2)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -176,20 +176,22 @@ end module test_type_derived_type_mod
 
     a, b, c = routine.variables
     assert isinstance(a, Scalar)
-    assert a.type.dtype == DataType.DERIVED_TYPE
+    assert isinstance(a.type.dtype, DerivedType)
     assert a.type.target
     assert isinstance(b, Array)
-    assert b.type.dtype == DataType.DERIVED_TYPE
+    assert isinstance(b.type.dtype, DerivedType)
     assert b.type.allocatable
     assert isinstance(c, Scalar)
-    assert c.type.dtype == DataType.DERIVED_TYPE
+    assert isinstance(c.type.dtype, DerivedType)
     assert c.type.pointer
 
     # Ensure derived types have links to type definition and correct scope
-    assert len(a.type.variables) == len(b.type.variables) == len(c.type.variables) == 2
-    assert all(v.scope == routine.symbols for _, v in a.type.variables.items())
-    assert all(v.scope == routine.symbols for _, v in b.type.variables.items())
-    assert all(v.scope == routine.symbols for _, v in c.type.variables.items())
+    assert len(a.type.dtype.variables) == 2
+    assert len(b.type.dtype.variables) == 2
+    assert len(c.type.dtype.variables) == 2
+    assert all(v.scope == routine.symbols for v in a.type.dtype.variables)
+    assert all(v.scope == routine.symbols for v in b.type.dtype.variables)
+    assert all(v.scope == routine.symbols for v in c.type.dtype.variables)
 
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbols['a%a'].shape == (':',)
@@ -227,5 +229,5 @@ end subroutine test_type_module_imports
     arg_a, arg_b = routine.variables
     assert arg_a.type.kind.type == routine.symbols['a_kind']
     assert arg_a.dimensions.index_tuple[0].type == routine.symbols['a_dim']
-    assert arg_b.type.dtype == DataType.DERIVED_TYPE
-    assert not arg_b.type.variables
+    assert isinstance(arg_b.type.dtype, DerivedType)
+    assert arg_b.type.dtype.typedef == DataType.DEFERRED

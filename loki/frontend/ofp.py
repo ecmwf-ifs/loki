@@ -19,7 +19,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash
 from loki.logging import info, DEBUG
-from loki.types import DataType, SymbolType
+from loki.types import DataType, SymbolType, DerivedType
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -354,9 +354,7 @@ class OFP2IR(GenericVisitor):
                 typedef._update(body=as_tuple(body), symbols=typedef.symbols)
 
                 # Now create a SymbolType instance to make the typedef known in its scope's type table
-                variables = OrderedDict([(v.basename, v) for v in typedef.variables])
-                dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)
-                self.scope.types[name] = dtype
+                self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
 
                 return typedef
 

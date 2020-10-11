@@ -12,7 +12,7 @@ import loki.expression.symbol_types as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash
-from loki.types import DataType, SymbolType
+from loki.types import DataType, SymbolType, DerivedType
 
 
 __all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -244,21 +244,17 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         typedef = ir.TypeDef(name=name.text, body=[])
 
-        # Create the derived type...
-        _type = SymbolType(DataType.DERIVED_TYPE, name=name.text, variables=OrderedDict())
-
-        # ...and built the list of its members
+        # Built the list of derived type members
         variables = self._struct_type_variables(self.type_map[name.attrib['type']],
                                                 typedef.symbols)
 
-        # Remember that derived type
-        _type.variables.update([(v.basename, v) for v in variables])  # pylint:disable=no-member
-
-        self.scope.types[name.text] = _type
-
         # Build individual declarations for each member
-        declarations = as_tuple(ir.Declaration(variables=(v, )) for v in _type.variables.values())
+        declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
         typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
+
+        # Now create a SymbolType instance to make the typedef known in its scope's type table
+        self.scope.types[name.text] = SymbolType(DerivedType(name=name.text, typedef=typedef))
+
         return typedef
 
     def visit_FbasicType(self, o, source=None):
@@ -402,7 +398,7 @@ class OMNI2IR(GenericVisitor):
         vtype = self.scope.symbols.lookup(vname, recursive=True)
 
         # If we have a parent with a type, use that
-        if vtype is None and parent is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+        if vtype is None and parent is not None and isinstance(parent.type.dtype, DerivedType):
             vtype = parent.type.variables.get(basename, vtype)
         if vtype is None and t in self.type_map:
             vtype = self.visit(self.type_map[t])

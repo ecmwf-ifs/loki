@@ -4,7 +4,7 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.tools import as_tuple
-from loki.types import DataType, SymbolType
+from loki.types import DataType, DerivedType, SymbolType
 from loki.expression.mappers import LokiStringifyMapper
 
 
@@ -322,14 +322,12 @@ class Variable:
         copy of that type and replace its parent by this object and its list of variables (which
         is an OrderedDict of SymbolTypes) by a list of Variable instances.
         """
-        if obj.type is not None and obj.type.dtype == DataType.DERIVED_TYPE:
-            if obj.type.variables and next(iter(obj.type.variables.values())).scope != obj.scope:
-                variables = obj.type.variables
-                obj.type = obj.type.clone(variables=OrderedDict())
-                for k, v in variables.items():
-                    vtype = v.type.clone(parent=obj)
-                    vname = '%s%%%s' % (obj.name, v.basename)
-                    obj.type.variables[k] = Variable(name=vname, scope=obj.scope, type=vtype)
+        if obj.type is not None and isinstance(obj.type.dtype, DerivedType):
+            if obj.type.dtype.typedef is not DataType.DEFERRED:
+                obj.type.dtype.variables = tuple(Variable(name='%s%%%s' % (obj.name, v.basename),
+                                                          type=v.type.clone(parent=obj),
+                                                          scope=obj.scope)
+                                                 for v in obj.type.dtype.typedef.variables)
         return obj
 
 
