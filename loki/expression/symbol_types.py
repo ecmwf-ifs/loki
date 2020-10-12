@@ -324,9 +324,9 @@ class Variable:
         """
         if obj.type is not None and isinstance(obj.type.dtype, DerivedType):
             if obj.type.dtype.typedef is not DataType.DEFERRED:
-                obj.type.dtype.variables = tuple(Variable(name='%s%%%s' % (obj.name, v.basename),
-                                                          type=v.type.clone(parent=obj),
-                                                          scope=obj.scope)
+                obj.type.dtype.variables = tuple(v.clone(name='%s%%%s' % (obj.name, v.basename),
+                                                         type=v.type.clone(parent=obj),
+                                                         scope=obj.scope)
                                                  for v in obj.type.dtype.typedef.variables)
         return obj
 

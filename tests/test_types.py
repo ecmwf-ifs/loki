@@ -3,7 +3,7 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, SourceFile, Module, Subroutine, DataType,
-    SymbolType, DerivedType, Array, Scalar, FCodeMapper
+    SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper
 )
 
 
@@ -231,3 +231,33 @@ end subroutine test_type_module_imports
     assert arg_a.dimensions.index_tuple[0].type == routine.symbols['a_dim']
     assert isinstance(arg_b.type.dtype, DerivedType)
     assert arg_b.type.dtype.typedef == DataType.DEFERRED
+
+    fcode_module = """
+module my_types_mod
+  implicit none
+
+  integer, parameter :: a_kind = 4
+  integer(kind=a_kind) :: a_dim
+
+  type a_type
+    real(kind=a_kind), allocatable :: a(:), b(:,:)
+  end type a_type
+end module my_types_mod
+"""
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, typedefs=module.typedefs, frontend=frontend)
+
+    # Check that external type definition has been linked
+    assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)
+    assert routine.variable_map['arg_b'].type.dtype.typedef.symbols != routine.symbols
+
+    # Check that we correctly re-scoped the member variable
+    a, b = routine.variable_map['arg_b'].type.dtype.variables
+    assert a.dimensions == '(:)'
+    assert b.dimensions == '(:,:)'
+    assert a.type.kind == b.type.kind == 'a_kind'
+    assert a.scope == b.scope == routine.symbols
+
+    # Ensure all member variable have an entry in the local symbol table
+    assert routine.symbols['arg_b%a'].shape == (':',)
+    assert routine.symbols['arg_b%b'].shape == (':',':')
