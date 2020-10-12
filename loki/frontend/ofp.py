@@ -571,8 +571,9 @@ class OFP2IR(GenericVisitor):
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
             if _type is None and parent is not None and parent.type is not None:
-                if parent.type.dtype == DataType.DERIVED_TYPE:
-                    _type = parent.type.variables.get(basename)
+                if isinstance(parent.type.dtype, DerivedType) \
+                   and parent.type.dtype.typedef is not DataType.DEFERRED:
+                    _type = parent.type.dtype.typedef.variables.get(basename)
 
             if indices:
                 indices = sym.ArraySubscript(indices, source=source)

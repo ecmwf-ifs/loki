@@ -88,7 +88,7 @@ class Item:
 
     def __init__(self, name, path, role, mode=None, expand=True, strict=True,
                  ignore=None, enrich=None, block=None, replicate=False, xmods=None,
-                 includes=None, builddir=None, typedefs=None, frontend=FP):
+                 includes=None, builddir=None, definitions=None, frontend=FP):
         # Essential item attributes
         self.name = name
         self.path = path
@@ -113,7 +113,7 @@ class Item:
                 self.source = SourceFile.from_file(path, preprocess=True,
                                                    xmods=xmods, includes=includes,
                                                    builddir=builddir,
-                                                   typedefs=typedefs, frontend=frontend)
+                                                   definitions=definitions, frontend=frontend)
                 self.routine = self.source[self.name]
 
             except Exception as excinfo:  # pylint: disable=broad-except
@@ -164,7 +164,7 @@ class Scheduler:
     source_suffixes = ['.f90', '_mod.f90']
 
     def __init__(self, paths, config=None, xmods=None, includes=None,
-                 builddir=None, typedefs=None, frontend=FP):
+                 builddir=None, definitions=None, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -178,7 +178,7 @@ class Scheduler:
         self.xmods = xmods
         self.includes = includes
         self.builddir = builddir
-        self.typedefs = typedefs
+        self.definitions = definitions
         self.frontend = frontend
 
         # Internal data structures to store the callgraph
@@ -243,7 +243,7 @@ class Scheduler:
         name = item_conf.pop('name', source)
         return Item(name=name, **item_conf, path=self.find_path(source),
                     xmods=self.xmods,
-                    includes=self.includes, typedefs=self.typedefs,
+                    includes=self.includes, definitions=self.definitions,
                     builddir=self.builddir, frontend=self.frontend)
 
     def populate(self, routines):
@@ -302,7 +302,7 @@ class Scheduler:
                                               xmods=self.xmods,
                                               includes=self.includes,
                                               builddir=self.builddir,
-                                              typedefs=self.typedefs,
+                                              definitions=self.definitions,
                                               frontend=self.frontend)
                 item.routine.enrich_calls(source.all_subroutines)
 

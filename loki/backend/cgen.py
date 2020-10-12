@@ -4,7 +4,7 @@ from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PRE
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
-from loki.types import DataType, SymbolType
+from loki.types import DataType, SymbolType, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
@@ -163,7 +163,7 @@ class CCodegen(Stringifier):
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
                 aptr += ['* restrict v_']
-            elif a.type.dtype == DataType.DERIVED_TYPE:
+            elif isinstance(a.type.dtype, DerivedType):
                 aptr += ['*']
             elif a.type.pointer:
                 aptr += ['*']
@@ -358,8 +358,8 @@ class CCodegen(Stringifier):
         return self.format_line(o.name, '(', self.join_items(args), ');')
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
-        if o.dtype == DataType.DERIVED_TYPE:
-            return 'struct %s' % o.name
+        if isinstance(o.dtype, DerivedType):
+            return 'struct %s' % o.dtype.name
         return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):

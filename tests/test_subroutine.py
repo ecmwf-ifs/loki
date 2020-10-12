@@ -584,7 +584,7 @@ subroutine routine_typedefs_simple(item)
 end subroutine routine_typedefs_simple
 """
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, typedefs=header.typedefs)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
 
     # Verify that all derived type variables have shape info
     variables = FindVariables().visit(routine.body)
@@ -707,12 +707,12 @@ subroutine routine_typedefs_simple(item)
 end subroutine routine_typedefs_simple
 """
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, typedefs=header.typedefs)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
 
     # Check that external typedefs have been propagated to kernel variables
     # First check that the declared parent variable has the correct type
     assert routine.arguments[0].name == 'item'
-    assert routine.arguments[0].type.name == 'derived_type'
+    assert routine.arguments[0].type.dtype.name == 'derived_type'
 
     # Verify that all variable instances have type and shape information
     variables = FindVariables().visit(routine.body)
@@ -750,7 +750,7 @@ subroutine routine_call_caller(x, y, vector, matrix, item)
 end subroutine routine_call_caller
 """
     header = SourceFile.from_file(header_path, frontend=frontend)['header']
-    routine = Subroutine.from_source(fcode, frontend=frontend, typedefs=header.typedefs)
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
     call = FindNodes(CallStatement).visit(routine.body)[0]
 
     assert str(call.arguments[0]) == 'x'

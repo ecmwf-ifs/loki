@@ -45,7 +45,7 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation
+    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation, DataType
 )
 
 
@@ -270,9 +270,9 @@ def test_scheduler_graph_blocked(here, builddir, config):
     assert len(vgraph.edges) == 4
 
 
-def test_scheduler_typedefs(here, builddir, config):
+def test_scheduler_definitions(here, builddir, config):
     """
-    Create a simple task graph with and inject type info via `typedef`s.
+    Create a simple task graph with and inject type info via `definitions`.
 
     projA: driverA -> kernelA -> compute_l1 -> compute_l2
                            |
@@ -284,15 +284,15 @@ def test_scheduler_typedefs(here, builddir, config):
     header = SourceFile.from_file(projA/'module/header_mod.f90',
                                   builddir=builddir, frontend=FP)
 
-    scheduler = Scheduler(paths=projA, typedefs=header['header_mod'].typedefs,
+    scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
                           includes=projA/'include', config=config, builddir=builddir)
     scheduler.populate('driverA')
 
     driver = scheduler.item_map['driverA'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
-    assert call.arguments[0].parent.type.variables
+    assert call.arguments[0].parent.type.dtype.typedef is not DataType.DEFERRED
     assert fexprgen(call.arguments[0].shape) == '(:,)'
-    assert call.arguments[1].parent.type.variables
+    assert call.arguments[1].parent.type.dtype.typedef is not DataType.DEFERRED
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 

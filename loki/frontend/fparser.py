@@ -628,7 +628,8 @@ class FParser2IR(GenericVisitor):
             typename = derived_type_ast.items[1].tostr().lower()
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
-                typedef = self.scope.symbols[typename].typedef
+                typedef = self.scope.symbols.lookup(typename, recursive=True)
+                typedef = typedef if typedef is DataType.DEFERRED else typedef.typedef
                 dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
                                    intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,

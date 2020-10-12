@@ -15,7 +15,7 @@ from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Sc
                              retrieve_expressions)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
-from loki.types import DataType, SymbolType, TypeTable
+from loki.types import DataType, SymbolType, DerivedType, TypeTable
 
 
 __all__ = ['FortranCTransformation']
@@ -55,8 +55,8 @@ class FortranCTransformation(Transformation):
         path = Path(kwargs.get('path'))
 
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
-                self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
+            if isinstance(arg.type.dtype, DerivedType):
+                self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
         # Generate Fortran wrapper module
         wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
@@ -74,12 +74,12 @@ class FortranCTransformation(Transformation):
         """
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
-        typename = '%s_c' % derived.name
+        typename = '%s_c' % (derived.name if isinstance(derived, TypeDef) else derived.dtype.name)
         symbols = TypeTable()
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
-            variables = derived.variables.values()
+            variables = derived.dtype.typedef.variables
         declarations = []
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
@@ -134,9 +134,8 @@ class FortranCTransformation(Transformation):
         casts_in = []
         casts_out = []
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
-                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None,
-                                   name=c_structs[arg.type.name.lower()].name)
+            if isinstance(arg.type.dtype, DerivedType):
+                ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
                 cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper.symbols)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Statement(target=cvar, expr=cast_in)]
@@ -179,7 +178,7 @@ class FortranCTransformation(Transformation):
         wrappers = []
         for decl in FindNodes(Declaration).visit(module.spec):
             for v in decl.variables:
-                if v.type.dtype == DataType.DERIVED_TYPE or v.type.pointer or v.type.allocatable:
+                if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
                     continue
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
                 getter = Subroutine(name=gettername, parent=obj)
@@ -218,9 +217,10 @@ class FortranCTransformation(Transformation):
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
-                ctype = SymbolType(DataType.DERIVED_TYPE, variables=None, shape=arg.type.shape,
-                                   name=c_structs[arg.type.name.lower()].name)
+            if isinstance(arg.type.dtype, DerivedType):
+                struct_name = c_structs[arg.type.dtype.name.lower()].name
+                ctype = SymbolType(DerivedType(name=struct_name), shape=arg.type.shape,
+                                   name=struct_name)
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
@@ -246,7 +246,7 @@ class FortranCTransformation(Transformation):
             assert len(decl.variables) == 1
             v = decl.variables[0]
             # Bail if not a basic type
-            if v.type.dtype == DataType.DERIVED_TYPE:
+            if isinstance(v.type.dtype, DerivedType):
                 continue
             tmpl_function = '%s %s__get__%s();' % (
                 self.c_intrinsic_kind(v.type), module.name.lower(), v.name.lower())
@@ -294,8 +294,8 @@ class FortranCTransformation(Transformation):
                 mod_vars = {v.name.lower(): v for v in mod_vars}
 
                 for s in imp.symbols:
-                    if s.lower() in mod_vars:
-                        var = mod_vars[s.lower()]
+                    if str(s).lower() in mod_vars:
+                        var = mod_vars[str(s).lower()]
 
                         decl = Declaration(variables=(var,))
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
