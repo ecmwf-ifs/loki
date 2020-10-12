@@ -8,8 +8,8 @@ import open_fortran_parser
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas,
-    OFP
+    inline_comments, cluster_comments, inline_pragmas, inline_labels,
+    process_dimension_pragmas, import_external_symbols, OFP
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -17,7 +17,7 @@ import loki.expression.symbol_types as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper
-from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash
+from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
 from loki.types import DataType, SymbolType, DerivedType
 
@@ -51,12 +51,12 @@ def parse_ofp_source(source, xmods=None):  # pylint: disable=unused-argument
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    _ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
+    _ir = OFP2IR(definitions=definitions, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist[OFP].items():
@@ -91,11 +91,11 @@ class OFP2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, typedefs=None, scope=None):
+    def __init__(self, raw_source, definitions=None, scope=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
-        self.typedefs = typedefs
+        self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
 
     def lookup_method(self, instance):
@@ -387,21 +387,20 @@ class OFP2IR(GenericVisitor):
             else:
                 # Create the local variant of the derived type
                 _type = self.scope.types.lookup(typename, recursive=True)
-                if _type is not None:
-                    _type = _type.clone(kind=kind, intent=intent, allocatable=allocatable,
-                                        pointer=pointer, optional=optional, shape=dimensions,
-                                        parameter=parameter, target=target, source=source)
                 if _type is None:
-                    if self.typedefs is not None and typename.lower() in self.typedefs:
-                        variables = OrderedDict([(v.basename, v) for v
-                                                 in self.typedefs[typename.lower()].variables])
-                    else:
-                        variables = OrderedDict()
-                    _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
-                                       variables=variables, kind=kind, intent=intent,
-                                       allocatable=allocatable, pointer=pointer,
-                                       optional=optional, parameter=parameter,
-                                       target=target, source=source)
+                    typedef = self.scope.symbols[typename].typedef
+                    _type = SymbolType(DerivedType(name=typename, typedef=typedef),
+                                       intent=intent, allocatable=allocatable, pointer=pointer,
+                                       optional=optional, parameter=parameter, target=target,
+                                       source=source)
+
+                else:
+                    # Ensure we inherit declaration attributes via a local clone
+                    _type = _type.clone(intent=intent, allocatable=allocatable, pointer=pointer,
+                                        optional=optional, parameter=parameter, target=target,
+                                        source=source)
+
+
             variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
@@ -464,7 +463,8 @@ class OFP2IR(GenericVisitor):
         symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
         symbols = None
         if len(symbol_names) > 0:
-            symbols = as_tuple(sym.Variable(name=s, scope=self.scope.symbols) for s in symbol_names)
+            module = self.definitions.get(name, None)
+            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
         return ir.Import(module=name, symbols=symbols, label=label, source=source)
 
     def visit_directive(self, o, label=None, source=None):

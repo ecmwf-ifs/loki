@@ -28,8 +28,8 @@ class Subroutine:
     :param ast: Frontend node for this subroutine
     :param Source source: Source object representing the raw source string information from
             the read file.
-    :param typedefs: Optional list of external definitions for derived
-                     types that allows more detaild type information.
+    :param definitions: Optional list of external definitions (``Module`` objects) that
+                        provide external variable and type definitions.
     :param symbols: Instance of class:``TypeTable`` used to cache type information
                     for all symbols defined within this module's scope.
     :param types: Instance of class:``TypeTable`` used to cache type information
@@ -38,7 +38,7 @@ class Subroutine:
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, typedefs=None, bind=None, is_function=False,
+                 members=None, ast=None, definitions=None, bind=None, is_function=False,
                  symbols=None, types=None, parent=None, source=None):
         self.name = name
         self._ast = ast
@@ -95,7 +95,7 @@ class Subroutine:
                 SubstituteExpressions(vmap, invalidate_source=False).visit(body))
 
     @classmethod
-    def from_source(cls, source, typedefs=None, xmods=None, frontend=Frontend.FP):
+    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP):
         """
         Create ``Subroutine`` entry node from raw source string using given frontend.
 
@@ -109,27 +109,27 @@ class Subroutine:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
             f_ast = ast.find('globalDeclarations/FfunctionDefinition')
-            return cls.from_omni(ast=f_ast, raw_source=source, typetable=typetable, typedefs=typedefs)
+            return cls.from_omni(ast=f_ast, raw_source=source, typetable=typetable, definitions=definitions)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             f_ast = [r for r in list(ast.find('file')) if r.tag in ('subroutine', 'function')].pop()
-            return cls.from_ofp(ast=f_ast, raw_source=source, typedefs=typedefs)
+            return cls.from_ofp(ast=f_ast, raw_source=source, definitions=definitions)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
             f_ast = [r for r in ast.content if isinstance(r, routine_types)].pop()
-            return cls.from_fparser(ast=f_ast, raw_source=source, typedefs=typedefs)
+            return cls.from_fparser(ast=f_ast, raw_source=source, definitions=definitions)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
+    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
         name = name or ast.attrib['name']
         is_function = ast.tag == 'function'
         source = extract_source(ast, raw_source, full_lines=True)
-        obj = cls(name=name, ast=ast, typedefs=typedefs, parent=parent, is_function=is_function,
+        obj = cls(name=name, ast=ast, definitions=definitions, parent=parent, is_function=is_function,
                   source=source)
 
         # Store the names of variables in the subroutine signature
@@ -145,7 +145,7 @@ class Subroutine:
 
         # Create a IRs for the docstring and the declaration spec
         docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=obj)
-        spec = parse_ofp_ast(ast_spec, typedefs=typedefs, pp_info=pp_info, raw_source=raw_source,
+        spec = parse_ofp_ast(ast_spec, definitions=definitions, pp_info=pp_info, raw_source=raw_source,
                              scope=obj)
 
         # Generate the subroutine body with all shape and type info
@@ -160,19 +160,19 @@ class Subroutine:
         # Parse "member" subroutines and functions recursively
         members = None
         if ast.find('members'):
-            members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, typedefs=typedefs,
+            members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions,
                                            parent=obj)
                        for member in list(ast.find('members'))
                        if member.tag in ('subroutine', 'function')]
             members = as_tuple(members)
 
         obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
-                     members=members, ast=ast, typedefs=typedefs, symbols=obj.symbols,
+                     members=members, ast=ast, definitions=definitions, symbols=obj.symbols,
                      types=obj.types, parent=parent, is_function=is_function, source=source)
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, typedefs=None, name=None, symbol_map=None,
+    def from_omni(cls, ast, raw_source, typetable, definitions=None, name=None, symbol_map=None,
                   parent=None):
         name = name or ast.find('name').text
         # file = ast.attrib['file']
@@ -195,7 +195,7 @@ class Subroutine:
         args = as_tuple(name.text for name in ftype.findall('params/name'))
 
         # Generate spec
-        spec = parse_omni_ast(ast.find('declarations'), typedefs=typedefs, type_map=type_map,
+        spec = parse_omni_ast(ast.find('declarations'), definitions=definitions, type_map=type_map,
                               symbol_map=symbol_map, raw_source=raw_source, scope=obj)
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
@@ -227,14 +227,14 @@ class Subroutine:
         contains = ast.find('body/FcontainsStatement')
         members = None
         if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, typedefs=typedefs,
+            members = [Subroutine.from_omni(ast=s, typetable=typetable, definitions=definitions,
                                             symbol_map=symbol_map, raw_source=raw_source, parent=obj)
                        for s in contains.findall('FfunctionDefinition')]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = as_tuple(parse_omni_ast(ast.find('body'), typedefs=typedefs, type_map=type_map,
+        body = as_tuple(parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
                                        symbol_map=symbol_map, raw_source=raw_source, scope=obj))
         body = Section(body=body)
 
@@ -249,7 +249,7 @@ class Subroutine:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, pp_info=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
         is_function = isinstance(ast, Fortran2003.Function_Subprogram)
         if is_function:
             routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
@@ -266,7 +266,7 @@ class Subroutine:
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         if spec_ast:
-            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, typedefs=typedefs, scope=obj,
+            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions, scope=obj,
                                      raw_source=raw_source)
         else:
             spec = ()
@@ -274,7 +274,7 @@ class Subroutine:
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
-            body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, typedefs=typedefs,
+            body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
                                               scope=obj, raw_source=raw_source))
         else:
             body = ()
@@ -310,7 +310,7 @@ class Subroutine:
         contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
         if contains_ast:
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            members = [Subroutine.from_fparser(ast=s, raw_source=raw_source, typedefs=typedefs,
+            members = [Subroutine.from_fparser(ast=s, raw_source=raw_source, definitions=definitions,
                                                pp_info=pp_info, parent=obj)
                        for s in walk(contains_ast, routine_types)]
 

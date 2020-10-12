@@ -14,7 +14,8 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file, FP
+    inline_comments, cluster_comments, inline_pragmas,
+    process_dimension_pragmas, read_file, import_external_symbols, FP
 )
 import loki.ir as ir
 import loki.expression.symbol_types as sym
@@ -22,7 +23,7 @@ from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
-from loki.tools import timeit, as_tuple, flatten
+from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DataType, DerivedType, SymbolType
 
 
@@ -47,13 +48,13 @@ def parse_fparser_source(source):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, raw_source, pp_info=None, typedefs=None, scope=None):
+def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    _ir = FParser2IR(raw_source=raw_source, typedefs=typedefs, scope=scope).visit(ast)
+    _ir = FParser2IR(raw_source=raw_source, definitions=definitions, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     if pp_info is not None:
@@ -138,10 +139,10 @@ class FParser2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, typedefs=None, scope=None):
+    def __init__(self, raw_source, definitions=None, scope=None):
         super(FParser2IR, self).__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
-        self.typedefs = typedefs
+        self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
 
     def get_source(self, o, source):
@@ -327,8 +328,9 @@ class FParser2IR(GenericVisitor):
         only_list = get_child(o, Fortran2003.Only_List)  # pylint: disable=no-member
         symbols = None
         if only_list:
-            symbols = as_tuple(sym.Variable(name=item.tostr(), scope=self.scope.symbols)
-                               for item in only_list.items)
+            symbol_names = tuple(item.tostr() for item in only_list.items)
+            module = self.definitions.get(name, None)
+            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'),
                          label=kwargs.get('label'))
 
@@ -625,19 +627,16 @@ class FParser2IR(GenericVisitor):
         if derived_type_ast is not None:
             typename = derived_type_ast.items[1].tostr().lower()
             dtype = self.scope.types.lookup(typename, recursive=True)
-            if dtype is not None:
-                # Add declaration attributes to the data type from the typedef
-                dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
-                                    pointer='pointer' in attrs, optional='optional' in attrs,
-                                    parameter='parameter' in attrs, target='target' in attrs,
-                                    contiguous='contiguous' in attrs, shape=dimensions)
-            else:
-                # Associate TypeDef if known, otherwise leave blank!
-                typedef = None
-                if self.typedefs is not None and typename in self.typedefs:
-                    typedef = self.typedefs[typename]
+            if dtype is None:
+                typedef = self.scope.symbols[typename].typedef
                 dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
                                    intent=intent, allocatable='allocatable' in attrs,
+                                   pointer='pointer' in attrs, optional='optional' in attrs,
+                                   parameter='parameter' in attrs, target='target' in attrs,
+                                   contiguous='contiguous' in attrs, shape=dimensions)
+            else:
+                # Ensure we inherit declaration attributes via a local clone
+                dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,
                                    parameter='parameter' in attrs, target='target' in attrs,
                                    contiguous='contiguous' in attrs, shape=dimensions)

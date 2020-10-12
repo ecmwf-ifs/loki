@@ -245,7 +245,15 @@ module my_types_mod
 end module my_types_mod
 """
     module = Module.from_source(fcode_module, frontend=frontend)
-    routine = Subroutine.from_source(fcode, typedefs=module.typedefs, frontend=frontend)
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+
+    # Check that module variables and types have been imported
+    assert routine.symbols['a_kind'].dtype == DataType.INTEGER
+    assert routine.symbols['a_kind'].parameter
+    # assert routine.symbols['a_kind'].dtype.initial == 4
+    assert routine.symbols['a_dim'].dtype == DataType.INTEGER
+    assert routine.symbols['a_dim'].kind == 'a_kind'
+    assert isinstance(routine.types['a_type'].dtype.typedef, TypeDef)
 
     # Check that external type definition has been linked
     assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)

@@ -5,13 +5,15 @@ from collections import OrderedDict
 
 
 from loki.frontend.source import Source
-from loki.frontend.util import inline_comments, cluster_comments, inline_pragmas, inline_labels
+from loki.frontend.util import (
+    inline_comments, cluster_comments, inline_pragmas, inline_labels, import_external_symbols
+)
 from loki.visitors import GenericVisitor
 import loki.ir as ir
 import loki.expression.symbol_types as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
-from loki.tools import as_tuple, timeit, gettempdir, filehash
+from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import DataType, SymbolType, DerivedType
 
 
@@ -79,13 +81,13 @@ def parse_omni_source(source, xmods=None):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_ast(ast, typedefs=None, type_map=None, symbol_map=None,
+def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
                    raw_source=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    _ir = OMNI2IR(type_map=type_map, typedefs=typedefs, symbol_map=symbol_map,
+    _ir = OMNI2IR(type_map=type_map, definitions=definitions, symbol_map=symbol_map,
                   raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform some minor sanitation tasks
@@ -111,11 +113,11 @@ class OMNI2IR(GenericVisitor):
         'real': 'REAL',
     }
 
-    def __init__(self, typedefs=None, type_map=None, symbol_map=None,
+    def __init__(self, definitions=None, type_map=None, symbol_map=None,
                  raw_source=None, scope=None):
         super(OMNI2IR, self).__init__()
 
-        self.typedefs = typedefs
+        self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.type_map = type_map
         self.symbol_map = symbol_map
         self.raw_source = raw_source
@@ -182,8 +184,11 @@ class OMNI2IR(GenericVisitor):
     visit_body = visit_Element
 
     def visit_FuseOnlyDecl(self, o, source=None):
-        symbols = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
-        return ir.Import(module=o.attrib['name'], symbols=symbols, c_import=False)
+        name = o.attrib['name']
+        symbol_names = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
+        module = self.definitions.get(name, None)
+        symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
+        return ir.Import(module=name, symbols=symbols, c_import=False)
 
     def visit_FinterfaceDecl(self, o, source=None):
         header = Path(o.attrib['file']).name
@@ -216,10 +221,13 @@ class OMNI2IR(GenericVisitor):
                 tname = self.symbol_map[_type.name].find('name').text
                 variables = self._struct_type_variables(
                     self.type_map[_type.name], scope=self.scope.symbols, parent=name.text, source=source)
-                variables = OrderedDict([(v.basename, v) for v in variables])  # pylint:disable=no-member
+
+                typedef = ir.TypeDef(name=name.text, body=[])
+                declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
+                typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
 
                 # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
-                _type = _type.clone(dtype=DataType.DERIVED_TYPE, name=tname, variables=variables)
+                _type = _type.clone(SymbolType(DerivedType(name=tname, typedef=typedef)))
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
@@ -286,17 +294,11 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we know that type already
         parent_type = self.scope.types.lookup(name, recursive=True)
-        if parent_type is not None:
+        if parent_type is None:
+            typedef = self.scope.symbols[name].typedef
+            return SymbolType(DerivedType(name=name, typedef=typedef))
+        else:
             return parent_type.clone()
-
-        # Check if the type was defined externally
-        if self.typedefs is not None and name in self.typedefs:
-            variables = OrderedDict([(v.name, v) for v in self.typedefs[name].variables])
-            return SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables)
-
-        # Otherwise: We have an externally defined type for which we were not given
-        # a typedef. We defer the definition
-        return SymbolType(DataType.DEFERRED, name=o.attrib['type'])
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()

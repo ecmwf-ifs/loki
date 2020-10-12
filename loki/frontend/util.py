@@ -233,3 +233,26 @@ def read_file(file_path):
         with codecs.open(filepath, **kwargs) as f:
             source = f.read()
     return source
+
+
+def import_external_symbols(module, symbol_names, scope):
+    """
+    Import variable and type symbols from an external definition :param module:.
+
+    This ensures that all symbols are copied over to the local scope, in order
+    to ensure correct variable and type derivation.
+    """
+    symbols = []
+    for name in symbol_names:
+        symbol = None
+        if module and name in module.symbols:
+            symbol = Variable(name=name, type=module.symbols[name], scope=scope.symbols)
+
+        elif module and name in module.types:
+            symbol = module.types[name].dtype
+            scope.types[name] = module.types[name]
+        else:
+            symbol = Variable(name=name, scope=scope.symbols)
+        symbols.append(symbol)
+
+    return as_tuple(symbols)
