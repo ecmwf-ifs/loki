@@ -7,7 +7,7 @@ to create a Loki-specific virtual environment. The provided install script will 
 ### Requirements
 
 - Python 3.6+ with virtualenv and pip
-- For OpenFortranParser/OMNI+CLAW: JDK 1.8+ with ant (can be installed using the install script)
+- For OpenFortranParser/OMNI+CLAW: JDK 1.8+ with ant (can be installed using the install script), libxml2(with headers)
 - For graphical output from the scheduler: graphviz
 
 ### Installation using install script
