@@ -256,7 +256,7 @@ class FortranCodegen(Stringifier):
         # Ensure all variable types are equal, except for shape and dimension
         # TODO: Should extend to deeper recursion of `variables` if
         # the symbol has a known derived type
-        ignore = ['shape', 'dimensions', 'variables', 'source']
+        ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
         dtype = self.visit(types[0], dimensions=o.dimensions, **kwargs)
         if str(dtype):

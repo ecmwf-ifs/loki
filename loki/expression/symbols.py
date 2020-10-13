@@ -75,7 +75,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     the one that is most up-to-date.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, initial=None, **kwargs):
+    def __init__(self, name, scope, type=None, parent=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name, **kwargs)
@@ -92,7 +92,6 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
             # entries for variables inherited from a parent scope
             self.type = type.clone()
         self.parent = parent
-        self.initial = initial
 
     @property
     def scope(self):
@@ -120,12 +119,21 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     def type(self, value):
         self.scope[self.name] = value
 
+    @property
+    def initial(self):
+        """
+        Initial value of the variable in declaration.
+        """
+        return self.type.initial
+
+    @initial.setter
+    def initial(self, value):
+        self.type.initial = value
+
     def __getinitargs__(self):
         args = [('scope', self.scope)]
         if self.parent:
             args += [('parent', self.parent)]
-        if self.initial:
-            args += [('initial', self.initial)]
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_scalar')
@@ -146,8 +154,6 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
             kwargs['type'] = self.type
         if self.parent and 'parent' not in kwargs:
             kwargs['parent'] = self.parent
-        if self.initial and 'initial' not in kwargs:
-            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
 
@@ -168,8 +174,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     the one that is most up-to-date.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, dimensions=None,
-                 initial=None, **kwargs):
+    def __init__(self, name, scope, type=None, parent=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name, **kwargs)
@@ -189,7 +194,6 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         if dimensions is not None and not isinstance(dimensions, ArraySubscript):
             dimensions = ArraySubscript(dimensions)
         self.dimensions = dimensions
-        self.initial = initial
 
     @property
     def scope(self):
@@ -216,6 +220,17 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     @type.setter
     def type(self, value):
         self.scope[self.name] = value
+
+    @property
+    def initial(self):
+        """
+        Initial value of the variable in declaration.
+        """
+        return self.type.initial
+
+    @initial.setter
+    def initial(self, value):
+        self.type.initial = value
 
     @property
     def dimensions(self):
@@ -245,8 +260,6 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
             args += [('dimensions', self.dimensions)]
         if self.parent:
             args += [('parent', self.parent)]
-        if self.initial:
-            args += [('initial', self.initial)]
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_array')
@@ -272,8 +285,6 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
             kwargs['type'] = self.type
         if self.parent and 'parent' not in kwargs:
             kwargs['parent'] = self.parent
-        if self.initial and 'initial' not in kwargs:
-            kwargs['initial'] = self.initial
 
         return Variable(**kwargs)
 

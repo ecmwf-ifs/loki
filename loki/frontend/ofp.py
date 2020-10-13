@@ -620,16 +620,16 @@ class OFP2IR(GenericVisitor):
         else:
             dimensions = kwargs.get('dimensions', None)
         _type = kwargs.get('type', None)
-        if _type is not None:
-            _type = _type.clone(shape=dimensions)
         initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
+        if _type is not None:
+            _type = _type.clone(shape=dimensions, initial=initial)
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
         external = kwargs.get('external')
         if external:
             _type.external = external
         return sym.Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
-                            type=_type, initial=initial, source=source)
+                            type=_type, source=source)
 
     def visit_part_ref(self, o, label=None, source=None):
         # Return a pure string, as part of a variable name
