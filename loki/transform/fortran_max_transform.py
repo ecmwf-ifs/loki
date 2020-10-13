@@ -13,7 +13,7 @@ from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import SourceFile
 from loki.tools import as_tuple, flatten
-from loki.types import SymbolType, DataType
+from loki.types import SymbolType, DataType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -38,7 +38,7 @@ class FortranMaxTransformation(Transformation):
         self.maxj_src.mkdir(exist_ok=True)
 
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
+            if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
 
         # Create a copy of the kernel and apply some common transformations

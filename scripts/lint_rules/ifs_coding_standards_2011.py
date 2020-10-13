@@ -343,7 +343,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                 if not var.type.kind:
                     rule_report.add('"{}" without explicit KIND declared.'.format(var), var)
                 elif allowed_type_kinds.get(var.type.dtype) and \
-                        var.type.kind.upper() not in allowed_type_kinds[var.type.dtype]:
+                        var.type.kind not in allowed_type_kinds[var.type.dtype]:
                     rule_report.add(
                         '"{}" is not an allowed KIND value for "{}".'.format(var.type.kind, var),
                         var)

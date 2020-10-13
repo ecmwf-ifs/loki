@@ -294,11 +294,10 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we know that type already
         parent_type = self.scope.types.lookup(name, recursive=True)
-        if parent_type is None:
-            typedef = self.scope.symbols[name].typedef
-            return SymbolType(DerivedType(name=name, typedef=typedef))
-        else:
+        if parent_type is not None:
             return parent_type.clone()
+        else:
+            return SymbolType(DerivedType(name=name, typedef=DataType.DEFERRED))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -401,7 +400,7 @@ class OMNI2IR(GenericVisitor):
 
         # If we have a parent with a type, use that
         if vtype is None and parent is not None and isinstance(parent.type.dtype, DerivedType):
-            vtype = parent.type.variables.get(basename, vtype)
+            vtype = parent.type.dtype.variable_map.get(basename, vtype)
         if vtype is None and t in self.type_map:
             vtype = self.visit(self.type_map[t])
         if vtype is None:

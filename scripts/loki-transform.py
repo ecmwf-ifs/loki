@@ -9,7 +9,10 @@ import sys
 from pathlib import Path
 import click
 
-from loki import SourceFile, Transformation, Transformer, FindNodes, Loop, Pragma, Frontend, flatten
+from loki import (
+    SourceFile, Module, Transformation, Transformer, FindNodes, Loop,
+    Pragma, Frontend, flatten
+)
 
 # Get generalized transformations provided by Loki
 from loki.transform import DependencyTransformation, FortranCTransformation
@@ -19,17 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
 from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
-
-
-def get_typedefs(typedef, xmods=None, frontend=Frontend.OFP):
-    """
-    Read derived type definitions from typedef modules.
-    """
-    definitions = {}
-    for tfile in typedef:
-        source = SourceFile.from_file(tfile, xmods=xmods, frontend=frontend)
-        definitions.update(source.modules[0].typedefs)
-    return definitions
 
 
 def remove_omp_do(routine):
@@ -77,11 +69,12 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
-    typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
+    definitions = flatten(SourceFile.from_file(h, xmods=xmod,
+                                               frontend=frontend_type).modules for h in header)
 
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
-    kernels = [SourceFile.from_file(src, typedefs=typedefs, frontend=frontend,
+    kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
 
@@ -172,15 +165,16 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
-    typedefs = get_typedefs(header, xmods=xmod, frontend=frontend_type)
+    definitions = flatten(SourceFile.from_file(h, xmods=xmod,
+                                               frontend=frontend_type).modules for h in header)
 
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
-    kernels = [SourceFile.from_file(src, typedefs=typedefs, frontend=frontend,
+    kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
 
-    # Get a separate list of routine objects ad names for transformations
+    # Get a separate list of routine objects and names for transformations
     kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
     kernel_targets = [routine.name.upper() for routine in kernel_routines]
 
@@ -245,9 +239,9 @@ def transpile(out_path, header, source, driver, xmod, include):
     kernel_name = 'CLOUDSC'
 
     # Parse original driver and kernel routine, and enrich the driver
-    typedefs = get_typedefs(header, xmods=xmod, frontend=Frontend.OFP)
+    definitions = flatten(SourceFile.from_file(h, xmods=xmod, frontend=Frontend.OFP).modules for h in header)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=Frontend.OMNI, typedefs=typedefs,
+                                  frontend=Frontend.OMNI, definitions=definitions,
                                   builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=Frontend.OMNI, builddir=out_path)

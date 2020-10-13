@@ -388,7 +388,8 @@ class OFP2IR(GenericVisitor):
                 # Create the local variant of the derived type
                 _type = self.scope.types.lookup(typename, recursive=True)
                 if _type is None:
-                    typedef = self.scope.symbols[typename].typedef
+                    typedef = self.scope.symbols.lookup(typename, recursive=True)
+                    typedef = typedef if typedef is DataType.DEFERRED else typedef.typedef
                     _type = SymbolType(DerivedType(name=typename, typedef=typedef),
                                        intent=intent, allocatable=allocatable, pointer=pointer,
                                        optional=optional, parameter=parameter, target=target,
@@ -789,7 +790,7 @@ class OFP2IR(GenericVisitor):
                                     allocatable='ALLOCATABLE' in attrs,
                                     source=t_source)
             else:
-                _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                _type = SymbolType(DerivedType(name=typename), name=typename,
                                    kind=kind, pointer='POINTER' in attrs,
                                    allocatable='ALLOCATABLE' in attrs,
                                    variables=OrderedDict(), source=t_source)

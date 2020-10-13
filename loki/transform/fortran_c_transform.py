@@ -321,6 +321,10 @@ class FortranCTransformation(Transformation):
         for arg in kernel.arguments:
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 dtype = arg.type
+                # Down-case type names for derived types
+                if isinstance(dtype.dtype, DerivedType):
+                    dtype= dtype.clone(dtype=DerivedType(name=dtype.dtype.name.lower(),
+                                                         typedef=dtype.typedef))
                 dtype.pointer = True
                 arg_map[arg.name.lower()] = arg.clone(type=dtype)
         kernel.arguments = [arg_map.get(arg.name.lower(), arg) for arg in kernel.arguments]

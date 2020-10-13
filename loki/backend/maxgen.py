@@ -3,7 +3,7 @@ from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PRE
 
 from loki.expression.symbol_types import LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import
-from loki.types import DataType
+from loki.types import DataType, DerivedType
 from loki.visitors import Stringifier, FindNodes
 
 __all__ = ['maxjgen', 'MaxjCodegen', 'MaxjCodeMapper']
@@ -369,7 +369,7 @@ class MaxjCodegen(Stringifier):
         return self.format_line('import ', o.module, ';')
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
-        if o.dtype == DataType.DERIVED_TYPE:
+        if isinstance(o.dtype, DerivedType):
             return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
             if o.shape:
