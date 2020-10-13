@@ -12,7 +12,7 @@ from loki import (
     SourceFile, Module, Subroutine, DataType)
 from loki.lint import GenericRule, RuleType
 import loki.ir as ir
-from loki.expression import symbol_types as sym
+from loki.expression import symbols as sym
 
 
 class CodeBodyRule(GenericRule):  # Coding standards 1.3

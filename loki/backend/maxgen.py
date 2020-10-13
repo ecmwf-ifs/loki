@@ -1,7 +1,7 @@
 from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM,
                                          PREC_COMPARISON)
 
-from loki.expression.symbol_types import LokiStringifyMapper, IntLiteral, FloatLiteral
+from loki.expression.symbols import LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import
 from loki.types import DataType, DerivedType
 from loki.visitors import Stringifier, FindNodes

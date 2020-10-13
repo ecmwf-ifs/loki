@@ -8,7 +8,7 @@ from loki.expression import (FindVariables, FindInlineCalls, SubstituteExpressio
                              ExpressionCallbackMapper, SubstituteExpressionsMapper,
                              retrieve_expressions)
 import loki.ir as ir
-from loki.expression import symbol_types as sym
+from loki.expression import symbols as sym
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import SourceFile

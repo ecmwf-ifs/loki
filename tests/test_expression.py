@@ -9,7 +9,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
 )
-from loki.expression import symbol_types as symbols
+from loki.expression import symbols
 from loki.tools import gettempdir, filehash
 from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 

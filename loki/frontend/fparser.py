@@ -18,7 +18,7 @@ from loki.frontend.util import (
     process_dimension_pragmas, read_file, import_external_symbols, FP
 )
 import loki.ir as ir
-import loki.expression.symbol_types as sym
+import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper

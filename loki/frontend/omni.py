@@ -10,7 +10,7 @@ from loki.frontend.util import (
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
-import loki.expression.symbol_types as sym
+import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict

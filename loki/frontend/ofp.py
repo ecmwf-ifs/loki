@@ -13,7 +13,7 @@ from loki.frontend.util import (
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
-import loki.expression.symbol_types as sym
+import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper

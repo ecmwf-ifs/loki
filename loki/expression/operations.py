@@ -8,7 +8,7 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.expression.mappers import LokiStringifyMapper
-from loki.expression.symbol_types import StringLiteral, ExprMetadataMixin
+from loki.expression.symbols import StringLiteral, ExprMetadataMixin
 
 
 class ParenthesisedAdd(ExprMetadataMixin, pmbl.Sum):

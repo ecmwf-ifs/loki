@@ -1,7 +1,7 @@
 from itertools import zip_longest
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
-from loki.expression import symbol_types as sym, LokiStringifyMapper
+from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
 from loki.types import DataType, SymbolType
 

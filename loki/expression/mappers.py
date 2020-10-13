@@ -233,7 +233,7 @@ class ExpressionDimensionsMapper(Mapper):
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         # pylint: disable=import-outside-toplevel
-        from loki.expression.symbol_types import IntLiteral
+        from loki.expression.symbols import IntLiteral
         return as_tuple(IntLiteral(1))
 
     map_logic_literal = map_algebraic_leaf
@@ -249,7 +249,7 @@ class ExpressionDimensionsMapper(Mapper):
             return expr.shape
 
         # pylint: disable=import-outside-toplevel
-        from loki.expression.symbol_types import RangeIndex, IntLiteral
+        from loki.expression.symbols import RangeIndex, IntLiteral
         dims = self.rec(expr.dimensions, *args, **kwargs)
         # Replace colon dimensions by the value from shape
         shape = expr.shape or [None] * len(dims)

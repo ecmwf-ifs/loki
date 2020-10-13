@@ -1,4 +1,4 @@
-from loki.expression import symbol_types as sym, retrieve_expressions
+from loki.expression import symbols as sym, retrieve_expressions
 from loki.backend import PyCodegen
 from loki.types import DataType
 
