@@ -221,6 +221,9 @@ class TypeTable(dict):
         value = self._lookup(name_parts, recursive)
         return value
 
+    def __contains__(self, key):
+        return super().__contains__(self.format_lookup_name(key))
+
     def __getitem__(self, key):
         value = self.lookup(key, recursive=False)
         if value is None:

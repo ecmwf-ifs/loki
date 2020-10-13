@@ -207,6 +207,9 @@ class CaseInsensitiveDict(OrderedDict):
     def __getitem__(self, key):
         return super().__getitem__(key.lower())
 
+    def get(self, key, default=None):
+        return super().get(key.lower(), default)
+
     def __contains__(self, key):
         return super().__contains__(key.lower())
 
