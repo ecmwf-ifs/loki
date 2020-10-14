@@ -69,7 +69,7 @@ class DependencyTransformation(Transformation):
 
         if role == 'kernel' and self.mode == 'strict':
             # Re-generate C-style interface header
-            self.generate_interfaces(routine, **kwargs)
+            self.generate_interfaces(routine)
 
     def transform_module(self, module, **kwargs):
         """
@@ -170,10 +170,9 @@ class DependencyTransformation(Transformation):
                 return '{}{}{}'.format(modname[:idx], self.suffix, self.module_suffix)
 
             return '{}{}{}'.format(modname, self.suffix, self.module_suffix)
-        else:
-            return '{}{}'.format(modname, self.suffix)
+        return '{}{}'.format(modname, self.suffix)
 
-    def generate_interfaces(self, source, **kwargs):
+    def generate_interfaces(self, source):
         """
         Generate external header file with interface block for this subroutine.
         """

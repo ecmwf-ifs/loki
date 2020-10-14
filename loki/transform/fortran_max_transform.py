@@ -11,9 +11,8 @@ from loki.transform.transform_array_indexing import (
 from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
-    FindVariables, FindInlineCalls, SubstituteExpressions,
-    ExpressionCallbackMapper, SubstituteExpressionsMapper,
-    retrieve_expressions
+    FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
+    SubstituteExpressionsMapper, retrieve_expressions
 )
 import loki.ir as ir
 from loki.expression import symbols as sym
@@ -47,7 +46,7 @@ class FortranMaxTransformation(Transformation):
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
+                self.c_structs[arg.type.name.lower()] = FortranCTransformation.c_struct_typedef(arg.type)
 
         # Create a copy of the kernel and apply some common transformations
         routine = routine.clone()
@@ -169,7 +168,7 @@ class FortranMaxTransformation(Transformation):
                 arg.type.pointer = True
         return routine
 
-    def _generate_dfe_kernel(self, routine, **kwargs):
+    def _generate_dfe_kernel(self, routine, **kwargs):  # pylint: disable=unused-argument
         # Create a copy for the MaxJ kernel
         max_kernel = routine.clone(name='{}Kernel'.format(routine.name))
 
