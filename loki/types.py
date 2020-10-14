@@ -114,12 +114,16 @@ class DerivedType:
 
     def __init__(self, name=None, typedef=None):
         assert name or typedef
-        self.name = name or typedef.name
+        self._name = name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED
 
         # This is intentionally left blank, as the parent variable
         # generation will populate this, if the typedef is known.
         self.variables = tuple()
+
+    @property
+    def name(self):
+        return self._name if self.typedef is BasicType.DEFERRED else self.typedef.name
 
     @property
     def variable_map(self):
