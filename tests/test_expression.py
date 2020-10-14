@@ -762,3 +762,14 @@ def test_string_compare():
     assert all(symbols.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
     assert all(symbols.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
     assert all(symbols.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])
+
+    # Test literal behaviour
+    assert symbols.Literal(41) == 41
+    assert symbols.Literal(41) == '41'
+    assert symbols.Literal(41) != symbols.Literal(41, kind='jpim')
+    assert symbols.Literal(66.6) == 66.6
+    assert symbols.Literal(66.6) == '66.6'
+    assert symbols.Literal(66.6) != symbols.Literal(66.6, kind='jprb')
+    assert symbols.Literal('u') == 'u'
+    assert symbols.Literal('u') != 'U'
+    assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above

@@ -356,6 +356,18 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         self.kind = kwargs.pop('kind', None)
         super(FloatLiteral, self).__init__(**kwargs)
 
+    def __hash__(self):
+        return hash((self.value, self.kind))
+
+    def __eq__(self, other):
+        if isinstance(other, FloatLiteral):
+            return self.value == other.value and self.kind == other.kind
+        else:
+            try:
+                return float(self.value) == float(other)
+            except:
+                return False
+
     def __getinitargs__(self):
         args = [self.value]
         if self.kind:
@@ -380,6 +392,18 @@ class IntLiteral(ExprMetadataMixin, _Literal):
         self.value = int(value)
         self.kind = kwargs.pop('kind', None)
         super(IntLiteral, self).__init__(**kwargs)
+
+    def __hash__(self):
+        return hash((self.value, self.kind))
+
+    def __eq__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value == other.value and self.kind == other.kind
+        else:
+            try:
+                return self.value == int(other)
+            except:
+                return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -424,6 +448,17 @@ class StringLiteral(ExprMetadataMixin, _Literal):
         self.value = value
 
         super(StringLiteral, self).__init__(**kwargs)
+
+    def __hash__(self):
+        return hash(self.value)
+
+    def __eq__(self, other):
+        if isinstance(other, StringLiteral):
+            return self.value == other.value
+        elif isinstance(other, str):
+            return self.value == other
+        else:
+            return False
 
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
