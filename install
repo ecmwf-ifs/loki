@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -eo pipefail
+
 # Configuration of package versions:
 loki_ant_version=1.10.9
 
