@@ -2,39 +2,39 @@ from random import choice
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, Module, Subroutine, DataType,
+    OFP, OMNI, FP, SourceFile, Module, Subroutine, BasicType,
     SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper
 )
 
 
 def test_data_type():
     """
-    Tests the conversion of strings to `DataType`.
+    Tests the conversion of strings to `BasicType`.
     """
-    fortran_type_map = {'LOGICAL': DataType.LOGICAL, 'INTEGER': DataType.INTEGER,
-                        'REAL': DataType.REAL, 'CHARACTER': DataType.CHARACTER,
-                        'COMPLEX': DataType.COMPLEX}
+    fortran_type_map = {'LOGICAL': BasicType.LOGICAL, 'INTEGER': BasicType.INTEGER,
+                        'REAL': BasicType.REAL, 'CHARACTER': BasicType.CHARACTER,
+                        'COMPLEX': BasicType.COMPLEX}
 
     # Randomly change case of single letters (FORTRAN is not case-sensitive)
     test_map = {''.join(choice((str.upper, str.lower))(c) for c in s): t
                 for s, t in fortran_type_map.items()}
 
-    assert all([t == DataType.from_fortran_type(s) for s, t in test_map.items()])
-    assert all([t == DataType.from_str(s) for s, t in test_map.items()])
+    assert all([t == BasicType.from_fortran_type(s) for s, t in test_map.items()])
+    assert all([t == BasicType.from_str(s) for s, t in test_map.items()])
 
-    c99_type_map = {'bool': DataType.LOGICAL, '_Bool': DataType.LOGICAL,
-                    'short': DataType.INTEGER, 'unsigned short': DataType.INTEGER,
-                    'signed short': DataType.INTEGER, 'int': DataType.INTEGER,
-                    'unsigned int': DataType.INTEGER, 'signed int': DataType.INTEGER,
-                    'long': DataType.INTEGER, 'unsigned long': DataType.INTEGER,
-                    'signed long': DataType.INTEGER, 'long long': DataType.INTEGER,
-                    'unsigned long long': DataType.INTEGER, 'signed long long': DataType.INTEGER,
-                    'float': DataType.REAL, 'double': DataType.REAL, 'long double': DataType.REAL,
-                    'char': DataType.CHARACTER, 'float _Complex': DataType.COMPLEX,
-                    'double _Complex': DataType.COMPLEX, 'long double _Complex': DataType.COMPLEX}
+    c99_type_map = {'bool': BasicType.LOGICAL, '_Bool': BasicType.LOGICAL,
+                    'short': BasicType.INTEGER, 'unsigned short': BasicType.INTEGER,
+                    'signed short': BasicType.INTEGER, 'int': BasicType.INTEGER,
+                    'unsigned int': BasicType.INTEGER, 'signed int': BasicType.INTEGER,
+                    'long': BasicType.INTEGER, 'unsigned long': BasicType.INTEGER,
+                    'signed long': BasicType.INTEGER, 'long long': BasicType.INTEGER,
+                    'unsigned long long': BasicType.INTEGER, 'signed long long': BasicType.INTEGER,
+                    'float': BasicType.REAL, 'double': BasicType.REAL, 'long double': BasicType.REAL,
+                    'char': BasicType.CHARACTER, 'float _Complex': BasicType.COMPLEX,
+                    'double _Complex': BasicType.COMPLEX, 'long double _Complex': BasicType.COMPLEX}
 
-    assert all([t == DataType.from_c99_type(s) for s, t in c99_type_map.items()])
-    assert all([t == DataType.from_str(s) for s, t in c99_type_map.items()])
+    assert all([t == BasicType.from_c99_type(s) for s, t in c99_type_map.items()])
+    assert all([t == BasicType.from_str(s) for s, t in c99_type_map.items()])
 
 
 def test_symbol_type():
@@ -43,7 +43,7 @@ def test_symbol_type():
     class:``SymbolType``
     """
     _type = SymbolType('integer', a='a', b=True, c=None)
-    assert _type.dtype == DataType.INTEGER
+    assert _type.dtype == BasicType.INTEGER
     assert _type.a == 'a'
     assert _type.b
     assert _type.c is None
@@ -221,16 +221,16 @@ end subroutine test_type_module_imports
 """
     # Ensure types are deferred without a-priori context info
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.symbols['a_kind'].dtype == DataType.DEFERRED
-    assert routine.symbols['a_dim'].dtype == DataType.DEFERRED
-    assert routine.symbols['a_type'].dtype == DataType.DEFERRED
+    assert routine.symbols['a_kind'].dtype == BasicType.DEFERRED
+    assert routine.symbols['a_dim'].dtype == BasicType.DEFERRED
+    assert routine.symbols['a_type'].dtype == BasicType.DEFERRED
 
     # Ensure local variable info is correct, as far as known
     arg_a, arg_b = routine.variables
     assert arg_a.type.kind.type == routine.symbols['a_kind']
     assert arg_a.dimensions.index_tuple[0].type == routine.symbols['a_dim']
     assert isinstance(arg_b.type.dtype, DerivedType)
-    assert arg_b.type.dtype.typedef == DataType.DEFERRED
+    assert arg_b.type.dtype.typedef == BasicType.DEFERRED
 
     fcode_module = """
 module my_types_mod
@@ -248,10 +248,10 @@ end module my_types_mod
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
 
     # Check that module variables and types have been imported
-    assert routine.symbols['a_kind'].dtype == DataType.INTEGER
+    assert routine.symbols['a_kind'].dtype == BasicType.INTEGER
     assert routine.symbols['a_kind'].parameter
     # assert routine.symbols['a_kind'].dtype.initial == 4
-    assert routine.symbols['a_dim'].dtype == DataType.INTEGER
+    assert routine.symbols['a_dim'].dtype == BasicType.INTEGER
     assert routine.symbols['a_dim'].kind == 'a_kind'
     assert isinstance(routine.types['a_type'].dtype.typedef, TypeDef)
 

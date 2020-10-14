@@ -6,7 +6,7 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 from loki.visitors import Stringifier
 from loki.tools import flatten, as_tuple
 from loki.expression import LokiStringifyMapper, Product
-from loki.types import DataType, DerivedType
+from loki.types import BasicType, DerivedType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -536,9 +536,9 @@ class FortranCodegen(Stringifier):
         if isinstance(o.dtype, DerivedType):
             typename = 'TYPE({})'.format(o.dtype.name)
         else:
-            type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
-                        DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
-                        DataType.COMPLEX: 'COMPLEX', DataType.DEFERRED: ''}
+            type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
+                        BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
+                        BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
             typename = type_map[o.dtype]
         if o.length:
             typename += '(LEN={})'.format(self.visit(o.length, **kwargs))

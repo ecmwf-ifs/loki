@@ -4,10 +4,10 @@ from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['DataType', 'DerivedType', 'SymbolType', 'TypeTable']
+__all__ = ['BasicType', 'DerivedType', 'SymbolType', 'TypeTable']
 
 
-class DataType(IntEnum):
+class BasicType(IntEnum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 
@@ -79,14 +79,14 @@ class DerivedType:
     """
     Representation of a complex derived data types that may have an associated `TypeDef`.
 
-    Please note that the typedef attribute may be of `ir.TypeDef` or `DataType.DEFERRED`,
+    Please note that the typedef attribute may be of `ir.TypeDef` or `BasicType.DEFERRED`,
     depending on the scope of the derived type declaration.
     """
 
     def __init__(self, name=None, typedef=None, scope=None):
         assert name or typedef
         self.name = name or typedef.name
-        self.typedef = typedef if typedef is not None else DataType.DEFERRED
+        self.typedef = typedef if typedef is not None else BasicType.DEFERRED
 
         # This is intentionally left blank, as the parent variable
         # generation will populate this, if the typedef is known.
@@ -101,7 +101,7 @@ class SymbolType:
     """
     Representation of a symbols type.
 
-    It has a fixed class:``DataType`` associated, available as the property `DataType.dtype`.
+    It has a fixed class:``BasicType`` associated, available as the property `BasicType.dtype`.
 
     Any other properties can be attached on-the-fly, thus allowing to store arbitrary metadata
     for a symbol, e.g., declaration attributes such as `POINTER`, `ALLOCATABLE` or structural
@@ -112,7 +112,7 @@ class SymbolType:
     """
 
     def __init__(self, dtype, **kwargs):
-        self.dtype = dtype if isinstance(dtype, (DataType, DerivedType)) else DataType.from_str(dtype)
+        self.dtype = dtype if isinstance(dtype, (BasicType, DerivedType)) else BasicType.from_str(dtype)
 
         for k, v in kwargs.items():
             if v is not None:

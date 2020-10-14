@@ -19,7 +19,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
-from loki.types import DataType, SymbolType, DerivedType
+from loki.types import BasicType, SymbolType, DerivedType
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -380,7 +380,7 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+                _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                    intent=intent, allocatable=allocatable, pointer=pointer,
                                    optional=optional, parameter=parameter, shape=dimensions,
                                    target=target, source=source)
@@ -389,7 +389,7 @@ class OFP2IR(GenericVisitor):
                 _type = self.scope.types.lookup(typename, recursive=True)
                 if _type is None:
                     typedef = self.scope.symbols.lookup(typename, recursive=True)
-                    typedef = typedef if typedef is DataType.DEFERRED else typedef.typedef
+                    typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
                     _type = SymbolType(DerivedType(name=typename, typedef=typedef),
                                        intent=intent, allocatable=allocatable, pointer=pointer,
                                        optional=optional, parameter=parameter, target=target,
@@ -573,7 +573,7 @@ class OFP2IR(GenericVisitor):
             # try to derive the type from it.
             if _type is None and parent is not None and parent.type is not None:
                 if isinstance(parent.type.dtype, DerivedType) \
-                   and parent.type.dtype.typedef is not DataType.DEFERRED:
+                   and parent.type.dtype.typedef is not BasicType.DEFERRED:
                     _type = parent.type.dtype.typedef.variables.get(basename)
 
             if indices:
@@ -644,9 +644,9 @@ class OFP2IR(GenericVisitor):
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None
         if _type is not None:
-            tmap = {'bool': DataType.LOGICAL, 'int': DataType.INTEGER,
-                    'real': DataType.REAL, 'char': DataType.CHARACTER}
-            _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
+            tmap = {'bool': BasicType.LOGICAL, 'int': BasicType.INTEGER,
+                    'real': BasicType.REAL, 'char': BasicType.CHARACTER}
+            _type = tmap[_type] if _type in tmap else BasicType.from_fortran_type(_type)
             kwargs['type'] = _type
         kind_param = o.find('kind-param')
         if kind_param is not None:
@@ -779,7 +779,7 @@ class OFP2IR(GenericVisitor):
                 kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                pointer='POINTER' in attrs,
                                allocatable='ALLOCATABLE' in attrs, source=t_source)
         else:

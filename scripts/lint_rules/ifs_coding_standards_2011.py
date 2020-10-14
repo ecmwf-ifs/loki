@@ -9,7 +9,7 @@ import re
 from loki import (
     FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
     flatten, as_tuple, strip_inline_comments,
-    SourceFile, Module, Subroutine, DataType)
+    SourceFile, Module, Subroutine, BasicType)
 from loki.lint import GenericRule, RuleType
 import loki.ir as ir
 from loki.expression import symbols as sym
@@ -378,14 +378,14 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''
         # 1. Check variable declarations for explicit KIND
         #
-        # When we check variable type information, we have DataType values to identify
+        # When we check variable type information, we have BasicType values to identify
         # whether a variable is REAL, INTEGER, ... Therefore, we create a map that uses
-        # the corresponding DataType values as keys to look up allowed kinds for each type.
+        # the corresponding BasicType values as keys to look up allowed kinds for each type.
         # Since the case does not matter, we convert all allowed type kinds to upper case.
-        types = tuple(DataType.from_str(name) for name in config['declaration_types'])
+        types = tuple(BasicType.from_str(name) for name in config['declaration_types'])
         allowed_type_kinds = {}
         if config.get('allowed_type_kinds'):
-            allowed_type_kinds = {DataType.from_str(name): [kind.upper() for kind in kinds]
+            allowed_type_kinds = {BasicType.from_str(name): [kind.upper() for kind in kinds]
                                   for name, kinds in config['allowed_type_kinds'].items()}
 
         cls.check_kind_declarations(subroutine, types, allowed_type_kinds, rule_report)

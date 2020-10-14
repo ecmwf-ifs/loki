@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
-from loki.types import DataType, DerivedType, SymbolType
+from loki.types import BasicType, DerivedType, SymbolType
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
@@ -258,7 +258,7 @@ class FParser2IR(GenericVisitor):
 
         if external:
             if dtype is None:
-                dtype = SymbolType(DataType.DEFERRED)
+                dtype = SymbolType(BasicType.DEFERRED)
             dtype.external = external
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
@@ -276,22 +276,22 @@ class FParser2IR(GenericVisitor):
         return sym.Literal(value=val, type=_type, source=source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(o, DataType.CHARACTER, **kwargs)
+        return self.visit_literal(o, BasicType.CHARACTER, **kwargs)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(o, DataType.INTEGER, kind=kind, **kwargs)
+        return self.visit_literal(o, BasicType.INTEGER, kind=kind, **kwargs)
 
     visit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(o, DataType.REAL, kind=kind, **kwargs)
+        return self.visit_literal(o, BasicType.REAL, kind=kind, **kwargs)
 
     visit_Signed_Real_Literal_Constant = visit_Real_Literal_Constant
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(o, DataType.LOGICAL, **kwargs)
+        return self.visit_literal(o, BasicType.LOGICAL, **kwargs)
 
     def visit_Complex_Literal_Constant(self, o, **kwargs):
         source = kwargs.get('source')
@@ -617,7 +617,7 @@ class FParser2IR(GenericVisitor):
         basetype_ast = get_child(o, Fortran2003.Intrinsic_Type_Spec)
         if basetype_ast is not None:
             dtype, kind, length = self.visit(basetype_ast)
-            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
+            dtype = SymbolType(BasicType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
                                contiguous='contiguous' in attrs, target='target' in attrs,
@@ -629,7 +629,7 @@ class FParser2IR(GenericVisitor):
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
                 typedef = self.scope.symbols.lookup(typename, recursive=True)
-                typedef = typedef if typedef is DataType.DEFERRED else typedef.typedef
+                typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
                 dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
                                    intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,

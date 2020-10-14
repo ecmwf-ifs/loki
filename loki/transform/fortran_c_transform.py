@@ -15,7 +15,7 @@ from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Sc
                              retrieve_expressions)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
-from loki.types import DataType, SymbolType, DerivedType, TypeTable
+from loki.types import BasicType, SymbolType, DerivedType, TypeTable
 
 
 __all__ = ['FortranCTransformation']
@@ -89,9 +89,9 @@ class FortranCTransformation(Transformation):
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
-        if _type.dtype == DataType.INTEGER:
+        if _type.dtype == BasicType.INTEGER:
             return 'c_int'
-        if _type.dtype == DataType.REAL:
+        if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'c_float'
@@ -101,11 +101,11 @@ class FortranCTransformation(Transformation):
 
     @staticmethod
     def c_intrinsic_kind(_type):
-        if _type.dtype == DataType.LOGICAL:
+        if _type.dtype == BasicType.LOGICAL:
             return 'int'
-        if _type.dtype == DataType.INTEGER:
+        if _type.dtype == BasicType.INTEGER:
             return 'int'
-        if _type.dtype == DataType.REAL:
+        if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
                 return 'float'
@@ -381,7 +381,7 @@ class FortranCTransformation(Transformation):
                 for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
                     if isinstance(dim, RangeIndex):
                         # Create new index variable
-                        vtype = SymbolType(DataType.INTEGER)
+                        vtype = SymbolType(BasicType.INTEGER)
                         ivar = Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
                                         scope=kernel.symbols)
                         shape_index_map[s] = ivar

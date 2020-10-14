@@ -7,7 +7,7 @@ import numpy as np
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Statement, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
+    FindVariables, FindNodes, SubstituteExpressions, TypeTable, BasicType, SymbolType
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -728,14 +728,14 @@ def test_string_compare():
     """
     # Utility objects for manual expression creation
     scope = TypeTable()
-    type_int = SymbolType(dtype=DataType.INTEGER)
-    type_real = SymbolType(dtype=DataType.REAL)
+    type_int = SymbolType(dtype=BasicType.INTEGER)
+    type_real = SymbolType(dtype=BasicType.REAL)
 
     i = Variable(name='i', scope=scope, type=type_int)
     j = Variable(name='j', scope=scope, type=type_int)
 
     # Test a scalar variable
-    u = Variable(name='u', scope=scope, type=SymbolType(dtype=DataType.REAL))
+    u = Variable(name='u', scope=scope, type=SymbolType(dtype=BasicType.REAL))
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 

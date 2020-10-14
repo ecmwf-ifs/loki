@@ -14,7 +14,7 @@ import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
-from loki.types import DataType, SymbolType, DerivedType
+from loki.types import BasicType, SymbolType, DerivedType
 
 
 __all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -143,7 +143,7 @@ class OMNI2IR(GenericVisitor):
                     vtype = vtype.clone(shape=dimensions)
             else:
                 typename = self._omni_types.get(t, t)
-                vtype = SymbolType(DataType.from_fortran_type(typename))
+                vtype = SymbolType(BasicType.from_fortran_type(typename))
 
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source)
@@ -204,10 +204,10 @@ class OMNI2IR(GenericVisitor):
 
             if _type is None:
                 if tast.attrib['return_type'] == 'Fvoid':
-                    dtype = DataType.DEFERRED
+                    dtype = BasicType.DEFERRED
                 else:
                     t = self._omni_types[tast.attrib['return_type']]
-                    dtype = DataType.from_fortran_type(t)
+                    dtype = BasicType.from_fortran_type(t)
                 _type = SymbolType(dtype)
 
             if tast.attrib.get('is_external') == 'true':
@@ -217,7 +217,7 @@ class OMNI2IR(GenericVisitor):
             # If the type definition comes back as deferred, carry out the definition here
             # (this is due to not knowing to which variable instance the type definition
             # belongs further down the tree, which makes scoping hard...)
-            if _type.dtype == DataType.DEFERRED and _type.name in self.type_map:
+            if _type.dtype == BasicType.DEFERRED and _type.name in self.type_map:
                 tname = self.symbol_map[_type.name].find('name').text
                 variables = self._struct_type_variables(
                     self.type_map[_type.name], scope=self.scope.symbols, parent=name.text, source=source)
@@ -234,7 +234,7 @@ class OMNI2IR(GenericVisitor):
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = self._omni_types[name.attrib['type']]
-            _type = SymbolType(DataType.from_fortran_type(t))
+            _type = SymbolType(BasicType.from_fortran_type(t))
             dimensions = None
 
         value = self.visit(o.find('value')) if o.find('value') is not None else None
@@ -273,7 +273,7 @@ class OMNI2IR(GenericVisitor):
             typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
             length = self.visit(o.find('len')) if o.find('len') is not None else None
-            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind, length=length)
+            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind, length=length)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -297,7 +297,7 @@ class OMNI2IR(GenericVisitor):
         if parent_type is not None:
             return parent_type.clone()
         else:
-            return SymbolType(DerivedType(name=name, typedef=DataType.DEFERRED))
+            return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -406,10 +406,10 @@ class OMNI2IR(GenericVisitor):
         if vtype is None:
             if t in self._omni_types:
                 typename = self._omni_types[t]
-                vtype = SymbolType(DataType.from_fortran_type(typename))
+                vtype = SymbolType(BasicType.from_fortran_type(typename))
             else:
                 # If we truly cannot determine the type, we defer
-                vtype = SymbolType(DataType.DEFERRED)
+                vtype = SymbolType(BasicType.DEFERRED)
 
         if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
@@ -431,12 +431,12 @@ class OMNI2IR(GenericVisitor):
 
         vtype = self.scope.symbols.lookup(vname, recursive=True)
 
-        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self.type_map:
+        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self.type_map:
             vtype = self.visit(self.type_map[t])
 
-        if (vtype is None or vtype.dtype == DataType.DEFERRED) and t in self._omni_types:
+        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self._omni_types:
             typename = self._omni_types.get(t, t)
-            vtype = SymbolType(DataType.from_fortran_type(typename))
+            vtype = SymbolType(BasicType.from_fortran_type(typename))
 
         if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
@@ -467,16 +467,16 @@ class OMNI2IR(GenericVisitor):
         return sym.RangeIndex((lower, upper, step), source=source)
 
     def visit_FrealConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.REAL, kind=o.attrib.get('kind', None), source=source)
+        return sym.Literal(value=o.text, type=BasicType.REAL, kind=o.attrib.get('kind', None), source=source)
 
     def visit_FlogicalConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=DataType.LOGICAL, source=source)
+        return sym.Literal(value=o.text, type=BasicType.LOGICAL, source=source)
 
     def visit_FcharacterConstant(self, o, source=None):
-        return sym.Literal(value='"%s"' % o.text, type=DataType.CHARACTER, source=source)
+        return sym.Literal(value='"%s"' % o.text, type=BasicType.CHARACTER, source=source)
 
     def visit_FintConstant(self, o, source=None):
-        return sym.Literal(value=int(o.text), type=DataType.INTEGER, source=source)
+        return sym.Literal(value=int(o.text), type=BasicType.INTEGER, source=source)
 
     def visit_FcomplexConstant(self, o, source=None):
         value = '({})'.format(', '.join('{}'.format(self.visit(v)) for v in list(o)))

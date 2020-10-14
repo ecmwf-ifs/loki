@@ -254,7 +254,7 @@ SOME_VAR = 5
 END ASSOCIATE
 END SUBROUTINE
     '''
-    from loki import FindVariables, Scalar, DataType  # pylint: disable=import-outside-toplevel
+    from loki import FindVariables, Scalar, BasicType  # pylint: disable=import-outside-toplevel
 
     filename = refpath.parent / ('associates_deferred_%s.f90' % frontend)
     with open(filename, 'w') as f:
@@ -264,7 +264,7 @@ END SUBROUTINE
     some_var = FindVariables().visit(routine.body).pop()
     assert isinstance(some_var, Scalar)
     assert some_var.name.upper() == 'SOME_VAR'
-    assert some_var.type.dtype == DataType.DEFERRED
+    assert some_var.type.dtype == BasicType.DEFERRED
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

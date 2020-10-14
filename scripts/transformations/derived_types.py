@@ -11,7 +11,7 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolType,
-    DerivedType, DataType, ArraySubscript, RangeIndex, as_tuple
+    DerivedType, BasicType, ArraySubscript, RangeIndex, as_tuple
 )
 
 
@@ -57,7 +57,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType) and \
-                arg.type.dtype.typedef is not DataType.DEFERRED:
+                arg.type.dtype.typedef is not BasicType.DEFERRED:
 
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable

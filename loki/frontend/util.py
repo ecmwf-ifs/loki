@@ -6,7 +6,7 @@ import codecs
 from loki.visitors import Visitor, NestedTransformer, FindNodes
 from loki.ir import (Statement, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
 from loki.frontend.source import Source
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
 from loki.tools import as_tuple
 from loki.logging import warning
@@ -206,9 +206,9 @@ def process_dimension_pragmas(ir):
                 shape = []
                 for d in dims:
                     if d.isnumeric():
-                        shape += [Literal(value=int(d), type=DataType.INTEGER)]
+                        shape += [Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        _type = SymbolType(DataType.INTEGER)
+                        _type = SymbolType(BasicType.INTEGER)
                         shape += [Variable(name=d, scope=v.scope, type=_type)]
                 v.type = v.type.clone(shape=as_tuple(shape))
     return ir

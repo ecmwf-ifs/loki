@@ -1,7 +1,7 @@
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, DataType, Statement, FindNodes)
+    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, BasicType, Statement, FindNodes)
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
@@ -82,13 +82,13 @@ end module a_module
     # has correct type and shape info
     assert 'array' in pt_ext.type.dtype.variable_map
     a = pt_ext.type.dtype.variable_map['array']
-    assert a.type.dtype == DataType.REAL
+    assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     stmt = FindNodes(Statement).visit(routine.body)[0]
     pt_ext_arr = stmt.target
-    assert pt_ext_arr.type.dtype == DataType.REAL
+    assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
@@ -145,7 +145,7 @@ end module a_module
     # has correct type and shape info
     assert 'array' in ext.type.dtype.variable_map
     a = ext.type.dtype.variable_map['array']
-    assert a.type.dtype == DataType.REAL
+    assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the routine has got type and shape info too
@@ -154,13 +154,13 @@ end module a_module
     pt_ext = pt.type.dtype.variable_map['ext']
     assert 'array' in pt_ext.type.dtype.variable_map
     pt_ext_a = pt_ext.type.dtype.variable_map['array']
-    assert pt_ext_a.type.dtype == DataType.REAL
+    assert pt_ext_a.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     stmt = FindNodes(Statement).visit(routine.body)[0]
     pt_ext_arr = stmt.target
-    assert pt_ext_arr.type.dtype == DataType.REAL
+    assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
@@ -193,7 +193,7 @@ end module type_mod
     pt = parent.variables[0]
     assert 'array' in pt.type.dtype.variable_map
     arr = pt.type.dtype.variable_map['array']
-    assert arr.type.dtype == DataType.REAL
+    assert arr.type.dtype == BasicType.REAL
     assert fexprgen(arr.shape) == exptected_array_shape
 
 

@@ -45,7 +45,7 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation, DataType
+    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
 )
 
 
@@ -290,9 +290,9 @@ def test_scheduler_definitions(here, builddir, config):
 
     driver = scheduler.item_map['driverA'].routine
     call = FindNodes(CallStatement).visit(driver.body)[0]
-    assert call.arguments[0].parent.type.dtype.typedef is not DataType.DEFERRED
+    assert call.arguments[0].parent.type.dtype.typedef is not BasicType.DEFERRED
     assert fexprgen(call.arguments[0].shape) == '(:,)'
-    assert call.arguments[1].parent.type.dtype.typedef is not DataType.DEFERRED
+    assert call.arguments[1].parent.type.dtype.typedef is not BasicType.DEFERRED
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 

@@ -4,7 +4,7 @@ import numpy as np
 
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Section, Intrinsic, PreprocessorDirective, CallStatement, DataType, Array, Scalar, Variable,
+    Section, Intrinsic, PreprocessorDirective, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration, Loop
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
@@ -346,16 +346,16 @@ end subroutine routine_simple_caching
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (['x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)'],
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
-    assert routine.arguments[2].type.dtype == DataType.REAL
-    assert routine.arguments[3].type.dtype == DataType.REAL
+    assert routine.arguments[2].type.dtype == BasicType.REAL
+    assert routine.arguments[3].type.dtype == BasicType.REAL
 
     routine = Subroutine.from_source(fcode_int, frontend=frontend)
     routine_args = [str(arg) for arg in routine.arguments]
     assert routine_args in (['x', 'y', 'scalar', 'vector(y)', 'matrix(x, y)'],
                             ['x', 'y', 'scalar', 'vector(1:y)', 'matrix(1:x, 1:y)'])
     # Ensure that the types in the second routine have been picked up
-    assert routine.arguments[2].type.dtype == DataType.INTEGER
-    assert routine.arguments[3].type.dtype == DataType.INTEGER
+    assert routine.arguments[2].type.dtype == BasicType.INTEGER
+    assert routine.arguments[3].type.dtype == BasicType.INTEGER
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -660,13 +660,13 @@ end subroutine routine_simple
 """)
 
     # Check types on the internalized variable and argument lists
-    assert routine.arguments[0].type.dtype == DataType.INTEGER
-    assert routine.arguments[1].type.dtype == DataType.INTEGER
-    assert routine.arguments[2].type.dtype == DataType.REAL
+    assert routine.arguments[0].type.dtype == BasicType.INTEGER
+    assert routine.arguments[1].type.dtype == BasicType.INTEGER
+    assert routine.arguments[2].type.dtype == BasicType.REAL
     assert str(routine.arguments[2].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert routine.arguments[3].type.dtype == DataType.REAL
+    assert routine.arguments[3].type.dtype == BasicType.REAL
     assert str(routine.arguments[3].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert routine.arguments[4].type.dtype == DataType.REAL
+    assert routine.arguments[4].type.dtype == BasicType.REAL
     assert str(routine.arguments[4].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
     # Verify that all variable instances have type information
@@ -674,12 +674,12 @@ end subroutine routine_simple
     assert all(v.type is not None for v in variables if isinstance(v, (Scalar, Array)))
 
     vmap = {v.name: v for v in variables}
-    assert vmap['x'].type.dtype == DataType.INTEGER
-    assert vmap['scalar'].type.dtype == DataType.REAL
+    assert vmap['x'].type.dtype == BasicType.INTEGER
+    assert vmap['scalar'].type.dtype == BasicType.REAL
     assert str(vmap['scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert vmap['vector'].type.dtype == DataType.REAL
+    assert vmap['vector'].type.dtype == BasicType.REAL
     assert str(vmap['vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert vmap['matrix'].type.dtype == DataType.REAL
+    assert vmap['matrix'].type.dtype == BasicType.REAL
     assert str(vmap['matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
     # Parse kernel routine and provide external typedefs
@@ -720,11 +720,11 @@ end subroutine routine_typedefs_simple
 
     # Verify imported derived type info explicitly
     vmap = {v.name: v for v in variables}
-    assert vmap['item%scalar'].type.dtype == DataType.REAL
+    assert vmap['item%scalar'].type.dtype == BasicType.REAL
     assert str(vmap['item%scalar'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert vmap['item%vector'].type.dtype == DataType.REAL
+    assert vmap['item%vector'].type.dtype == BasicType.REAL
     assert str(vmap['item%vector'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
-    assert vmap['item%matrix'].type.dtype == DataType.REAL
+    assert vmap['item%matrix'].type.dtype == BasicType.REAL
     assert str(vmap['item%matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
 
@@ -1121,9 +1121,9 @@ end subroutine routine_call_external_stmt
             assert isinstance(v, Scalar)
             assert v.type.external is True
             if 'sub' in v.name:
-                assert v.type.dtype == DataType.DEFERRED
+                assert v.type.dtype == BasicType.DEFERRED
             else:
-                assert v.type.dtype == DataType.INTEGER
+                assert v.type.dtype == BasicType.INTEGER
 
     # Generate code, compile and load
     filepath = here/('subroutine_routine_external_stmt_%s.f90' % frontend)
