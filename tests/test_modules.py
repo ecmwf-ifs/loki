@@ -1,7 +1,7 @@
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, DataType, Statement, FindNodes)
+    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, BasicType, Statement, FindNodes)
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
@@ -71,8 +71,7 @@ end module a_module
     external = Module.from_source(fcode_external, frontend=frontend)
     assert'ext_type' in external.typedefs
 
-    module = Module.from_source(fcode_module, frontend=frontend,
-                                typedefs=external.typedefs)
+    module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
     routine = module.subroutines[0]
     pt_ext = routine.variables[0]
 
@@ -81,15 +80,15 @@ end module a_module
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
-    assert 'array' in pt_ext.type.variables
-    a = pt_ext.type.variables['array']
-    assert a.type.dtype == DataType.REAL
+    assert 'array' in pt_ext.type.dtype.variable_map
+    a = pt_ext.type.dtype.variable_map['array']
+    assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     stmt = FindNodes(Statement).visit(routine.body)[0]
     pt_ext_arr = stmt.target
-    assert pt_ext_arr.type.dtype == DataType.REAL
+    assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
@@ -135,8 +134,7 @@ end module a_module
     external = Module.from_source(fcode_external, frontend=frontend)
     assert'ext_type' in external.typedefs
 
-    module = Module.from_source(fcode_module, frontend=frontend,
-                                typedefs=external.typedefs)
+    module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
     nested = module.typedefs['nested_type']
     ext = nested.variables[0]
 
@@ -145,24 +143,24 @@ end module a_module
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
-    assert 'array' in ext.type.variables
-    a = ext.type.variables['array']
-    assert a.type.dtype == DataType.REAL
+    assert 'array' in ext.type.dtype.variable_map
+    a = ext.type.dtype.variable_map['array']
+    assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the routine has got type and shape info too
     routine = module['my_routine']
     pt = routine.variables[0]
-    pt_ext = pt.type.variables['ext']
-    assert 'array' in pt_ext.type.variables
-    pt_ext_a = pt_ext.type.variables['array']
-    assert pt_ext_a.type.dtype == DataType.REAL
+    pt_ext = pt.type.dtype.variable_map['ext']
+    assert 'array' in pt_ext.type.dtype.variable_map
+    pt_ext_a = pt_ext.type.dtype.variable_map['array']
+    assert pt_ext_a.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
     stmt = FindNodes(Statement).visit(routine.body)[0]
     pt_ext_arr = stmt.target
-    assert pt_ext_arr.type.dtype == DataType.REAL
+    assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
@@ -193,9 +191,9 @@ end module type_mod
     module = Module.from_source(fcode, frontend=frontend)
     parent = module.typedefs['parent_type']
     pt = parent.variables[0]
-    assert 'array' in pt.type.variables
-    arr = pt.type.variables['array']
-    assert arr.type.dtype == DataType.REAL
+    assert 'array' in pt.type.dtype.variable_map
+    arr = pt.type.dtype.variable_map['array']
+    assert arr.type.dtype == BasicType.REAL
     assert fexprgen(arr.shape) == exptected_array_shape
 
 
@@ -253,5 +251,5 @@ end module type_mod
     child = module.typedefs['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
-    pt_x = parent.variables[0].type.variables['x']
+    pt_x = parent.variables[0].type.dtype.variable_map['x']
     assert fexprgen(pt_x.shape) == '(size,)'

@@ -4,17 +4,17 @@ from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PRE
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, SymbolType, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
 
 def c_intrinsic_type(_type):
-    if _type.dtype == DataType.LOGICAL:
+    if _type.dtype == BasicType.LOGICAL:
         return 'int'
-    if _type.dtype == DataType.INTEGER:
+    if _type.dtype == BasicType.INTEGER:
         return 'int'
-    if _type.dtype == DataType.REAL:
+    if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ['real32']:
             return 'float'
         return 'double'
@@ -29,7 +29,7 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            _type = SymbolType(DataType.REAL, kind=expr.kind)
+            _type = SymbolType(BasicType.REAL, kind=expr.kind)
             result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
             result = str(expr.value)
@@ -40,7 +40,7 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            _type = SymbolType(DataType.INTEGER, kind=expr.kind)
+            _type = SymbolType(BasicType.INTEGER, kind=expr.kind)
             result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
             result = str(expr.value)
@@ -53,7 +53,7 @@ class CCodeMapper(LokiStringifyMapper):
         return '"%s"' % expr.value
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
+        _type = SymbolType(BasicType.from_fortran_type(expr.name), kind=expr.kind)
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
@@ -163,7 +163,7 @@ class CCodegen(Stringifier):
             # TODO: Oh dear, the pointer derivation is beyond hacky; clean up!
             if isinstance(a, Array) > 0:
                 aptr += ['* restrict v_']
-            elif a.type.dtype == DataType.DERIVED_TYPE:
+            elif isinstance(a.type.dtype, DerivedType):
                 aptr += ['*']
             elif a.type.pointer:
                 aptr += ['*']
@@ -358,8 +358,8 @@ class CCodegen(Stringifier):
         return self.format_line(o.name, '(', self.join_items(args), ');')
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
-        if o.dtype == DataType.DERIVED_TYPE:
-            return 'struct %s' % o.name
+        if isinstance(o.dtype, DerivedType):
+            return 'struct %s' % o.dtype.name
         return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):

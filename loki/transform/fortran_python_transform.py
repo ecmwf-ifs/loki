@@ -3,7 +3,7 @@ from pathlib import Path
 from loki.visitors import Transformer, FindNodes
 from loki.transform import Transformation, FortranCTransformation
 from loki.expression import (
-    symbol_types as sym, FindVariables, SubstituteExpressions, FindInlineCalls)
+    symbols as sym, FindVariables, SubstituteExpressions, FindInlineCalls)
 from loki.backend import pygen, dacegen
 from loki import ir, Subroutine, SourceFile, as_tuple
 

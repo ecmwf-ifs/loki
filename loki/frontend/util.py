@@ -6,7 +6,7 @@ import codecs
 from loki.visitors import Visitor, NestedTransformer, FindNodes
 from loki.ir import (Statement, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
 from loki.frontend.source import Source
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
 from loki.tools import as_tuple
 from loki.logging import warning
@@ -206,9 +206,9 @@ def process_dimension_pragmas(ir):
                 shape = []
                 for d in dims:
                     if d.isnumeric():
-                        shape += [Literal(value=int(d), type=DataType.INTEGER)]
+                        shape += [Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        _type = SymbolType(DataType.INTEGER)
+                        _type = SymbolType(BasicType.INTEGER)
                         shape += [Variable(name=d, scope=v.scope, type=_type)]
                 v.type = v.type.clone(shape=as_tuple(shape))
     return ir
@@ -233,3 +233,26 @@ def read_file(file_path):
         with codecs.open(filepath, **kwargs) as f:
             source = f.read()
     return source
+
+
+def import_external_symbols(module, symbol_names, scope):
+    """
+    Import variable and type symbols from an external definition :param module:.
+
+    This ensures that all symbols are copied over to the local scope, in order
+    to ensure correct variable and type derivation.
+    """
+    symbols = []
+    for name in symbol_names:
+        symbol = None
+        if module and name in module.symbols:
+            symbol = Variable(name=name, type=module.symbols[name], scope=scope.symbols)
+
+        elif module and name in module.types:
+            symbol = module.types[name].dtype
+            scope.types[name] = module.types[name]
+        else:
+            symbol = Variable(name=name, scope=scope.symbols)
+        symbols.append(symbol)
+
+    return as_tuple(symbols)

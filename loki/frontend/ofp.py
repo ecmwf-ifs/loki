@@ -8,18 +8,18 @@ import open_fortran_parser
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, inline_labels, process_dimension_pragmas,
-    OFP
+    inline_comments, cluster_comments, inline_pragmas, inline_labels,
+    process_dimension_pragmas, import_external_symbols, OFP
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
-import loki.expression.symbol_types as sym
+import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper
-from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash
+from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, SymbolType, DerivedType
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -51,12 +51,12 @@ def parse_ofp_source(source, xmods=None):  # pylint: disable=unused-argument
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_ast(ast, pp_info=None, raw_source=None, typedefs=None, scope=None):
+def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=None):
     """
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    _ir = OFP2IR(typedefs=typedefs, raw_source=raw_source, scope=scope).visit(ast)
+    _ir = OFP2IR(definitions=definitions, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     for r_name, rule in blacklist[OFP].items():
@@ -91,11 +91,11 @@ class OFP2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, typedefs=None, scope=None):
+    def __init__(self, raw_source, definitions=None, scope=None):
         super(OFP2IR, self).__init__()
 
         self._raw_source = raw_source
-        self.typedefs = typedefs
+        self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
 
     def lookup_method(self, instance):
@@ -354,9 +354,7 @@ class OFP2IR(GenericVisitor):
                 typedef._update(body=as_tuple(body), symbols=typedef.symbols)
 
                 # Now create a SymbolType instance to make the typedef known in its scope's type table
-                variables = OrderedDict([(v.basename, v) for v in typedef.variables])
-                dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)
-                self.scope.types[name] = dtype
+                self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
 
                 return typedef
 
@@ -365,7 +363,10 @@ class OFP2IR(GenericVisitor):
             typename = o.find('type').attrib['name']
             kind = o.find('type/kind/name')
             if kind is not None:
-                kind = kind.attrib['id']
+                if kind.attrib['id'].isnumeric():
+                    kind = sym.Literal(value=kind.attrib['id'])
+                else:
+                    kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
             intent = o.find('intent').attrib['type'] if o.find('intent') else None
             allocatable = o.find('attribute-allocatable') is not None
             pointer = o.find('attribute-pointer') is not None
@@ -379,28 +380,28 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+                _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                    intent=intent, allocatable=allocatable, pointer=pointer,
                                    optional=optional, parameter=parameter, shape=dimensions,
                                    target=target, source=source)
             else:
                 # Create the local variant of the derived type
                 _type = self.scope.types.lookup(typename, recursive=True)
-                if _type is not None:
-                    _type = _type.clone(kind=kind, intent=intent, allocatable=allocatable,
-                                        pointer=pointer, optional=optional, shape=dimensions,
-                                        parameter=parameter, target=target, source=source)
                 if _type is None:
-                    if self.typedefs is not None and typename.lower() in self.typedefs:
-                        variables = OrderedDict([(v.basename, v) for v
-                                                 in self.typedefs[typename.lower()].variables])
-                    else:
-                        variables = OrderedDict()
-                    _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
-                                       variables=variables, kind=kind, intent=intent,
-                                       allocatable=allocatable, pointer=pointer,
-                                       optional=optional, parameter=parameter,
-                                       target=target, source=source)
+                    typedef = self.scope.symbols.lookup(typename, recursive=True)
+                    typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
+                    _type = SymbolType(DerivedType(name=typename, typedef=typedef),
+                                       intent=intent, allocatable=allocatable, pointer=pointer,
+                                       optional=optional, parameter=parameter, target=target,
+                                       source=source)
+
+                else:
+                    # Ensure we inherit declaration attributes via a local clone
+                    _type = _type.clone(intent=intent, allocatable=allocatable, pointer=pointer,
+                                        optional=optional, parameter=parameter, target=target,
+                                        source=source)
+
+
             variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
@@ -459,8 +460,13 @@ class OFP2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, label=label, source=source)
 
     def visit_use(self, o, label=None, source=None):
-        symbols = [n.attrib['id'] for n in o.findall('only/name')]
-        return ir.Import(module=o.attrib['name'], symbols=symbols, label=label, source=source)
+        name = o.attrib['name']
+        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
+        symbols = None
+        if len(symbol_names) > 0:
+            module = self.definitions.get(name, None)
+            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
+        return ir.Import(module=name, symbols=symbols, label=label, source=source)
 
     def visit_directive(self, o, label=None, source=None):
         if '#include' in o.attrib['text']:
@@ -566,8 +572,9 @@ class OFP2IR(GenericVisitor):
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
             if _type is None and parent is not None and parent.type is not None:
-                if parent.type.dtype == DataType.DERIVED_TYPE:
-                    _type = parent.type.variables.get(basename)
+                if isinstance(parent.type.dtype, DerivedType) \
+                   and parent.type.dtype.typedef is not BasicType.DEFERRED:
+                    _type = parent.type.dtype.typedef.variables.get(basename)
 
             if indices:
                 indices = sym.ArraySubscript(indices, source=source)
@@ -637,9 +644,9 @@ class OFP2IR(GenericVisitor):
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None
         if _type is not None:
-            tmap = {'bool': DataType.LOGICAL, 'int': DataType.INTEGER,
-                    'real': DataType.REAL, 'char': DataType.CHARACTER}
-            _type = tmap[_type] if _type in tmap else DataType.from_fortran_type(_type)
+            tmap = {'bool': BasicType.LOGICAL, 'int': BasicType.INTEGER,
+                    'real': BasicType.REAL, 'char': BasicType.CHARACTER}
+            _type = tmap[_type] if _type in tmap else BasicType.from_fortran_type(_type)
             kwargs['type'] = _type
         kind_param = o.find('kind-param')
         if kind_param is not None:
@@ -766,10 +773,13 @@ class OFP2IR(GenericVisitor):
         t_source = extract_source(t.attrib, self._raw_source)
         kind = t.find('kind/name')
         if kind is not None:
-            kind = kind.attrib['id']
+            if kind.attrib['id'].isnumeric():
+                kind = sym.Literal(value=kind.attrib['id'])
+            else:
+                kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            _type = SymbolType(DataType.from_fortran_type(typename), kind=kind,
+            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                pointer='POINTER' in attrs,
                                allocatable='ALLOCATABLE' in attrs, source=t_source)
         else:
@@ -780,7 +790,7 @@ class OFP2IR(GenericVisitor):
                                     allocatable='ALLOCATABLE' in attrs,
                                     source=t_source)
             else:
-                _type = SymbolType(DataType.DERIVED_TYPE, name=typename,
+                _type = SymbolType(DerivedType(name=typename), name=typename,
                                    kind=kind, pointer='POINTER' in attrs,
                                    allocatable='ALLOCATABLE' in attrs,
                                    variables=OrderedDict(), source=t_source)

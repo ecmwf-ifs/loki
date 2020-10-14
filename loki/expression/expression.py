@@ -3,7 +3,7 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.symbol_types import Array, Scalar, InlineCall
+from loki.expression.symbols import Array, Scalar, InlineCall
 from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
 
 __all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls', 'FindExpressionRoot',

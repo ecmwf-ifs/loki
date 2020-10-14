@@ -145,9 +145,9 @@ class DependencyTransformation(Transformation):
 
             else:
                 # Modify module import if it imports any targets
-                if targets is not None and any(s.upper() in targets for s in im.symbols):
+                if targets is not None and any(str(s).upper() in targets for s in im.symbols):
                     # Append suffix to all target symbols
-                    symbols = as_tuple('{}{}'.format(s, self.suffix) if s.upper() in targets else s
+                    symbols = as_tuple('{}{}'.format(s, self.suffix) if str(s).upper() in targets else s
                                        for s in im.symbols)
                     module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)

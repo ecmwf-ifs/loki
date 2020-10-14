@@ -1,22 +1,22 @@
 from pymbolic.mapper.stringifier import (PREC_NONE, PREC_CALL, PREC_PRODUCT, PREC_SUM,
                                          PREC_COMPARISON)
 
-from loki.expression.symbol_types import LokiStringifyMapper, IntLiteral, FloatLiteral
+from loki.expression.symbols import LokiStringifyMapper, IntLiteral, FloatLiteral
 from loki.ir import Import
-from loki.types import DataType
+from loki.types import BasicType, DerivedType
 from loki.visitors import Stringifier, FindNodes
 
 __all__ = ['maxjgen', 'MaxjCodegen', 'MaxjCodeMapper']
 
 
 def maxj_local_type(_type):
-    if _type.dtype == DataType.DEFERRED:
+    if _type.dtype == BasicType.DEFERRED:
         return _type.name
-    if _type.dtype == DataType.LOGICAL:
+    if _type.dtype == BasicType.LOGICAL:
         return 'boolean'
-    if _type.dtype == DataType.INTEGER:
+    if _type.dtype == BasicType.INTEGER:
         return 'int'
-    if _type.dtype == DataType.REAL:
+    if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ['real32']:
             return 'float'
         return 'double'
@@ -24,11 +24,11 @@ def maxj_local_type(_type):
 
 
 def maxj_dfevar_type(_type):
-    if _type.dtype == DataType.LOGICAL:
+    if _type.dtype == BasicType.LOGICAL:
         return 'dfeBool()'
-    if _type.dtype == DataType.INTEGER:
+    if _type.dtype == BasicType.INTEGER:
         return 'dfeUInt(32)'  # TODO: Distinguish between signed and unsigned
-    if _type.dtype == DataType.REAL:
+    if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ['real32']:
             return 'dfeFloat(8, 24)'
         return 'dfeFloat(11, 53)'
@@ -369,7 +369,7 @@ class MaxjCodegen(Stringifier):
         return self.format_line('import ', o.module, ';')
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
-        if o.dtype == DataType.DERIVED_TYPE:
+        if isinstance(o.dtype, DerivedType):
             return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
             if o.shape:

@@ -7,9 +7,9 @@ import numpy as np
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Statement, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, TypeTable, DataType, SymbolType
+    FindVariables, FindNodes, SubstituteExpressions, TypeTable, BasicType, SymbolType
 )
-from loki.expression import symbol_types as symbols
+from loki.expression import symbols
 from loki.tools import gettempdir, filehash
 from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 
@@ -728,14 +728,14 @@ def test_string_compare():
     """
     # Utility objects for manual expression creation
     scope = TypeTable()
-    type_int = SymbolType(dtype=DataType.INTEGER)
-    type_real = SymbolType(dtype=DataType.REAL)
+    type_int = SymbolType(dtype=BasicType.INTEGER)
+    type_real = SymbolType(dtype=BasicType.REAL)
 
     i = Variable(name='i', scope=scope, type=type_int)
     j = Variable(name='j', scope=scope, type=type_int)
 
     # Test a scalar variable
-    u = Variable(name='u', scope=scope, type=SymbolType(dtype=DataType.REAL))
+    u = Variable(name='u', scope=scope, type=SymbolType(dtype=BasicType.REAL))
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 
@@ -762,3 +762,14 @@ def test_string_compare():
     assert all(symbols.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
     assert all(symbols.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
     assert all(symbols.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])
+
+    # Test literal behaviour
+    assert symbols.Literal(41) == 41
+    assert symbols.Literal(41) == '41'
+    assert symbols.Literal(41) != symbols.Literal(41, kind='jpim')
+    assert symbols.Literal(66.6) == 66.6
+    assert symbols.Literal(66.6) == '66.6'
+    assert symbols.Literal(66.6) != symbols.Literal(66.6, kind='jprb')
+    assert symbols.Literal('u') == 'u'
+    assert symbols.Literal('u') != 'U'
+    assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above

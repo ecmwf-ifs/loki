@@ -14,16 +14,17 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import blacklist
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, process_dimension_pragmas, read_file, FP
+    inline_comments, cluster_comments, inline_pragmas,
+    process_dimension_pragmas, read_file, import_external_symbols, FP
 )
 import loki.ir as ir
-import loki.expression.symbol_types as sym
+import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
-from loki.tools import timeit, as_tuple, flatten
-from loki.types import DataType, SymbolType
+from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
+from loki.types import BasicType, DerivedType, SymbolType
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
@@ -47,13 +48,13 @@ def parse_fparser_source(source):
 
 
 @timeit(log_level=DEBUG)
-def parse_fparser_ast(ast, raw_source, pp_info=None, typedefs=None, scope=None):
+def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
     Generate an internal IR from file via the fparser AST.
     """
 
     # Parse the raw FParser language AST into our internal IR
-    _ir = FParser2IR(raw_source=raw_source, typedefs=typedefs, scope=scope).visit(ast)
+    _ir = FParser2IR(raw_source=raw_source, definitions=definitions, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     if pp_info is not None:
@@ -138,10 +139,10 @@ class FParser2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, typedefs=None, scope=None):
+    def __init__(self, raw_source, definitions=None, scope=None):
         super(FParser2IR, self).__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
-        self.typedefs = typedefs
+        self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
 
     def get_source(self, o, source):
@@ -244,7 +245,7 @@ class FParser2IR(GenericVisitor):
         # If a parent variable is given, try to infer type from the
         # derived type definition
         if parent is not None and dtype is None:
-            if parent.type is not None and parent.type.dtype == DataType.DERIVED_TYPE:
+            if parent.type is not None and isinstance(parent.type.dtype, DerivedType):
                 if parent.type.variables is not None and \
                         basename in parent.type.variables:
                     dtype = parent.type.variables[basename].type
@@ -257,7 +258,7 @@ class FParser2IR(GenericVisitor):
 
         if external:
             if dtype is None:
-                dtype = SymbolType(DataType.DEFERRED)
+                dtype = SymbolType(BasicType.DEFERRED)
             dtype.external = external
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
@@ -275,22 +276,22 @@ class FParser2IR(GenericVisitor):
         return sym.Literal(value=val, type=_type, source=source)
 
     def visit_Char_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(o, DataType.CHARACTER, **kwargs)
+        return self.visit_literal(o, BasicType.CHARACTER, **kwargs)
 
     def visit_Int_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(o, DataType.INTEGER, kind=kind, **kwargs)
+        return self.visit_literal(o, BasicType.INTEGER, kind=kind, **kwargs)
 
     visit_Signed_Int_Literal_Constant = visit_Int_Literal_Constant
 
     def visit_Real_Literal_Constant(self, o, **kwargs):
         kind = o.items[1] if o.items[1] is not None else None
-        return self.visit_literal(o, DataType.REAL, kind=kind, **kwargs)
+        return self.visit_literal(o, BasicType.REAL, kind=kind, **kwargs)
 
     visit_Signed_Real_Literal_Constant = visit_Real_Literal_Constant
 
     def visit_Logical_Literal_Constant(self, o, **kwargs):
-        return self.visit_literal(o, DataType.LOGICAL, **kwargs)
+        return self.visit_literal(o, BasicType.LOGICAL, **kwargs)
 
     def visit_Complex_Literal_Constant(self, o, **kwargs):
         source = kwargs.get('source')
@@ -325,10 +326,11 @@ class FParser2IR(GenericVisitor):
     def visit_Use_Stmt(self, o, **kwargs):
         name = o.items[2].tostr()
         only_list = get_child(o, Fortran2003.Only_List)  # pylint: disable=no-member
+        symbols = None
         if only_list:
-            symbols = as_tuple(item.tostr() for item in only_list.items)
-        else:
-            symbols = None
+            symbol_names = tuple(item.tostr() for item in only_list.items)
+            module = self.definitions.get(name, None)
+            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'),
                          label=kwargs.get('label'))
 
@@ -437,7 +439,10 @@ class FParser2IR(GenericVisitor):
         dtype = o.items[0]
         kind = get_child(o, Fortran2003.Kind_Selector)
         if kind is not None:
-            kind = kind.items[1].tostr()
+            if kind.items[1].tostr().isnumeric():
+                kind = sym.Literal(value=kind.items[1].tostr())
+            else:
+                kind = sym.Variable(name=kind.items[1].tostr(), scope=self.scope.symbols)
         length = get_child(o, Fortran2003.Length_Selector)
         if length is not None:
             length = length.items[1].tostr()
@@ -612,7 +617,7 @@ class FParser2IR(GenericVisitor):
         basetype_ast = get_child(o, Fortran2003.Intrinsic_Type_Spec)
         if basetype_ast is not None:
             dtype, kind, length = self.visit(basetype_ast)
-            dtype = SymbolType(DataType.from_fortran_type(dtype), kind=kind, intent=intent,
+            dtype = SymbolType(BasicType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
                                contiguous='contiguous' in attrs, target='target' in attrs,
@@ -622,20 +627,17 @@ class FParser2IR(GenericVisitor):
         if derived_type_ast is not None:
             typename = derived_type_ast.items[1].tostr().lower()
             dtype = self.scope.types.lookup(typename, recursive=True)
-            if dtype is not None:
-                # Add declaration attributes to the data type from the typedef
-                dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
-                                    pointer='pointer' in attrs, optional='optional' in attrs,
-                                    parameter='parameter' in attrs, target='target' in attrs,
-                                    contiguous='contiguous' in attrs, shape=dimensions)
-            else:
-                # TODO: Insert variable information from stored TypeDef!
-                if self.typedefs is not None and typename in self.typedefs:
-                    variables = OrderedDict([(v.basename, v) for v in self.typedefs[typename].variables])
-                else:
-                    variables = None
-                dtype = SymbolType(DataType.DERIVED_TYPE, name=typename, variables=variables,
+            if dtype is None:
+                typedef = self.scope.symbols.lookup(typename, recursive=True)
+                typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
+                dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
                                    intent=intent, allocatable='allocatable' in attrs,
+                                   pointer='pointer' in attrs, optional='optional' in attrs,
+                                   parameter='parameter' in attrs, target='target' in attrs,
+                                   contiguous='contiguous' in attrs, shape=dimensions)
+            else:
+                # Ensure we inherit declaration attributes via a local clone
+                dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
                                    pointer='pointer' in attrs, optional='optional' in attrs,
                                    parameter='parameter' in attrs, target='target' in attrs,
                                    contiguous='contiguous' in attrs, shape=dimensions)
@@ -674,9 +676,8 @@ class FParser2IR(GenericVisitor):
         typedef._update(body=body, symbols=typedef.symbols)
 
         # Now create a SymbolType instance to make the typedef known in its scope's type table
-        variables = OrderedDict([(v.basename, v) for v in typedef.variables])
-        dtype = SymbolType(DataType.DERIVED_TYPE, name=name, variables=variables, source=source)
-        self.scope.types[name] = dtype
+        self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
+
         return typedef
 
     def visit_Component_Part(self, o, **kwargs):

@@ -203,7 +203,7 @@ end subroutine transpile_derived_type
     builder.clean()
 
     module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
@@ -285,7 +285,7 @@ end subroutine transpile_associates
     builder.clean()
 
     module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
@@ -396,7 +396,7 @@ end subroutine transpile_module_variables
 """
 
     module = Module.from_source(fcode_type, frontend=frontend)
-    routine = Subroutine.from_source(fcode_routine, typedefs=module.typedefs, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
     refname = 'ref_%s_%s' % (routine.name, frontend)
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 

@@ -8,12 +8,12 @@ from loki.expression import (FindVariables, FindInlineCalls, SubstituteExpressio
                              ExpressionCallbackMapper, SubstituteExpressionsMapper,
                              retrieve_expressions)
 import loki.ir as ir
-from loki.expression import symbol_types as sym
+from loki.expression import symbols as sym
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import SourceFile
 from loki.tools import as_tuple, flatten
-from loki.types import SymbolType, DataType
+from loki.types import SymbolType, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -38,7 +38,7 @@ class FortranMaxTransformation(Transformation):
         self.maxj_src.mkdir(exist_ok=True)
 
         for arg in routine.arguments:
-            if arg.type.dtype == DataType.DERIVED_TYPE:
+            if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
 
         # Create a copy of the kernel and apply some common transformations
@@ -199,7 +199,7 @@ class FortranMaxTransformation(Transformation):
         # Replace conditionals by conditional statements
         # TODO: This does not handle nested conditionals!
         cond_map = {}
-        cond_type = SymbolType(DataType.LOGICAL)
+        cond_type = SymbolType(BasicType.LOGICAL)
         for cnt, cond in enumerate(FindNodes(ir.Conditional).visit(max_kernel.body)):
             body = []
 
@@ -345,12 +345,12 @@ class FortranMaxTransformation(Transformation):
 
         def base_type(var_type):
             # TODO: put this somewhere else
-            if var_type.dtype == DataType.LOGICAL:
+            if var_type.dtype == BasicType.LOGICAL:
                 return sym.InlineCall('dfeBool')
-            if var_type.dtype == DataType.INTEGER:
+            if var_type.dtype == BasicType.INTEGER:
                 # TODO: Distinguish between signed and unsigned
                 return sym.InlineCall('dfeUInt', parameters=(sym.IntLiteral(32),))
-            if var_type.dtype == DataType.REAL:
+            if var_type.dtype == BasicType.REAL:
                 if var_type.kind in ['real32']:
                     parameters = (sym.IntLiteral(8), sym.IntLiteral(24))
                 else:
@@ -427,7 +427,7 @@ class FortranMaxTransformation(Transformation):
         max_kernel = kernel.clone(parent=max_module)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
-        arg_type = SymbolType(DataType.DEFERRED, name='KernelParameters', intent='in')
+        arg_type = SymbolType(BasicType.DEFERRED, name='KernelParameters', intent='in')
         arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.symbols)
         max_kernel.arguments = as_tuple(arg)
         max_kernel.spec.prepend(ir.CallStatement('super', arguments=(arg,)))
@@ -500,7 +500,7 @@ class FortranMaxTransformation(Transformation):
 
         # Create the constructor
         constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
-        params_type = SymbolType(DataType.DEFERRED, name='EngineParameters', intent='in')
+        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters', intent='in')
         params = sym.Variable(name='params', type=params_type, scope=constructor.symbols)
         body = [ir.CallStatement('super', arguments=(params,)),
                 ir.CallStatement('setup', arguments=())]
@@ -509,14 +509,14 @@ class FortranMaxTransformation(Transformation):
 
         # Create the main function for maxJavaRun
         main = Subroutine(name='public static void main', parent=manager, spec=ir.Section(body=()))
-        args_type = SymbolType(DataType.DEFERRED, name='String[]', intent='in')
+        args_type = SymbolType(BasicType.DEFERRED, name='String[]', intent='in')
         args = sym.Variable(name='args', type=args_type, scope=main.symbols)
         main.arguments = as_tuple(args)
 
-        params_type = SymbolType(DataType.DEFERRED, name='EngineParameters')
+        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters')
         params = sym.Variable(name='params', type=params_type, scope=main.symbols,
                               initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
-        mgr_type = SymbolType(DataType.DEFERRED, name='MAX5CManager')
+        mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager')
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main.symbols,
                            initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
         main.variables += as_tuple([params, mgr])
@@ -536,7 +536,7 @@ class FortranMaxTransformation(Transformation):
         slic_routine = routine.clone(name='{}_c'.format(routine.name), body=None)
 
         # Add an argument for ticks
-        size_t_type = SymbolType(DataType.INTEGER, intent='in')  # TODO: make this size_t
+        size_t_type = SymbolType(BasicType.INTEGER, intent='in')  # TODO: make this size_t
         ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel.symbols)
         arguments = (ticks_argument,) + slic_routine.arguments
 

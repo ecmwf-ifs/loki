@@ -1,12 +1,42 @@
+"""
+Collection of classes to represent basic and complex types. The key ideas are:
+ * Expression symbols (eg. `Scalar`, `Array` or `Literal` has a
+   `SymbolType` accessible via the `.type` attribute. This encodes the
+   type definition in the local scope.
+ * Each symbol type can represent either a `BasicType`, which may be `DEFERRED`, or
+   a `DerivedType`. This is generally accessible as `symbol.type.dtype`.
+   TODO: A `ProcedureType` may be added soon.
+ * Each 'scope' object (eg. `Subroutine` or `Module` uses `TypeTable` objects to
+   map symbol instances to types and derived type definitions.
+
+           symbols.Variable  ---                      Subroutine | Module | TypeDef
+                                 \                            \      |      /
+                                  \                            \     |     /
+                                   SymbolType    ------------   SymbolTable
+                                 /     |      \
+                                /      |       \
+                       BasicType   DerivedType  (ProcedureType - not yet!)
+
+A note on scoping:
+==================
+When importing `TypeDef` objects into a local scope, a `DerivedType` object
+will act as a wrapper in the `symbol.type.dtype` attribute. Importantly, when
+variable instances based on this get created, the `DerivedType` object will
+re-create all member variable of the object in the local scope, which are then
+accessible via `symbol.type.dtype.variables`. If the original member declaration
+variables are required, these can be accessed via `symbol.type.dtype.typedef.variables`.
+"""
+
 import weakref
 from enum import IntEnum
+from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['DataType', 'SymbolType', 'TypeTable']
+__all__ = ['BasicType', 'DerivedType', 'SymbolType', 'TypeTable']
 
 
-class DataType(IntEnum):
+class BasicType(IntEnum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 
@@ -16,7 +46,6 @@ class DataType(IntEnum):
     - `REAL`
     - `CHARACTER`
     - `COMPLEX`
-    - `DERIVED_TYPE`
     and, to mark symbols without a known type, `DEFERRED` (e.g., for members of an externally
     defined derived type on use).
 
@@ -30,7 +59,6 @@ class DataType(IntEnum):
     REAL = 3
     CHARACTER = 4
     COMPLEX = 5
-    DERIVED_TYPE = 6
 
     @classmethod
     def from_str(cls, value):
@@ -76,11 +104,37 @@ class DataType(IntEnum):
         return type_map[value]
 
 
+class DerivedType:
+    """
+    Representation of a complex derived data types that may have an associated `TypeDef`.
+
+    Please note that the typedef attribute may be of `ir.TypeDef` or `BasicType.DEFERRED`,
+    depending on the scope of the derived type declaration.
+    """
+
+    def __init__(self, name=None, typedef=None):
+        assert name or typedef
+        self._name = name
+        self.typedef = typedef if typedef is not None else BasicType.DEFERRED
+
+        # This is intentionally left blank, as the parent variable
+        # generation will populate this, if the typedef is known.
+        self.variables = tuple()
+
+    @property
+    def name(self):
+        return self._name if self.typedef is BasicType.DEFERRED else self.typedef.name
+
+    @property
+    def variable_map(self):
+        return OrderedDict([(v.basename, v) for v in self.variables])
+
+
 class SymbolType:
     """
     Representation of a symbols type.
 
-    It has a fixed class:``DataType`` associated, available as the property `DataType.dtype`.
+    It has a fixed class:``BasicType`` associated, available as the property `BasicType.dtype`.
 
     Any other properties can be attached on-the-fly, thus allowing to store arbitrary metadata
     for a symbol, e.g., declaration attributes such as `POINTER`, `ALLOCATABLE` or structural
@@ -91,7 +145,7 @@ class SymbolType:
     """
 
     def __init__(self, dtype, **kwargs):
-        self.dtype = dtype if isinstance(dtype, DataType) else DataType.from_str(dtype)
+        self.dtype = dtype if isinstance(dtype, (BasicType, DerivedType)) else BasicType.from_str(dtype)
 
         for k, v in kwargs.items():
             if v is not None:
@@ -199,6 +253,9 @@ class TypeTable(dict):
         name_parts = self.format_lookup_name(name)
         value = self._lookup(name_parts, recursive)
         return value
+
+    def __contains__(self, key):
+        return super().__contains__(self.format_lookup_name(key))
 
     def __getitem__(self, key):
         value = self.lookup(key, recursive=False)

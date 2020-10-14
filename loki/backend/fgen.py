@@ -6,7 +6,7 @@ from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGI
 from loki.visitors import Stringifier
 from loki.tools import flatten, as_tuple
 from loki.expression import LokiStringifyMapper, Product
-from loki.types import DataType
+from loki.types import BasicType, DerivedType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -301,7 +301,8 @@ class FortranCodegen(Stringifier):
         if o.f_include:
             return self.format_line('include "', o.module, '"')
         if o.symbols:
-            return self.format_line('USE ', o.module, ', ONLY: ', self.join_items(o.symbols))
+            symbols = self.visit_all(o.symbols, **kwargs)
+            return self.format_line('USE ', o.module, ', ONLY: ', self.join_items(symbols))
         return self.format_line('USE ', o.module)
 
     def visit_Interface(self, o, **kwargs):
@@ -532,12 +533,12 @@ class FortranCodegen(Stringifier):
         """
         dimensions = kwargs.pop('dimensions', None)
         attributes = []
-        if o.dtype == DataType.DERIVED_TYPE:
-            typename = 'TYPE({})'.format(o.name)
+        if isinstance(o.dtype, DerivedType):
+            typename = 'TYPE({})'.format(o.dtype.name)
         else:
-            type_map = {DataType.LOGICAL: 'LOGICAL', DataType.INTEGER: 'INTEGER',
-                        DataType.REAL: 'REAL', DataType.CHARACTER: 'CHARACTER',
-                        DataType.COMPLEX: 'COMPLEX', DataType.DEFERRED: ''}
+            type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
+                        BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
+                        BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
             typename = type_map[o.dtype]
         if o.length:
             typename += '(LEN={})'.format(self.visit(o.length, **kwargs))
@@ -581,6 +582,8 @@ class FortranCodegen(Stringifier):
         self.depth -= 1
         return self.join_lines(header, declarations, footer)
 
+    def visit_DerivedType(self, o, **kwargs):
+        return o.name
 
 def fgen(ir, depth=0, conservative=False, linewidth=132):
     """

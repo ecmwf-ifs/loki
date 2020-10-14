@@ -54,7 +54,7 @@ class Module:
         self._source = source
 
     @classmethod
-    def from_source(cls, source, xmods=None, typedefs=None, frontend=Frontend.FP):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=Frontend.FP):
         """
         Create `Module` object from raw source string using given frontend.
 
@@ -66,22 +66,22 @@ class Module:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
             f_ast = ast.find('globalDeclarations/FmoduleDefinition')
-            return cls.from_omni(ast=f_ast, raw_source=source, typedefs=typedefs, typetable=typetable)
+            return cls.from_omni(ast=f_ast, raw_source=source, definitions=definitions, typetable=typetable)
 
         if frontend == Frontend.OFP:
             ast = parse_ofp_source(source)
             m_ast = ast.find('file/module')
-            return cls.from_ofp(ast=m_ast, typedefs=typedefs, raw_source=source)
+            return cls.from_ofp(ast=m_ast, definitions=definitions, raw_source=source)
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
             m_ast = get_child(ast, Fortran2003.Module)
-            return cls.from_fparser(ast=m_ast, typedefs=typedefs, raw_source=source)
+            return cls.from_fparser(ast=m_ast, definitions=definitions, raw_source=source)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, typedefs=None, parent=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, definitions=None, parent=None, pp_info=None):
         source = extract_source(ast, raw_source, full_lines=True)
 
         # Process module-level type specifications
@@ -90,13 +90,13 @@ class Module:
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, typedefs=typedefs, scope=obj,
+        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions, scope=obj,
                              pp_info=pp_info)
 
         # Parse member subroutines and functions
         routines = None
         if ast.find('members'):
-            routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, typedefs=typedefs,
+            routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent=obj, pp_info=pp_info)
                         for routine in ast.find('members')
                         if routine.tag in ('subroutine', 'function')]
@@ -107,7 +107,7 @@ class Module:
         return obj
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, typedefs=None,
+    def from_omni(cls, ast, raw_source, typetable, name=None, definitions=None,
                   symbol_map=None, parent=None):
         name = name or ast.attrib['name']
         type_map = {t.attrib['type']: t for t in typetable}
@@ -117,12 +117,12 @@ class Module:
 
         # Generate spec, filter out external declarations and insert `implicit none`
         spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
-                              typedefs=typedefs, raw_source=raw_source, scope=obj)
+                              definitions=definitions, raw_source=raw_source, scope=obj)
         spec = Section(body=spec)
 
         # Parse member functions
         routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
-                                         typedefs=typedefs, raw_source=raw_source, parent=obj)
+                                         definitions=definitions, raw_source=raw_source, parent=obj)
                     for s in ast.findall('FcontainsStatement/FfunctionDefinition')]
 
         obj.__init__(name=name, spec=spec, routines=routines, ast=ast, source=source,
@@ -130,7 +130,7 @@ class Module:
         return obj
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, typedefs=None, parent=None, pp_info=None):
+    def from_fparser(cls, ast, raw_source, name=None, definitions=None, parent=None, pp_info=None):
         name = name or ast.content[0].items[1].tostr()
         source = extract_fparser_source(ast, raw_source)
         obj = cls(name, ast=ast, source=source, parent=parent)
@@ -138,7 +138,7 @@ class Module:
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, typedefs=typedefs, scope=obj, pp_info=pp_info,
+            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=obj, pp_info=pp_info,
                                      raw_source=raw_source)
             spec = Section(body=spec)
 
@@ -146,7 +146,7 @@ class Module:
         routines = None
         if routines_ast is not None:
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            routines = [Subroutine.from_fparser(ast=s, typedefs=typedefs, parent=obj,
+            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=obj,
                                                 pp_info=pp_info, raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]
             routines = as_tuple(routines)
@@ -184,7 +184,14 @@ class Module:
     def to_fortran(self, conservative=False):
         return fgen(self, conservative=conservative)
 
+    def __contains__(self, name):
+        subroutine_map = {s.name.lower(): s for s in self.subroutines}
+        return name in subroutine_map
+
     def __getitem__(self, name):
+        if not isinstance(name, str):
+            raise TypeError('Subroutine lookup requires a string!')
+
         subroutine_map = {s.name.lower(): s for s in self.subroutines}
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]

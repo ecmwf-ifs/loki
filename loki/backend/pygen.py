@@ -1,9 +1,9 @@
 from itertools import zip_longest
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
-from loki.expression import symbol_types as sym, LokiStringifyMapper
+from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, SymbolType
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
@@ -12,11 +12,11 @@ __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
 def numpy_type(_type):
     if _type.shape is not None:
         return 'np.ndarray'
-    if _type.dtype == DataType.LOGICAL:
+    if _type.dtype == BasicType.LOGICAL:
         return 'np.bool'
-    if _type.dtype == DataType.INTEGER:
+    if _type.dtype == BasicType.INTEGER:
         return 'np.int32'
-    if _type.dtype == DataType.REAL:
+    if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ('real32',):
             return 'np.float32'
         return 'np.float64'
@@ -38,7 +38,7 @@ class PyCodeMapper(LokiStringifyMapper):
     map_int_literal = map_float_literal
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        _type = SymbolType(DataType.from_fortran_type(expr.name), kind=expr.kind)
+        _type = SymbolType(BasicType.from_fortran_type(expr.name), kind=expr.kind)
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)

@@ -1,16 +1,16 @@
-from loki.expression import symbol_types as sym, retrieve_expressions
+from loki.expression import symbols as sym, retrieve_expressions
 from loki.backend import PyCodegen
-from loki.types import DataType
+from loki.types import BasicType
 
 __all__ = ['dacegen', 'DaceCodegen']
 
 
 def dace_type(_type):
-    if _type.dtype == DataType.LOGICAL:
+    if _type.dtype == BasicType.LOGICAL:
         return 'dace.bool'
-    if _type.dtype == DataType.INTEGER:
+    if _type.dtype == BasicType.INTEGER:
         return 'dace.int32'
-    if _type.dtype == DataType.REAL:
+    if _type.dtype == BasicType.REAL:
         if str(_type.kind) in ('real32',):
             return 'dace.float32'
         return 'dace.float64'

@@ -4,7 +4,7 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.tools import as_tuple
-from loki.types import DataType, SymbolType
+from loki.types import BasicType, DerivedType, SymbolType
 from loki.expression.mappers import LokiStringifyMapper
 
 
@@ -86,7 +86,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
-            self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
+            self.scope.setdefault(self.name, SymbolType(BasicType.DEFERRED))
         elif type is not self.scope.lookup(self.name):
             # If the type information does already exist and is identical (not just
             # equal) we don't update it. This makes sure that we don't create double
@@ -179,7 +179,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         if type is None:
             # Insert the defered type in the type table only if it does not exist
             # yet (necessary for deferred type definitions)
-            self.scope.setdefault(self.name, SymbolType(DataType.DEFERRED))
+            self.scope.setdefault(self.name, SymbolType(BasicType.DEFERRED))
         elif type is not self.scope.lookup(self.name):
             # If the type information does already exist and is identical (not just
             # equal) we don't update it. This makes sure that we don't create double
@@ -322,14 +322,12 @@ class Variable:
         copy of that type and replace its parent by this object and its list of variables (which
         is an OrderedDict of SymbolTypes) by a list of Variable instances.
         """
-        if obj.type is not None and obj.type.dtype == DataType.DERIVED_TYPE:
-            if obj.type.variables and next(iter(obj.type.variables.values())).scope != obj.scope:
-                variables = obj.type.variables
-                obj.type = obj.type.clone(variables=OrderedDict())
-                for k, v in variables.items():
-                    vtype = v.type.clone(parent=obj)
-                    vname = '%s%%%s' % (obj.name, v.basename)
-                    obj.type.variables[k] = Variable(name=vname, scope=obj.scope, type=vtype)
+        if obj.type is not None and isinstance(obj.type.dtype, DerivedType):
+            if obj.type.dtype.typedef is not BasicType.DEFERRED:
+                obj.type.dtype.variables = tuple(v.clone(name='%s%%%s' % (obj.name, v.basename),
+                                                         type=v.type.clone(parent=obj),
+                                                         scope=obj.scope)
+                                                 for v in obj.type.dtype.typedef.variables)
         return obj
 
 
@@ -358,6 +356,18 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         self.kind = kwargs.pop('kind', None)
         super(FloatLiteral, self).__init__(**kwargs)
 
+    def __hash__(self):
+        return hash((self.value, self.kind))
+
+    def __eq__(self, other):
+        if isinstance(other, FloatLiteral):
+            return self.value == other.value and self.kind == other.kind
+        else:
+            try:
+                return float(self.value) == float(other)
+            except:
+                return False
+
     def __getinitargs__(self):
         args = [self.value]
         if self.kind:
@@ -382,6 +392,18 @@ class IntLiteral(ExprMetadataMixin, _Literal):
         self.value = int(value)
         self.kind = kwargs.pop('kind', None)
         super(IntLiteral, self).__init__(**kwargs)
+
+    def __hash__(self):
+        return hash((self.value, self.kind))
+
+    def __eq__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value == other.value and self.kind == other.kind
+        else:
+            try:
+                return self.value == int(other)
+            except:
+                return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -427,6 +449,17 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
         super(StringLiteral, self).__init__(**kwargs)
 
+    def __hash__(self):
+        return hash(self.value)
+
+    def __eq__(self, other):
+        if isinstance(other, StringLiteral):
+            return self.value == other.value
+        elif isinstance(other, str):
+            return self.value == other
+        else:
+            return False
+
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
 
@@ -469,20 +502,20 @@ class Literal:
     @staticmethod
     def _from_literal(value, **kwargs):
 
-        cls_map = {DataType.INTEGER: IntLiteral, DataType.REAL: FloatLiteral,
-                   DataType.LOGICAL: LogicLiteral, DataType.CHARACTER: StringLiteral}
+        cls_map = {BasicType.INTEGER: IntLiteral, BasicType.REAL: FloatLiteral,
+                   BasicType.LOGICAL: LogicLiteral, BasicType.CHARACTER: StringLiteral}
 
         _type = kwargs.pop('type', None)
         if _type is None:
             if isinstance(value, int):
-                _type = DataType.INTEGER
+                _type = BasicType.INTEGER
             elif isinstance(value, float):
-                _type = DataType.REAL
+                _type = BasicType.REAL
             elif isinstance(value, str):
                 if str(value).lower() in ('.true.', 'true', '.false.', 'false'):
-                    _type = DataType.LOGICAL
+                    _type = BasicType.LOGICAL
                 else:
-                    _type = DataType.CHARACTER
+                    _type = BasicType.CHARACTER
 
         return cls_map[_type](value, **kwargs)
 

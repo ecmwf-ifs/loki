@@ -9,8 +9,9 @@ derived-type arguments in complex calling structures.
 
 from collections import defaultdict
 from loki import (
-    Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    CallStatement, Variable, SymbolType, ArraySubscript, RangeIndex, as_tuple
+    Transformation, FindVariables, FindNodes, Transformer,
+    SubstituteExpressions, CallStatement, Variable, SymbolType,
+    DerivedType, BasicType, ArraySubscript, RangeIndex, as_tuple
 )
 
 
@@ -55,16 +56,18 @@ class DerivedTypeArgumentsTransformation(Transformation):
         candidates = defaultdict(list)
 
         for arg in routine.arguments:
-            if arg.type.variables:
+            if isinstance(arg.type.dtype, DerivedType) and \
+                arg.type.dtype.typedef is not BasicType.DEFERRED:
+
                 # Skip derived types with no array members
                 if all(not v.type.pointer and not v.type.allocatable
-                       for v in arg.type.variables.values()):
+                       for v in arg.type.dtype.variables):
                     continue
 
                 # Add candidate type variables, preserving order from the typedef
                 arg_member_vars = set(v.basename.lower() for v in variables
                                       if v.parent.name.lower() == arg.name.lower())
-                candidates[arg] += [v for v in arg.type.variables.values()
+                candidates[arg] += [v for v in arg.type.dtype.variables
                                     if v.basename.lower() in arg_member_vars]
         return candidates
 
