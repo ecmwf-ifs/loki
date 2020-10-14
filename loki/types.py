@@ -112,7 +112,7 @@ class DerivedType:
     depending on the scope of the derived type declaration.
     """
 
-    def __init__(self, name=None, typedef=None, scope=None):
+    def __init__(self, name=None, typedef=None):
         assert name or typedef
         self.name = name or typedef.name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED

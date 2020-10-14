@@ -38,7 +38,7 @@ class Subroutine:
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, definitions=None, bind=None, is_function=False,
+                 members=None, ast=None, bind=None, is_function=False,
                  symbols=None, types=None, parent=None, source=None):
         self.name = name
         self._ast = ast
@@ -129,8 +129,7 @@ class Subroutine:
         name = name or ast.attrib['name']
         is_function = ast.tag == 'function'
         source = extract_source(ast, raw_source, full_lines=True)
-        obj = cls(name=name, ast=ast, definitions=definitions, parent=parent, is_function=is_function,
-                  source=source)
+        obj = cls(name=name, ast=ast, parent=parent, is_function=is_function, source=source)
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
@@ -167,8 +166,8 @@ class Subroutine:
             members = as_tuple(members)
 
         obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
-                     members=members, ast=ast, definitions=definitions, symbols=obj.symbols,
-                     types=obj.types, parent=parent, is_function=is_function, source=source)
+                     members=members, ast=ast, symbols=obj.symbols, types=obj.types,
+                     parent=parent, is_function=is_function, source=source)
         return obj
 
     @classmethod
