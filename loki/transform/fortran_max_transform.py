@@ -8,6 +8,7 @@ from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing
 )
+from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
     FindVariables, FindInlineCalls, SubstituteExpressions,
@@ -415,7 +416,7 @@ class FortranMaxTransformation(Transformation):
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         shift_to_zero_indexing(max_kernel)
         invert_array_indices(max_kernel)
-        self._replace_intrinsics(max_kernel, **kwargs)
+        replace_intrinsics(max_kernel, function_map={'mod': 'KernelMath.modulo'})
 
         return max_kernel
 
@@ -584,19 +585,3 @@ class FortranMaxTransformation(Transformation):
         # Assign the body of the SLiC interface routine
         slic_routine.body = ir.Section(body=as_tuple(call))
         return slic_routine
-
-    @staticmethod
-    def _replace_intrinsics(kernel, **kwargs):  # pylint: disable=unused-argument
-        """
-        Replace known numerical intrinsic functions.
-        """
-        _intrinsic_map = {'mod': 'KernelMath.modulo'}
-
-        callmap = {}
-        for c in FindInlineCalls(unique=False).visit(kernel.body):
-            cname = c.name.lower()
-            if cname in _intrinsic_map:
-                callmap[c] = sym.InlineCall(_intrinsic_map[cname], parameters=c.parameters,
-                                            kw_parameters=c.kw_parameters)
-
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

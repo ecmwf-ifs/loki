@@ -4,8 +4,10 @@ from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
 )
+from loki.transform.transform_utilities import replace_intrinsics
 from loki.expression import (
-    symbols as sym, FindVariables, SubstituteExpressions, FindInlineCalls)
+    symbols as sym, FindVariables, SubstituteExpressions, FindInlineCalls
+)
 from loki.backend import pygen, dacegen
 from loki.visitors import Transformer, FindNodes
 from loki import ir, Subroutine, SourceFile
@@ -57,24 +59,8 @@ class FortranPythonTransformation(Transformation):
         if kwargs.get('with_dace', False) is True:
             invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
-        cls._replace_intrinsics(kernel, **kwargs)
+
+        intrinsic_map = {'min': 'min', 'max': 'max', 'abs': 'abs'}
+        replace_intrinsics(kernel, function_map=intrinsic_map)
 
         return kernel
-
-    @staticmethod
-    def _replace_intrinsics(kernel, **kwargs):  # pylint: disable=unused-argument
-        """
-        Replace known numerical intrinsic functions.
-        """
-        _intrinsic_map = {
-            'min': 'min', 'max': 'max',
-            'abs': 'abs',
-        }
-
-        callmap = {}
-        for c in FindInlineCalls(unique=False).visit(kernel.body):
-            cname = c.name.lower()
-            if cname in _intrinsic_map:
-                callmap[c] = sym.InlineCall(_intrinsic_map[cname], parameters=c.parameters,
-                                            kw_parameters=c.kw_parameters)
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

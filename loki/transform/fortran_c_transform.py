@@ -6,6 +6,7 @@ from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing
 )
+from loki.transform.transform_utilities import replace_intrinsics
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
 from loki.ir import (
@@ -363,34 +364,9 @@ class FortranCTransformation(Transformation):
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
         invert_array_indices(kernel)
         shift_to_zero_indexing(kernel)
-        self._replace_intrinsics(kernel, **kwargs)
+
+        symbol_map = {'epsilon': 'DBL_EPSILON'}
+        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs', 'sign': 'copysign'}
+        replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
 
         return kernel
-
-    @staticmethod
-    def _replace_intrinsics(kernel, **kwargs):
-        """
-        Replace known numerical intrinsic functions.
-        """
-        _intrinsic_map = {
-            'epsilon': 'DBL_EPSILON',
-            'min': 'fmin', 'max': 'fmax',
-            'abs': 'fabs', 'sign': 'copysign',
-        }
-
-        callmap = {}
-        for c in FindInlineCalls(unique=False).visit(kernel.body):
-            cname = c.name.lower()
-            if cname in _intrinsic_map:
-                if cname == 'epsilon':
-                    callmap[c] = Variable(name=_intrinsic_map[cname], scope=kernel.symbols)
-                else:
-                    callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
-                                            kw_parameters=c.kw_parameters)
-
-        # Capture nesting by applying map to itself before applying to the kernel
-        for _ in range(2):
-            mapper = SubstituteExpressionsMapper(callmap)
-            callmap = {k: mapper(v) for k, v in callmap.items()}
-
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
