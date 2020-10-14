@@ -1,3 +1,32 @@
+"""
+Collection of classes to represent basic and complex types. The key ideas are:
+ * Expression symbols (eg. `Scalar`, `Array` or `Literal` has a
+   `SymbolType` accessible via the `.type` attribute. This encodes the
+   type definition in the local scope.
+ * Each symbol type can represent either a `BasicType`, which may be `DEFERRED`, or
+   a `DerivedType`. This is generally accessible as `symbol.type.dtype`.
+   TODO: A `ProcedureType` may be added soon.
+ * Each 'scope' object (eg. `Subroutine` or `Module` uses `TypeTable` objects to
+   map symbol instances to types and derived type definitions.
+
+           symbols.Variable  ---                      Subroutine | Module | TypeDef
+                                 \                            \      |      /
+                                  \                            \     |     /
+                                   SymbolType    ------------   SymbolTable
+                                 /     |      \
+                                /      |       \
+                       BasicType   DerivedType  (ProcedureType - not yet!)
+
+A note on scoping:
+==================
+When importing `TypeDef` objects into a local scope, a `DerivedType` object
+will act as a wrapper in the `symbol.type.dtype` attribute. Importantly, when
+variable instances based on this get created, the `DerivedType` object will
+re-create all member variable of the object in the local scope, which are then
+accessible via `symbol.type.dtype.variables`. If the original member declaration
+variables are required, these can be accessed via `symbol.type.dtype.typedef.variables`.
+"""
+
 import weakref
 from enum import IntEnum
 from collections import OrderedDict
