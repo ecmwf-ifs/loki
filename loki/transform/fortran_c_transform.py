@@ -1,18 +1,23 @@
 from pathlib import Path
 from collections import OrderedDict
-from itertools import count
 
 from loki.transform.transformation import Transformation
+from loki.transform.transform_array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_range_indexing
+)
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
-from loki.ir import (Section, Import, Intrinsic, Interface, CallStatement, Declaration,
-                     TypeDef, Statement, Scope, Loop)
+from loki.ir import (
+    Section, Import, Intrinsic, Interface, CallStatement, Declaration,
+    TypeDef, Statement, Scope
+)
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
-                             IntLiteral, Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper, LoopRange, ArraySubscript,
-                             retrieve_expressions)
+from loki.expression import (
+    Variable, FindVariables, InlineCall, RangeIndex, Scalar, Array,
+    SubstituteExpressions, FindInlineCalls, SubstituteExpressionsMapper
+)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, SymbolType, DerivedType, TypeTable
@@ -350,133 +355,17 @@ class FortranCTransformation(Transformation):
         kernel.body = Transformer(assoc_map).visit(kernel.body)
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
-        self._resolve_vector_notation(kernel, **kwargs)
-        self._resolve_omni_size_indexing(kernel, **kwargs)
+        # Clean up Fortran vector notation
+        resolve_vector_notation(kernel)
+        normalize_range_indexing(kernel)
 
+        # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        self._invert_array_indices(kernel, **kwargs)
-        self._shift_to_zero_indexing(kernel, **kwargs)
+        invert_array_indices(kernel)
+        shift_to_zero_indexing(kernel)
         self._replace_intrinsics(kernel, **kwargs)
 
         return kernel
-
-    @staticmethod
-    def _resolve_vector_notation(kernel, **kwargs):
-        """
-        Resolve implicit vector notation by inserting explicit loops
-        """
-        loop_map = {}
-        index_vars = set()
-        vmap = {}
-        for stmt in FindNodes(Statement).visit(kernel.body):
-            # Loop over all variables and replace them with loop indices
-            vdims = []
-            shape_index_map = {}
-            index_range_map = {}
-            for v in FindVariables(unique=False).visit(stmt):
-                if not isinstance(v, Array):
-                    continue
-
-                ivar_basename = 'i_%s' % stmt.target.basename
-                for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
-                    if isinstance(dim, RangeIndex):
-                        # Create new index variable
-                        vtype = SymbolType(BasicType.INTEGER)
-                        ivar = Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
-                                        scope=kernel.symbols)
-                        shape_index_map[s] = ivar
-                        index_range_map[ivar] = s
-
-                        if ivar not in vdims:
-                            vdims.append(ivar)
-
-                # Add index variable to range replacement
-                new_dims = as_tuple(shape_index_map.get(s, d)
-                                    for d, s in zip(v.dimensions.index_tuple, as_tuple(v.shape)))
-                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
-
-            index_vars.update(list(vdims))
-
-            # Recursively build new loop nest over all implicit dims
-            if len(vdims) > 0:
-                loop = None
-                body = stmt
-                for ivar in vdims:
-                    irange = index_range_map[ivar]
-                    if isinstance(irange, RangeIndex):
-                        bounds = LoopRange(irange.children)
-                    else:
-                        bounds = LoopRange((Literal(1), irange, Literal(1)))
-                    loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
-                    body = loop
-
-                loop_map[stmt] = loop
-
-        if len(loop_map) > 0:
-            kernel.body = Transformer(loop_map).visit(kernel.body)
-        kernel.variables += tuple(set(index_vars))
-
-        # Apply variable substitution
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
-    @staticmethod
-    def _resolve_omni_size_indexing(kernel, **kwargs):
-        """
-        Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
-        """
-        def is_omni_index(dim):
-            return (isinstance(dim, RangeIndex) and dim.lower in (1, IntLiteral(1)) and
-                    dim.step is None)
-        vmap = {}
-        for v in kernel.variables:
-            if isinstance(v, Array):
-                new_dims = [d.upper if is_omni_index(d) else d for d in v.dimensions.index_tuple]
-                new_shape = [d.upper if is_omni_index(d) else d for d in v.shape]
-                new_type = v.type.clone(shape=as_tuple(new_shape))
-                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)), type=new_type)
-        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
-
-    @staticmethod
-    def _invert_array_indices(kernel, **kwargs):
-        """
-        Invert data/loop accesses from column to row-major
-
-        TODO: Take care of the indexing shift between C and Fortran.
-        Basically, we are relying on the CGen to shift the iteration
-        indices and dearly hope that nobody uses the index's value.
-        """
-        # Invert array indices in the kernel body
-        vmap = {}
-        for v in FindVariables(unique=True).visit(kernel.body):
-            if isinstance(v, Array):
-                rdim = as_tuple(reversed(v.dimensions.index_tuple))
-                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
-        # Invert variable and argument dimensions for the automatic cast generation
-        for v in kernel.variables:
-            if isinstance(v, Array):
-                rdim = as_tuple(reversed(v.dimensions.index_tuple))
-                if v.shape:
-                    rshape = as_tuple(reversed(v.shape))
-                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim),
-                                      type=v.type.clone(shape=rshape))
-                else:
-                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
-        # kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
-        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
-
-    @staticmethod
-    def _shift_to_zero_indexing(kernel, **kwargs):
-        """
-        Shift each array indices to adjust to C indexing conventions
-        """
-        vmap = {}
-        for v in FindVariables(unique=False).visit(kernel.body):
-            if isinstance(v, Array):
-                new_dims = as_tuple(d - 1 for d in v.dimensions.index_tuple)
-                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
     @staticmethod
     def _replace_intrinsics(kernel, **kwargs):

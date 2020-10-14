@@ -2,11 +2,18 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from hashlib import sha256
 
-from loki.transform import Transformation, FortranCTransformation
+from loki.transform.transformation import Transformation
+from loki.transform.fortran_c_transform import FortranCTransformation
+from loki.transform.transform_array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_range_indexing
+)
 from loki.backend import maxjgen, fgen, cgen
-from loki.expression import (FindVariables, FindInlineCalls, SubstituteExpressions,
-                             ExpressionCallbackMapper, SubstituteExpressionsMapper,
-                             retrieve_expressions)
+from loki.expression import (
+    FindVariables, FindInlineCalls, SubstituteExpressions,
+    ExpressionCallbackMapper, SubstituteExpressionsMapper,
+    retrieve_expressions
+)
 import loki.ir as ir
 from loki.expression import symbols as sym
 from loki.module import Module
@@ -174,8 +181,8 @@ class FortranMaxTransformation(Transformation):
                                         'select_real_kind' in v.initial.name)]
 
         # Some vector notation sanitation
-        FortranCTransformation._resolve_vector_notation(max_kernel, **kwargs)
-        FortranCTransformation._resolve_omni_size_indexing(max_kernel, **kwargs)
+        resolve_vector_notation(max_kernel)
+        normalize_range_indexing(max_kernel)
 
         # Remove dataflow loops
         loop_map = {}
@@ -406,8 +413,8 @@ class FortranMaxTransformation(Transformation):
                 max_kernel.body.append(stmt)
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        FortranCTransformation._shift_to_zero_indexing(max_kernel, **kwargs)
-        FortranCTransformation._invert_array_indices(max_kernel, **kwargs)
+        shift_to_zero_indexing(max_kernel)
+        invert_array_indices(max_kernel)
         self._replace_intrinsics(max_kernel, **kwargs)
 
         return max_kernel
