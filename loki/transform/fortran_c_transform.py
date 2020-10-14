@@ -6,18 +6,20 @@ from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_range_indexing
 )
-from loki.transform.transform_utilities import replace_intrinsics
+from loki.transform.transform_utilities import (
+    replace_intrinsics, resolve_associates
+)
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, Declaration,
-    TypeDef, Statement, Scope
+    TypeDef, Statement
 )
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, FindVariables, InlineCall, RangeIndex, Scalar, Array,
-    SubstituteExpressions, FindInlineCalls, SubstituteExpressionsMapper
+    SubstituteExpressions
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
@@ -345,16 +347,7 @@ class FortranCTransformation(Transformation):
         SubstituteExpressions(vmap).visit(kernel.body)
 
         # Resolve implicit struct mappings through "associates"
-        assoc_map = {}
-        vmap = {}
-        for assoc in FindNodes(Scope).visit(kernel.body):
-            invert_assoc = {v.name: k for k, v in assoc.associations.items()}
-            for v in FindVariables(unique=False).visit(kernel.body):
-                if v.name in invert_assoc:
-                    vmap[v] = invert_assoc[v.name]
-            assoc_map[assoc] = assoc.body
-        kernel.body = Transformer(assoc_map).visit(kernel.body)
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+        resolve_associates(kernel)
 
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)

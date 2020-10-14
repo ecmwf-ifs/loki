@@ -4,11 +4,14 @@ Collection of utility routines to deal general conversion.
 
 """
 from loki.expression import (
-    symbols as sym, SubstituteExpressions, FindInlineCalls, SubstituteExpressionsMapper
+    symbols as sym, FindVariables, FindInlineCalls,
+    SubstituteExpressions, SubstituteExpressionsMapper
 )
+from loki.ir import Scope
+from loki.visitors import Transformer, FindNodes
 
 
-__all__ = ['replace_intrinsics']
+__all__ = ['replace_intrinsics', 'resolve_associates']
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None):
@@ -40,3 +43,19 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None):
         callmap = {k: mapper(v) for k, v in callmap.items()}
 
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
+
+
+def resolve_associates(routine):
+    """
+    Resolve implicit struct mappings through "associates"
+    """
+    assoc_map = {}
+    vmap = {}
+    for assoc in FindNodes(Scope).visit(routine.body):
+        invert_assoc = {v.name: k for k, v in assoc.associations.items()}
+        for v in FindVariables(unique=False).visit(routine.body):
+            if v.name in invert_assoc:
+                vmap[v] = invert_assoc[v.name]
+        assoc_map[assoc] = assoc.body
+    routine.body = Transformer(assoc_map).visit(routine.body)
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)

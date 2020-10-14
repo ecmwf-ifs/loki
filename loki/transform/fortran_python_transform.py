@@ -4,12 +4,12 @@ from loki.transform.transformation import Transformation
 from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
 )
-from loki.transform.transform_utilities import replace_intrinsics
-from loki.expression import (
-    symbols as sym, FindVariables, SubstituteExpressions, FindInlineCalls
+from loki.transform.transform_utilities import (
+    replace_intrinsics, resolve_associates
 )
+from loki.expression import symbols as sym, FindVariables, SubstituteExpressions
 from loki.backend import pygen, dacegen
-from loki.visitors import Transformer, FindNodes
+from loki.visitors import Transformer
 from loki import ir, Subroutine, SourceFile
 
 
@@ -43,16 +43,7 @@ class FortranPythonTransformation(Transformation):
         kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
 
         # Resolve implicit struct mappings through "associates"
-        assoc_map = {}
-        vmap = {}
-        for assoc in FindNodes(ir.Scope).visit(kernel.body):
-            invert_assoc = {v.name: k for k, v in assoc.associations.items()}
-            for v in FindVariables(unique=False).visit(kernel.body):
-                if v.name in invert_assoc:
-                    vmap[v] = invert_assoc[v.name]
-            assoc_map[assoc] = assoc.body
-        kernel.body = Transformer(assoc_map).visit(kernel.body)
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+        resolve_associates(kernel)
 
         # Do some vector and indexing transformations
         normalize_range_indexing(kernel)
