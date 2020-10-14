@@ -11,7 +11,27 @@ from loki.ir import Scope
 from loki.visitors import Transformer, FindNodes
 
 
-__all__ = ['replace_intrinsics', 'resolve_associates']
+__all__ = ['convert_to_lower_case', 'replace_intrinsics', 'resolve_associates']
+
+
+def convert_to_lower_case(routine):
+    """
+    Converts all variables and symbols in a subroutine to lower-case.
+
+    Note, this is intended for conversion to case-sensitive languages.
+
+    TODO: Should be extended to `Module` objects.
+    """
+
+    # Force all variables in a subroutine body to lower-caps
+    vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(routine.body)
+            if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+    # Down-case all subroutine arguments and variables
+    mapper = SubstituteExpressionsMapper(vmap)
+    routine.arguments = [mapper(arg) for arg in routine.arguments]
+    routine.variables = [mapper(var) for var in routine.variables]
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None):

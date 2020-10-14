@@ -5,9 +5,8 @@ from loki.transform.transform_array_indexing import (
     shift_to_zero_indexing, invert_array_indices, normalize_range_indexing
 )
 from loki.transform.transform_utilities import (
-    replace_intrinsics, resolve_associates
+    convert_to_lower_case, replace_intrinsics, resolve_associates
 )
-from loki.expression import symbols as sym, FindVariables, SubstituteExpressions
 from loki.backend import pygen, dacegen
 from loki.visitors import Transformer
 from loki import ir, Subroutine, SourceFile
@@ -38,9 +37,7 @@ class FortranPythonTransformation(Transformation):
         kernel.variables = routine.variables
 
         # Force all variables to lower-caps, as Python is case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(kernel.body)
-                if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+        convert_to_lower_case(kernel)
 
         # Resolve implicit struct mappings through "associates"
         resolve_associates(kernel)

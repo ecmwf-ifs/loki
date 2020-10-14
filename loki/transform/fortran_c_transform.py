@@ -7,7 +7,7 @@ from loki.transform.transform_array_indexing import (
     resolve_vector_notation, normalize_range_indexing
 )
 from loki.transform.transform_utilities import (
-    replace_intrinsics, resolve_associates
+    convert_to_lower_case, replace_intrinsics, resolve_associates
 )
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
@@ -315,14 +315,12 @@ class FortranCTransformation(Transformation):
         body = Transformer({}).visit(routine.body)
         body = Section(body=as_tuple(getter_calls) + as_tuple(body))
 
-        # Force all variables to lower-caps, as C/C++ is case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if isinstance(v, (Scalar, Array)) and not v.name.islower()}
-        body = SubstituteExpressions(vmap).visit(body)
-
         kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
+
+        # Force all variables to lower-caps, as C/C++ is case-sensitive
+        convert_to_lower_case(kernel)
 
         # Force pointer on reference-passed arguments
         arg_map = {}
