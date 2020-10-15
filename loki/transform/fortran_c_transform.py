@@ -9,6 +9,9 @@ from loki.transform.transform_array_indexing import (
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics, resolve_associates
 )
+from loki.transform.transform_inline import (
+    inline_constant_parameters
+)
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
 from loki.ir import (
@@ -317,6 +320,10 @@ class FortranCTransformation(Transformation):
         intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
                          if 'implicit' in i.text.lower()}
         kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
+
+        # Inline all known parameters, since they can be used in declarations,
+        # and thus need to be known before we can fetch them via getters.
+        inline_constant_parameters(kernel, external_only=True)
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)

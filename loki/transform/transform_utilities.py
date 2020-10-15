@@ -1,5 +1,5 @@
 """
-Collection of utility routines to deal general conversion.
+Collection of utility routines to deal with general language conversion.
 
 
 """
@@ -39,7 +39,7 @@ def convert_to_lower_case(routine):
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None):
     """
-    Replace known numerical intrinsic functions and symbols.
+    Replace known intrinsic functions and symbols.
 
     :param function_map: Map (string: string) for replacing intrinsic
                          functions (`InlineCall` objects).
