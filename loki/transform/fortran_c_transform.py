@@ -287,32 +287,36 @@ class FortranCTransformation(Transformation):
         such as the explicit getter calls for imported module-level variables.
         """
 
-        # Change imports to C header includes
-        imports = []
-        getter_calls = []
-        header_map = CaseInsensitiveDict({m.name: m for m in as_tuple(self.header_modules)})
-        for im in FindNodes(Import).visit(routine.spec):
-            if im.module in header_map:
-                # Create a C-header import
-                imports += [Import(module='%s_c.h' % im.module.lower(), c_import=True)]
+        kernel = routine
+        kernel.name = '%s_c' % kernel.name.lower()
 
         # Create calls to getter routines for module variables
-        for im in FindNodes(Import).visit(routine.spec):
+        getter_calls = []
+        for im in FindNodes(Import).visit(kernel.spec):
             for s in im.symbols:
                 if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED:
                     decl = Declaration(variables=(s,))
                     getter = '%s__get__%s' % (im.module.lower(), s.name.lower())
                     vget = Assignment(lhs=s, rhs=InlineCall(ProcedureSymbol(getter, scope=s.scope)))
                     getter_calls += [decl, vget]
+        kernel.body.prepend(getter_calls)
 
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=imports)
-        body = Transformer({}).visit(routine.body)
-        body = Section(body=as_tuple(getter_calls) + as_tuple(body))
+        # Change imports to C header includes
+        header_map = CaseInsensitiveDict({m.name: m for m in as_tuple(self.header_modules)})
+        import_map = {}
+        for im in FindNodes(Import).visit(kernel.spec):
+            if im.module in header_map:
+                # Create a C-header import for any converted modules
+                import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True)
+            else:
+                # Remove other imports, as they might include untreated Fortran code
+                import_map[im] = None
+        kernel.spec = Transformer(import_map).visit(kernel.spec)
 
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+        # Remove intrinsics from spec (eg. implicit none)
+        intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
+                         if 'implicit' in i.text.lower()}
+        kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)

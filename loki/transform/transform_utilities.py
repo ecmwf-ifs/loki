@@ -24,12 +24,15 @@ def convert_to_lower_case(routine):
     """
 
     # Force all variables in a subroutine body to lower-caps
-    vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(routine.body)
+    variables = [v for v in FindVariables().visit(routine.spec)]
+    variables += [v for v in FindVariables().visit(routine.body)]
+    vmap = {v: v.clone(name=v.name.lower()) for v in variables
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     # Down-case all subroutine arguments and variables
     mapper = SubstituteExpressionsMapper(vmap)
+
     routine.arguments = [mapper(arg) for arg in routine.arguments]
     routine.variables = [mapper(var) for var in routine.variables]
 
