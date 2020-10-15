@@ -291,24 +291,19 @@ class FortranCTransformation(Transformation):
         imports = []
         getter_calls = []
         header_map = CaseInsensitiveDict({m.name: m for m in as_tuple(self.header_modules)})
-        for imp in FindNodes(Import).visit(routine.spec):
-            if imp.module in header_map:
+        for im in FindNodes(Import).visit(routine.spec):
+            if im.module in header_map:
                 # Create a C-header import
-                imports += [Import(module='%s_c.h' % imp.module.lower(), c_import=True)]
+                imports += [Import(module='%s_c.h' % im.module.lower(), c_import=True)]
 
-                # For imported modulevariables, create a declaration and call the getter
-                module = header_map[imp.module]
-                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
-                mod_vars = {v.name.lower(): v for v in mod_vars}
-
-                for s in imp.symbols:
-                    if str(s).lower() in mod_vars:
-                        var = mod_vars[str(s).lower()]
-
-                        decl = Declaration(variables=(var,))
-                        getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
-                        getter_calls += [decl, vget]
+        # Create calls to getter routines for module variables
+        for im in FindNodes(Import).visit(routine.spec):
+            for s in im.symbols:
+                if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED:
+                    decl = Declaration(variables=(s,))
+                    getter = '%s__get__%s' % (im.module.lower(), s.name.lower())
+                    vget = Assignment(lhs=s, rhs=InlineCall(ProcedureSymbol(getter, scope=s.scope)))
+                    getter_calls += [decl, vget]
 
         # Replicate the kernel to strip the Fortran-specific boilerplate
         spec = Section(body=imports)

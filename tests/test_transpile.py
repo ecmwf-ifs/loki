@@ -374,7 +374,7 @@ module transpile_type_mod
 
   save
 
-  integer :: param1
+  integer :: PARAM1
   real(kind=real32) :: param2
   real(kind=real64) :: param3
 end module transpile_type_mod
@@ -383,13 +383,13 @@ end module transpile_type_mod
     fcode_routine = """
 subroutine transpile_module_variables(a, b, c)
   use iso_fortran_env, only: real32, real64
-  use transpile_type_mod, only: param1, param2, param3
+  use transpile_type_mod, only: PARAM1, param2, param3
 
   integer, intent(out) :: a
   real(kind=real32), intent(out) :: b
   real(kind=real64), intent(out) :: c
 
-  a = 1 + param1
+  a = 1 + PARAM1  ! Ensure downcasing is done right
   b = 1. + param2
   c = 1. + param3
 end subroutine transpile_module_variables
