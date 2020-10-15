@@ -1,7 +1,6 @@
 from loki.module import Module
 from loki.sourcefile import SourceFile
 from loki.subroutine import Subroutine
-from loki.ir import CallStatement
 
 
 __all__ = ['Transformation']

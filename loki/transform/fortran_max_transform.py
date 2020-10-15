@@ -2,11 +2,18 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from hashlib import sha256
 
-from loki.transform import Transformation, FortranCTransformation
+from loki.transform.transformation import Transformation
+from loki.transform.fortran_c_transform import FortranCTransformation
+from loki.transform.transform_array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_range_indexing
+)
+from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
-from loki.expression import (FindVariables, FindInlineCalls, SubstituteExpressions,
-                             ExpressionCallbackMapper, SubstituteExpressionsMapper,
-                             retrieve_expressions)
+from loki.expression import (
+    FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
+    SubstituteExpressionsMapper, retrieve_expressions
+)
 import loki.ir as ir
 from loki.expression import symbols as sym
 from loki.module import Module
@@ -39,7 +46,7 @@ class FortranMaxTransformation(Transformation):
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.name.lower()] = self.c_struct_typedef(arg.type)
+                self.c_structs[arg.type.name.lower()] = FortranCTransformation.c_struct_typedef(arg.type)
 
         # Create a copy of the kernel and apply some common transformations
         routine = routine.clone()
@@ -161,7 +168,7 @@ class FortranMaxTransformation(Transformation):
                 arg.type.pointer = True
         return routine
 
-    def _generate_dfe_kernel(self, routine, **kwargs):
+    def _generate_dfe_kernel(self, routine, **kwargs):  # pylint: disable=unused-argument
         # Create a copy for the MaxJ kernel
         max_kernel = routine.clone(name='{}Kernel'.format(routine.name))
 
@@ -174,8 +181,8 @@ class FortranMaxTransformation(Transformation):
                                         'select_real_kind' in v.initial.name)]
 
         # Some vector notation sanitation
-        FortranCTransformation._resolve_vector_notation(max_kernel, **kwargs)
-        FortranCTransformation._resolve_omni_size_indexing(max_kernel, **kwargs)
+        resolve_vector_notation(max_kernel)
+        normalize_range_indexing(max_kernel)
 
         # Remove dataflow loops
         loop_map = {}
@@ -406,9 +413,9 @@ class FortranMaxTransformation(Transformation):
                 max_kernel.body.append(stmt)
 
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        FortranCTransformation._shift_to_zero_indexing(max_kernel, **kwargs)
-        FortranCTransformation._invert_array_indices(max_kernel, **kwargs)
-        self._replace_intrinsics(max_kernel, **kwargs)
+        shift_to_zero_indexing(max_kernel)
+        invert_array_indices(max_kernel)
+        replace_intrinsics(max_kernel, function_map={'mod': 'KernelMath.modulo'})
 
         return max_kernel
 
@@ -577,19 +584,3 @@ class FortranMaxTransformation(Transformation):
         # Assign the body of the SLiC interface routine
         slic_routine.body = ir.Section(body=as_tuple(call))
         return slic_routine
-
-    @staticmethod
-    def _replace_intrinsics(kernel, **kwargs):  # pylint: disable=unused-argument
-        """
-        Replace known numerical intrinsic functions.
-        """
-        _intrinsic_map = {'mod': 'KernelMath.modulo'}
-
-        callmap = {}
-        for c in FindInlineCalls(unique=False).visit(kernel.body):
-            cname = c.name.lower()
-            if cname in _intrinsic_map:
-                callmap[c] = sym.InlineCall(_intrinsic_map[cname], parameters=c.parameters,
-                                            kw_parameters=c.kw_parameters)
-
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)

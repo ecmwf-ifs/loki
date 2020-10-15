@@ -1,18 +1,26 @@
 from pathlib import Path
 from collections import OrderedDict
-from itertools import count
 
 from loki.transform.transformation import Transformation
+from loki.transform.transform_array_indexing import (
+    shift_to_zero_indexing, invert_array_indices,
+    resolve_vector_notation, normalize_range_indexing
+)
+from loki.transform.transform_utilities import (
+    convert_to_lower_case, replace_intrinsics, resolve_associates
+)
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
-from loki.ir import (Section, Import, Intrinsic, Interface, CallStatement, Declaration,
-                     TypeDef, Statement, Scope, Loop)
+from loki.ir import (
+    Section, Import, Intrinsic, Interface, CallStatement, Declaration,
+    TypeDef, Statement
+)
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.expression import (Variable, FindVariables, InlineCall, RangeIndex, Scalar,
-                             IntLiteral, Literal, Array, SubstituteExpressions, FindInlineCalls,
-                             SubstituteExpressionsMapper, LoopRange, ArraySubscript,
-                             retrieve_expressions)
+from loki.expression import (
+    Variable, FindVariables, InlineCall, RangeIndex, Scalar, Array,
+    SubstituteExpressions
+)
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, SymbolType, DerivedType, TypeTable
@@ -307,14 +315,12 @@ class FortranCTransformation(Transformation):
         body = Transformer({}).visit(routine.body)
         body = Section(body=as_tuple(getter_calls) + as_tuple(body))
 
-        # Force all variables to lower-caps, as C/C++ is case-sensitive
-        vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(body)
-                if isinstance(v, (Scalar, Array)) and not v.name.islower()}
-        body = SubstituteExpressions(vmap).visit(body)
-
         kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
+
+        # Force all variables to lower-caps, as C/C++ is case-sensitive
+        convert_to_lower_case(kernel)
 
         # Force pointer on reference-passed arguments
         arg_map = {}
@@ -339,169 +345,19 @@ class FortranCTransformation(Transformation):
         SubstituteExpressions(vmap).visit(kernel.body)
 
         # Resolve implicit struct mappings through "associates"
-        assoc_map = {}
-        vmap = {}
-        for assoc in FindNodes(Scope).visit(kernel.body):
-            invert_assoc = {v.name: k for k, v in assoc.associations.items()}
-            for v in FindVariables(unique=False).visit(kernel.body):
-                if v.name in invert_assoc:
-                    vmap[v] = invert_assoc[v.name]
-            assoc_map[assoc] = assoc.body
-        kernel.body = Transformer(assoc_map).visit(kernel.body)
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
+        resolve_associates(kernel)
 
-        self._resolve_vector_notation(kernel, **kwargs)
-        self._resolve_omni_size_indexing(kernel, **kwargs)
+        # Clean up Fortran vector notation
+        resolve_vector_notation(kernel)
+        normalize_range_indexing(kernel)
 
+        # Convert array indexing to C conventions
         # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        self._invert_array_indices(kernel, **kwargs)
-        self._shift_to_zero_indexing(kernel, **kwargs)
-        self._replace_intrinsics(kernel, **kwargs)
+        invert_array_indices(kernel)
+        shift_to_zero_indexing(kernel)
+
+        symbol_map = {'epsilon': 'DBL_EPSILON'}
+        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs', 'sign': 'copysign'}
+        replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
 
         return kernel
-
-    @staticmethod
-    def _resolve_vector_notation(kernel, **kwargs):
-        """
-        Resolve implicit vector notation by inserting explicit loops
-        """
-        loop_map = {}
-        index_vars = set()
-        vmap = {}
-        for stmt in FindNodes(Statement).visit(kernel.body):
-            # Loop over all variables and replace them with loop indices
-            vdims = []
-            shape_index_map = {}
-            index_range_map = {}
-            for v in FindVariables(unique=False).visit(stmt):
-                if not isinstance(v, Array):
-                    continue
-
-                ivar_basename = 'i_%s' % stmt.target.basename
-                for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
-                    if isinstance(dim, RangeIndex):
-                        # Create new index variable
-                        vtype = SymbolType(BasicType.INTEGER)
-                        ivar = Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
-                                        scope=kernel.symbols)
-                        shape_index_map[s] = ivar
-                        index_range_map[ivar] = s
-
-                        if ivar not in vdims:
-                            vdims.append(ivar)
-
-                # Add index variable to range replacement
-                new_dims = as_tuple(shape_index_map.get(s, d)
-                                    for d, s in zip(v.dimensions.index_tuple, as_tuple(v.shape)))
-                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
-
-            index_vars.update(list(vdims))
-
-            # Recursively build new loop nest over all implicit dims
-            if len(vdims) > 0:
-                loop = None
-                body = stmt
-                for ivar in vdims:
-                    irange = index_range_map[ivar]
-                    if isinstance(irange, RangeIndex):
-                        bounds = LoopRange(irange.children)
-                    else:
-                        bounds = LoopRange((Literal(1), irange, Literal(1)))
-                    loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
-                    body = loop
-
-                loop_map[stmt] = loop
-
-        if len(loop_map) > 0:
-            kernel.body = Transformer(loop_map).visit(kernel.body)
-        kernel.variables += tuple(set(index_vars))
-
-        # Apply variable substitution
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
-    @staticmethod
-    def _resolve_omni_size_indexing(kernel, **kwargs):
-        """
-        Replace the ``(1:size)`` indexing in array sizes that OMNI introduces
-        """
-        def is_omni_index(dim):
-            return (isinstance(dim, RangeIndex) and dim.lower in (1, IntLiteral(1)) and
-                    dim.step is None)
-        vmap = {}
-        for v in kernel.variables:
-            if isinstance(v, Array):
-                new_dims = [d.upper if is_omni_index(d) else d for d in v.dimensions.index_tuple]
-                new_shape = [d.upper if is_omni_index(d) else d for d in v.shape]
-                new_type = v.type.clone(shape=as_tuple(new_shape))
-                vmap[v] = v.clone(dimensions=ArraySubscript(as_tuple(new_dims)), type=new_type)
-        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
-
-    @staticmethod
-    def _invert_array_indices(kernel, **kwargs):
-        """
-        Invert data/loop accesses from column to row-major
-
-        TODO: Take care of the indexing shift between C and Fortran.
-        Basically, we are relying on the CGen to shift the iteration
-        indices and dearly hope that nobody uses the index's value.
-        """
-        # Invert array indices in the kernel body
-        vmap = {}
-        for v in FindVariables(unique=True).visit(kernel.body):
-            if isinstance(v, Array):
-                rdim = as_tuple(reversed(v.dimensions.index_tuple))
-                vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
-        # Invert variable and argument dimensions for the automatic cast generation
-        for v in kernel.variables:
-            if isinstance(v, Array):
-                rdim = as_tuple(reversed(v.dimensions.index_tuple))
-                if v.shape:
-                    rshape = as_tuple(reversed(v.shape))
-                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim),
-                                      type=v.type.clone(shape=rshape))
-                else:
-                    vmap[v] = v.clone(dimensions=ArraySubscript(rdim))
-        # kernel.arguments = [vmap.get(v, v) for v in kernel.arguments]
-        kernel.variables = [vmap.get(v, v) for v in kernel.variables]
-
-    @staticmethod
-    def _shift_to_zero_indexing(kernel, **kwargs):
-        """
-        Shift each array indices to adjust to C indexing conventions
-        """
-        vmap = {}
-        for v in FindVariables(unique=False).visit(kernel.body):
-            if isinstance(v, Array):
-                new_dims = as_tuple(d - 1 for d in v.dimensions.index_tuple)
-                vmap[v] = v.clone(dimensions=ArraySubscript(new_dims))
-        kernel.body = SubstituteExpressions(vmap).visit(kernel.body)
-
-    @staticmethod
-    def _replace_intrinsics(kernel, **kwargs):
-        """
-        Replace known numerical intrinsic functions.
-        """
-        _intrinsic_map = {
-            'epsilon': 'DBL_EPSILON',
-            'min': 'fmin', 'max': 'fmax',
-            'abs': 'fabs', 'sign': 'copysign',
-        }
-
-        callmap = {}
-        for c in FindInlineCalls(unique=False).visit(kernel.body):
-            cname = c.name.lower()
-            if cname in _intrinsic_map:
-                if cname == 'epsilon':
-                    callmap[c] = Variable(name=_intrinsic_map[cname], scope=kernel.symbols)
-                else:
-                    callmap[c] = InlineCall(_intrinsic_map[cname], parameters=c.parameters,
-                                            kw_parameters=c.kw_parameters)
-
-        # Capture nesting by applying map to itself before applying to the kernel
-        for _ in range(2):
-            mapper = SubstituteExpressionsMapper(callmap)
-            callmap = {k: mapper(v) for k, v in callmap.items()}
-
-        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
