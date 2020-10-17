@@ -29,7 +29,14 @@ def convert_to_lower_case(routine):
     variables += [v for v in FindVariables().visit(routine.body)]
     vmap = {v: v.clone(name=v.name.lower()) for v in variables
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
+
+    # Capture nesting by applying map to itself before applying to the routine
+    for _ in range(2):
+        mapper = SubstituteExpressionsMapper(vmap)
+        vmap = {k: mapper(v) for k, v in vmap.items()}
+
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
     # Down-case all subroutine arguments and variables
     mapper = SubstituteExpressionsMapper(vmap)
