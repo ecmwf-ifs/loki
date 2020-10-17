@@ -9,6 +9,7 @@ from loki.expression import (
 )
 from loki.ir import Associate
 from loki.visitors import Transformer, FindNodes
+from loki.tools import CaseInsensitiveDict
 
 
 __all__ = ['convert_to_lower_case', 'replace_intrinsics', 'resolve_associates']
@@ -76,7 +77,7 @@ def resolve_associates(routine):
     assoc_map = {}
     vmap = {}
     for assoc in FindNodes(Associate).visit(routine.body):
-        invert_assoc = {v.name: k for k, v in assoc.associations.items()}
+        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations.items()})
         for v in FindVariables(unique=False).visit(routine.body):
             if v.name in invert_assoc:
                 vmap[v] = invert_assoc[v.name]
