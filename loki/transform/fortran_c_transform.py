@@ -293,6 +293,19 @@ class FortranCTransformation(Transformation):
         kernel = routine
         kernel.name = '%s_c' % kernel.name.lower()
 
+        # Clean up Fortran vector notation
+        resolve_vector_notation(kernel)
+        normalize_range_indexing(kernel)
+
+        # Convert array indexing to C conventions
+        # TODO: Resolve reductions (eg. SUM(myvar(:)))
+        invert_array_indices(kernel)
+        shift_to_zero_indexing(kernel)
+
+        # Inline all known parameters, since they can be used in declarations,
+        # and thus need to be known before we can fetch them via getters.
+        inline_constant_parameters(kernel, external_only=True)
+
         # Create calls to getter routines for module variables
         getter_calls = []
         for im in FindNodes(Import).visit(kernel.spec):
@@ -321,9 +334,8 @@ class FortranCTransformation(Transformation):
                          if 'implicit' in i.text.lower()}
         kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 
-        # Inline all known parameters, since they can be used in declarations,
-        # and thus need to be known before we can fetch them via getters.
-        inline_constant_parameters(kernel, external_only=True)
+        # Resolve implicit struct mappings through "associates"
+        resolve_associates(kernel)
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)
@@ -350,20 +362,9 @@ class FortranCTransformation(Transformation):
                 vmap[v] = v.clone(type=dtype)
         SubstituteExpressions(vmap).visit(kernel.body)
 
-        # Resolve implicit struct mappings through "associates"
-        resolve_associates(kernel)
-
-        # Clean up Fortran vector notation
-        resolve_vector_notation(kernel)
-        normalize_range_indexing(kernel)
-
-        # Convert array indexing to C conventions
-        # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        invert_array_indices(kernel)
-        shift_to_zero_indexing(kernel)
-
         symbol_map = {'epsilon': 'DBL_EPSILON'}
-        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs', 'sign': 'copysign'}
+        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
+                        'EXP': 'exp', 'SQRT': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
 
         return kernel
