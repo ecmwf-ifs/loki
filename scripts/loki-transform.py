@@ -258,14 +258,13 @@ def transpile(out_path, header, source, driver, xmod, include, frontend):
     driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
-    typepaths = [Path(h) for h in header]
-    typemods = [SourceFile.from_file(tp, frontend=frontend_type)[tp.stem] for tp in typepaths]
-    for typemod in typemods:
-        FortranCTransformation().apply(source=typemod, path=out_path)
-
     # Now we instantiate our pipeline and apply the changes
-    transformation = FortranCTransformation(header_modules=typemods)
+    transformation = FortranCTransformation()
     transformation.apply(kernel, path=out_path)
+
+    # Traverse header modules to create getter functions for module variables
+    for header in definitions:
+        transformation.apply(header, path=out_path)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')

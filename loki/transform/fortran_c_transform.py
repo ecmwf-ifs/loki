@@ -40,8 +40,6 @@ class FortranCTransformation(Transformation):
     # pylint: disable=unused-argument
 
     def __init__(self, header_modules=None):
-        # Fortran modules that can be imported as C headers
-        self.header_modules = header_modules or None
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -53,7 +51,7 @@ class FortranCTransformation(Transformation):
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
         # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper_module(module, self.c_structs)
+        wrapper = self.generate_iso_c_wrapper_module(module)
         self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
         SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
@@ -170,9 +168,13 @@ class FortranCTransformation(Transformation):
         return wrapper
 
     @classmethod
-    def generate_iso_c_wrapper_module(cls, module, c_structs):
+    def generate_iso_c_wrapper_module(cls, module):
         """
         Generate the ISO-C wrapper module for a raw Fortran module.
+
+        Note, we only create getter functions for module variables here,
+        since certain type definitions cannot be used in ISO-C interfaces
+        due to pointer variables, etc.
         """
         # Generate bind(c) intrinsics for module variables
         original_import = Import(module=module.name)
@@ -180,9 +182,6 @@ class FortranCTransformation(Transformation):
                              symbols=('c_int', 'c_double', 'c_float'))
         implicit_none = Intrinsic(text='implicit none')
         spec = [original_import, isoc_import, implicit_none]
-
-        # Add module-based derived type/struct definitions
-        spec += list(c_structs.values())
 
         module_scope = Scope()
 
@@ -311,6 +310,9 @@ class FortranCTransformation(Transformation):
         for im in FindNodes(Import).visit(kernel.spec):
             for s in im.symbols:
                 if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED:
+                    # Skip parameters, as they will be inlined
+                    if s.type.parameter:
+                        continue
                     decl = Declaration(variables=(s,))
                     getter = '%s__get__%s' % (im.module.lower(), s.name.lower())
                     vget = Assignment(lhs=s, rhs=InlineCall(ProcedureSymbol(getter, scope=s.scope)))
@@ -318,10 +320,9 @@ class FortranCTransformation(Transformation):
         kernel.body.prepend(getter_calls)
 
         # Change imports to C header includes
-        header_map = CaseInsensitiveDict({m.name: m for m in as_tuple(self.header_modules)})
         import_map = {}
         for im in FindNodes(Import).visit(kernel.spec):
-            if im.module in header_map:
+            if not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
                 import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True)
             else:
