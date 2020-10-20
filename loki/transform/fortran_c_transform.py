@@ -211,6 +211,29 @@ class FortranCTransformation(Transformation):
                                                      scope=getter.scope))
                 wrappers += [getter]
 
+        # Create function interface definitions for module functions
+        intfs = []
+        for fct in module.subroutines:
+            if fct.is_function:
+                intf_fct = fct.clone(bind='%s' % fct.name.lower())
+                intf_fct.body = Section(body=())
+
+                intf_args = []
+                for arg in intf_fct.arguments:
+                    # Only scalar, intent(in) arguments are pass by value
+                    # Pass by reference for array types
+                    value = isinstance(arg, Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
+                    ctype = SymbolType(arg.type.dtype, value=value,
+                                       kind=cls.iso_c_intrinsic_kind(arg.type))
+                    dimensions = arg.dimensions if isinstance(arg, Array) else None
+                    var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
+                                   scope=intf_fct.scope)
+                    intf_args += (var,)
+                intf_fct.arguments = intf_args
+
+                intfs.append(intf_fct)
+        spec.append(Interface(body=(intfs,)))
+
         modname = '{}_fc'.format(module.name)
         return Module(name=modname, spec=spec, routines=wrappers, scope=module_scope)
 
@@ -283,6 +306,17 @@ class FortranCTransformation(Transformation):
                                              comment=decl.comment, pragma=decl.pragma)]
             td = td.clone(body=declarations)
             spec += [td]
+
+        # Generate a header declaration for module routines
+        for fct in module.subroutines:
+            if fct.is_function:
+                fct_type = 'void'
+                if fct.name in fct.variables:
+                    fct_type = self.c_intrinsic_kind(fct.variable_map[fct.name.lower()].type)
+
+                args = ['{} {}'.format(self.c_intrinsic_kind(a.type), a.name.lower()) for a in fct.arguments]
+                fct_decl = '{} {}({});'.format(fct_type, fct.name.lower(), ', '.join(args))
+                spec.append(Intrinsic(text=fct_decl))
 
         # Re-generate header module without subroutines
         return Module(name='%s_c' % module.name, spec=spec)
