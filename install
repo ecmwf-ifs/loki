@@ -24,6 +24,8 @@ is_ecmwf=false
 venv_path=
 with_jdk=false
 with_ant=false
+with_claw=false
+with_max=false
 
 # Helper functions
 print_usage() {
@@ -62,6 +64,9 @@ while getopts "$optspec" optchar; do
         with-claw)   # Enable installation of OMNI+CLAW
           with_claw=true
           ;;
+        with-max)    # Enable experimental use of Maxeler simulator
+          with_max=true
+          ;;
         *)
           echo "Unknown option '--${OPTARG}'." >&2
           print_usage
@@ -83,6 +88,7 @@ while getopts "$optspec" optchar; do
       echo "  --with-jdk            Install JDK instead of using system version"
       echo "  --with-ant            Install ant instead of using system version"
       echo "  --with-claw           Install CLAW and OMNI Compiler"
+      echo "  --with-max            Enable experimental use of Maxeler simulator (requires --ecmwf)"
       exit 2
       ;;
     v)
@@ -106,6 +112,13 @@ if [ "$verbose" == true ]; then
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
   [[ "$with_ant" == true ]]  && echo "    --with-ant"
   [[ "$with_claw" == true ]] && echo "    --with-claw"
+  [[ "$with_max" == true ]]  && echo "    --with-max"
+fi
+
+# Sanity checks
+if [[ "$with_max" == true && "$is_ecmwf" == false ]]; then
+  echo "Error: Option '--with-max' requires '--ecmwf'."
+  exit 1
 fi
 
 # Load modules
@@ -289,6 +302,14 @@ fi
 # Inject CLAW into env
 if [ "$with_claw" == true ]; then
   path_var=${CLAW_INSTALL_DIR}/bin:$path_var
+fi
+
+if [ "$with_max" == true ]; then
+  path_var=/perm/rd/nabr/maxeler/bin:$path_var
+  echo "
+export MAXCOMPILERDIR=/perm/rd/nabr/maxeler/latest/maxcompiler
+export MAXELEROSDIR=/perm/rd/nabr/maxeler/latest/maxcompiler/lib/maxeleros-sim
+" >> "${loki_path}/loki-activate"
 fi
 
 # Update path variable
