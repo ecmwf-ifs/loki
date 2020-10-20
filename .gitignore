@@ -41,6 +41,13 @@ tests/test_transpile/CMakeCache.txt
 tests/test_transpile/Makefile
 tests/test_transpile/cmake_install.cmake
 
+# Installation artifacts
 loki_env/*
-
 loki-activate
+
+# Docs
+docs/build
+docs/source/loki*
+docs/source/lint_rules.*
+docs/source/raps_deps.rst
+docs/source/transformations.*

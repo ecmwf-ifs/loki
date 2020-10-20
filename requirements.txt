@@ -24,3 +24,9 @@ pytest-cov
 coverage2clover
 pylint
 pytest-pylint
+
+# For docs
+sphinx
+recommonmark
+sphinxcontrib-confluencebuilder
+sphinx-rtd-theme
