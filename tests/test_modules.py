@@ -92,11 +92,7 @@ end module a_module
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', [
-    FP,
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Typedefs not yet supported in frontend')),
-    OMNI
-])
+@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
 def test_module_external_typedefs_type(frontend):
     """
     Test that externally provided type information is correctly
@@ -132,7 +128,7 @@ end module a_module
 """
 
     external = Module.from_source(fcode_external, frontend=frontend)
-    assert'ext_type' in external.typedefs
+    assert 'ext_type' in external.typedefs
 
     module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
     nested = module.typedefs['nested_type']
