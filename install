@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 
 # Configuration of package versions:
 loki_ant_version=1.10.9
 
 ecmwf_java_version=11.0.1
 ecmwf_python_version=3.7.1-01
-ecmwf_cmake_version=3.15.0
+ecmwf_cmake_version=3.17.0
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
@@ -143,7 +143,6 @@ fi
 # Activate Python virtualenv
 #
 
-[[ "$VIRTUAL_ENV" != "" ]] && deactivate
 print_step "Activating virtualenv"
 source "${venv_path}/bin/activate"
 
