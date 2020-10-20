@@ -219,11 +219,11 @@ end subroutine transpile_derived_type
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
@@ -245,7 +245,6 @@ end subroutine transpile_derived_type
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 
@@ -301,11 +300,11 @@ end subroutine transpile_associates
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
@@ -327,7 +326,6 @@ end subroutine transpile_associates
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 
@@ -408,11 +406,11 @@ end subroutine transpile_module_variables
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
@@ -431,7 +429,6 @@ end subroutine transpile_module_variables
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 

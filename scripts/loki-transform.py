@@ -260,11 +260,11 @@ def transpile(out_path, header, source, driver, xmod, include, frontend):
 
     # Now we instantiate our pipeline and apply the changes
     transformation = FortranCTransformation()
-    transformation.apply(kernel, path=out_path)
+    transformation.apply(kernel, role='kernel', path=out_path)
 
     # Traverse header modules to create getter functions for module variables
     for header in definitions:
-        transformation.apply(header, path=out_path)
+        transformation.apply(header, role='header', path=out_path)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')

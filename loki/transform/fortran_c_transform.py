@@ -46,37 +46,41 @@ class FortranCTransformation(Transformation):
 
     def transform_module(self, module, **kwargs):
         path = Path(kwargs.get('path'))
+        role = kwargs.get('role', 'kernel')
 
         for name, td in module.typedefs.items():
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
-        # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper_module(module)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-        SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+        if role == 'header':
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_module(module)
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
-        # Generate C header file from module
-        c_header = self.generate_c_header(module)
-        self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-        SourceFile.to_file(source=cgen(c_header), path=self.c_path)
+            # Generate C header file from module
+            c_header = self.generate_c_header(module)
+            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+            SourceFile.to_file(source=cgen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         path = Path(kwargs.get('path'))
+        role = kwargs.get('role', 'kernel')
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
-        # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-        module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
-        SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
+        if role == 'kernel':
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
+            SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
 
-        # Generate C source file from Loki IR
-        c_kernel = self.generate_c_kernel(routine)
-        self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-        SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
+            # Generate C source file from Loki IR
+            c_kernel = self.generate_c_kernel(routine)
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
 
     @classmethod
     def c_struct_typedef(cls, derived):
