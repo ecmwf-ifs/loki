@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Statement, Intrinsic, Variable,
+    OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, TypeTable, BasicType, SymbolType
 )
@@ -134,17 +134,17 @@ end subroutine literals
 
     # In addition to value testing, let's make sure
     # that we created the correct expression types
-    stmts = FindNodes(Statement).visit(routine.body)
-    assert isinstance(stmts[0].expr, IntLiteral)
-    assert isinstance(stmts[1].expr, FloatLiteral)
-    assert isinstance(stmts[2].expr, FloatLiteral)
-    assert isinstance(stmts[3].expr, FloatLiteral)
-    assert stmts[3].expr.kind in ['jprb']
-    assert isinstance(stmts[4].expr, Cast)
-    assert str(stmts[4].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
-    assert isinstance(stmts[5].expr, Cast)
-    assert str(stmts[5].expr.kind) in ['selected_real_kind(13, 300)', 'jprb']
-    assert isinstance(stmts[6].expr, Cast)
+    stmts = FindNodes(Assignment).visit(routine.body)
+    assert isinstance(stmts[0].rhs, IntLiteral)
+    assert isinstance(stmts[1].rhs, FloatLiteral)
+    assert isinstance(stmts[2].rhs, FloatLiteral)
+    assert isinstance(stmts[3].rhs, FloatLiteral)
+    assert stmts[3].rhs.kind in ['jprb']
+    assert isinstance(stmts[4].rhs, Cast)
+    assert str(stmts[4].rhs.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert isinstance(stmts[5].rhs, Cast)
+    assert str(stmts[5].rhs.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert isinstance(stmts[6].rhs, Cast)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -176,13 +176,13 @@ end subroutine boz_literals
     if frontend is not OMNI:
         # Note: Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
         # Note: FP converts constants to upper case
-        stmts = FindNodes(Statement).visit(routine.body)
-        assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == "B'00000'"
-        assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value == 'b"101010"'
-        assert isinstance(stmts[2].expr, IntrinsicLiteral) and stmts[2].expr.value == "O'737'"
-        assert isinstance(stmts[3].expr, IntrinsicLiteral) and stmts[3].expr.value == 'o"007"'
-        assert isinstance(stmts[4].expr, IntrinsicLiteral) and stmts[4].expr.value == "Z'CAFE'"
-        assert isinstance(stmts[5].expr, IntrinsicLiteral) and stmts[5].expr.value == 'z"babe"'
+        stmts = FindNodes(Assignment).visit(routine.body)
+        assert isinstance(stmts[0].rhs, IntrinsicLiteral) and stmts[0].rhs.value == "B'00000'"
+        assert isinstance(stmts[1].rhs, IntrinsicLiteral) and stmts[1].rhs.value == 'b"101010"'
+        assert isinstance(stmts[2].rhs, IntrinsicLiteral) and stmts[2].rhs.value == "O'737'"
+        assert isinstance(stmts[3].rhs, IntrinsicLiteral) and stmts[3].rhs.value == 'o"007"'
+        assert isinstance(stmts[4].rhs, IntrinsicLiteral) and stmts[4].rhs.value == "Z'CAFE'"
+        assert isinstance(stmts[5].rhs, IntrinsicLiteral) and stmts[5].rhs.value == 'z"babe"'
 
 
 @pytest.mark.parametrize('frontend', [
@@ -212,13 +212,13 @@ end subroutine complex_literals
     assert c1 == (1-1j) and c2 == (3+2e8j) and c3 == (21+4j)
 
     # In addition to value testing, let's make sure that we created the correct expression types
-    stmts = FindNodes(Statement).visit(routine.body)
-    assert isinstance(stmts[0].expr, IntrinsicLiteral) and stmts[0].expr.value == '(1.0, -1.0)'
+    stmts = FindNodes(Assignment).visit(routine.body)
+    assert isinstance(stmts[0].rhs, IntrinsicLiteral) and stmts[0].rhs.value == '(1.0, -1.0)'
     # Note: Here, for inconsistency, FP converts the exponential letter 'e' to lower case...
-    assert isinstance(stmts[1].expr, IntrinsicLiteral) and stmts[1].expr.value.lower() == '(3, 2e8)'
-    assert isinstance(stmts[2].expr, IntrinsicLiteral)
+    assert isinstance(stmts[1].rhs, IntrinsicLiteral) and stmts[1].rhs.value.lower() == '(3, 2e8)'
+    assert isinstance(stmts[2].rhs, IntrinsicLiteral)
     try:
-        assert stmts[2].expr.value == '(21_2, 4._8)'
+        assert stmts[2].rhs.value == '(21_2, 4._8)'
     except AssertionError as excinfo:
         if frontend == OMNI:
             pytest.xfail('OMNI wrongfully assigns the same kind to real and imaginary part')
@@ -318,7 +318,7 @@ subroutine parenthesis(v1, v2, v3)
 end subroutine parenthesis
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = FindNodes(Statement).visit(routine.body)[0]
+    stmt = FindNodes(Assignment).visit(routine.body)[0]
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
@@ -350,7 +350,7 @@ subroutine commutativity(v1, v2, v3)
 end subroutine commutativity
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = FindNodes(Statement).visit(routine.body)[0]
+    stmt = FindNodes(Assignment).visit(routine.body)[0]
 
     # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
@@ -686,7 +686,7 @@ end subroutine pointer_nullify
     nullify_stmts = FindNodes(Nullify).visit(routine.body)
     assert len(nullify_stmts) == 1
     assert nullify_stmts[0].variables[0].name == 'pp'
-    assert [stmt.ptr for stmt in FindNodes(Statement).visit(routine.body)].count(True) == 2
+    assert [stmt.ptr for stmt in FindNodes(Assignment).visit(routine.body)].count(True) == 2
 
     # Execute the generated identity (to verify it is valid Fortran)
     function = jit_compile(routine, filepath=filepath, objname='pointer_nullify')

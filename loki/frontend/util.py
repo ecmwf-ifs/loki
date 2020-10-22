@@ -4,7 +4,7 @@ from pathlib import Path
 import codecs
 
 from loki.visitors import Visitor, NestedTransformer, FindNodes
-from loki.ir import (Statement, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
+from loki.ir import (Assignment, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
 from loki.frontend.source import Source
 from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
@@ -104,7 +104,7 @@ def inline_comments(ir):
     """
     Identify inline comments and merge them onto statements
     """
-    pairs = PatternFinder(pattern=(Statement, Comment)).visit(ir)
+    pairs = PatternFinder(pattern=(Assignment, Comment)).visit(ir)
     pairs += PatternFinder(pattern=(Declaration, Comment)).visit(ir)
     mapper = {}
     for pair in pairs:
@@ -172,7 +172,7 @@ def inline_labels(ir):
     has labels as nodes next to the corresponding statement without
     any connection between both.
     """
-    pairs = PatternFinder(pattern=(Comment, Statement)).visit(ir)
+    pairs = PatternFinder(pattern=(Comment, Assignment)).visit(ir)
     pairs += PatternFinder(pattern=(Comment, Intrinsic)).visit(ir)
     pairs += PatternFinder(pattern=(Comment, Loop)).visit(ir)
     mapper = {}

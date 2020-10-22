@@ -7,7 +7,7 @@ from itertools import count
 
 from loki.expression import symbols as sym, FindVariables, SubstituteExpressions
 from loki.visitors import FindNodes
-from loki.ir import Statement, Loop
+from loki.ir import Assignment, Loop
 from loki.types import SymbolType, BasicType
 from loki.visitors import Transformer
 from loki.tools import as_tuple
@@ -74,7 +74,7 @@ def resolve_vector_notation(routine):
     loop_map = {}
     index_vars = set()
     vmap = {}
-    for stmt in FindNodes(Statement).visit(routine.body):
+    for stmt in FindNodes(Assignment).visit(routine.body):
         # Loop over all variables and replace them with loop indices
         vdims = []
         shape_index_map = {}
@@ -83,7 +83,7 @@ def resolve_vector_notation(routine):
             if not isinstance(v, sym.Array):
                 continue
 
-            ivar_basename = 'i_%s' % stmt.target.basename
+            ivar_basename = 'i_%s' % stmt.lhs.basename
             for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
                     # Create new index variable

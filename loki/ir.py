@@ -8,11 +8,11 @@ from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import TypeTable
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
+__all__ = ['Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement', 'CallContext',
            'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
            'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
            'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective',
-           'ConditionalStatement']
+           'ConditionalAssignment']
 
 
 class Node:
@@ -261,27 +261,27 @@ class Conditional(Node):
         return 'Conditional::'
 
 
-class ConditionalStatement(Node):
+class ConditionalAssignment(Node):
     """
     Internal representation of an inline conditional
     """
 
-    _traversable = ['condition', 'target', 'expr', 'else_expr']
+    _traversable = ['condition', 'lhs', 'rhs', 'else_expr']
 
-    def __init__(self, target, condition, expr, else_expr, source=None):
-        super(ConditionalStatement, self).__init__(source=source)
+    def __init__(self, lhs, condition, rhs, else_expr, source=None):
+        super(ConditionalAssignment, self).__init__(source=source)
 
-        self.target = target
+        self.lhs = lhs
         self.condition = condition
-        self.expr = expr
+        self.rhs = rhs
         self.else_expr = else_expr
 
     @property
     def children(self):
-        return tuple((self.condition,) + (self.target,) + (self.expr,) + (self.else_expr,))
+        return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_expr,))
 
     def __repr__(self):
-        return 'CondStmt:: %s = %s ? %s : %s' % (self.target, self.condition, self.expr,
+        return 'CondStmt:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
                                                  self.else_expr)
 
 
@@ -315,30 +315,30 @@ class MultiConditional(Node):
         return 'MultiConditional::{} {}'.format(label, str(self.expr))
 
 
-class Statement(Node):
+class Assignment(Node):
     """
     Internal representation of a variable assignment
     """
 
-    _traversable = ['target', 'expr']
+    _traversable = ['lhs', 'rhs']
 
-    def __init__(self, target, expr, ptr=False, comment=None, **kwargs):
-        super(Statement, self).__init__(**kwargs)
+    def __init__(self, lhs, rhs, ptr=False, comment=None, **kwargs):
+        super(Assignment, self).__init__(**kwargs)
 
-        assert isinstance(target, Expression)
-        assert isinstance(expr, Expression)
+        assert isinstance(lhs, Expression)
+        assert isinstance(rhs, Expression)
 
-        self.target = target
-        self.expr = expr
+        self.lhs = lhs
+        self.rhs = rhs
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
     @property
     def children(self):
-        return tuple((self.target,) + (self.expr,))
+        return tuple((self.lhs,) + (self.rhs,))
 
     def __repr__(self):
-        return 'Statement:: {} = {}'.format(str(self.target), str(self.expr))
+        return 'Statement:: {} = {}'.format(str(self.lhs), str(self.rhs))
 
 
 class MaskedStatement(Node):

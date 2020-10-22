@@ -3,7 +3,7 @@ from pymbolic.primitives import Expression
 
 from loki import (
     OFP, OMNI, FP,
-    Module, Subroutine, Section, Loop, Statement, Conditional, Sum,
+    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
     ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer)
@@ -134,7 +134,7 @@ end subroutine routine_simple
     assert sorted([str(v) for v in loops[0][1]]) == ['i', 'x']
 
     # Verify that the variables in the statements are found
-    stmts = [v for v in variables if isinstance(v[0], Statement)]
+    stmts = [v for v in variables if isinstance(v[0], Assignment)]
     assert len(stmts) == 2
 
     assert sorted([str(v) for v in stmts[0][1]]) == ['i', 'i', 'scalar', 'vector(i)', 'vector(i)']
@@ -175,7 +175,7 @@ end subroutine routine_simple
     assert sorted([str(v) for v in loops[0][1]]) == ['i', 'x']
 
     # Verify that the variables in the statements are found
-    stmts = [v for v in variables if isinstance(v[0], Statement)]
+    stmts = [v for v in variables if isinstance(v[0], Assignment)]
     assert len(stmts) == 2
 
     assert sorted([str(v) for v in stmts[0][1]]) == ['i', 'scalar', 'vector(i)']
@@ -325,7 +325,7 @@ end subroutine routine_simple
         retrieve=lambda e: retrieve_expressions(e, lambda _e: isinstance(_e, FloatLiteral)),
         with_ir_node=True).visit(routine.body)
     assert len(literals) == 1
-    assert isinstance(literals[0][0], Statement) and literals[0][0]._source.lines == (13, 13)
+    assert isinstance(literals[0][0], Assignment) and literals[0][0]._source.lines == (13, 13)
 
     literal_root = FindExpressionRoot(literals[0][1].pop()).visit(literals[0][0])
     assert literal_root[0] is cast_root[0]
@@ -418,16 +418,16 @@ END MODULE some_mod
 ###<Comment:: ! And now to ...>
 ###<Conditional::>
 ####<If x < 1E-8 and x > -1E-8>
-#####<Statement:: x = 0.>
+#####<Assignment:: x = 0.>
 ####<ElseIf x > 0.>
 #####<WhileLoop:: x > 1.>
-######<Statement:: x = x / 2.>
+######<Assignment:: x = x / 2.>
 ####<Else>
-#####<Statement:: x = -x>
-###<Statement:: y = 0>
+#####<Assignment:: x = -x>
+###<Assignment:: y = 0>
 ###<Loop:: i=1:n>
-####<Statement:: y = y + x*x>
-###<Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 
+####<Assignment:: y = y + x*x>
+###<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 
 ... 1. + 1.>
 #<Function:: my_sqrt>
 ##<Section::>
@@ -435,7 +435,7 @@ END MODULE some_mod
 ###<Declaration:: arg>
 ###<Declaration:: my_sqrt>
 ##<Section::>
-###<Statement:: my_sqrt = SQRT(arg)>
+###<Assignment:: my_sqrt = SQRT(arg)>
 #<Subroutine:: other_routine>
 ##<CommentBlock:: ! This is jus...>
 ##<Section::>
@@ -446,18 +446,18 @@ END MODULE some_mod
 ###<Pragma:: loki some pragma>
 ###<MultiConditional:: m>
 ####<Case (0)>
-#####<Statement:: m = 1>
+#####<Assignment:: m = 1>
 ####<Case (1:10)>
 #####<Intrinsic:: PRINT *, '1 t...>
 ####<Case (-1, -2)>
-#####<Statement:: m = 10>
+#####<Assignment:: m = 10>
 ####<Default>
 #####<Intrinsic:: PRINT *, 'Def...>
 ###<Scope:: arr(m)=x>
-####<Statement:: x = x*2.>
+####<Assignment:: x = x*2.>
 ###<Allocation:: var>
 ###<Call:: some_routine>
-###<Statement:: arr(:) = arr(:) + var(:)>
+###<Assignment:: arr(:) = arr(:) + var(:)>
 ###<Deallocation:: var>
     """.strip()
 
@@ -486,7 +486,7 @@ END MODULE some_mod
 
     # Test default
     ref_lines = ref.strip().replace('#', '  ').splitlines()
-    ref_lines[cont_index] = '      <Statement:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
+    ref_lines[cont_index] = '      <Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
     ref_lines[cont_index + 1] = '      + 1. + 1.>'
     default_ref = '\n'.join(ref_lines)
     assert Stringifier().visit(module).strip() == default_ref
@@ -499,7 +499,7 @@ END MODULE some_mod
 
     # Test custom linewidth
     ref_lines = ref.strip().splitlines()
-    ref_lines = ref_lines[:cont_index] + ['###<Statement:: y = my_sqrt(y) + 1. + 1. ',
+    ref_lines = ref_lines[:cont_index] + ['###<Assignment:: y = my_sqrt(y) + 1. + 1. ',
                                           '... + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ',
                                           '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
     w_ref = '\n'.join(ref_lines)
@@ -536,14 +536,14 @@ end subroutine routine_simple
 
     # Replace the innermost statement in the body of the conditional
     def get_innermost_statement(ir):
-        for stmt in FindNodes(Statement).visit(ir):
-            if 'matrix' in str(stmt.target) and isinstance(stmt.expr, Sum):
+        for stmt in FindNodes(Assignment).visit(ir):
+            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, Sum):
                 return stmt
         return None
 
     stmt = get_innermost_statement(routine.ir)
-    new_expr = Sum((*stmt.expr.children[:-1], FloatLiteral(2.)))
-    new_stmt = Statement(stmt.target, new_expr)
+    new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
+    new_stmt = Statement(stmt.lhs, new_expr)
     mapper = {stmt: new_stmt}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
@@ -614,7 +614,7 @@ end subroutine routine_simple
         return FindNodes(Conditional).visit(ir)[0]
 
     cond = get_conditional(routine.ir)
-    new_stmt = Statement(target=routine.arguments[0], expr=routine.arguments[1])
+    new_stmt = Statement(lhs=routine.arguments[0], rhs=routine.arguments[1])
     mapper = {cond: (new_stmt, cond)}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
@@ -629,8 +629,8 @@ end subroutine routine_simple
 
     # Find the newly inserted statement and check that source is None
     def get_new_statement(ir):
-        for stmt in FindNodes(Statement).visit(ir):
-            if stmt.target == routine.arguments[0]:
+        for stmt in FindNodes(Assignment).visit(ir):
+            if stmt.lhs == routine.arguments[0]:
                 return stmt
 
     node_without_src = get_new_statement(body_without_source)

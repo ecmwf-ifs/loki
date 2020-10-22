@@ -13,7 +13,7 @@ from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement, Declaration,
-    TypeDef, Statement
+    TypeDef, Assignment
 )
 from loki.subroutine import Subroutine
 from loki.module import Module
@@ -146,10 +146,10 @@ class FortranCTransformation(Transformation):
                 ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
                 cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper.symbols)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
-                casts_in += [Statement(target=cvar, expr=cast_in)]
+                casts_in += [Assignment(lhs=cvar, rhs=cast_in)]
 
                 cast_out = InlineCall('transfer', parameters=(cvar,), kw_parameters={'mold': arg})
-                casts_out += [Statement(target=arg, expr=cast_out)]
+                casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
 
         arguments = [local_arg_map[a] if a in local_arg_map else a for a in routine.argnames]
@@ -196,7 +196,7 @@ class FortranCTransformation(Transformation):
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
-                    Statement(target=Variable(name=gettername, scope=getter.symbols), expr=v)])
+                    Assignment(lhs=Variable(name=gettername, scope=getter.symbols), rhs=v)])
 
                 getter.__init__(name=gettername, bind=gettername, spec=getterspec,
                                 body=getterbody, is_function=True, parent=obj,
@@ -307,7 +307,7 @@ class FortranCTransformation(Transformation):
 
                         decl = Declaration(variables=(var,))
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Statement(target=var, expr=InlineCall(function=getter))
+                        vget = Assignment(lhs=var, rhs=InlineCall(function=getter))
                         getter_calls += [decl, vget]
 
         # Replicate the kernel to strip the Fortran-specific boilerplate

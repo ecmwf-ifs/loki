@@ -283,14 +283,14 @@ class OFP2IR(GenericVisitor):
         return 'ENDWHERE_CONSTRUCT'
 
     def visit_assignment(self, o, label=None, source=None):
-        expr = self.visit(o.find('value'))
-        target = self.visit(o.find('target'))
-        return ir.Statement(target=target, expr=expr, label=label, source=source)
+        lhs = self.visit(o.find('target'))
+        rhs = self.visit(o.find('value'))
+        return ir.Assignment(lhs=lhs, rhs=rhs, label=label, source=source)
 
     def visit_pointer_assignment(self, o, label=None, source=None):
-        target = self.visit(o.find('target'))
-        expr = self.visit(o.find('value'))
-        return ir.Statement(target=target, expr=expr, ptr=True, label=label, source=source)
+        lhs = self.visit(o.find('target'))
+        rhs = self.visit(o.find('value'))
+        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=label, source=source)
 
     def visit_specification(self, o, label=None, source=None):
         body = tuple(self.visit(c) for c in o)

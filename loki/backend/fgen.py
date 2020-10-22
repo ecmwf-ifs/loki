@@ -433,21 +433,21 @@ class FortranCodegen(Stringifier):
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(header, *branches, footer)
 
-    def visit_Statement(self, o, **kwargs):
+    def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
-          <target> = <expr>
+          <lhs> = <rhs>
         or
-          <pointer> => <expr>
+          <pointer> => <rhs>
         """
-        target = self.visit(o.target, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
         if o.ptr:
-            return self.format_line(target, ' => ', expr, comment=comment)
-        return self.format_line(target, ' = ', expr, comment=comment)
+            return self.format_line(lhs, ' => ', rhs, comment=comment)
+        return self.format_line(lhs, ' = ', rhs, comment=comment)
 
     def visit_MaskedStatement(self, o, **kwargs):
         """

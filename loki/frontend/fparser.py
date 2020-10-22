@@ -816,10 +816,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Assignment_Stmt(self, o, **kwargs):
         ptr = isinstance(o, Fortran2003.Pointer_Assignment_Stmt)
-        target = self.visit(o.items[0], **kwargs)
-        expr = self.visit(o.items[2], **kwargs)
-        return ir.Statement(target=target, expr=expr, ptr=ptr,
-                            label=kwargs.get('label'), source=kwargs.get('source'))
+        lhs = self.visit(o.items[0], **kwargs)
+        rhs = self.visit(o.items[2], **kwargs)
+        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=ptr,
+                             label=kwargs.get('label'), source=kwargs.get('source'))
 
     visit_Pointer_Assignment_Stmt = visit_Assignment_Stmt
 

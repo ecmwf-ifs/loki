@@ -215,44 +215,44 @@ class FortranMaxTransformation(Transformation):
             for i, condition in enumerate(cond.conditions):
                 cond_vars += [sym.Variable(name='cond_{cnt}_{i}'.format(cnt=cnt, i=i),
                                            type=cond_type.clone(), scope=max_kernel.symbols)]
-                body += [ir.Statement(target=cond_vars[-1], expr=condition)]
+                body += [ir.Assignment(lhs=cond_vars[-1], rhs=condition)]
             max_kernel.variables += as_tuple(cond_vars)
 
             # Build list of dicts with all the statements from all bodies of the conditional
             stmts = []
             for cond_body in cond.bodies:
                 body_stmts = OrderedDict()
-                for stmt in FindNodes(ir.Statement).visit(cond_body):
-                    body_stmts[stmt.target] = body_stmts.get(stmt.target, []) + [stmt]
+                for stmt in FindNodes(ir.Assignment).visit(cond_body):
+                    body_stmts[stmt.lhs] = body_stmts.get(stmt.lhs, []) + [stmt]
                 stmts += [body_stmts]
 
             else_stmts = OrderedDict()
-            for stmt in FindNodes(ir.Statement).visit(cond.else_body):
-                else_stmts[stmt.target] = else_stmts.get(stmt.target, []) + [stmt]
+            for stmt in FindNodes(ir.Assignment).visit(cond.else_body):
+                else_stmts[stmt.lhs] = else_stmts.get(stmt.lhs, []) + [stmt]
 
-            # Collect all the statements grouped by their target
-            targets = set(t for slist in (stmts + [else_stmts]) for t in slist.keys())
-            target_stmts = {t: [slist.get(t, []) for slist in stmts] for t in targets}
+            # Collect all the statements grouped by their lhs
+            lhsset = set(t for slist in (stmts + [else_stmts]) for t in slist.keys())
+            lhs_stmts = {t: [slist.get(t, []) for slist in stmts] for t in lhsset}
 
             # Hacky heuristic: We use the first body to hangle us along the order of statements
             # TODO: Do this in a better way!
-            for stmt in FindNodes(ir.Statement).visit(cond.bodies[0]):
-                t = stmt.target
-                cond_stmt = else_stmts[t].pop(0).expr if else_stmts.get(t, []) else t
-                for var, slist in zip(reversed(cond_vars), reversed(target_stmts.get(t, []))):
-                    cond_stmt = ir.ConditionalStatement(target=t, condition=var,
-                                                        expr=slist.pop(0).expr if slist else t,
-                                                        else_expr=cond_stmt)
+            for stmt in FindNodes(ir.Assignment).visit(cond.bodies[0]):
+                t = stmt.lhs
+                cond_stmt = else_stmts[t].pop(0).rhs if else_stmts.get(t, []) else t
+                for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(t, []))):
+                    cond_stmt = ir.ConditionalAssignment(target=t, condition=var,
+                                                         expr=slist.pop(0).lhs if slist else t,
+                                                         else_expr=cond_stmt)
                 body += [cond_stmt]
 
             # Add all remaining statements of all targets at the end
-            for t in targets:
-                while else_stmts.get(t, []) or any(target_stmts.get(t, [])):
-                    cond_stmt = else_stmts[t].pop(0).expr if else_stmts.get(t, []) else t
-                    for var, slist in zip(reversed(cond_vars), reversed(target_stmts.get(t, []))):
-                        cond_stmt = ir.ConditionalStatement(target=t, condition=var,
-                                                            expr=slist.pop(0).expr if slist else t,
-                                                            else_expr=cond_stmt)
+            for l in lhsset:
+                while else_stmts.get(l, []) or any(lhs_stmts.get(l, [])):
+                    cond_stmt = else_stmts[l].pop(0).lhs if else_stmts.get(l, []) else l
+                    for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(l, []))):
+                        cond_stmt = ir.ConditionalAssignment(lhs=l, condition=var,
+                                                             rhs=slist.pop(0).rhs if slist else l,
+                                                             else_expr=cond_stmt)
                     body += [cond_stmt]
 
             cond_map[cond] = body
@@ -265,13 +265,13 @@ class FortranMaxTransformation(Transformation):
         def is_dfevar(expr, *args, **kwargs):  # pylint: disable=unused-argument
             return {isinstance(expr, (sym.Scalar, sym.Array)) and expr.type.dfevar is True}
         dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar, combine=lambda v: {any(v)})
-        node_fields = {ir.Statement: ('expr',),
-                       ir.ConditionalStatement: ('condition', 'expr', 'else_expr')}
+        node_fields = {ir.Assignment: ('rhs',),
+                       ir.ConditionalAssignment: ('condition', 'rhs', 'else_expr')}
 
         for stmt in FindNodes(tuple(node_fields.keys())).visit(max_kernel.body):
             is_dfe = any(dfevar_mapper(getattr(stmt, attr)).pop()
                          for attr in node_fields[stmt.__class__])
-            stmt.target.type.dfevar = stmt.target.type.dfevar or is_dfe
+            stmt.lhs.type.dfevar = stmt.lhs.type.dfevar or is_dfe
 
         # Replace array access by stream inflow
         if len(dataflow_indices) > 0:
@@ -342,12 +342,12 @@ class FortranMaxTransformation(Transformation):
 
         # Add casts to dataflow constants for literal assignments
         smap = {}
-        for stmt in FindNodes(ir.Statement).visit(max_kernel.body):
-            if stmt.target.type.dfevar:
-                if isinstance(stmt.expr, (sym.FloatLiteral, sym.IntLiteral)):
-                    _type = sym.InlineCall('%s.getType' % stmt.target.name)
-                    expr = sym.InlineCall('constant.var', parameters=(_type, stmt.expr))
-                    smap[stmt] = ir.Statement(target=stmt.target, expr=expr)
+        for stmt in FindNodes(ir.Assignment).visit(max_kernel.body):
+            if stmt.lhs.type.dfevar:
+                if isinstance(stmt.rhs, (sym.FloatLiteral, sym.IntLiteral)):
+                    _type = sym.InlineCall('%s.getType' % stmt.lhs.name)
+                    rhs = sym.InlineCall('constant.var', parameters=(_type, stmt.rhs))
+                    smap[stmt] = ir.Assignment(lhs=stmt.lhs, rhs=rhs)
         max_kernel.body = Transformer(smap).visit(max_kernel.body)
 
         def base_type(var_type):

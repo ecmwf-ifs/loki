@@ -323,14 +323,14 @@ class OMNI2IR(GenericVisitor):
         return ir.Pragma(keyword=keyword, content=content, source=source)
 
     def visit_FassignStatement(self, o, source=None):
-        target = self.visit(o[0])
-        expr = self.visit(o[1])
-        return ir.Statement(target=target, expr=expr, source=source)
+        lhs = self.visit(o[0])
+        rhs = self.visit(o[1])
+        return ir.Assignment(lhs=lhs, rhs=rhs, source=source)
 
     def visit_FpointerAssignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return ir.Statement(target=target, expr=expr, ptr=True, source=source)
+        return ir.Assignment(target=target, expr=expr, ptr=True, source=source)
 
     def visit_FdoWhileStatement(self, o, source=None):
         assert o.find('condition') is not None

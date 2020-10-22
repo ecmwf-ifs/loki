@@ -316,21 +316,21 @@ class MaxjCodegen(Stringifier):
         self.depth -= 1
         return self.join_lines(header, body, footer)
 
-    def visit_Statement(self, o, **kwargs):
+    def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
           <target> = <expr>
         or
           <dfe_target> <== <expr>
         """
-        target = self.visit(o.target, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
         comment = ''
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        if o.target.type.dfevar and o.target.type.shape:
-            return self.format_line(target, ' <== ', expr, ';', comment=comment)
-        return self.format_line(target, ' = ', expr, ';', comment=comment)
+        if o.lhs.type.dfevar and o.lhs.type.shape:
+            return self.format_line(lhs, ' <== ', rhs, ';', comment=comment)
+        return self.format_line(lhs, ' = ', rhs, ';', comment=comment)
 
     def visit_ConditionalStatement(self, o, **kwargs):
         """
