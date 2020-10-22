@@ -369,8 +369,40 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
 
         try:
             return float(self.value) == float(other)
-        except:
+        except (TypeError, ValueError):
             return False
+
+    def __lt__(self, other):
+        if isinstance(other, FloatLiteral):
+            return float(self.value) < float(other.value)
+        try:
+            return float(self.value) < float(other)
+        except ValueError:
+            return super().__lt__(other)
+
+    def __le__(self, other):
+        if isinstance(other, FloatLiteral):
+            return float(self.value) <= float(other.value)
+        try:
+            return float(self.value) <= float(other)
+        except ValueError:
+            return super().__le__(other)
+
+    def __gt__(self, other):
+        if isinstance(other, FloatLiteral):
+            return float(self.value) > float(other.value)
+        try:
+            return float(self.value) > float(other)
+        except ValueError:
+            return super().__gt__(other)
+
+    def __ge__(self, other):
+        if isinstance(other, FloatLiteral):
+            return float(self.value) >= float(other.value)
+        try:
+            return float(self.value) >= float(other)
+        except ValueError:
+            return super().__ge__(other)
 
     def __getinitargs__(self):
         args = [self.value]
@@ -403,11 +435,41 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, IntLiteral):
             return self.value == other.value and self.kind == other.kind
+        if isinstance(other, (int, float, complex)):
+            return self.value == other
 
         try:
             return self.value == int(other)
-        except:
+        except (TypeError, ValueError):
             return False
+
+    def __lt__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value < other.value
+        if isinstance(other, int):
+            return self.value < other
+        return super().__lt__(other)
+
+    def __le__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value <= other.value
+        if isinstance(other, int):
+            return self.value <= other
+        return super().__le__(other)
+
+    def __gt__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value > other.value
+        if isinstance(other, int):
+            return self.value > other
+        return super().__gt__(other)
+
+    def __ge__(self, other):
+        if isinstance(other, IntLiteral):
+            return self.value >= other.value
+        if isinstance(other, int):
+            return self.value >= other
+        return super().__ge__(other)
 
     def __getinitargs__(self):
         args = [self.value]
