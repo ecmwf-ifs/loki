@@ -1,4 +1,4 @@
-"""
+r"""
 Collection of classes to represent basic and complex types. The key ideas are:
  * Expression symbols (eg. `Scalar`, `Array` or `Literal` has a
    `SymbolType` accessible via the `.type` attribute. This encodes the
