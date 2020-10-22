@@ -318,7 +318,7 @@ end subroutine routine_simple
     cast_root = FindExpressionRoot(casts[0]).visit(routine.body)
     assert len(cast_root) == 1
     cond = FindNodes(Conditional).visit(routine.body).pop()
-    assert cast_root[0] is cond.bodies[0][0].expr
+    assert cast_root[0] is cond.bodies[0][0].rhs
 
     # Test ability to find root if searching for a leaf expression
     literals = ExpressionFinder(
@@ -486,14 +486,15 @@ END MODULE some_mod
 
     # Test default
     ref_lines = ref.strip().replace('#', '  ').splitlines()
-    ref_lines[cont_index] = '      <Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
-    ref_lines[cont_index + 1] = '      + 1. + 1.>'
+    ref_lines[cont_index] = '      <Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + '
+    ref_lines[cont_index + 1] = '      1. + 1. + 1.>'
     default_ref = '\n'.join(ref_lines)
     assert Stringifier().visit(module).strip() == default_ref
 
     # Test custom initial depth
     ref_lines = ['#' + line if line else '' for line in ref.splitlines()]
-    ref_lines[cont_index + 1] = '...  1. + 1.>'
+    ref_lines[cont_index] = '####<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
+    ref_lines[cont_index + 1] = '...  + 1. + 1.>'
     depth_ref = '\n'.join(ref_lines)
     assert Stringifier(indent='#', depth=1, line_cont=line_cont).visit(module).strip() == depth_ref
 
@@ -503,7 +504,7 @@ END MODULE some_mod
                                           '... + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ',
                                           '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
     w_ref = '\n'.join(ref_lines)
-    assert Stringifier(indent='#', linewidth=42, line_cont=line_cont).visit(module).strip() == w_ref
+    assert Stringifier(indent='#', linewidth=44, line_cont=line_cont).visit(module).strip() == w_ref
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -543,7 +544,7 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
-    new_stmt = Statement(stmt.lhs, new_expr)
+    new_stmt = Assignment(stmt.lhs, new_expr)
     mapper = {stmt: new_stmt}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
@@ -614,7 +615,7 @@ end subroutine routine_simple
         return FindNodes(Conditional).visit(ir)[0]
 
     cond = get_conditional(routine.ir)
-    new_stmt = Statement(lhs=routine.arguments[0], rhs=routine.arguments[1])
+    new_stmt = Assignment(lhs=routine.arguments[0], rhs=routine.arguments[1])
     mapper = {cond: (new_stmt, cond)}
 
     body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)

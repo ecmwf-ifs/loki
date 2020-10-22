@@ -281,7 +281,7 @@ class ConditionalAssignment(Node):
         return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_expr,))
 
     def __repr__(self):
-        return 'CondStmt:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
+        return 'CondAssign:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
                                                  self.else_expr)
 
 
@@ -338,7 +338,7 @@ class Assignment(Node):
         return tuple((self.lhs,) + (self.rhs,))
 
     def __repr__(self):
-        return 'Statement:: {} = {}'.format(str(self.lhs), str(self.rhs))
+        return 'Assignment:: {} = {}'.format(str(self.lhs), str(self.rhs))
 
 
 class MaskedStatement(Node):
