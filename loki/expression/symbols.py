@@ -79,7 +79,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     def __init__(self, name, scope, type=None, parent=None, initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Scalar, self).__init__(name, **kwargs)
+        super().__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -173,7 +173,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
                  initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Array, self).__init__(name, **kwargs)
+        super().__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -354,7 +354,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         # lost in the conversion
         self.value = str(value)
         self.kind = kwargs.pop('kind', None)
-        super(FloatLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash((self.value, self.kind))
@@ -391,7 +391,7 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     def __init__(self, value, **kwargs):
         self.value = int(value)
         self.kind = kwargs.pop('kind', None)
-        super(IntLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash((self.value, self.kind))
@@ -424,7 +424,7 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
 
     def __init__(self, value, **kwargs):
         self.value = value.lower() in ('true', '.true.')
-        super(LogicLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
@@ -447,7 +447,7 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
         self.value = value
 
-        super(StringLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash(self.value)

@@ -155,7 +155,7 @@ class Transformer(Visitor):
     """
 
     def __init__(self, mapper=None, invalidate_source=True):
-        super(Transformer, self).__init__()
+        super().__init__()
         self.mapper = mapper.copy() if mapper is not None else {}
         self.invalidate_source = invalidate_source
         self.rebuilt = {}
@@ -225,7 +225,7 @@ class Transformer(Visitor):
         return self._rebuild(o, rebuilt)
 
     def visit(self, o, *args, **kwargs):
-        obj = super(Transformer, self).visit(o, *args, **kwargs)
+        obj = super().visit(o, *args, **kwargs)
         if isinstance(o, Node) and obj is not o:
             self.rebuilt[o] = obj
         return obj
@@ -274,7 +274,7 @@ class FindNodes(Visitor):
     }
 
     def __init__(self, match, mode='type', greedy=False):
-        super(FindNodes, self).__init__()
+        super().__init__()
         self.match = match
         self.rule = self.rules[mode]
         self.greedy = greedy

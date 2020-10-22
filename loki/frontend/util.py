@@ -36,7 +36,7 @@ class SequenceFinder(Visitor):
     """
 
     def __init__(self, node_type):
-        super(SequenceFinder, self).__init__()
+        super().__init__()
         self.node_type = node_type
 
     @classmethod
@@ -67,7 +67,7 @@ class PatternFinder(Visitor):
     """
 
     def __init__(self, pattern):
-        super(PatternFinder, self).__init__()
+        super().__init__()
         self.pattern = pattern
 
     @classmethod

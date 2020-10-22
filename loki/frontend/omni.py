@@ -115,7 +115,7 @@ class OMNI2IR(GenericVisitor):
 
     def __init__(self, definitions=None, type_map=None, symbol_map=None,
                  raw_source=None, scope=None):
-        super(OMNI2IR, self).__init__()
+        super().__init__()
 
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.type_map = type_map
@@ -158,7 +158,7 @@ class OMNI2IR(GenericVisitor):
         tag = instance.tag.replace('-', '_')
         if tag in self._handlers:
             return self._handlers[tag]
-        return super(OMNI2IR, self).lookup_method(instance)
+        return super().lookup_method(instance)
 
     def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
         """
@@ -169,7 +169,7 @@ class OMNI2IR(GenericVisitor):
         if lineno:
             lineno = int(lineno)
         source = Source(lines=(lineno, lineno), file=file)
-        return super(OMNI2IR, self).visit(o, source=source, **kwargs)
+        return super().visit(o, source=source, **kwargs)
 
     def visit_Element(self, o, source=None, **kwargs):
         """
