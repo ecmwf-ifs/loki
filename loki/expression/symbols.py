@@ -1,5 +1,4 @@
 import weakref
-from collections import OrderedDict
 import pymbolic.primitives as pmbl
 from six.moves import intern
 
@@ -362,11 +361,11 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, FloatLiteral):
             return self.value == other.value and self.kind == other.kind
-        else:
-            try:
-                return float(self.value) == float(other)
-            except:
-                return False
+
+        try:
+            return float(self.value) == float(other)
+        except:
+            return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -399,11 +398,11 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, IntLiteral):
             return self.value == other.value and self.kind == other.kind
-        else:
-            try:
-                return self.value == int(other)
-            except:
-                return False
+
+        try:
+            return self.value == int(other)
+        except:
+            return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -455,10 +454,9 @@ class StringLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, StringLiteral):
             return self.value == other.value
-        elif isinstance(other, str):
+        if isinstance(other, str):
             return self.value == other
-        else:
-            return False
+        return False
 
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
@@ -538,7 +536,7 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
 
     def __init__(self, values, **kwargs):
         self.elements = values
-        super(LiteralList, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
 

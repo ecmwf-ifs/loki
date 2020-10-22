@@ -1,7 +1,9 @@
 import re
 from pymbolic.primitives import Expression, Product, is_zero
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
-from pymbolic.mapper.stringifier import (StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT)
+from pymbolic.mapper.stringifier import (
+    StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
+)
 
 from loki.tools import as_tuple, flatten
 
@@ -144,7 +146,7 @@ class ExpressionRetriever(WalkMapper):
     # pylint: disable=abstract-method
 
     def __init__(self, query, recurse_query=None):
-        super(ExpressionRetriever, self).__init__()
+        super().__init__()
 
         self.query = query
         self.exprs = list()
@@ -279,7 +281,7 @@ class ExpressionCallbackMapper(CombineMapper):
     # pylint: disable=abstract-method
 
     def __init__(self, callback, combine):
-        super(ExpressionCallbackMapper, self).__init__()
+        super().__init__()
         self.callback = callback
         self.combine = combine
 
@@ -412,7 +414,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     # pylint: disable=abstract-method
 
     def __init__(self, expr_map, invalidate_source=True):
-        super(SubstituteExpressionsMapper, self).__init__(invalidate_source=invalidate_source)
+        super().__init__(invalidate_source=invalidate_source)
 
         self.expr_map = expr_map
         for expr in self.expr_map.keys():
@@ -424,5 +426,5 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         # And we have to actually carry out the expression first before looking up the
         # super()-method as the node type might change.
         expr = self.expr_map.get(expr, expr)
-        map_fn = getattr(super(SubstituteExpressionsMapper, self), expr.mapper_method)
+        map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)

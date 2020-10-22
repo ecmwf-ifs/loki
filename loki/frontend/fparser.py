@@ -140,7 +140,7 @@ class FParser2IR(GenericVisitor):
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     def __init__(self, raw_source, definitions=None, scope=None):
-        super(FParser2IR, self).__init__()
+        super().__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
@@ -169,7 +169,7 @@ class FParser2IR(GenericVisitor):
         """
         kwargs['source'] = self.get_source(o, kwargs.get('source'))
         kwargs['label'] = self.get_label(o)
-        return super(FParser2IR, self).visit(o, **kwargs)
+        return super().visit(o, **kwargs)
 
     def visit_Base(self, o, **kwargs):
         """

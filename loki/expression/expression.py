@@ -32,7 +32,7 @@ class ExpressionFinder(Visitor):
     retrieval_function = lambda x: ()
 
     def __init__(self, unique=True, retrieve=None, with_ir_node=False):
-        super(ExpressionFinder, self).__init__()
+        super().__init__()
         self.unique = unique
         self.with_ir_node = with_ir_node
 
@@ -157,7 +157,7 @@ class SubstituteExpressions(Transformer):
     # pylint: disable=unused-argument
 
     def __init__(self, expr_map, invalidate_source=True):
-        super(SubstituteExpressions, self).__init__(invalidate_source=invalidate_source)
+        super().__init__(invalidate_source=invalidate_source)
 
         self.expr_mapper = SubstituteExpressionsMapper(expr_map,
                                                        invalidate_source=invalidate_source)

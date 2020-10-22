@@ -1,5 +1,6 @@
-from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
-                                         PREC_LOGICAL_AND, PREC_NONE, PREC_CALL)
+from pymbolic.mapper.stringifier import (
+    PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
+)
 
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import

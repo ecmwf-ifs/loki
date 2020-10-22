@@ -1,11 +1,11 @@
 from itertools import zip_longest
-from pymbolic.primitives import is_zero
-from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
+from pymbolic.mapper.stringifier import (
+    PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_NONE
+)
 
 from loki.visitors import Stringifier
 from loki.tools import flatten, as_tuple
-from loki.expression import LokiStringifyMapper, Product
+from loki.expression import LokiStringifyMapper
 from loki.types import BasicType, DerivedType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']

@@ -62,8 +62,7 @@ class SourceFile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, preprocess=False, definitions=None, xmods=None,
-                  includes=None, builddir=None):
+    def from_omni(cls, filename, definitions=None, xmods=None, includes=None, builddir=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
@@ -82,12 +81,10 @@ class SourceFile:
         ast = parse_omni_file(filename=str(pppath), xmods=xmods)
         typetable = ast.find('typeTable')
         return cls._from_omni_ast(ast=ast, path=filename, raw_source=raw_source,
-                                  definitions=definitions, typetable=typetable,
-                                  xmods=xmods, includes=includes)
+                                  definitions=definitions, typetable=typetable)
 
     @classmethod
-    def _from_omni_ast(cls, ast, path=None, raw_source=None, definitions=None, typetable=None,
-                       xmods=None, includes=None):
+    def _from_omni_ast(cls, ast, path=None, raw_source=None, definitions=None, typetable=None):
         """
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
@@ -219,13 +216,13 @@ class SourceFile:
         return obj
 
     @classmethod
-    def from_source(cls, source, xmods=None, includes=None, definitions=None, frontend=OFP):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=OFP):
 
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
-            return cls._from_omni_ast(path=None, ast=ast, raw_source=source, definitions=definitions,
-                                      typetable=typetable, xmods=xmods, includes=includes)
+            return cls._from_omni_ast(path=None, ast=ast, raw_source=source,
+                                      definitions=definitions, typetable=typetable)
 
         if frontend == OFP:
             ast = parse_ofp_source(source)

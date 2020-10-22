@@ -296,8 +296,8 @@ class OMNI2IR(GenericVisitor):
         parent_type = self.scope.types.lookup(name, recursive=True)
         if parent_type is not None:
             return parent_type.clone()
-        else:
-            return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
+
+        return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
