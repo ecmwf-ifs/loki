@@ -16,7 +16,7 @@ from loki.logging import log, info, INFO
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
            'filehash', 'truncate_string', 'JoinableStringList', 'CaseInsensitiveDict',
-           'strip_inline_comments', 'find_files']
+           'strip_inline_comments', 'find_files', 'is_loki_pragma']
 
 
 def as_tuple(item, type=None, length=None):
@@ -455,3 +455,17 @@ def strip_inline_comments(source, comment_char='!', str_delim='"\''):
             open_str_delim = update_str_delim(open_str_delim, line[end:])
 
     return '\n'.join(clean_lines)
+
+
+def is_loki_pragma(pragma, starts_with=None):
+    """
+    Checks for a pragma annotation and, if existing, for the `loki` keyword.
+    Optionally, the pragma content is tested for a specific start.
+    """
+    if pragma is None:
+        return False
+    if not pragma.keyword == 'loki':
+        return False
+    if starts_with is not None and not pragma.content.startswith(starts_with):
+        return False
+    return True

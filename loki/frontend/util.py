@@ -8,7 +8,7 @@ from loki.ir import (Assignment, Comment, CommentBlock, Declaration, Pragma, Loo
 from loki.frontend.source import Source
 from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
-from loki.tools import as_tuple
+from loki.tools import as_tuple, is_loki_pragma
 from loki.logging import warning
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
@@ -197,7 +197,7 @@ def process_dimension_pragmas(ir):
     attach any pragmas to the `Declaration` nodes.
     """
     for decl in FindNodes(Declaration).visit(ir):
-        if decl.pragma and decl.pragma.keyword == 'loki' and decl.pragma.content.startswith('dimension'):
+        if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.variables:
                 # Found dimension override for variable
                 dims = decl.pragma.content.split('dimension(')[-1]

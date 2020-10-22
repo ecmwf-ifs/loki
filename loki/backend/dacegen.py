@@ -1,6 +1,7 @@
 from loki.expression import symbols as sym, retrieve_expressions
 from loki.backend import PyCodegen
 from loki.types import BasicType
+from loki.tools import is_loki_pragma
 
 __all__ = ['dacegen', 'DaceCodegen']
 
@@ -74,9 +75,7 @@ class DaceCodegen(PyCodegen):
           for <var> in range(<start>, <end> + <incr>, <incr>):
             ...body...
         """
-        is_dataflow_loop = (o.pragma is not None and o.pragma.keyword == 'loki' and
-                            o.pragma.content.startswith('dataflow'))
-        if not is_dataflow_loop:
+        if not is_loki_pragma(o.pragma, starts_with='dataflow'):
             return super().visit_Loop( o, **kwargs)
 
         var = self.visit(o.variable, **kwargs)
