@@ -453,7 +453,7 @@ END MODULE some_mod
 #####<Assignment:: m = 10>
 ####<Default>
 #####<Intrinsic:: PRINT *, 'Def...>
-###<Scope:: arr(m)=x>
+###<Associate:: arr(m)=x>
 ####<Assignment:: x = x*2.>
 ###<Allocation:: var>
 ###<Call:: some_routine>

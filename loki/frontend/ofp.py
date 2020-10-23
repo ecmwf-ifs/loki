@@ -447,7 +447,7 @@ class OFP2IR(GenericVisitor):
             associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
                                              source=source)
         body = self.visit(o.find('body'))
-        return ir.Scope(body=as_tuple(body), associations=associations, label=label, source=source)
+        return ir.Associate(body=as_tuple(body), associations=associations, label=label, source=source)
 
     def visit_allocate(self, o, label=None, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))

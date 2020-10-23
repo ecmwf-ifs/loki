@@ -475,7 +475,7 @@ class FortranCodegen(Stringifier):
         """
         return self.visit(o.body, **kwargs)
 
-    def visit_Scope(self, o, **kwargs):
+    def visit_Associate(self, o, **kwargs):
         """
         Format scope as
           ASSOCIATE (<associates>)

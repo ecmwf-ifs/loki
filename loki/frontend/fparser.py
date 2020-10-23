@@ -924,7 +924,7 @@ class FParser2IR(GenericVisitor):
         children = [self.visit(c, **kwargs) for c in o.content]
         children = as_tuple(flatten(c for c in children if c is not None))
         # Search for the ASSOCIATE statement and add all following items as its body
-        assoc_index = [isinstance(ch, ir.Scope) for ch in children].index(True)
+        assoc_index = [isinstance(ch, ir.Associate) for ch in children].index(True)
         # Extract source for the entire scope
         lines = (children[assoc_index].source.lines[0], children[-1].source.lines[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
@@ -942,8 +942,8 @@ class FParser2IR(GenericVisitor):
                 shape = None
             dtype = var.type.clone(name=None, parent=None, shape=shape)
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
-        return ir.Scope(associations=associations, label=kwargs.get('label'),
-                        source=kwargs.get('source'))
+        return ir.Associate(associations=associations, label=kwargs.get('label'),
+                            source=kwargs.get('source'))
 
     def visit_Intrinsic_Stmt(self, o, **kwargs):
         return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))

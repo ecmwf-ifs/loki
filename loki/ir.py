@@ -8,11 +8,14 @@ from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import TypeTable
 
 
-__all__ = ['Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement', 'CallContext',
-           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
-           'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective',
-           'ConditionalAssignment']
+__all__ = [
+    'Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement',
+    'CallContext', 'Comment', 'CommentBlock', 'Pragma', 'Declaration',
+    'TypeDef', 'Section', 'Associate', 'Import', 'Allocation',
+    'Deallocation', 'Nullify', 'MaskedStatement', 'MultiConditional',
+    'Interface', 'Intrinsic', 'PreprocessorDirective',
+    'ConditionalAssignment'
+]
 
 
 class Node:
@@ -398,7 +401,7 @@ class Section(Node):
         return 'Section::'
 
 
-class Scope(Section):
+class Associate(Section):
     """
     Internal representation of a code region with specific properties,
     eg. variable associations.
@@ -414,8 +417,8 @@ class Scope(Section):
         if self.associations:
             associations = ', '.join('{}={}'.format(str(var), str(expr))
                                      for var, expr in self.associations.items())
-            return 'Scope:: {}'.format(associations)
-        return 'Scope::'
+            return 'Associate:: {}'.format(associations)
+        return 'Associate::'
 
 
 class Declaration(Node):

@@ -7,7 +7,7 @@ from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls,
     SubstituteExpressions, SubstituteExpressionsMapper
 )
-from loki.ir import Scope
+from loki.ir import Associate
 from loki.visitors import Transformer, FindNodes
 
 
@@ -71,7 +71,7 @@ def resolve_associates(routine):
     """
     assoc_map = {}
     vmap = {}
-    for assoc in FindNodes(Scope).visit(routine.body):
+    for assoc in FindNodes(Associate).visit(routine.body):
         invert_assoc = {v.name: k for k, v in assoc.associations.items()}
         for v in FindVariables(unique=False).visit(routine.body):
             if v.name in invert_assoc:

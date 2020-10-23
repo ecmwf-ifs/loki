@@ -312,7 +312,7 @@ class OMNI2IR(GenericVisitor):
             associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
                                              source=source)
         body = self.visit(o.find('body'))
-        return ir.Scope(body=as_tuple(body), associations=associations, source=source)
+        return ir.Associate(body=as_tuple(body), associations=associations, source=source)
 
     def visit_FcommentLine(self, o, source=None):
         return ir.Comment(text=o.text, source=source)
