@@ -1,11 +1,11 @@
 from itertools import zip_longest
-from pymbolic.primitives import is_zero
-from pymbolic.mapper.stringifier import (PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR,
-                                         PREC_COMPARISON, PREC_SUM, PREC_PRODUCT, PREC_NONE)
+from pymbolic.mapper.stringifier import (
+    PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_NONE
+)
 
 from loki.visitors import Stringifier
 from loki.tools import flatten, as_tuple
-from loki.expression import LokiStringifyMapper, Product
+from loki.expression import LokiStringifyMapper
 from loki.types import BasicType, DerivedType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
@@ -433,21 +433,21 @@ class FortranCodegen(Stringifier):
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(header, *branches, footer)
 
-    def visit_Statement(self, o, **kwargs):
+    def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
-          <target> = <expr>
+          <lhs> = <rhs>
         or
-          <pointer> => <expr>
+          <pointer> => <rhs>
         """
-        target = self.visit(o.target, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
         if o.ptr:
-            return self.format_line(target, ' => ', expr, comment=comment)
-        return self.format_line(target, ' = ', expr, comment=comment)
+            return self.format_line(lhs, ' => ', rhs, comment=comment)
+        return self.format_line(lhs, ' = ', rhs, comment=comment)
 
     def visit_MaskedStatement(self, o, **kwargs):
         """
@@ -475,7 +475,7 @@ class FortranCodegen(Stringifier):
         """
         return self.visit(o.body, **kwargs)
 
-    def visit_Scope(self, o, **kwargs):
+    def visit_Associate(self, o, **kwargs):
         """
         Format scope as
           ASSOCIATE (<associates>)

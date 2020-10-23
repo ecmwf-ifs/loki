@@ -1,5 +1,6 @@
-from pymbolic.mapper.stringifier import (PREC_SUM, PREC_PRODUCT, PREC_UNARY, PREC_LOGICAL_OR,
-                                         PREC_LOGICAL_AND, PREC_NONE, PREC_CALL)
+from pymbolic.mapper.stringifier import (
+    PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
+)
 
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
@@ -330,17 +331,17 @@ class CCodegen(Stringifier):
             raise NotImplementedError('Multi-body conditionals not yet supported')
         return self.join_lines(header, *bodies, else_header, else_body, footer)
 
-    def visit_Statement(self, o, **kwargs):
+    def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
           <target> = <expr> [<comment>]
         """
-        target = self.visit(o.target, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        return self.format_line(target, ' = ', expr, ';', comment=comment)
+        return self.format_line(lhs, ' = ', rhs, ';', comment=comment)
 
     def visit_Section(self, o, **kwargs):
         """

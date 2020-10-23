@@ -6,7 +6,7 @@ Single Column Abstraction (SCA), as defined by CLAW (Clement et al., 2018)
 from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
-    SubstituteExpressionsMapper, Statement, CallStatement, Loop, Variable,
+    SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
     Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
     SymbolType, BasicType, JoinableStringList, CaseInsensitiveDict, fgen, as_tuple,
 )
@@ -266,17 +266,17 @@ class CLAWTransformation(ExtractSCATransformation):
                 for arg, val in call.context.arg_iter(call):
                     if arg == self.dimension.name and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
-                        assignments.append(Statement(target=local_var, expr=val))
+                        assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.dimension.iteration[0] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
-                        assignments.append(Statement(target=local_var, expr=val))
+                        assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.dimension.iteration[1] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
-                        assignments.append(Statement(target=local_var, expr=val))
+                        assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                 routine.body = Transformer({call: assignments + [call]}).visit(routine.body)

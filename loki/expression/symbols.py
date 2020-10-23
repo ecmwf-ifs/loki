@@ -1,5 +1,4 @@
 import weakref
-from collections import OrderedDict
 import pymbolic.primitives as pmbl
 from six.moves import intern
 
@@ -79,7 +78,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     def __init__(self, name, scope, type=None, parent=None, initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Scalar, self).__init__(name, **kwargs)
+        super().__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -173,7 +172,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
                  initial=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super(Array, self).__init__(name, **kwargs)
+        super().__init__(name, **kwargs)
 
         self._scope = weakref.ref(scope)
         if type is None:
@@ -354,7 +353,7 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
         # lost in the conversion
         self.value = str(value)
         self.kind = kwargs.pop('kind', None)
-        super(FloatLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash((self.value, self.kind))
@@ -362,11 +361,11 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, FloatLiteral):
             return self.value == other.value and self.kind == other.kind
-        else:
-            try:
-                return float(self.value) == float(other)
-            except:
-                return False
+
+        try:
+            return float(self.value) == float(other)
+        except:
+            return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -391,7 +390,7 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     def __init__(self, value, **kwargs):
         self.value = int(value)
         self.kind = kwargs.pop('kind', None)
-        super(IntLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash((self.value, self.kind))
@@ -399,11 +398,11 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, IntLiteral):
             return self.value == other.value and self.kind == other.kind
-        else:
-            try:
-                return self.value == int(other)
-            except:
-                return False
+
+        try:
+            return self.value == int(other)
+        except:
+            return False
 
     def __getinitargs__(self):
         args = [self.value]
@@ -424,7 +423,7 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
 
     def __init__(self, value, **kwargs):
         self.value = value.lower() in ('true', '.true.')
-        super(LogicLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
@@ -447,7 +446,7 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
         self.value = value
 
-        super(StringLiteral, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def __hash__(self):
         return hash(self.value)
@@ -455,10 +454,9 @@ class StringLiteral(ExprMetadataMixin, _Literal):
     def __eq__(self, other):
         if isinstance(other, StringLiteral):
             return self.value == other.value
-        elif isinstance(other, str):
+        if isinstance(other, str):
             return self.value == other
-        else:
-            return False
+        return False
 
     def __getinitargs__(self):
         return (self.value,) + super().__getinitargs__()
@@ -538,7 +536,7 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
 
     def __init__(self, values, **kwargs):
         self.elements = values
-        super(LiteralList, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
 

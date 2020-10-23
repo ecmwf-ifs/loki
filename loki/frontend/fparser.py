@@ -140,7 +140,7 @@ class FParser2IR(GenericVisitor):
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     def __init__(self, raw_source, definitions=None, scope=None):
-        super(FParser2IR, self).__init__()
+        super().__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
@@ -169,7 +169,7 @@ class FParser2IR(GenericVisitor):
         """
         kwargs['source'] = self.get_source(o, kwargs.get('source'))
         kwargs['label'] = self.get_label(o)
-        return super(FParser2IR, self).visit(o, **kwargs)
+        return super().visit(o, **kwargs)
 
     def visit_Base(self, o, **kwargs):
         """
@@ -816,10 +816,10 @@ class FParser2IR(GenericVisitor):
 
     def visit_Assignment_Stmt(self, o, **kwargs):
         ptr = isinstance(o, Fortran2003.Pointer_Assignment_Stmt)
-        target = self.visit(o.items[0], **kwargs)
-        expr = self.visit(o.items[2], **kwargs)
-        return ir.Statement(target=target, expr=expr, ptr=ptr,
-                            label=kwargs.get('label'), source=kwargs.get('source'))
+        lhs = self.visit(o.items[0], **kwargs)
+        rhs = self.visit(o.items[2], **kwargs)
+        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=ptr,
+                             label=kwargs.get('label'), source=kwargs.get('source'))
 
     visit_Pointer_Assignment_Stmt = visit_Assignment_Stmt
 
@@ -924,7 +924,7 @@ class FParser2IR(GenericVisitor):
         children = [self.visit(c, **kwargs) for c in o.content]
         children = as_tuple(flatten(c for c in children if c is not None))
         # Search for the ASSOCIATE statement and add all following items as its body
-        assoc_index = [isinstance(ch, ir.Scope) for ch in children].index(True)
+        assoc_index = [isinstance(ch, ir.Associate) for ch in children].index(True)
         # Extract source for the entire scope
         lines = (children[assoc_index].source.lines[0], children[-1].source.lines[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
@@ -942,8 +942,8 @@ class FParser2IR(GenericVisitor):
                 shape = None
             dtype = var.type.clone(name=None, parent=None, shape=shape)
             associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
-        return ir.Scope(associations=associations, label=kwargs.get('label'),
-                        source=kwargs.get('source'))
+        return ir.Associate(associations=associations, label=kwargs.get('label'),
+                            source=kwargs.get('source'))
 
     def visit_Intrinsic_Stmt(self, o, **kwargs):
         return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))

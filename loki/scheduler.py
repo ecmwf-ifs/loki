@@ -36,7 +36,7 @@ class SchedulerConfig:
                     program control flow, like `flush` or `abort`.
     """
 
-    def __init__(self, default, routines, block=None, replicate=None, disable=None):
+    def __init__(self, default, routines, disable=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)

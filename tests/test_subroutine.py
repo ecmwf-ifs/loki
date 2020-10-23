@@ -5,7 +5,7 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, Intrinsic, PreprocessorDirective, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Statement, Declaration, Loop
+    SymbolType, StringLiteral, fgen, fexprgen, Assignment, Declaration, Loop
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
 
@@ -871,7 +871,7 @@ end subroutine routine_pp_directives
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
     assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 
-    statements = FindNodes(Statement).visit(routine.body)
+    statements = FindNodes(Assignment).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
     clean_preprocessing(filepath, frontend)

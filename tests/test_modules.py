@@ -1,7 +1,9 @@
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, BasicType, Statement, FindNodes)
+    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, BasicType,
+    Assignment, FindNodes
+)
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
@@ -86,8 +88,8 @@ end module a_module
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
-    stmt = FindNodes(Statement).visit(routine.body)[0]
-    pt_ext_arr = stmt.target
+    stmt = FindNodes(Assignment).visit(routine.body)[0]
+    pt_ext_arr = stmt.lhs
     assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
@@ -154,8 +156,8 @@ end module a_module
     assert fexprgen(pt_ext_a.shape) == exptected_array_shape
 
     # Check the LHS of the assignment has correct meta-data
-    stmt = FindNodes(Statement).visit(routine.body)[0]
-    pt_ext_arr = stmt.target
+    stmt = FindNodes(Assignment).visit(routine.body)[0]
+    pt_ext_arr = stmt.lhs
     assert pt_ext_arr.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 

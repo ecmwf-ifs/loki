@@ -196,7 +196,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
 
     # List of nodes that are considered executable statements
     exec_nodes = (
-        ir.Statement, ir.MaskedStatement, ir.Intrinsic, ir.Allocation,
+        ir.Assignment, ir.MaskedStatement, ir.Intrinsic, ir.Allocation,
         ir.Deallocation, ir.Nullify, ir.CallStatement
     )
 

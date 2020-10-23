@@ -115,7 +115,7 @@ class OMNI2IR(GenericVisitor):
 
     def __init__(self, definitions=None, type_map=None, symbol_map=None,
                  raw_source=None, scope=None):
-        super(OMNI2IR, self).__init__()
+        super().__init__()
 
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.type_map = type_map
@@ -158,7 +158,7 @@ class OMNI2IR(GenericVisitor):
         tag = instance.tag.replace('-', '_')
         if tag in self._handlers:
             return self._handlers[tag]
-        return super(OMNI2IR, self).lookup_method(instance)
+        return super().lookup_method(instance)
 
     def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
         """
@@ -169,7 +169,7 @@ class OMNI2IR(GenericVisitor):
         if lineno:
             lineno = int(lineno)
         source = Source(lines=(lineno, lineno), file=file)
-        return super(OMNI2IR, self).visit(o, source=source, **kwargs)
+        return super().visit(o, source=source, **kwargs)
 
     def visit_Element(self, o, source=None, **kwargs):
         """
@@ -296,8 +296,8 @@ class OMNI2IR(GenericVisitor):
         parent_type = self.scope.types.lookup(name, recursive=True)
         if parent_type is not None:
             return parent_type.clone()
-        else:
-            return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
+
+        return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -312,7 +312,7 @@ class OMNI2IR(GenericVisitor):
             associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
                                              source=source)
         body = self.visit(o.find('body'))
-        return ir.Scope(body=as_tuple(body), associations=associations, source=source)
+        return ir.Associate(body=as_tuple(body), associations=associations, source=source)
 
     def visit_FcommentLine(self, o, source=None):
         return ir.Comment(text=o.text, source=source)
@@ -323,14 +323,14 @@ class OMNI2IR(GenericVisitor):
         return ir.Pragma(keyword=keyword, content=content, source=source)
 
     def visit_FassignStatement(self, o, source=None):
-        target = self.visit(o[0])
-        expr = self.visit(o[1])
-        return ir.Statement(target=target, expr=expr, source=source)
+        lhs = self.visit(o[0])
+        rhs = self.visit(o[1])
+        return ir.Assignment(lhs=lhs, rhs=rhs, source=source)
 
     def visit_FpointerAssignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return ir.Statement(target=target, expr=expr, ptr=True, source=source)
+        return ir.Assignment(target=target, expr=expr, ptr=True, source=source)
 
     def visit_FdoWhileStatement(self, o, source=None):
         assert o.find('condition') is not None

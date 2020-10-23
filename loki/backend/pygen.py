@@ -236,17 +236,17 @@ class PyCodegen(Stringifier):
         branches = [item for branch in zip(conditions, bodies) for item in branch]
         return self.join_lines(*branches)
 
-    def visit_Statement(self, o, **kwargs):
+    def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
           <target> = <expr> [<comment>]
         """
-        target = self.visit(o.target, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
             comment = '  {}'.format(self.visit(o.comment, **kwargs))
-        return self.format_line(target, ' = ', expr, comment=comment)
+        return self.format_line(lhs, ' = ', rhs, comment=comment)
 
     def visit_Section(self, o, **kwargs):
         """

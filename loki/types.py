@@ -219,7 +219,7 @@ class TypeTable(dict):
     """
 
     def __init__(self, parent=None, case_sensitive=False, **kwargs):
-        super(TypeTable, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
         self._case_sensitive = case_sensitive
 
@@ -237,7 +237,7 @@ class TypeTable(dict):
         """
         Recursively look for a symbol in the table.
         """
-        value = super(TypeTable, self).get(name, None)
+        value = super().get(name, None)
         if value is None and recursive and self.parent is not None:
             return self.parent._lookup(name, recursive)
         return value
@@ -269,7 +269,7 @@ class TypeTable(dict):
 
     def __setitem__(self, key, value):
         name_parts = self.format_lookup_name(key)
-        super(TypeTable, self).__setitem__(name_parts, value)
+        super().__setitem__(name_parts, value)
 
     def __hash__(self):
         return hash(tuple(self.keys()))
@@ -278,4 +278,4 @@ class TypeTable(dict):
         return '<loki.types.TypeTable object at %s>' % hex(id(self))
 
     def setdefault(self, key, default=None):
-        super(TypeTable, self).setdefault(self.format_lookup_name(key), default)
+        super().setdefault(self.format_lookup_name(key), default)

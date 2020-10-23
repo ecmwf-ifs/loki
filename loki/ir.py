@@ -8,11 +8,14 @@ from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import TypeTable
 
 
-__all__ = ['Node', 'Loop', 'Statement', 'Conditional', 'CallStatement', 'CallContext',
-           'Comment', 'CommentBlock', 'Pragma', 'Declaration', 'TypeDef', 'Section', 'Scope',
-           'Import', 'Allocation', 'Deallocation', 'Nullify', 'MaskedStatement',
-           'MultiConditional', 'Interface', 'Intrinsic', 'PreprocessorDirective',
-           'ConditionalStatement']
+__all__ = [
+    'Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement',
+    'CallContext', 'Comment', 'CommentBlock', 'Pragma', 'Declaration',
+    'TypeDef', 'Section', 'Associate', 'Import', 'Allocation',
+    'Deallocation', 'Nullify', 'MaskedStatement', 'MultiConditional',
+    'Interface', 'Intrinsic', 'PreprocessorDirective',
+    'ConditionalAssignment'
+]
 
 
 class Node:
@@ -88,7 +91,7 @@ class Intrinsic(Node):
     Catch-all generic node for corner-cases.
     """
     def __init__(self, text=None, **kwargs):
-        super(Intrinsic, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.text = text
 
@@ -101,7 +104,7 @@ class Comment(Node):
     Internal representation of a single comment line.
     """
     def __init__(self, text=None, **kwargs):
-        super(Comment, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.text = text
 
@@ -115,7 +118,7 @@ class CommentBlock(Node):
     """
 
     def __init__(self, comments, **kwargs):
-        super(CommentBlock, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.comments = comments
 
@@ -130,7 +133,7 @@ class Pragma(Node):
     """
 
     def __init__(self, keyword, content=None, **kwargs):
-        super(Pragma, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.keyword = keyword
         self.content = content
@@ -165,7 +168,7 @@ class Loop(Node):
 
     def __init__(self, variable, body=None, bounds=None, pragma=None, pragma_post=None,
                  loop_label=None, name=None, has_end_do=None, **kwargs):
-        super(Loop, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert isinstance(variable, Expression)
         assert isinstance(bounds, Expression)
@@ -205,7 +208,7 @@ class WhileLoop(Node):
 
     def __init__(self, condition, body=None, pragma=None, pragma_post=None,
                  loop_label=None, name=None, has_end_do=None, **kwargs):
-        super(WhileLoop, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # Unfortunately, unbounded DO ... END DO loops exist and we capture
         # those in this class
@@ -240,7 +243,7 @@ class Conditional(Node):
     _traversable = ['conditions', 'bodies', 'else_body']
 
     def __init__(self, conditions, bodies, else_body, inline=False, name=None, **kwargs):
-        super(Conditional, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
         assert is_iterable(bodies) and len(bodies) == len(conditions)
@@ -261,27 +264,27 @@ class Conditional(Node):
         return 'Conditional::'
 
 
-class ConditionalStatement(Node):
+class ConditionalAssignment(Node):
     """
     Internal representation of an inline conditional
     """
 
-    _traversable = ['condition', 'target', 'expr', 'else_expr']
+    _traversable = ['condition', 'lhs', 'rhs', 'else_expr']
 
-    def __init__(self, target, condition, expr, else_expr, source=None):
-        super(ConditionalStatement, self).__init__(source=source)
+    def __init__(self, lhs, condition, rhs, else_expr, source=None):
+        super().__init__(source=source)
 
-        self.target = target
+        self.lhs = lhs
         self.condition = condition
-        self.expr = expr
+        self.rhs = rhs
         self.else_expr = else_expr
 
     @property
     def children(self):
-        return tuple((self.condition,) + (self.target,) + (self.expr,) + (self.else_expr,))
+        return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_expr,))
 
     def __repr__(self):
-        return 'CondStmt:: %s = %s ? %s : %s' % (self.target, self.condition, self.expr,
+        return 'CondAssign:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
                                                  self.else_expr)
 
 
@@ -293,7 +296,7 @@ class MultiConditional(Node):
     _traversable = ['expr', 'values', 'bodies', 'else_body']
 
     def __init__(self, expr, values, bodies, else_body, name=None, **kwargs):
-        super(MultiConditional, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert isinstance(expr, Expression)
         assert is_iterable(values) and all(isinstance(v, Expression) for v in flatten(values))
@@ -315,30 +318,30 @@ class MultiConditional(Node):
         return 'MultiConditional::{} {}'.format(label, str(self.expr))
 
 
-class Statement(Node):
+class Assignment(Node):
     """
     Internal representation of a variable assignment
     """
 
-    _traversable = ['target', 'expr']
+    _traversable = ['lhs', 'rhs']
 
-    def __init__(self, target, expr, ptr=False, comment=None, **kwargs):
-        super(Statement, self).__init__(**kwargs)
+    def __init__(self, lhs, rhs, ptr=False, comment=None, **kwargs):
+        super().__init__(**kwargs)
 
-        assert isinstance(target, Expression)
-        assert isinstance(expr, Expression)
+        assert isinstance(lhs, Expression)
+        assert isinstance(rhs, Expression)
 
-        self.target = target
-        self.expr = expr
+        self.lhs = lhs
+        self.rhs = rhs
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
     @property
     def children(self):
-        return tuple((self.target,) + (self.expr,))
+        return tuple((self.lhs,) + (self.rhs,))
 
     def __repr__(self):
-        return 'Statement:: {} = {}'.format(str(self.target), str(self.expr))
+        return 'Assignment:: {} = {}'.format(str(self.lhs), str(self.rhs))
 
 
 class MaskedStatement(Node):
@@ -349,7 +352,7 @@ class MaskedStatement(Node):
     _traversable = ['condition', 'body', 'default']
 
     def __init__(self, condition, body, default, **kwargs):
-        super(MaskedStatement, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert isinstance(condition, Expression)
         assert is_iterable(body)
@@ -375,7 +378,7 @@ class Section(Node):
     _traversable = ['body']
 
     def __init__(self, body=None, **kwargs):
-        super(Section, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.body = as_tuple(body)
 
@@ -398,14 +401,14 @@ class Section(Node):
         return 'Section::'
 
 
-class Scope(Section):
+class Associate(Section):
     """
     Internal representation of a code region with specific properties,
     eg. variable associations.
     """
 
     def __init__(self, body=None, associations=None, **kwargs):
-        super(Scope, self).__init__(body=body, **kwargs)
+        super().__init__(body=body, **kwargs)
 
         assert isinstance(associations, (dict, OrderedDict)) or associations is None
         self.associations = associations
@@ -414,8 +417,8 @@ class Scope(Section):
         if self.associations:
             associations = ', '.join('{}={}'.format(str(var), str(expr))
                                      for var, expr in self.associations.items())
-            return 'Scope:: {}'.format(associations)
-        return 'Scope::'
+            return 'Associate:: {}'.format(associations)
+        return 'Associate::'
 
 
 class Declaration(Node):
@@ -427,7 +430,7 @@ class Declaration(Node):
 
     def __init__(self, variables, dimensions=None, external=False,
                  comment=None, pragma=None, **kwargs):
-        super(Declaration, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
         assert dimensions is None or (is_iterable(dimensions) and
@@ -457,7 +460,7 @@ class DataDeclaration(Node):
     _traversable = ['variable', 'values']
 
     def __init__(self, variable, values, **kwargs):
-        super(DataDeclaration, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # TODO: This should only allow Expression instances but needs frontend changes
         # TODO: Support complex statements (LOKI-23)
@@ -480,7 +483,7 @@ class Import(Node):
     Internal representation of a module import.
     """
     def __init__(self, module, symbols=None, c_import=False, f_include=False, **kwargs):
-        super(Import, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.module = module
         self.symbols = symbols or ()
@@ -503,7 +506,7 @@ class Interface(Node):
     _traversable = ['body']
 
     def __init__(self, spec=None, body=None, **kwargs):
-        super(Interface, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(body)
 
@@ -526,7 +529,7 @@ class Allocation(Node):
     _traversable = ['variables']
 
     def __init__(self, variables, data_source=None, **kwargs):
-        super(Allocation, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
 
@@ -549,7 +552,7 @@ class Deallocation(Node):
     _traversable = ['variables']
 
     def __init__(self, variables, **kwargs):
-        super(Deallocation, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
         self.variables = as_tuple(variables)
@@ -570,7 +573,7 @@ class Nullify(Node):
     _traversable = ['variables']
 
     def __init__(self, variables, **kwargs):
-        super(Nullify, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
         self.variables = as_tuple(variables)
@@ -591,7 +594,7 @@ class CallStatement(Node):
     _traversable = ['arguments', 'kwarguments']
 
     def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
-        super(CallStatement, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # TODO: Currently, also simple strings are allowed as arguments. This should be expressions
         arg_types = (Expression, str)
@@ -624,7 +627,7 @@ class CallContext(Node):
     """
 
     def __init__(self, routine, active):
-        super(CallContext, self).__init__()
+        super().__init__()
         self.routine = routine
         self.active = active
 
@@ -651,7 +654,7 @@ class TypeDef(Node):
     _traversable = ['body']
 
     def __init__(self, name, body, bind_c=False, symbols=None, **kwargs):
-        super(TypeDef, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         assert is_iterable(body)
 
         self.name = name

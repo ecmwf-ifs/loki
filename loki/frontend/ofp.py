@@ -92,7 +92,7 @@ class OFP2IR(GenericVisitor):
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
     def __init__(self, raw_source, definitions=None, scope=None):
-        super(OFP2IR, self).__init__()
+        super().__init__()
 
         self._raw_source = raw_source
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
@@ -103,12 +103,12 @@ class OFP2IR(GenericVisitor):
         Alternative lookup method for XML element types, identified by ``element.tag``
         """
         if isinstance(instance, Iterable):
-            return super(OFP2IR, self).lookup_method(instance)
+            return super().lookup_method(instance)
 
         tag = instance.tag.replace('-', '_')
         if tag in self._handlers:
             return self._handlers[tag]
-        return super(OFP2IR, self).lookup_method(instance)
+        return super().lookup_method(instance)
 
     def get_label(self, o):
         """
@@ -127,7 +127,7 @@ class OFP2IR(GenericVisitor):
         Generic dispatch method that tries to generate meta-data from source.
         """
         if isinstance(o, Iterable):
-            return super(OFP2IR, self).visit(o, **kwargs)
+            return super().visit(o, **kwargs)
 
         kwargs['label'] = self.get_label(o)
 
@@ -135,7 +135,7 @@ class OFP2IR(GenericVisitor):
             kwargs['source'] = extract_source(o.attrib, self._raw_source, label=kwargs['label'])
         except KeyError:
             pass
-        return super(OFP2IR, self).visit(o, **kwargs)
+        return super().visit(o, **kwargs)
 
     def visit_tuple(self, o, label=None, source=None):
         return as_tuple(flatten(self.visit(c) for c in o))
@@ -283,14 +283,14 @@ class OFP2IR(GenericVisitor):
         return 'ENDWHERE_CONSTRUCT'
 
     def visit_assignment(self, o, label=None, source=None):
-        expr = self.visit(o.find('value'))
-        target = self.visit(o.find('target'))
-        return ir.Statement(target=target, expr=expr, label=label, source=source)
+        lhs = self.visit(o.find('target'))
+        rhs = self.visit(o.find('value'))
+        return ir.Assignment(lhs=lhs, rhs=rhs, label=label, source=source)
 
     def visit_pointer_assignment(self, o, label=None, source=None):
-        target = self.visit(o.find('target'))
-        expr = self.visit(o.find('value'))
-        return ir.Statement(target=target, expr=expr, ptr=True, label=label, source=source)
+        lhs = self.visit(o.find('target'))
+        rhs = self.visit(o.find('value'))
+        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=label, source=source)
 
     def visit_specification(self, o, label=None, source=None):
         body = tuple(self.visit(c) for c in o)
@@ -447,7 +447,7 @@ class OFP2IR(GenericVisitor):
             associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
                                              source=source)
         body = self.visit(o.find('body'))
-        return ir.Scope(body=as_tuple(body), associations=associations, label=label, source=source)
+        return ir.Associate(body=as_tuple(body), associations=associations, label=label, source=source)
 
     def visit_allocate(self, o, label=None, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
