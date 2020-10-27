@@ -240,19 +240,19 @@ class FortranMaxTransformation(Transformation):
                 t = stmt.lhs
                 cond_stmt = else_stmts[t].pop(0).rhs if else_stmts.get(t, []) else t
                 for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(t, []))):
-                    cond_stmt = ir.ConditionalAssignment(target=t, condition=var,
-                                                         expr=slist.pop(0).lhs if slist else t,
-                                                         else_expr=cond_stmt)
+                    cond_stmt = ir.ConditionalAssignment(lhs=t, condition=var,
+                                                         rhs=slist.pop(0).rhs if slist else t,
+                                                         else_rhs=cond_stmt)
                 body += [cond_stmt]
 
             # Add all remaining statements of all targets at the end
             for l in lhsset:
                 while else_stmts.get(l, []) or any(lhs_stmts.get(l, [])):
-                    cond_stmt = else_stmts[l].pop(0).lhs if else_stmts.get(l, []) else l
+                    cond_stmt = else_stmts[l].pop(0).rhs if else_stmts.get(l, []) else l
                     for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(l, []))):
                         cond_stmt = ir.ConditionalAssignment(lhs=l, condition=var,
                                                              rhs=slist.pop(0).rhs if slist else l,
-                                                             else_expr=cond_stmt)
+                                                             else_rhs=cond_stmt)
                     body += [cond_stmt]
 
             cond_map[cond] = body
@@ -266,7 +266,7 @@ class FortranMaxTransformation(Transformation):
             return {isinstance(expr, (sym.Scalar, sym.Array)) and expr.type.dfevar is True}
         dfevar_mapper = ExpressionCallbackMapper(callback=is_dfevar, combine=lambda v: {any(v)})
         node_fields = {ir.Assignment: ('rhs',),
-                       ir.ConditionalAssignment: ('condition', 'rhs', 'else_expr')}
+                       ir.ConditionalAssignment: ('condition', 'rhs', 'else_rhs')}
 
         for stmt in FindNodes(tuple(node_fields.keys())).visit(max_kernel.body):
             is_dfe = any(dfevar_mapper(getattr(stmt, attr)).pop()
@@ -274,7 +274,7 @@ class FortranMaxTransformation(Transformation):
             stmt.lhs.type.dfevar = stmt.lhs.type.dfevar or is_dfe
 
         # Replace array access by stream inflow
-        if len(dataflow_indices) > 0:
+        if dataflow_indices:
             vmap = {}
             arr_args = {arg.name: arg for arg in max_kernel.arguments if isinstance(arg, sym.Array)}
             for v in FindVariables(unique=False).visit(max_kernel.ir):

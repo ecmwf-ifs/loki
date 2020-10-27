@@ -332,16 +332,16 @@ class MaxjCodegen(Stringifier):
             return self.format_line(lhs, ' <== ', rhs, ';', comment=comment)
         return self.format_line(lhs, ' = ', rhs, ';', comment=comment)
 
-    def visit_ConditionalStatement(self, o, **kwargs):
+    def visit_ConditionalAssignment(self, o, **kwargs):
         """
         Format conditional statement as
           <target> = <condition> ? <expr> : <else_expr>
         """
-        target = self.visit(o.target, **kwargs)
+        lhs = self.visit(o.lhs, **kwargs)
         condition = self.visit(o.condition, **kwargs)
-        expr = self.visit(o.expr, **kwargs)
-        else_expr = self.visit(o.else_expr, **kwargs)
-        return self.format_line(target, ' = ', condition, ' ? ', expr, ' : ', else_expr, ';')
+        rhs = self.visit(o.rhs, **kwargs)
+        else_rhs = self.visit(o.else_rhs, **kwargs)
+        return self.format_line(lhs, ' = ', condition, ' ? ', rhs, ' : ', else_rhs, ';')
 
     def visit_Section(self, o, **kwargs):
         """
