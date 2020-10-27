@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-class Node(object):
+class Node:
     # pylint: disable=no-member  # Stop reports about _args
 
     """
