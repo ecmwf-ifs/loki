@@ -269,23 +269,23 @@ class ConditionalAssignment(Node):
     Internal representation of an inline conditional
     """
 
-    _traversable = ['condition', 'lhs', 'rhs', 'else_expr']
+    _traversable = ['condition', 'lhs', 'rhs', 'else_rhs']
 
-    def __init__(self, lhs, condition, rhs, else_expr, source=None):
+    def __init__(self, lhs, condition, rhs, else_rhs, source=None):
         super().__init__(source=source)
 
         self.lhs = lhs
         self.condition = condition
         self.rhs = rhs
-        self.else_expr = else_expr
+        self.else_rhs = else_rhs
 
     @property
     def children(self):
-        return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_expr,))
+        return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_rhs,))
 
     def __repr__(self):
         return 'CondAssign:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
-                                                 self.else_expr)
+                                                   self.else_rhs)
 
 
 class MultiConditional(Node):
