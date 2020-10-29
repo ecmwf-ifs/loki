@@ -110,13 +110,13 @@ class LokiStringifyMapper(StringifyMapper):
         return super().map_product(expr, enclosing_prec, *args, **kwargs)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
-        return self.parenthesize(self.map_sum(expr, enclosing_prec, *args, **kwargs))
+        return self.parenthesize(self.map_sum(expr, PREC_NONE, *args, **kwargs))
 
     def map_parenthesised_mul(self, expr, enclosing_prec, *args, **kwargs):
-        return self.parenthesize(self.map_product(expr, enclosing_prec, *args, **kwargs))
+        return self.parenthesize(self.map_product(expr, PREC_NONE, *args, **kwargs))
 
     def map_parenthesised_pow(self, expr, enclosing_prec, *args, **kwargs):
-        return self.parenthesize(self.map_power(expr, enclosing_prec, *args, **kwargs))
+        return self.parenthesize(self.map_power(expr, PREC_NONE, *args, **kwargs))
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
         return ' // '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)
