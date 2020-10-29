@@ -783,8 +783,10 @@ def test_string_compare():
     ('1 + 1', '1 + 1'),
     ('1+2+3+4', '1 + 2 + 3 + 4'),
     ('5*4 - 3*2 - 1', '5*4 - 3*2 - 1'),
-    ('1*(2 + 3)', '1*((2 + 3))'),  # TODO: revisit the need for ParenthesisedSum etc.
+    ('1*(2 + 3)', '1*(2 + 3)'),
     ('5*a +3*7**5 - 4/b', '5*a + 3*7**5 - 4 / b'),
+    ('5 + (4 + 3) - (2*1)', '5 + (4 + 3) - (2*1)'),
+    ('a*(b*(c+(d+e)))', 'a*(b*(c + (d + e)))'),
 ])
 def test_parse_expression(source, ref):
     """

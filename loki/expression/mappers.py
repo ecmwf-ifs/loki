@@ -1,5 +1,5 @@
 import re
-from pymbolic.primitives import Expression, Product, is_zero
+import pymbolic.primitives as pmbl
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
@@ -8,7 +8,8 @@ from pymbolic.mapper.stringifier import (
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
-           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions']
+           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions',
+           'LokiIdentityMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -57,7 +58,7 @@ class LokiStringifyMapper(StringifyMapper):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         if expr.kind:
-            if isinstance(expr.kind, Expression):
+            if isinstance(expr.kind, pmbl.Expression):
                 kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
             else:
                 kind = ', kind=' + str(expr.kind)
@@ -81,7 +82,8 @@ class LokiStringifyMapper(StringifyMapper):
         looking for such cases and determine the matching operator for the output.
         """
         def get_op_prec_expr(expr):
-            if isinstance(expr, Product) and expr.children and is_zero(expr.children[0]+1):
+            from loki.expression.symbols import Product  # pylint: disable=import-outside-toplevel
+            if isinstance(expr, Product) and expr.children and pmbl.is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return '-', PREC_PRODUCT, expr.children[1]
@@ -186,7 +188,7 @@ class ExpressionRetriever(WalkMapper):
             return
         for p in expr.parameters:
             self.rec(p, *args, **kwargs)
-        if isinstance(expr.kind, Expression):
+        if isinstance(expr.kind, pmbl.Expression):
             self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -307,7 +309,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_inline_call = CombineMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if expr.kind and isinstance(expr.kind, Expression):
+        if expr.kind and isinstance(expr.kind, pmbl.Expression):
             kind = (self.rec(expr.kind, *args, **kwargs),)
         else:
             kind = tuple()
@@ -377,7 +379,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if isinstance(expr.kind, Expression):
+        if isinstance(expr.kind, pmbl.Expression):
             kind = self.rec(expr.kind, *args, **kwargs)
         else:
             kind = expr.kind
