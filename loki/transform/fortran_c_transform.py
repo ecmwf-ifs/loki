@@ -39,6 +39,9 @@ class FortranCTransformation(Transformation):
     """
     # pylint: disable=unused-argument
 
+    # Set of standard module names that have no C equivalent
+    __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
+
     def __init__(self, header_modules=None):
 
         # Maps from original type name to ISO-C and C-struct types
@@ -360,9 +363,14 @@ class FortranCTransformation(Transformation):
         # Change imports to C header includes
         import_map = {}
         for im in FindNodes(Import).visit(kernel.spec):
-            if not im.c_import and im.symbols:
+            if str(im.module).upper() in self.__fortran_intrinsic_modules:
+                # Remove imports of Fortran intrinsic modules
+                import_map[im] = None
+
+            elif not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
                 import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True)
+
             else:
                 # Remove other imports, as they might include untreated Fortran code
                 import_map[im] = None
