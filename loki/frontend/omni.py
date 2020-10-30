@@ -205,10 +205,13 @@ class OMNI2IR(GenericVisitor):
             if _type is None:
                 if tast.attrib['return_type'] == 'Fvoid':
                     dtype = BasicType.DEFERRED
+                    _type = SymbolType(dtype)
+                elif tast.attrib['return_type'] in self.type_map:
+                    _type = self.visit(self.type_map[tast.attrib['return_type']])
                 else:
                     t = self._omni_types[tast.attrib['return_type']]
                     dtype = BasicType.from_fortran_type(t)
-                _type = SymbolType(dtype)
+                    _type = SymbolType(dtype)
 
             if tast.attrib.get('is_external') == 'true':
                 # This is an external declaration
