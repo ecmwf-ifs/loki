@@ -477,10 +477,20 @@ class IntLiteral(ExprMetadataMixin, _Literal):
             args += [('kind', self.kind)]
         return tuple(args) + super().__getinitargs__()
 
+    def __int__(self):
+        return self.value
+
+    def __bool__(self):
+        return bool(self.value)
+
     mapper_method = intern('map_int_literal')
 
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
+
+
+# Register IntLiteral as a constant class in Pymbolic
+pmbl.register_constant_class(IntLiteral)
 
 
 class LogicLiteral(ExprMetadataMixin, _Literal):

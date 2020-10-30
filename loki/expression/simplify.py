@@ -1,6 +1,8 @@
+from collections import defaultdict
 import enum
 from functools import reduce
 import operator
+import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression import symbols as sym, LokiIdentityMapper
@@ -11,7 +13,7 @@ __all__ = ['Simplification', 'SimplifyMapper', 'simplify']
 
 def is_minus_prefix(expr):
     """
-    Return `True` if the given expression prefixes an expression with a minus sign,
+    Return `True` if the given expression prefixes a nested expression with a minus sign,
     else return `False`.
 
     It essentially means that `expr == Product((-1, other_expr))`.
@@ -114,8 +116,9 @@ def flatten_expr(expr):
 
 def sum_int_literals(components):
     """
-    Sum up the values of all `IntLiteral` in the given list of expressions and return the accumulated
-    value as an `IntLiteral` together with the remaining (not summed-up) components.
+    Sum up the values of all `IntLiteral` in the given list of components of a sum
+    and return the accumulated value as an `IntLiteral` in a list together with the
+    remaining (not summed-up) components.
     """
     def _process(child):
         if isinstance(child, sym.IntLiteral):
@@ -132,23 +135,38 @@ def sum_int_literals(components):
     return [sym.IntLiteral(value)] + remaining_components
 
 
-def mul_int_literals(components):
+def separate_coefficients(components):
     """
-    Multiply the values of all `IntLiteral` in the given list of expressions and return the
-    resulting value as an `IntLiteral` together with the remaining (not multiplied) components.
+    Helper routine that separates components of a product into constant coefficients
+    and remaining factors.
+
+    This is used in `mul_int_literals` and `collect_coefficients`.
     """
     def _process(child):
-        if isinstance(child, int):
+        if isinstance(child, (int, np.integer)):
             return child, None
         if isinstance(child, sym.IntLiteral):
             return child.value, None
-        if is_minus_prefix(child) and isinstance(child.children[1], sym.IntLiteral):
-            return -child.children[1].value, None
+        if is_minus_prefix(child):
+            # We recurse here as products that are only there to change the sign
+            # should not introduce a layer in the expression tree.
+            value, component = _process(child.children[1])
+            return -value, component
         return 1, child
 
     transformed_components = list(zip(*[_process(child) for child in components]))
     value = reduce(operator.mul, transformed_components[0], 1)
     remaining_components = [ch for ch in transformed_components[1] if ch is not None]
+
+    return value, remaining_components
+
+
+def mul_int_literals(components):
+    """
+    Multiply the values of all `IntLiteral` in the given list of expressions and return the
+    resulting value as an `IntLiteral` together with the remaining (not multiplied) components.
+    """
+    value, remaining_components = separate_coefficients(components)
     if value == 0:
         return [sym.IntLiteral(0)]
     if value == 1 and remaining_components:
@@ -159,14 +177,82 @@ def mul_int_literals(components):
     return [sym.IntLiteral(value)] + remaining_components
 
 
+def collect_coefficients(components):
+    """
+    Collect all occurences of each base into a single summand in a polynomial-type expression.
+
+    Note that this works also if the "base" is a nested expression and thus this applies
+    not to polynomials alone.
+    """
+    def _get_coefficient(value):
+        if value == 1:
+            return []
+        if value == -1:
+            return [-1]
+        if value < 0:
+            return [-1, sym.IntLiteral(abs(value))]
+        return [sym.IntLiteral(abs(value))]
+
+    summands = defaultdict(int)  # map (base, coefficient) pairs
+
+    for item in as_tuple(components):
+        if isinstance(item, sym.Product):
+            value, remaining_components = separate_coefficients(item.children)
+            if value == 0:
+                continue
+            if not remaining_components:
+                summands[1] += value
+            else:
+                # We sort the components using their string representation
+                summands[as_tuple(sorted(remaining_components, key=str))] += value
+        elif isinstance(item, (int, np.integer)):
+            summands[1] += item
+        elif isinstance(item, sym.IntLiteral):
+            summands[1] += item.value
+        else:
+            summands[as_tuple(item)] += 1
+
+    result = []
+
+    # Treat the constant part separately to make sure this is flat
+    constant = summands.pop(1, 0)
+    if constant < 0:
+        result += [sym.Product((-1, sym.IntLiteral(abs(constant))))]
+    elif constant > 0:
+        result += [sym.IntLiteral(constant)]
+
+    # Insert the remaining summands
+    for base, factor in summands.items():
+        if factor == 0:
+            continue
+        if factor == 1 and len(base) == 1:
+            result.append(base[0])
+        else:
+            result.append(sym.Product(as_tuple(_get_coefficient(factor) + list(base))))
+
+    return result or [sym.IntLiteral(0)]
+
+
 class Simplification(enum.Flag):
     """
     The selection of available simplification techniques that can be used to simplify expressions.
+    Multiple techniques can be combined using bitwise logical operations, for example:
+    ```
+    Flatten | IntegerArithmetic
+    ALL & ~Flatten
+    ```
+
+    Attributes:
+        Flatten             Flatten sub-sums and distribute products.
+        IntegerArithmetic   Perform arithmetic on integer literals (addition and multiplication).
+        CollectCoefficients Combine summands as far as possible.
+        ALL                 All of the above.
     """
     Flatten = enum.auto()
     IntegerArithmetic = enum.auto()
+    CollectCoefficients = enum.auto()
 
-    ALL = Flatten | IntegerArithmetic
+    ALL = Flatten | IntegerArithmetic | CollectCoefficients
 
 
 class SimplifyMapper(LokiIdentityMapper):
@@ -191,6 +277,9 @@ class SimplifyMapper(LokiIdentityMapper):
 
         if self.enabled_simplifications & Simplification.IntegerArithmetic:
             children = sum_int_literals(children)
+
+        if self.enabled_simplifications & Simplification.CollectCoefficients:
+            children = collect_coefficients(children)
 
         if len(children) == 1:
             return children[0]
