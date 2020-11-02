@@ -237,15 +237,17 @@ class OMNI2IR(GenericVisitor):
             _type = SymbolType(BasicType.from_fortran_type(t))
             dimensions = None
 
-        value = self.visit(o.find('value')) if o.find('value') is not None else None
         if _type is not None:
             _type.shape = dimensions
+        value = self.visit(o.find('value')) if o.find('value') is not None else None
+        if value:
+            _type.initial = value
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
         if external:
             _type.external = external
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
-                                initial=value, scope=self.scope.symbols, source=source)
+                                scope=self.scope.symbols, source=source)
         return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
 
     def visit_FstructDecl(self, o, source=None):

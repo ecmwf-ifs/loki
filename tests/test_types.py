@@ -250,7 +250,7 @@ end module my_types_mod
     # Check that module variables and types have been imported
     assert routine.symbols['a_kind'].dtype == BasicType.INTEGER
     assert routine.symbols['a_kind'].parameter
-    # assert routine.symbols['a_kind'].dtype.initial == 4
+    assert routine.symbols['a_kind'].initial == 4
     assert routine.symbols['a_dim'].dtype == BasicType.INTEGER
     assert routine.symbols['a_dim'].kind == 'a_kind'
     assert isinstance(routine.types['a_type'].dtype.typedef, TypeDef)

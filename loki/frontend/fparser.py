@@ -253,6 +253,9 @@ class FParser2IR(GenericVisitor):
         if shape is not None and dtype is not None and dtype.shape != shape:
             dtype = dtype.clone(shape=shape)
 
+        if initial is not None :
+            dtype = dtype.clone(initial=initial)
+
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions)
 
@@ -261,8 +264,8 @@ class FParser2IR(GenericVisitor):
                 dtype = SymbolType(BasicType.DEFERRED)
             dtype.external = external
 
-        return sym.Variable(name=vname, dimensions=dimensions, type=dtype, scope=scope.symbols,
-                            parent=parent, initial=initial, source=source)
+        return sym.Variable(name=vname, dimensions=dimensions, type=dtype,
+                            scope=scope.symbols, parent=parent, source=source)
 
     def visit_literal(self, o, _type, kind=None, **kwargs):
         source = kwargs.get('source')

@@ -109,7 +109,7 @@ def disk_cached(argname, suffix='cache'):
             """
             filename = kwargs[argname]
             cachefile = '%s.%s' % (filename, suffix)
-            if os.path.exists(cachefile):
+            if os.path.exists(cachefile) and os.environ.get('LOKI_DISK_CACHE', None):
                 # Only use cache if it is newer than the file
                 filetime = os.path.getmtime(filename)
                 cachetime = os.path.getmtime(cachefile)

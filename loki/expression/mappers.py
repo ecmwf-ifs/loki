@@ -44,14 +44,12 @@ class LokiStringifyMapper(StringifyMapper):
         return expr.name
 
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims, parent, initial = '', '', ''
+        dims, parent = '', ''
         if expr.dimensions:
             dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
         if expr.parent is not None:
             parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
-        if expr.type is not None and expr.type.initial is not None:
-            initial = ' = %s' % self.rec(expr.initial, PREC_NONE, *args, **kwargs)
-        return self.format('%s%s%s%s', parent, expr.basename, dims, initial)
+        return self.format('%s%s%s', parent, expr.basename, dims)
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
@@ -355,18 +353,16 @@ class LokiIdentityMapper(IdentityMapper):
     map_intrinsic_literal = IdentityMapper.map_constant
 
     def map_scalar(self, expr, *args, **kwargs):
-        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
         return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
-                              initial=initial, source=expr.source)
+                              source=expr.source)
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        initial = self.rec(expr.initial, *args, **kwargs) if expr.initial is not None else None
         return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
-                              dimensions=dimensions, initial=initial, source=expr.source)
+                              dimensions=dimensions, source=expr.source)
 
     def map_array_subscript(self, expr, *args, **kwargs):
         return expr.__class__(self.rec(expr.index, *args, **kwargs))
