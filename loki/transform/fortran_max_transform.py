@@ -123,7 +123,7 @@ class FortranMaxTransformation(Transformation):
                 in_type = arg.type.clone(intent='in', dfevar=True)
                 arg_in = arg.clone(name='{}_in'.format(arg.name), type=in_type)
                 # Modify existing argument
-                arg_out = arg.clone(initial=arg_in, type=arg.type.clone(dfevar=True))
+                arg_out = arg.clone(type=arg.type.clone(dfevar=True, initial=arg_in))
                 var_map[arg] = arg_out
                 arguments += [arg_in, arg_out]
                 # Enlist declaration of modified argument for removal
@@ -198,7 +198,7 @@ class FortranMaxTransformation(Transformation):
                 # TODO: Add support for wrap point
                 #                      parameters=(Literal(32), loop.bounds[1]))
                 var_map[loop.variable] = loop.variable.clone(
-                    initial=vinit, type=loop.variable.type.clone(dfevar=True))
+                    type=loop.variable.type.clone(dfevar=True, initial=vinit))
                 dataflow_indices += [str(loop.variable)]
         max_kernel.spec = SubstituteExpressions(var_map).visit(max_kernel.spec)
         max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
@@ -317,8 +317,8 @@ class FortranMaxTransformation(Transformation):
                         initial = sym.InlineCall('stream.offset', parameters=(stream, offset))
                         var_hash = sha256(str(v).encode('utf-8')).hexdigest()[:10]
                         name = '{}_{}'.format(v.name, var_hash)
-                        vmap[v] = v.clone(name=name, dimensions=None, initial=initial,
-                                          type=stream.type.clone(intent=None))
+                        vmap[v] = v.clone(name=name, dimensions=None,
+                                          type=stream.type.clone(intent=None, initial=initial))
             max_kernel.spec = SubstituteExpressions(vmap).visit(max_kernel.spec)
             max_kernel.body = SubstituteExpressions(vmap).visit(max_kernel.body)
 
@@ -390,14 +390,16 @@ class FortranMaxTransformation(Transformation):
                     else:
                         name = 'io.scalarInput'
                     parameters = (sym.StringLiteral('"{}"'.format(var.name)), init_type(var.type))
-                    var_map[var] = var.clone(initial=sym.InlineCall(name, parameters=parameters))
+                    initial = sym.InlineCall(name, parameters=parameters)
+                    var_map[var] = var.clone(type=var.type.clone(initial=initial))
                 elif var.initial is None:
                     name = '{}.newInstance'.format(init_type(var.type))
                     if isinstance(var, sym.Array):
                         parameters = (sym.IntrinsicLiteral('this'),)
                     else:
                         parameters = (sym.IntrinsicLiteral('this'), sym.IntLiteral(0))
-                    var_map[var] = var.clone(initial=sym.InlineCall(name, parameters=parameters))
+                    initial = sym.InlineCall(name, parameters=parameters)
+                    var_map[var] = var.clone(type=var.type.clone(initial=initial))
         max_kernel.spec = SubstituteExpressions(var_map).visit(max_kernel.spec)
 
         # Insert outflow statements for output variables
@@ -520,12 +522,12 @@ class FortranMaxTransformation(Transformation):
         args = sym.Variable(name='args', type=args_type, scope=main.symbols)
         main.arguments = as_tuple(args)
 
-        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters')
-        params = sym.Variable(name='params', type=params_type, scope=main.symbols,
-                              initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
-        mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager')
-        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.symbols,
-                           initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
+        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters',
+                                 initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
+        params = sym.Variable(name='params', type=params_type, scope=main.symbols)
+        mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager',
+                              initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
+        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.symbols)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement('manager.build', arguments=())]
         main.body = ir.Section(body=body)
