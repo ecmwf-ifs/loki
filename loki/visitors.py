@@ -427,8 +427,8 @@ class Stringifier(Visitor):
         its elements.
         """
         if is_iterable(item) and not args:
-            return as_tuple(self.visit(i, **kwargs) for i in item if i)
-        return as_tuple(self.visit(i, **kwargs) for i in [item, *args] if i)
+            return as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
+        return as_tuple(self.visit(i, **kwargs) for i in [item, *args] if i is not None)
 
     # Handler for outer objects
 
