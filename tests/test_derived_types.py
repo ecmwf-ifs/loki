@@ -2,216 +2,409 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import clean, compile_and_load, OFP, OMNI, FP, SourceFile
-from conftest import generate_identity
+from conftest import jit_compile, clean_test
+from loki import (
+    OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
+    RangeIndex, Scalar, BasicType
+)
 
 
-@pytest.fixture(scope='module', name='refpath')
-def fixture_refpath():
-    return Path(__file__).parent/'sources/derived_types.f90'
-
-
-@pytest.fixture(scope='module', name='reference')
-def fixture_reference(refpath):
-    """
-    Compile and load the reference solution
-    """
-    clean(filename=refpath)  # Delete parser cache
-    pymod = compile_and_load(refpath, cwd=str(refpath.parent))
-    return getattr(pymod, refpath.stem)
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_simple_loops(refpath, reference, frontend):
+def test_simple_loops(here, frontend):
     """
-    item%vector = item%vector + vec
-    item%matrix = item%matrix + item%scalar
+    Test simple vector/matrix arithmetic with a derived type
     """
-    # Test the reference solution
-    item = reference.explicit()
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+contains
+
+  subroutine simple_loops(item)
+    type(explicit), intent(inout) :: item
+    integer :: i, j, n
+
+    n = 3
+    do i=1, n
+       item%vector(i) = item%vector(i) + item%scalar
+    end do
+
+    do j=1, n
+       do i=1, n
+          item%matrix(i, j) = item%matrix(i, j) + item%scalar
+       end do
+    end do
+  end subroutine simple_loops
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_simple_loops_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
+
+    item = mod.explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
-    reference.simple_loops(item)
+    mod.simple_loops(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='simple_loops', frontend=frontend)
-    item = test.explicit()
-    item.scalar = 2.
-    item.vector[:] = 5.
-    item.matrix[:, :] = 4.
-    getattr(test, 'simple_loops_%s' % frontend)(item)
-    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_array_indexing_explicit(refpath, reference, frontend):
+def test_array_indexing_explicit(here, frontend):
     """
-    item.a(:, :) = 666.
+    Test simple vector/matrix arithmetic with a derived type
+    """
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+contains
+
+  subroutine array_indexing_explicit(item)
+    type(explicit), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%vector(:) = 666.
+    do i=1, 3
+       item%matrix(:, i) = vals(i)
+    end do
+  end subroutine array_indexing_explicit
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_array_indexing_explicit_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
+
+    item = mod.explicit()
+    mod.array_indexing_explicit(item)
+    assert (item.vector == 666.).all()
+    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_array_indexing_deferred(here, frontend):
+    """
+    Test simple vector/matrix arithmetic with a derived type
+    with dynamically allocated arrays.
+    """
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type deferred
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
+  end type deferred
+contains
+
+  subroutine alloc_deferred(item)
+    type(deferred), intent(inout) :: item
+    allocate(item%vector(3))
+    allocate(item%matrix(3, 3))
+  end subroutine alloc_deferred
+
+  subroutine free_deferred(item)
+    type(deferred), intent(inout) :: item
+    deallocate(item%vector)
+    deallocate(item%matrix)
+  end subroutine free_deferred
+
+  subroutine array_indexing_deferred(item)
+    type(deferred), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%vector(:) = 666.
 
     do i=1, 3
-       item%b(:, i) = vals(i)
+       item%matrix(:, i) = vals(i)
     end do
-    """
-    # Test the reference solution
-    item = reference.explicit()
-    reference.array_indexing_explicit(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+  end subroutine array_indexing_deferred
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_array_indexing_deferred_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_explicit', frontend=frontend)
-    item = test.explicit()
-    getattr(test, 'array_indexing_explicit_%s' % frontend)(item)
+    item = mod.deferred()
+    mod.alloc_deferred(item)
+    mod.array_indexing_deferred(item)
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    mod.free_deferred(item)
+
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_array_indexing_deferred(refpath, reference, frontend):
+def test_array_indexing_nested(here, frontend):
     """
-    item.a(:, :) = 666.
-
-    do i=1, 3
-       item%b(:, i) = vals(i)
-    end do
+    Test simple vector/matrix arithmetic with a nested derived type
     """
-    # Test the reference solution
-    item = reference.deferred()
-    reference.alloc_deferred(item)
-    reference.array_indexing_deferred(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    reference.free_deferred(item)
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_deferred', frontend=frontend)
-    item = test.deferred()
-    reference.alloc_deferred(item)
-    getattr(test, 'array_indexing_deferred_%s' % frontend)(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    reference.free_deferred(item)
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
 
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_array_indexing_nested(refpath, reference, frontend):
-    """
+  type nested
+    real(kind=jprb) :: a_scalar, a_vector(3)
+    type(explicit) :: another_item
+  end type nested
+contains
+
+  subroutine array_indexing_nested(item)
+    type(nested), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
     item%a_vector(:) = 666.
-    item%another_item%a_vector(:) = 999.
+    item%another_item%vector(:) = 999.
 
     do i=1, 3
        item%another_item%matrix(:, i) = vals(i)
     end do
-    """
-    # Test the reference solution
-    item = reference.nested()
-    reference.array_indexing_nested(item)
+  end subroutine array_indexing_nested
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_array_indexing_nested_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
+
+    item = mod.nested()
+    mod.array_indexing_nested(item)
     assert (item.a_vector == 666.).all()
     assert (item.another_item.vector == 999.).all()
     assert (item.another_item.matrix == np.array([[1., 2., 3.],
                                                   [1., 2., 3.],
                                                   [1., 2., 3.]])).all()
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='array_indexing_nested', frontend=frontend)
-    item = test.nested()
-    getattr(test, 'array_indexing_nested_%s' % frontend)(item)
-    assert (item.a_vector == 666.).all()
-    assert (item.another_item.vector == 999.).all()
-    assert (item.another_item.matrix == np.array([[1., 2., 3.],
-                                                  [1., 2., 3.],
-                                                  [1., 2., 3.]])).all()
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_deferred_array(refpath, reference, frontend):
+def test_deferred_array(here, frontend):
     """
-    item2%vector(:) = 666.
+    Test simple vector/matrix with an array of derived types
+    """
 
-    do i=1, 3
-       item2%matrix(:, i) = vals(i)
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type deferred
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
+  end type deferred
+contains
+
+  subroutine alloc_deferred(item)
+    type(deferred), intent(inout) :: item
+    allocate(item%vector(3))
+    allocate(item%matrix(3, 3))
+  end subroutine alloc_deferred
+
+  subroutine free_deferred(item)
+    type(deferred), intent(inout) :: item
+    deallocate(item%vector)
+    deallocate(item%matrix)
+  end subroutine free_deferred
+
+  subroutine deferred_array(item)
+    type(deferred), intent(inout) :: item
+    type(deferred), allocatable :: item2(:)
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i, j
+
+    allocate(item2(4))
+
+    do j=1, 4
+      call alloc_deferred(item2(j))
+
+      item2(j)%vector(:) = 666.
+
+      do i=1, 3
+        item2(j)%matrix(:, i) = vals(i)
+      end do
     end do
 
-    ----
+    item%vector(:) = 0.
+    item%matrix(:,:) = 0.
 
-    item%vector = item%vector + item2(:)%vector
-    item%matrix = item%matrix + item2(:)%matrix
-    """
-    # Test the reference solution
-    item = reference.deferred()
-    reference.alloc_deferred(item)
-    reference.deferred_array(item)
+    do j=1, 4
+      item%vector(:) = item%vector(:) + item2(j)%vector(:)
+
+      do i=1, 3
+          item%matrix(:,i) = item%matrix(:,i) + item2(j)%matrix(:,i)
+      end do
+
+      call free_deferred(item2(j))
+    end do
+
+    deallocate(item2)
+  end subroutine deferred_array
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_deferred_array_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
+
+    item = mod.deferred()
+    mod.alloc_deferred(item)
+    mod.deferred_array(item)
     assert (item.vector == 4 * 666.).all()
     assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    reference.free_deferred(item)
+    mod.free_deferred(item)
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='deferred_array', frontend=frontend)
-    item = test.deferred()
-    reference.alloc_deferred(item)
-    getattr(test, 'deferred_array_%s' % frontend)(item)
-    assert (item.vector == 4 * 666.).all()
-    assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    reference.free_deferred(item)
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_derived_type_caller(refpath, reference, frontend):
+def test_derived_type_caller(here, frontend):
     """
-    item%vector = item%vector + item%scalar
-    item%matrix = item%matrix + item%scalar
+    Test a simple call to another routine specifying a derived type as argument
+    """
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+contains
+
+  subroutine simple_loops(item)
+    type(explicit), intent(inout) :: item
+    integer :: i, j, n
+
+    n = 3
+    do i=1, n
+       item%vector(i) = item%vector(i) + item%scalar
+    end do
+
+    do j=1, n
+       do i=1, n
+          item%matrix(i, j) = item%matrix(i, j) + item%scalar
+       end do
+    end do
+  end subroutine simple_loops
+
+  subroutine derived_type_caller(item)
+    ! simple call to another routine specifying a derived type as argument
+    type(explicit), intent(inout) :: item
+
     item%red_herring = 42.
-    """
-    # Test the reference solution
-    item = reference.explicit()
-    item.scalar = 2.
-    item.vector[:] = 5.
-    item.matrix[:, :] = 4.
-    item.red_herring = -1.
-    reference.derived_type_caller(item)
-    assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
+    call simple_loops(item)
+  end subroutine derived_type_caller
 
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='derived_type_caller', frontend=frontend)
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_derived_type_caller_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     # Test the generated identity
-    item = test.explicit()
+    item = mod.explicit()
     item.scalar = 2.
     item.vector[:] = 5.
     item.matrix[:, :] = 4.
     item.red_herring = -1.
-    getattr(test, 'derived_type_caller_%s' % frontend)(item)
+    mod.derived_type_caller(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
+
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_associates(refpath, reference, frontend):
+def test_associates(here, frontend):
     """
+    Test the use of associate to access and modify other items
+    """
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+
+  type deferred
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
+  end type deferred
+contains
+
+  subroutine alloc_deferred(item)
+    type(deferred), intent(inout) :: item
+    allocate(item%vector(3))
+    allocate(item%matrix(3, 3))
+  end subroutine alloc_deferred
+
+  subroutine free_deferred(item)
+    type(deferred), intent(inout) :: item
+    deallocate(item%vector)
+    deallocate(item%matrix)
+  end subroutine free_deferred
+
+  subroutine associates(item)
+    type(explicit), intent(inout) :: item
+    type(deferred) :: item2
+
+    item%scalar = 17.0
+
+    associate(vector2=>item%matrix(:,1))
+        vector2(:) = 3.
+        item%matrix(:,3) = vector2(:)
+    end associate
+
     associate(vector=>item%vector)
-    item%vector(2) = vector(1)
-    vector(3) = item%vector(1) + vector(2)
-    """
-    from loki import FindVariables, IntLiteral, RangeIndex  # pylint: disable=import-outside-toplevel
+        item%vector(2) = vector(1)
+        vector(3) = item%vector(1) + vector(2)
+        vector(1) = 1.
+    end associate
 
-    # Test the reference solution
-    item = reference.explicit()
-    item.scalar = 0.
-    item.vector[0] = 5.
-    item.vector[1:2] = 0.
-    item.matrix = 0.
-    reference.associates(item)
-    assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
-    assert (item.matrix[:, 0::2] == 3.).all()
+    call alloc_deferred(item2)
 
+    associate(vec=>item2%vector(2))
+        vec = 1.
+    end associate
+
+    call free_deferred(item2)
+  end subroutine associates
+end module
+"""
     # Test the internals
-    routine = SourceFile.from_file(refpath, frontend=frontend)['associates']
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['associates']
     variables = FindVariables().visit(routine.body)
     if frontend == OMNI:
         assert all([v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
@@ -220,16 +413,18 @@ def test_associates(refpath, reference, frontend):
         assert all([v.shape == (IntLiteral(3),)
                     for v in variables if v.name in ['vector', 'vector2']])
 
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='associates', frontend=frontend)
+    # Test the generated module
+    filepath = here/('derived_types_associates_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
-    # Test the generated identity
-    item = reference.explicit()
+    item = mod.explicit()
     item.scalar = 0.
     item.vector[0] = 5.
     item.vector[1:2] = 0.
-    getattr(test, 'associates_%s' % frontend)(item)
+    mod.associates(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
+
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [
@@ -237,13 +432,13 @@ def test_associates(refpath, reference, frontend):
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI fails to read without full module')),
     FP
 ])
-def test_associates_deferred(refpath, frontend):
+def test_associates_deferred(frontend):
     """
     Verify that reading in subroutines with deferred external type definitions
     and associates working on that are supported.
     """
 
-    code = '''
+    fcode = """
 SUBROUTINE ASSOCIATES_DEFERRED(ITEM, IDX)
 USE SOME_MOD, ONLY: SOME_TYPE
 IMPLICIT NONE
@@ -253,14 +448,8 @@ ASSOCIATE(SOME_VAR=>ITEM%SOME_VAR(IDX))
 SOME_VAR = 5
 END ASSOCIATE
 END SUBROUTINE
-    '''
-    from loki import FindVariables, Scalar, BasicType  # pylint: disable=import-outside-toplevel
-
-    filename = refpath.parent / ('associates_deferred_%s.f90' % frontend)
-    with open(filename, 'w') as f:
-        f.write(code)
-
-    routine = SourceFile.from_file(filename, frontend=frontend)['associates_deferred']
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     some_var = FindVariables().visit(routine.body).pop()
     assert isinstance(some_var, Scalar)
     assert some_var.name.upper() == 'SOME_VAR'
@@ -268,72 +457,114 @@ END SUBROUTINE
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_case_sensitivity(refpath, reference, frontend):
+def test_case_sensitivity(here, frontend):
     """
     Some abuse of the case agnostic behaviour of Fortran
     """
-    # Test the reference solution
-    item = reference.case_sensitive()
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type case_sensitive
+    real(kind=jprb) :: u, v, T
+    real(kind=jprb) :: q, A
+  end type case_sensitive
+contains
+
+  subroutine check_case(item)
+    type(case_sensitive), intent(inout) :: item
+
+    item%u = 1.0
+    item%v = 2.0
+    item%t = 3.0
+    item%q = -1.0
+    item%A = -5.0
+  end subroutine check_case
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_case_sensitivity_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
+
+    item = mod.case_sensitive()
     item.u = 0.
     item.v = 0.
     item.t = 0.
     item.q = 0.
     item.a = 0.
-    reference.check_case(item)
+    mod.check_case(item)
     assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
     assert item.q == -1.0 and item.a == -5.0
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='check_case', frontend=frontend)
-    item = test.case_sensitive()
-    item.u = 0.
-    item.v = 0.
-    item.t = 0.
-    item.q = 0.
-    item.a = 0.
-    function = getattr(test, 'check_case_%s' % frontend)
-    function(item)
-    assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
-    assert item.q == -1.0 and item.a == -5.0
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_check_alloc_source(refpath, reference, frontend):
+def test_check_alloc_source(here, frontend):
     """
+    Test the use of SOURCE in allocate
+    """
+
+    fcode = """
+module derived_types_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+
+  type deferred
+    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
+    real(kind=jprb), allocatable :: red_herring
+  end type deferred
+contains
+
+  subroutine alloc_deferred(item)
+    type(deferred), intent(inout) :: item
+    allocate(item%vector(3))
+    allocate(item%matrix(3, 3))
+  end subroutine alloc_deferred
+
+  subroutine free_deferred(item)
+    type(deferred), intent(inout) :: item
+    deallocate(item%vector)
+    deallocate(item%matrix)
+  end subroutine free_deferred
+
+  subroutine check_alloc_source(item, item2)
+    type(explicit), intent(inout) :: item
+    type(deferred), intent(inout) :: item2
+    real(kind=jprb), allocatable :: vector(:), vector2(:)
+
     allocate(vector, source=item%vector)
     vector(:) = vector(:) + item%scalar
     item%vector(:) = vector(:)
 
-    allocate(vector2, mold=item2%vector)
+    allocate(vector2, source=item2%vector)  ! Try mold here when supported by fparser
     vector2(:) = item2%scalar
     item2%vector(:) = vector2(:)
-    """
+  end subroutine check_alloc_source
+end module
+"""
 
-    def get_ref_input():
-        item = reference.explicit()
-        item.scalar = 1.
-        item.vector[:] = 1.
+    module = Module.from_source(fcode, frontend=frontend)
+    filepath = here/('derived_types_check_alloc_source_%s.f90' % frontend)
+    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
-        item2 = reference.deferred()
-        reference.alloc_deferred(item2)
-        item2.scalar = 2.
-        item2.vector[:] = -1.
+    item = mod.explicit()
+    item.scalar = 1.
+    item.vector[:] = 1.
 
-        return item, item2
+    item2 = mod.deferred()
+    mod.alloc_deferred(item2)
+    item2.scalar = 2.
+    item2.vector[:] = -1.
 
-    # Test the reference solution
-    item, item2 = get_ref_input()
-    reference.check_alloc_source(item, item2)
+    mod.check_alloc_source(item, item2)
     assert (item.vector == 2.).all()
     assert (item2.vector == 2.).all()
-    reference.free_deferred(item2)
+    mod.free_deferred(item2)
 
-    # Test the generated identity
-    test = generate_identity(refpath, modulename='derived_types',
-                             routinename='check_alloc_source', frontend=frontend)
-    item, item2 = get_ref_input()
-    getattr(test, 'check_alloc_source_%s' % frontend)(item, item2)
-    assert (item.vector == 2.).all()
-    assert (item2.vector == 2.).all()
-    reference.free_deferred(item2)
+    clean_test(filepath)
