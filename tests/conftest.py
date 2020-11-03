@@ -117,6 +117,9 @@ def clean_test(filepath):
             f.unlink()
     for sofile in filepath.parent.glob('_%s.*.so' % filepath.stem):
         sofile.unlink()
+    f90wrap_path = filepath.parent/'f90wrap_{}'.format(filepath.name)
+    if f90wrap_path.exists():
+        f90wrap_path.unlink()
 
 
 def clean_preprocessing(filepath, frontend):
