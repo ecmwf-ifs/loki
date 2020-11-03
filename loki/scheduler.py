@@ -340,7 +340,7 @@ class Scheduler:
 
         # Insert all edges in the schedulers graph
         for parent, child in self.dependencies:
-            callgraph.edge(parent.name.upper(), child.name.upper())
+            callgraph.edge(parent.name.upper(), child.name.upper())  # pylint: disable=no-member
 
         # Insert all nodes we were told to either block or ignore
         for item in self.items:
