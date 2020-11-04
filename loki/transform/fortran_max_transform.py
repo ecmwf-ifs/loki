@@ -433,7 +433,7 @@ class FortranMaxTransformation(Transformation):
         spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
 
         max_module = Module(name=kernel.name, spec=ir.Section(body=as_tuple(spec)))
-        max_kernel = kernel.clone(parent=max_module)
+        max_kernel = kernel.clone(parent_scope=max_module.scope)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
         arg_type = SymbolType(BasicType.DEFERRED, name='KernelParameters', intent='in')
@@ -462,7 +462,7 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the setup
-        setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
+        setup = Subroutine(name='default void setup', parent_scope=manager.scope, spec=ir.Section(body=()))
 
         body = [ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(
             kernel.name))]
@@ -508,7 +508,7 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}ManagerMAX5C'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the constructor
-        constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
+        constructor = Subroutine(name=manager.name, parent_scope=manager.scope, spec=ir.Section(body=()))
         params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters', intent='in')
         params = sym.Variable(name='params', type=params_type, scope=constructor.symbols)
         body = [ir.CallStatement('super', arguments=(params,)),
@@ -517,7 +517,8 @@ class FortranMaxTransformation(Transformation):
         constructor.body = ir.Section(body=body)
 
         # Create the main function for maxJavaRun
-        main = Subroutine(name='public static void main', parent=manager, spec=ir.Section(body=()))
+        main = Subroutine(name='public static void main', parent_scope=manager.scope,
+                          spec=ir.Section(body=()))
         args_type = SymbolType(BasicType.DEFERRED, name='String[]', intent='in')
         args = sym.Variable(name='args', type=args_type, scope=main.symbols)
         main.arguments = as_tuple(args)

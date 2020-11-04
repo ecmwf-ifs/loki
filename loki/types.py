@@ -33,7 +33,7 @@ from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['BasicType', 'DerivedType', 'SymbolType', 'TypeTable']
+__all__ = ['BasicType', 'DerivedType', 'SymbolType', 'TypeTable', 'Scope']
 
 
 class BasicType(IntEnum):
@@ -279,3 +279,34 @@ class TypeTable(dict):
 
     def setdefault(self, key, default=None):
         super().setdefault(self.format_lookup_name(key), default)
+
+
+class Scope:
+    """
+    Scoping object that manages type caching and derivation for typed symbols.
+
+    The ``Scope`` provides two key tables:
+     * ``scope.symbols`` uniquely maps each variables name to a ``SymbolType``
+     * ``scope.types`` uniquely maps derived and procedure type names to
+       their respective data type objects and definitions.
+
+    Note that derived and procedure type definitions may be markes as
+    ``BasicType.DEFERRED``, in which case the ``Scope`` may be able to
+    map them to concrete definitions at a later stage.
+    """
+
+    def __init__(self, parent=None):
+        self._parent = weakref.ref(parent) if parent is not None else None
+
+        parent_symbols = self.parent.symbols if self.parent is not None else None
+        self.symbols = TypeTable(parent=parent_symbols)
+
+        parent_types = self.parent.types if self.parent is not None else None
+        self.types = TypeTable(parent=parent_types)
+
+    @property
+    def parent(self):
+        """
+        Access the enclosing scope.
+        """
+        return self._parent() if self._parent is not None else None
