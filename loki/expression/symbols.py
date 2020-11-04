@@ -69,7 +69,7 @@ class TypedSymbol:
     """
 
     def __init__(self, *args, **kwargs):
-        name = kwargs.get('name')
+        self.name = kwargs.get('name')
         scope = kwargs.pop('scope')
         type = kwargs.pop('type', None)
 
@@ -82,8 +82,8 @@ class TypedSymbol:
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
-            self.scope.symbols.setdefault(name, SymbolType(BasicType.DEFERRED))
-        elif type is not self.scope.symbols.lookup(name):
+            self.scope.symbols.setdefault(self.name, SymbolType(BasicType.DEFERRED))
+        elif type is not self.scope.symbols.lookup(self.name):
             # If the type information does already exist and is identical (not just
             # equal) we don't update it. This makes sure that we don't create double
             # entries for variables inherited from a parent scope
