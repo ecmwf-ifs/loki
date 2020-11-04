@@ -7,7 +7,7 @@ import numpy as np
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, TypeTable, BasicType, SymbolType
+    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -727,7 +727,7 @@ def test_string_compare():
     not full symbolic equivalence.
     """
     # Utility objects for manual expression creation
-    scope = TypeTable()
+    scope = Scope()
     type_int = SymbolType(dtype=BasicType.INTEGER)
     type_real = SymbolType(dtype=BasicType.REAL)
 

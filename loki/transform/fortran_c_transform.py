@@ -83,7 +83,7 @@ class FortranCTransformation(Transformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = '%s_c' % (derived.name if isinstance(derived, TypeDef) else derived.dtype.name)
-        symbols = TypeTable()
+        scope = Scope()
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
@@ -91,9 +91,9 @@ class FortranCTransformation(Transformation):
         declarations = []
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
-            vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
+            vnew = v.clone(name=v.basename.lower(), scope=scope, type=ctype)
             declarations += (Declaration(variables=(vnew,)),)
-        return TypeDef(name=typename.lower(), bind_c=True, body=declarations, symbols=symbols)
+        return TypeDef(name=typename.lower(), bind_c=True, body=declarations, scope=scope)
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -143,7 +143,7 @@ class FortranCTransformation(Transformation):
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
-                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope.symbols)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Assignment(lhs=cvar, rhs=cast_in)]
 
@@ -195,12 +195,12 @@ class FortranCTransformation(Transformation):
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
-                    Assignment(lhs=Variable(name=gettername, scope=getter_scope.symbols), rhs=v)])
+                    Assignment(lhs=Variable(name=gettername, scope=getter_scope), rhs=v)])
 
                 getter = Subroutine(name=gettername, scope=getter_scope, spec=getterspec,
                                     body=getterbody, bind=gettername, is_function=True)
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype,
-                                                     scope=getter.symbols))
+                                                     scope=getter.scope))
                 wrappers += [getter]
 
         modname = '{}_fc'.format(module.name)
@@ -234,7 +234,7 @@ class FortranCTransformation(Transformation):
                                    kind=cls.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
-                           scope=intf_routine.symbols)
+                           scope=intf_routine.scope)
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
 

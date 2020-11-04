@@ -461,7 +461,7 @@ class Subroutine:
         for decl in FindNodes(Declaration).visit(self.spec):
             if all(v.name in arg_names for v in decl.variables):
                 # Replicate declaration with re-scoped variables
-                variables = as_tuple(v.clone(scope=routine.scope.symbols) for v in decl.variables)
+                variables = as_tuple(v.clone(scope=routine.scope) for v in decl.variables)
                 decl_map[decl] = decl.clone(variables=variables)
             else:
                 decl_map[decl] = None  # Remove local variable declarations
@@ -505,10 +505,10 @@ class Subroutine:
 
         kwargs['scope'] = Scope(parent=kwargs.get('parent_scope', self.scope.parent))
         kwargs['docstring'] = Transformer({}).visit(self.docstring)
-        spec_map = {v: v.clone(scope=kwargs['scope'].symbols)
+        spec_map = {v: v.clone(scope=kwargs['scope'])
                     for v in FindVariables(unique=False).visit(self.spec)}
         kwargs['spec'] = SubstituteExpressions(spec_map).visit(Transformer({}).visit(self.spec))
-        body_map = {v: v.clone(scope=kwargs['scope'].symbols)
+        body_map = {v: v.clone(scope=kwargs['scope'])
                     for v in FindVariables(unique=False).visit(self.body)}
         kwargs['body'] = SubstituteExpressions(body_map).visit(Transformer({}).visit(self.body))
 

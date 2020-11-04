@@ -5,7 +5,7 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import TypeTable
+from loki.types import Scope
 
 
 __all__ = [
@@ -653,14 +653,22 @@ class TypeDef(Node):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, symbols=None, **kwargs):
+    def __init__(self, name, body, bind_c=False, scope=None, **kwargs):
         super().__init__(**kwargs)
         assert is_iterable(body)
 
         self.name = name
         self.body = as_tuple(body)
         self.bind_c = bind_c
-        self.symbols = symbols if symbols is not None else TypeTable()
+        self._scope = Scope() if scope is None else scope
+
+    @property
+    def scope(self):
+        return self._scope
+
+    @property
+    def symbols(self):
+        return self.scope.symbols
 
     @property
     def declarations(self):

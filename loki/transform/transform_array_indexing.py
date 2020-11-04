@@ -89,7 +89,7 @@ def resolve_vector_notation(routine):
                     # Create new index variable
                     vtype = SymbolType(BasicType.INTEGER)
                     ivar = sym.Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
-                                        scope=routine.symbols)
+                                        scope=routine.scope)
                     shape_index_map[s] = ivar
                     index_range_map[ivar] = s
 

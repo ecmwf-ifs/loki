@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
-from loki.types import BasicType, DerivedType, SymbolType
+from loki.types import BasicType, DerivedType, SymbolType, Scope
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
@@ -265,7 +265,7 @@ class FParser2IR(GenericVisitor):
             dtype.external = external
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype,
-                            scope=scope.symbols, parent=parent, source=source)
+                            scope=scope, parent=parent, source=source)
 
     def visit_literal(self, o, _type, kind=None, **kwargs):
         source = kwargs.get('source')
@@ -445,7 +445,7 @@ class FParser2IR(GenericVisitor):
             if kind.items[1].tostr().isnumeric():
                 kind = sym.Literal(value=kind.items[1].tostr())
             else:
-                kind = sym.Variable(name=kind.items[1].tostr(), scope=self.scope.symbols)
+                kind = sym.Variable(name=kind.items[1].tostr(), scope=self.scope)
         length = get_child(o, Fortran2003.Length_Selector)
         if length is not None:
             length = length.items[1].tostr()
@@ -571,7 +571,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = sym.Variable(name=pname, scope=self.scope.symbols)
+        v = sym.Variable(name=pname, scope=self.scope)
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))
@@ -664,19 +664,21 @@ class FParser2IR(GenericVisitor):
     def visit_Derived_Type_Def(self, o, **kwargs):
         name = get_child(o, Fortran2003.Derived_Type_Stmt).items[1].tostr().lower()
         source = kwargs.get('source')
-        # Create the typedef with all the information we have so far (we need its symbol table
-        # for the next step)
-        typedef = ir.TypeDef(name=name, body=[], source=source, label=kwargs.get('label'))
+
+        # Initialize a local scope for typedef objects
+        typedef_scope = Scope(parent=self.scope)
+
         # Create declarations and update the parent typedef
         component_nodes = (Fortran2003.Component_Part, Fortran2003.Comment)
-        body = flatten([self.visit(i, scope=typedef, **kwargs)
+        body = flatten([self.visit(i, scope=typedef_scope, **kwargs)
                         for i in walk(o.content, component_nodes)])
         # Infer any additional shape information from `!$loki dimension` pragmas
         # Note that this needs to be done before we create `dtype` below, to allow
         # propagation of type info through multiple typedefs in the same module.
         body = inline_pragmas(body)
         body = process_dimension_pragmas(body)
-        typedef._update(body=body, symbols=typedef.symbols)
+        typedef = ir.TypeDef(name=name, body=body, scope=typedef_scope,
+                             source=source, label=kwargs.get('label'))
 
         # Now create a SymbolType instance to make the typedef known in its scope's type table
         self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))

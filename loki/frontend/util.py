@@ -246,13 +246,13 @@ def import_external_symbols(module, symbol_names, scope):
     for name in symbol_names:
         symbol = None
         if module and name in module.symbols:
-            symbol = Variable(name=name, type=module.symbols[name], scope=scope.symbols)
+            symbol = Variable(name=name, type=module.symbols[name], scope=scope)
 
         elif module and name in module.types:
             symbol = module.types[name].dtype
             scope.types[name] = module.types[name]
         else:
-            symbol = Variable(name=name, scope=scope.symbols)
+            symbol = Variable(name=name, scope=scope)
         symbols.append(symbol)
 
     return as_tuple(symbols)

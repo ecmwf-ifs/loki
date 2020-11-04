@@ -213,9 +213,9 @@ end subroutine routine_arguments_add_remove
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
     real_type = routine.symbols['scalar']  # Type of variable 'maximum'
-    a = Scalar(name='a', type=real_type, scope=routine.symbols)
-    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.symbols)
-    c = Variable(name='c', type=x.type, scope=routine.symbols)
+    a = Scalar(name='a', type=real_type, scope=routine.scope)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)
+    c = Variable(name='c', type=x.type, scope=routine.scope)
 
     # Add new arguments and check that they are all in the routine spec
     routine.arguments += (a, b, c)
@@ -383,9 +383,9 @@ end subroutine routine_variables_add_remove
     x = routine.variables[1]  # That's the symbol for variable 'x'
     real_type = SymbolType('real', kind='jprb')
     int_type = SymbolType('integer')
-    a = Scalar(name='a', type=real_type, scope=routine.symbols)
-    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.symbols)
-    c = Variable(name='c', type=int_type, scope=routine.symbols)
+    a = Scalar(name='a', type=real_type, scope=routine.scope)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)
+    c = Variable(name='c', type=int_type, scope=routine.scope)
 
     # Add new variables and check that they are all in the routine spec
     routine.variables += (a, b, c)
