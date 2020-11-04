@@ -1,8 +1,8 @@
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, Module, Declaration, TypeDef, fexprgen, BasicType,
-    Assignment, FindNodes
+    OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
+    BasicType, Assignment, FindNodes, FindInlineCalls
 )
 
 
@@ -251,3 +251,99 @@ end module type_mod
 
     pt_x = parent.variables[0].type.dtype.variable_map['x']
     assert fexprgen(pt_x.shape) == '(size,)'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_internal_function_call(frontend):
+    """
+    Test the use of `InlineCall` symbols linked to an module function.
+    """
+    fcode = """
+module module_mod
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+contains
+
+  subroutine test_inline_call(v1, v2, v3)
+    implicit none
+
+    integer, intent(in) :: v1
+    real(kind=jprb), intent(in) :: v2
+    real(kind=jprb), intent(out) :: v3
+
+    v3 = util_fct(v2, v1)
+  end subroutine test_inline_call
+
+  function util_fct(var, mode)
+    real(kind=jprb) :: util_fct
+    integer, intent(in) :: var
+    real(kind=jprb), intent(in) :: mode
+
+    if (mode == 1) then
+      util_fct = var + 2_jprb
+    else
+      util_fct = var + 3_jprb
+    end if
+  end function util_fct
+
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['test_inline_call']
+
+    inline_calls = list(FindInlineCalls().visit(routine.body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.name == 'util_fct'
+    assert inline_calls[0].parameters[0] == 'v2'
+    assert inline_calls[0].parameters[1] == 'v1'
+
+    assert isinstance(module.types['util_fct'].procedure, Subroutine)
+    assert module.types['util_fct'].is_function
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_external_function_call(frontend):
+    """
+    Test the use of `InlineCall` symbols linked to an external function definition.
+    """
+    fcode = """
+subroutine test_inline_call(v1, v2, v3)
+  use util_mod, only: util_fct
+  implicit none
+
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: v1
+  real(kind=jprb), intent(in) :: v2
+  real(kind=jprb), intent(out) :: v3
+
+  v3 = util_fct(v2, v1)
+end subroutine test_inline_call
+"""
+
+    fcode_util = """
+module util_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+contains
+  function util_fct(var, mode)
+    real(kind=jprb) :: util_fct
+    integer, intent(in) :: var
+    real(kind=jprb), intent(in) :: mode
+
+    if (mode == 1) then
+      util_fct = var + 2_jprb
+    else
+      util_fct = var + 3_jprb
+    end if
+  end function util_fct
+end module
+"""
+    module = Module.from_source(fcode_util, frontend=frontend)
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+
+    inline_calls = list(FindInlineCalls().visit(routine.body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.name == 'util_fct'
+    assert inline_calls[0].parameters[0] == 'v2'
+    assert inline_calls[0].parameters[1] == 'v1'
