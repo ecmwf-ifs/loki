@@ -143,8 +143,8 @@ end module types
     source = SourceFile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].types['pragma_type']
 
-    assert fsymgen(pragma_type.dtype.variable_map['matrix'].shape) == '(3, 3)'
-    assert fsymgen(pragma_type.dtype.variable_map['tensor'].shape) == '(klon, klat, 2)'
+    assert fsymgen(pragma_type.variable_map['matrix'].shape) == '(3, 3)'
+    assert fsymgen(pragma_type.variable_map['tensor'].shape) == '(klon, klat, 2)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -253,7 +253,7 @@ end module my_types_mod
     assert routine.symbols['a_kind'].initial == 4
     assert routine.symbols['a_dim'].dtype == BasicType.INTEGER
     assert routine.symbols['a_dim'].kind == 'a_kind'
-    assert isinstance(routine.types['a_type'].dtype.typedef, TypeDef)
+    assert isinstance(routine.types['a_type'].typedef, TypeDef)
 
     # Check that external type definition has been linked
     assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)

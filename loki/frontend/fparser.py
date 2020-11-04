@@ -616,11 +616,11 @@ class FParser2IR(GenericVisitor):
         external = 'external' in attrs
 
         # Next, figure out the type we're declaring
-        dtype = None
+        stype = None
         basetype_ast = get_child(o, Fortran2003.Intrinsic_Type_Spec)
         if basetype_ast is not None:
             dtype, kind, length = self.visit(basetype_ast)
-            dtype = SymbolType(BasicType.from_fortran_type(dtype), kind=kind, intent=intent,
+            stype = SymbolType(BasicType.from_fortran_type(dtype), kind=kind, intent=intent,
                                parameter='parameter' in attrs, optional='optional' in attrs,
                                allocatable='allocatable' in attrs, pointer='pointer' in attrs,
                                contiguous='contiguous' in attrs, target='target' in attrs,
@@ -631,25 +631,17 @@ class FParser2IR(GenericVisitor):
             typename = derived_type_ast.items[1].tostr().lower()
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
-                typedef = self.scope.symbols.lookup(typename, recursive=True)
-                typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
-                dtype = SymbolType(DerivedType(name=typename, typedef=typedef),
-                                   intent=intent, allocatable='allocatable' in attrs,
-                                   pointer='pointer' in attrs, optional='optional' in attrs,
-                                   parameter='parameter' in attrs, target='target' in attrs,
-                                   contiguous='contiguous' in attrs, shape=dimensions)
-            else:
-                # Ensure we inherit declaration attributes via a local clone
-                dtype = dtype.clone(intent=intent, allocatable='allocatable' in attrs,
-                                   pointer='pointer' in attrs, optional='optional' in attrs,
-                                   parameter='parameter' in attrs, target='target' in attrs,
-                                   contiguous='contiguous' in attrs, shape=dimensions)
+                dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
+            stype = SymbolType(dtype, intent=intent, allocatable='allocatable' in attrs,
+                               pointer='pointer' in attrs, optional='optional' in attrs,
+                               parameter='parameter' in attrs, target='target' in attrs,
+                               contiguous='contiguous' in attrs, shape=dimensions)
 
         # Now create the actual variables declared in this statement
         # (and provide them with the type and dimension information)
         kwargs['dimensions'] = dimensions
         kwargs['external'] = external
-        kwargs['dtype'] = dtype
+        kwargs['dtype'] = stype
         variables = as_tuple(self.visit(o.items[2], **kwargs))
         return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
                               source=kwargs.get('source'), label=kwargs.get('label'))
@@ -680,8 +672,8 @@ class FParser2IR(GenericVisitor):
         typedef = ir.TypeDef(name=name, body=body, scope=typedef_scope,
                              source=source, label=kwargs.get('label'))
 
-        # Now create a SymbolType instance to make the typedef known in its scope's type table
-        self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
+        # Now make the typedef known in its scope's type table
+        self.scope.types[name] = DerivedType(name=name, typedef=typedef)
 
         return typedef
 

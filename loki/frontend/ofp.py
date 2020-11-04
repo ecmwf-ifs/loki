@@ -354,8 +354,8 @@ class OFP2IR(GenericVisitor):
                 typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=typedef_scope,
                                      label=label, source=source)
 
-                # Now create a SymbolType instance to make the typedef known in its scope's type table
-                self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
+                # Now make the typedef known in its scope's type table
+                self.scope.types[name] = DerivedType(name=name, typedef=typedef)
 
                 return typedef
 
@@ -381,29 +381,21 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
+                stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                    intent=intent, allocatable=allocatable, pointer=pointer,
                                    optional=optional, parameter=parameter, shape=dimensions,
                                    target=target, source=source)
             else:
                 # Create the local variant of the derived type
-                _type = self.scope.types.lookup(typename, recursive=True)
-                if _type is None:
-                    typedef = self.scope.symbols.lookup(typename, recursive=True)
-                    typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
-                    _type = SymbolType(DerivedType(name=typename, typedef=typedef),
-                                       intent=intent, allocatable=allocatable, pointer=pointer,
-                                       optional=optional, parameter=parameter, target=target,
-                                       source=source)
+                dtype = self.scope.types.lookup(typename, recursive=True)
+                if dtype is None:
+                    dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
 
-                else:
-                    # Ensure we inherit declaration attributes via a local clone
-                    _type = _type.clone(intent=intent, allocatable=allocatable, pointer=pointer,
-                                        optional=optional, parameter=parameter, target=target,
-                                        source=source)
+                stype = SymbolType(dtype, intent=intent, allocatable=allocatable,
+                                   pointer=pointer, optional=optional, parameter=parameter,
+                                   target=target, source=source)
 
-
-            variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
+            variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
             return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
@@ -780,21 +772,17 @@ class OFP2IR(GenericVisitor):
                 kind = sym.Variable(name=kind.attrib['id'], scope=self.scope)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
+            stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                pointer='POINTER' in attrs,
                                allocatable='ALLOCATABLE' in attrs, source=t_source)
         else:
             # This is a derived type. Let's see if we know it already
-            _type = self.scope.types.lookup(typename, recursive=True)
-            if _type is not None:
-                _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
-                                    allocatable='ALLOCATABLE' in attrs,
-                                    source=t_source)
-            else:
-                _type = SymbolType(DerivedType(name=typename), name=typename,
-                                   kind=kind, pointer='POINTER' in attrs,
-                                   allocatable='ALLOCATABLE' in attrs,
-                                   variables=OrderedDict(), source=t_source)
+            dtype = self.scope.types.lookup(typename, recursive=True)
+            if dtype is None:
+                dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
+            stype = SymbolType(dtype, kind=kind, pointer='POINTER' in attrs,
+                               allocatable='ALLOCATABLE' in attrs,
+                               variables=OrderedDict(), source=t_source)
 
         # Derive variables for this declaration entry
         variables = []
@@ -816,7 +804,7 @@ class OFP2IR(GenericVisitor):
             dimensions = as_tuple(d for d in dimensions if d is not None)
             dimensions = dimensions if len(dimensions) > 0 else None
             v_source = extract_source(v.attrib, self._raw_source)
-            v_type = _type.clone(shape=dimensions, source=v_source)
+            v_type = stype.clone(shape=dimensions, source=v_source)
             v_name = v.attrib['name']
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None

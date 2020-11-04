@@ -249,7 +249,7 @@ def import_external_symbols(module, symbol_names, scope):
             symbol = Variable(name=name, type=module.symbols[name], scope=scope)
 
         elif module and name in module.types:
-            symbol = module.types[name].dtype
+            symbol = module.types[name]
             scope.types[name] = module.types[name]
         else:
             symbol = Variable(name=name, scope=scope)

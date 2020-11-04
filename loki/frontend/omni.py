@@ -265,8 +265,8 @@ class OMNI2IR(GenericVisitor):
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
         typedef = ir.TypeDef(name=name.text, body=as_tuple(declarations), scope=typedef_scope)
 
-        # Now create a SymbolType instance to make the typedef known in its scope's type table
-        self.scope.types[name.text] = SymbolType(DerivedType(name=name.text, typedef=typedef))
+        # Now make the typedef known in its scope's type table
+        self.scope.types[name.text] = DerivedType(name=name.text, typedef=typedef)
 
         return typedef
 
@@ -298,11 +298,11 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        parent_type = self.scope.types.lookup(name, recursive=True)
-        if parent_type is not None:
-            return parent_type.clone()
+        dtype = self.scope.types.lookup(name, recursive=True)
+        if dtype is None:
+            dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
 
-        return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
+        return SymbolType(dtype)
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
