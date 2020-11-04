@@ -15,7 +15,7 @@ Collection of classes to represent basic and complex types. The key ideas are:
                                    SymbolType    ------------   SymbolTable
                                  /     |      \
                                 /      |       \
-                       BasicType   DerivedType  (ProcedureType - not yet!)
+                       BasicType   DerivedType  ProcedureType
 
 A note on scoping:
 ==================
@@ -33,7 +33,7 @@ from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['BasicType', 'DerivedType', 'SymbolType', 'TypeTable', 'Scope']
+__all__ = ['BasicType', 'DerivedType', 'ProcedureType', 'SymbolType', 'TypeTable', 'Scope']
 
 
 class BasicType(IntEnum):
@@ -130,6 +130,35 @@ class DerivedType:
         return OrderedDict([(v.basename, v) for v in self.variables])
 
 
+class ProcedureType:
+    """
+    Representation of a function or subroutine type definition.
+    """
+
+    def __init__(self, name=None, is_function=False, procedure=None):
+        assert name or procedure
+        self._name = name
+        self._is_function = is_function
+        self.procedure = procedure if procedure is not None else BasicType.DEFERRED
+
+    @property
+    def name(self):
+        return self._name if self.procedure is BasicType.DEFERRED else self.procedure.name
+
+    @property
+    def parameters(self):
+        if self.procedure is BasicType.DEFERRED:
+            return tuple()
+        else:
+            return self.procedure.arguments
+
+    @property
+    def is_function(self):
+        if self.procedure is BasicType.DEFERRED:
+            return self._is_function
+        return self.procedure.is_function
+
+
 class SymbolType:
     """
     Representation of a symbols type.
@@ -145,7 +174,10 @@ class SymbolType:
     """
 
     def __init__(self, dtype, **kwargs):
-        self.dtype = dtype if isinstance(dtype, (BasicType, DerivedType)) else BasicType.from_str(dtype)
+        if isinstance(dtype, (BasicType, DerivedType, ProcedureType)):
+            self.dtype = dtype
+        else:
+            self.dtype = BasicType.from_str(dtype)
 
         for k, v in kwargs.items():
             if v is not None:

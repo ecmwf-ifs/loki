@@ -564,6 +564,14 @@ class OFP2IR(GenericVisitor):
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
 
+            # No previous type declaration known for this symbol,
+            # see if it's a function call to a known procedure
+            if not _type or _type.dtype == BasicType.DEFERRED:
+                if self.scope.types.lookup(vname):
+                    fct_type = SymbolType(self.scope.types.lookup(vname))
+                    fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=self.scope, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
             if _type is None and parent is not None and parent.type is not None:
