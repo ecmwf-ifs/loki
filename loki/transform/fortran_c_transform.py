@@ -19,7 +19,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.expression import (
     Variable, FindVariables, InlineCall, RangeIndex, Scalar, Array,
-    SubstituteExpressions
+    SubstituteExpressions, ProcedureSymbol
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
@@ -144,10 +144,12 @@ class FortranCTransformation(Transformation):
             if isinstance(arg.type.dtype, DerivedType):
                 ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
                 cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope)
-                cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
+                cast_in = InlineCall(ProcedureSymbol('transfer'),
+                                     parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Assignment(lhs=cvar, rhs=cast_in)]
 
-                cast_out = InlineCall('transfer', parameters=(cvar,), kw_parameters={'mold': arg})
+                cast_out = InlineCall(ProcedureSymbol('transfer'),
+                                      parameters=(cvar,), kw_parameters={'mold': arg})
                 casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
 
@@ -304,7 +306,7 @@ class FortranCTransformation(Transformation):
 
                         decl = Declaration(variables=(var,))
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Assignment(lhs=var, rhs=InlineCall(function=getter))
+                        vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter)))
                         getter_calls += [decl, vget]
 
         # Replicate the kernel to strip the Fortran-specific boilerplate

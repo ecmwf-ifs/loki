@@ -11,7 +11,8 @@ __all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
            'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'IntrinsicLiteral',
            'Literal', 'LiteralList',
            'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
-           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript']
+           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
+           'ProcedureSymbol']
 
 
 # pylint: disable=abstract-method
@@ -582,7 +583,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
-        function = pmbl.make_variable(function)
+        assert isinstance(function, ProcedureSymbol)
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
@@ -672,3 +673,19 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
         return LokiStringifyMapper()
 
     mapper_method = intern('map_array_subscript')
+
+
+class ProcedureSymbol(ExprMetadataMixin, pmbl.FunctionSymbol):
+    """
+    Internal representation of a callable subroutine or function.
+    """
+
+    def __init__(self, name, **kwargs):
+        self.name = name
+        super().__init__(**kwargs)
+
+    def __getinitargs__(self):
+        args = [('name', self.name)]
+        return super().__getinitargs__() + tuple(args)
+
+    mapper_method = intern('map_procedure_symbol')

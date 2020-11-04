@@ -496,7 +496,9 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+        fct_symbol = sym.ProcedureSymbol(name, source=source)
+        return sym.InlineCall(fct_symbol, parameters=arguments,
+                              kw_parameters=kwarguments, source=source)
 
     visit_Function_Reference = visit_Intrinsic_Function_Reference
 
@@ -545,7 +547,8 @@ class FParser2IR(GenericVisitor):
             if source:
                 source = source.clone_with_string(o.string)
             # This is (presumably) a function call
-            return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+            fct_symbol = sym.ProcedureSymbol(name, source=source)
+            return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                                   source=source)
 
         # This is an array access and the arguments define the dimension.
@@ -565,7 +568,8 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+        fct_symbol = sym.ProcedureSymbol(name)
+        return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                               source=kwargs.get('source'))
 
     def visit_Proc_Component_Ref(self, o, **kwargs):

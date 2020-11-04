@@ -193,8 +193,8 @@ class FortranMaxTransformation(Transformation):
                     'dataflow' in loop.pragma.content):
                 loop_map[loop] = loop.body
                 # We have to add 1 since FORTRAN counts from 1
-                call_name = 'control.count.simpleCounter'
-                vinit = sym.Sum((sym.InlineCall(call_name, parameters=(sym.Literal(32),)), sym.Literal(1)))
+                call_fct = sym.ProcedureSymbol('control.count.simpleCounter')
+                vinit = sym.Sum((sym.InlineCall(call_fct, parameters=(sym.Literal(32),)), sym.Literal(1)))
                 # TODO: Add support for wrap point
                 #                      parameters=(Literal(32), loop.bounds[1]))
                 var_map[loop.variable] = loop.variable.clone(
@@ -314,7 +314,8 @@ class FortranMaxTransformation(Transformation):
                             v, lambda e, dim=dim: isinstance(e, sym.Scalar) and str(e) == dim)}
                         offset = SubstituteExpressionsMapper(dmap)(index)
                         # Create the offset-variable
-                        initial = sym.InlineCall('stream.offset', parameters=(stream, offset))
+                        initial = sym.InlineCall(sym.ProcedureSymbol('stream.offset'),
+                                                 parameters=(stream, offset))
                         var_hash = sha256(str(v).encode('utf-8')).hexdigest()[:10]
                         name = '{}_{}'.format(v.name, var_hash)
                         vmap[v] = v.clone(name=name, dimensions=None,
@@ -345,24 +346,24 @@ class FortranMaxTransformation(Transformation):
         for stmt in FindNodes(ir.Assignment).visit(max_kernel.body):
             if stmt.lhs.type.dfevar:
                 if isinstance(stmt.rhs, (sym.FloatLiteral, sym.IntLiteral)):
-                    _type = sym.InlineCall('%s.getType' % stmt.lhs.name)
-                    rhs = sym.InlineCall('constant.var', parameters=(_type, stmt.rhs))
+                    _type = sym.InlineCall(sym.ProcedureSymbol('%s.getType' % stmt.lhs.name))
+                    rhs = sym.InlineCall(sym.ProcedureSymbol('constant.var'), parameters=(_type, stmt.rhs))
                     smap[stmt] = ir.Assignment(lhs=stmt.lhs, rhs=rhs)
         max_kernel.body = Transformer(smap).visit(max_kernel.body)
 
         def base_type(var_type):
             # TODO: put this somewhere else
             if var_type.dtype == BasicType.LOGICAL:
-                return sym.InlineCall('dfeBool')
+                return sym.InlineCall(sym.ProcedureSymbol('dfeBool'))
             if var_type.dtype == BasicType.INTEGER:
                 # TODO: Distinguish between signed and unsigned
-                return sym.InlineCall('dfeUInt', parameters=(sym.IntLiteral(32),))
+                return sym.InlineCall(sym.ProcedureSymbol('dfeUInt'), parameters=(sym.IntLiteral(32),))
             if var_type.dtype == BasicType.REAL:
                 if var_type.kind in ['real32']:
                     parameters = (sym.IntLiteral(8), sym.IntLiteral(24))
                 else:
                     parameters = (sym.IntLiteral(11), sym.IntLiteral(53))
-                return sym.InlineCall('dfeFloat', parameters=parameters)
+                return sym.InlineCall(sym.ProcedureSymbol('dfeFloat'), parameters=parameters)
             raise ValueError()
 
         def decl_type(var_type):
@@ -378,7 +379,7 @@ class FortranMaxTransformation(Transformation):
             sub_type = var_type.clone(shape=var_type.shape[:-1])
             name = 'new DFEVectorType<{}>'.format(decl_type(sub_type))
             parameters = (init_type(sub_type), var_type.shape[-1])
-            return sym.InlineCall(name, parameters=parameters)
+            return sym.InlineCall(sym.ProcedureSymbol(name), parameters=parameters)
 
         # Initialization of dfevars
         var_map = {}
@@ -390,7 +391,7 @@ class FortranMaxTransformation(Transformation):
                     else:
                         name = 'io.scalarInput'
                     parameters = (sym.StringLiteral('"{}"'.format(var.name)), init_type(var.type))
-                    initial = sym.InlineCall(name, parameters=parameters)
+                    initial = sym.InlineCall(sym.ProcedureSymbol(name), parameters=parameters)
                     var_map[var] = var.clone(type=var.type.clone(initial=initial))
                 elif var.initial is None:
                     name = '{}.newInstance'.format(init_type(var.type))
@@ -398,7 +399,7 @@ class FortranMaxTransformation(Transformation):
                         parameters = (sym.IntrinsicLiteral('this'),)
                     else:
                         parameters = (sym.IntrinsicLiteral('this'), sym.IntLiteral(0))
-                    initial = sym.InlineCall(name, parameters=parameters)
+                    initial = sym.InlineCall(sym.ProcedureSymbol(name), parameters=parameters)
                     var_map[var] = var.clone(type=var.type.clone(initial=initial))
         max_kernel.spec = SubstituteExpressions(var_map).visit(max_kernel.spec)
 
@@ -524,10 +525,12 @@ class FortranMaxTransformation(Transformation):
         main.arguments = as_tuple(args)
 
         params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters',
-                                 initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
+                                 initial=sym.InlineCall(sym.ProcedureSymbol('new EngineParameters'),
+                                                        parameters=(args,)))
         params = sym.Variable(name='params', type=params_type, scope=main.scope)
         mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager',
-                              initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
+                              initial=sym.InlineCall(sym.ProcedureSymbol('new {}'.format(manager.name)),
+                                                     parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main.scope)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement('manager.build', arguments=())]
