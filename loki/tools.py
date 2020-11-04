@@ -109,7 +109,8 @@ def disk_cached(argname, suffix='cache'):
             """
             filename = kwargs[argname]
             cachefile = '%s.%s' % (filename, suffix)
-            if os.path.exists(cachefile) and os.environ.get('LOKI_DISK_CACHE', None):
+            caching_active = os.environ.get('LOKI_DISK_CACHE', None)
+            if caching_active and os.path.exists(cachefile):
                 # Only use cache if it is newer than the file
                 filetime = os.path.getmtime(filename)
                 cachetime = os.path.getmtime(cachefile)
@@ -122,9 +123,10 @@ def disk_cached(argname, suffix='cache'):
             res = fn(*args, **kwargs)
 
             # Write to cache file
-            with open(cachefile, 'wb') as cachehandle:
-                info("Saving cache: '%s'" % cachefile)
-                pickle.dump(res, cachehandle)
+            if caching_active:
+                with open(cachefile, 'wb') as cachehandle:
+                    info("Saving cache: '%s'" % cachefile)
+                    pickle.dump(res, cachehandle)
 
             return res
         return cached
