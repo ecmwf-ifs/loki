@@ -90,6 +90,10 @@ class TypedSymbol:
             # entries for variables inherited from a parent scope
             self.type = type.clone()
 
+    def __getinitargs__(self):
+        args = [('name', self.name), ('scope', self.scope)]
+        return tuple(args)
+
     @property
     def scope(self):
         """
@@ -675,17 +679,24 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     mapper_method = intern('map_array_subscript')
 
 
-class ProcedureSymbol(ExprMetadataMixin, pmbl.FunctionSymbol):
+class _FunctionSymbol(pmbl.FunctionSymbol):
+    """
+    Adapter class for pmbl.FunctionSymbol that stores a name argument.
+
+    This is needed since the original symbol does not like having a `name`
+    parameter handed down in the constructor.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+
+class ProcedureSymbol(TypedSymbol, ExprMetadataMixin, _FunctionSymbol):
     """
     Internal representation of a callable subroutine or function.
     """
 
-    def __init__(self, name, **kwargs):
-        self.name = name
-        super().__init__(**kwargs)
-
-    def __getinitargs__(self):
-        args = [('name', self.name)]
-        return super().__getinitargs__() + tuple(args)
+    def __init__(self, name, scope, type=None, **kwargs):
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
 
     mapper_method = intern('map_procedure_symbol')

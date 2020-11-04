@@ -548,14 +548,14 @@ class OFP2IR(GenericVisitor):
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                fct_symbol = sym.ProcedureSymbol(vname, source=source)
+                fct_symbol = sym.ProcedureSymbol(vname, scope=self.scope, source=source)
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
             if vname.upper() in ['REAL', 'INT']:
                 kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
                 return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
             if indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], source=source)
+                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=self.scope, source=source)
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             if parent is not None:

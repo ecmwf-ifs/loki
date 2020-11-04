@@ -144,11 +144,11 @@ class FortranCTransformation(Transformation):
             if isinstance(arg.type.dtype, DerivedType):
                 ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
                 cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope)
-                cast_in = InlineCall(ProcedureSymbol('transfer'),
+                cast_in = InlineCall(ProcedureSymbol('transfer', scope=wrapper_scope),
                                      parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Assignment(lhs=cvar, rhs=cast_in)]
 
-                cast_out = InlineCall(ProcedureSymbol('transfer'),
+                cast_out = InlineCall(ProcedureSymbol('transfer', scope=wrapper_scope),
                                       parameters=(cvar,), kw_parameters={'mold': arg})
                 casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
@@ -306,7 +306,7 @@ class FortranCTransformation(Transformation):
 
                         decl = Declaration(variables=(var,))
                         getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter)))
+                        vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
                         getter_calls += [decl, vget]
 
         # Replicate the kernel to strip the Fortran-specific boilerplate

@@ -520,7 +520,7 @@ class OMNI2IR(GenericVisitor):
                 else:
                     kind = None
                 return sym.Cast(o.find('name').text, expression=expr, kind=kind, source=source)
-            fct_symbol = sym.ProcedureSymbol(name, source=source)
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
         return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 

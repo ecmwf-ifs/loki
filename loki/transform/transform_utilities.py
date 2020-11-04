@@ -54,7 +54,7 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None):
             callmap[c] = sym.Variable(name=symbol_map[cname], scope=routine.scope)
 
         if cname in function_map:
-            fct_symbol = sym.ProcedureSymbol(function_map[cname])
+            fct_symbol = sym.ProcedureSymbol(function_map[cname], scope=routine.scope)
             callmap[c] = sym.InlineCall(fct_symbol, parameters=c.parameters,
                                         kw_parameters=c.kw_parameters)
 

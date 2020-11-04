@@ -496,7 +496,7 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        fct_symbol = sym.ProcedureSymbol(name, source=source)
+        fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
         return sym.InlineCall(fct_symbol, parameters=arguments,
                               kw_parameters=kwarguments, source=source)
 
@@ -547,7 +547,7 @@ class FParser2IR(GenericVisitor):
             if source:
                 source = source.clone_with_string(o.string)
             # This is (presumably) a function call
-            fct_symbol = sym.ProcedureSymbol(name, source=source)
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                                   source=source)
 
@@ -568,7 +568,7 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        fct_symbol = sym.ProcedureSymbol(name)
+        fct_symbol = sym.ProcedureSymbol(name, scope=self.scope)
         return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                               source=kwargs.get('source'))
 
