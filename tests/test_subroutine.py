@@ -1028,6 +1028,52 @@ end subroutine routine_member_procedures
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_member_routine_clone(here, frontend):
+    """
+    Test that member subroutine scopes get cloned correctly.
+    """
+    fcode = """
+subroutine member_routine_clone(in1, in2, out1, out2)
+  ! Test member subroutine and function
+  implicit none
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+  integer :: localvar
+
+  localvar = in2
+
+  call member_procedure(in1, out1)
+  out2 = 3 * out1 + 2
+
+contains
+  subroutine member_procedure(in1, out1)
+    ! This member procedure shadows some variables and uses
+    ! a variable from the parent scope
+    implicit none
+    integer, intent(in) :: in1
+    integer, intent(out) :: out1
+
+    out1 = 5 * in1 + localvar
+  end subroutine member_procedure
+end subroutine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    new_routine = routine.clone()
+
+    # Ensure we have cloned routine and member
+    assert routine != new_routine
+    assert routine.members[0] != new_routine.members[0]
+    assert fgen(routine) == fgen(new_routine)
+    assert fgen(routine.members[0]) == fgen(new_routine.members[0])
+
+    # Check that the scopes are linked correctly
+    assert routine.members[0].parent == routine
+    assert routine.members[0].scope.parent == routine.scope
+    assert new_routine.members[0].parent == new_routine
+    assert new_routine.members[0].scope.parent == new_routine.scope
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_external_stmt(here, frontend):
     """
     Tests procedures passed as dummy arguments and declared as EXTERNAL.

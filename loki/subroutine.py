@@ -501,8 +501,6 @@ class Subroutine:
             kwargs['name'] = self.name
         if self.argnames and 'args' not in kwargs:
             kwargs['args'] = self.argnames
-        if self.members and 'members' not in kwargs:
-            kwargs['members'] = [member.clone() for member in self.members]
         if self._ast and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
         if self.bind and 'bind' not in kwargs:
@@ -513,6 +511,8 @@ class Subroutine:
             kwargs['source'] = self.source
 
         kwargs['scope'] = Scope(parent=kwargs.get('parent_scope', self.scope.parent))
+        if self.members and 'members' not in kwargs:
+            kwargs['members'] = [member.clone(parent_scope=kwargs['scope']) for member in self.members]
         kwargs['docstring'] = Transformer({}).visit(self.docstring)
         spec_map = {v: v.clone(scope=kwargs['scope'])
                     for v in FindVariables(unique=False).visit(self.spec)}
