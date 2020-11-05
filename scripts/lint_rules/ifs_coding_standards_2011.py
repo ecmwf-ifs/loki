@@ -75,8 +75,8 @@ class ModuleNamingRule(GenericRule):  # Coding standards 1.5
             msg = fmt_string.format(module.name)
             rule_report.add(msg, module)
 
-        if isinstance(module.parent, SourceFile):
-            path = Path(module.parent.path)
+        if module.source.file:
+            path = Path(module.source.file)
             if module.name.lower() != path.stem.lower():
                 fmt_string = 'Module filename "{}" does not match module name "{}".'
                 msg = fmt_string.format(path.name, module.name)
