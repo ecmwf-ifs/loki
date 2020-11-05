@@ -36,7 +36,10 @@ class Module:
         self.name = name or ast.attrib['name']
         self.spec = spec
         self.routines = routines
+
+        # Ensure we always have a local scope, and register ourselves with it
         self._scope = Scope() if scope is None else scope
+        self.scope.defined_by = self
 
         self._ast = ast
         self._source = source

@@ -43,9 +43,11 @@ class Subroutine:
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
-
-        self._scope = Scope(parent=parent_scope) if scope is None else scope
         self._source = source
+
+        # Ensure we always have a local scope, and register ourselves with it
+        self._scope = Scope(parent=parent_scope) if scope is None else scope
+        self.scope.defined_by = self
 
         # The primary IR components
         self.docstring = as_tuple(docstring)
@@ -421,6 +423,13 @@ class Subroutine:
     @property
     def symbols(self):
         return self.scope.symbols
+
+    @property
+    def parent(self):
+        """
+        Enclosing object, as defined by the propagation of types via `Scope` objects
+        """
+        return self.scope.parent.defined_by if self.scope.parent else None
 
     @property
     def types(self):
