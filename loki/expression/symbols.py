@@ -113,7 +113,7 @@ class TypedSymbol:
         self.scope.symbols[self.name] = value
 
 
-class Scalar(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
@@ -180,7 +180,7 @@ class Scalar(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Array(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
     Expression node for array variables.
 
@@ -691,7 +691,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
         super().__init__()
 
 
-class ProcedureSymbol(TypedSymbol, ExprMetadataMixin, _FunctionSymbol):
+class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
     """
     Internal representation of a callable subroutine or function.
     """
