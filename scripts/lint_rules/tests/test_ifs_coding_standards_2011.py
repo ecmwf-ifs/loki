@@ -117,7 +117,8 @@ end module module_naming
     """.strip()
     source = SourceFile.from_source(fcode, frontend=frontend)
     # We don't actually write the file but simply set the filename to something sensible
-    source.path = Path(Path(__file__).parent / 'module_naming_mod.f90')
+    for m in source.modules:
+        m.source.file = str(Path(__file__).parent / 'module_naming_mod.f90')
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.ModuleNamingRule], handlers=[handler])

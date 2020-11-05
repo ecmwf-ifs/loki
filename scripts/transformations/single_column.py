@@ -177,7 +177,7 @@ class ExtractSCATransformation(Transformation):
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
-                        new_dims = tuple(Variable(name=target.variable, scope=caller.symbols)
+                        new_dims = tuple(Variable(name=target.variable, scope=caller.scope)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -206,7 +206,7 @@ class ExtractSCATransformation(Transformation):
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable, scope=caller.symbols),
+                    loop = Loop(variable=Variable(name=target.variable, scope=caller.scope),
                                 bounds=LoopRange((dim_lower, dim_upper, None)),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -219,7 +219,7 @@ class ExtractSCATransformation(Transformation):
         if wrap and target.variable not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(BasicType.INTEGER, kind='JPIM')
-            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.symbols),)
+            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.scope),)
 
 
 class CLAWTransformation(ExtractSCATransformation):
@@ -265,17 +265,17 @@ class CLAWTransformation(ExtractSCATransformation):
                 assignments = []
                 for arg, val in call.context.arg_iter(call):
                     if arg == self.dimension.name and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.dimension.iteration[0] and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.dimension.iteration[1] and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.symbols, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 

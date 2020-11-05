@@ -14,7 +14,7 @@ from loki.ir import (
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
-from loki.types import TypeTable
+from loki.types import Scope
 
 
 __all__ = ['Subroutine']
@@ -30,32 +30,23 @@ class Subroutine:
             the read file.
     :param definitions: Optional list of external definitions (``Module`` objects) that
                         provide external variable and type definitions.
-    :param symbols: Instance of class:``TypeTable`` used to cache type information
-                    for all symbols defined within this module's scope.
-    :param types: Instance of class:``TypeTable`` used to cache type information
-                  for all (derived) types defined within this module's scope.
-    :param parent: Optional enclosing scope, to which a weakref can be held for symbol lookup.
+    :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
+                  cache type information for all symbols defined within this module's scope.
+    :param parent_scope: ``Scope`` object with enclosing type information used to create
+                         local scope if no local scope is provided. This is also used to
+                         define the backward link via `Subroutine.parent`.
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None,
-                 members=None, ast=None, bind=None, is_function=False,
-                 symbols=None, types=None, parent=None, source=None):
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
+                 ast=None, bind=None, is_function=False, scope=None, parent_scope=None, source=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
-
-        self._parent = weakref.ref(parent) if parent is not None else None
         self._source = source
 
-        self.symbols = symbols
-        if self.symbols is None:
-            parent_symbols = self.parent.symbols if self.parent is not None else None
-            self.symbols = TypeTable(parent=parent_symbols)
-
-        self.types = types
-        if self.types is None:
-            parent_types = self.parent.types if self.parent is not None else None
-            self.types = TypeTable(parent=parent_types)
+        # Ensure we always have a local scope, and register ourselves with it
+        self._scope = Scope(parent=parent_scope) if scope is None else scope
+        self.scope.defined_by = self
 
         # The primary IR components
         self.docstring = as_tuple(docstring)
@@ -125,11 +116,12 @@ class Subroutine:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
+    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None,
+                 parent_scope=None):
         name = name or ast.attrib['name']
         is_function = ast.tag == 'function'
         source = extract_source(ast, raw_source, full_lines=True)
-        obj = cls(name=name, ast=ast, parent=parent, is_function=is_function, source=source)
+        scope = Scope(parent=parent_scope)
 
         # Store the names of variables in the subroutine signature
         arg_ast = ast.findall('header/arguments/argument')
@@ -143,12 +135,12 @@ class Subroutine:
         ast_body = ast_body[idx_spec+1:]
 
         # Create a IRs for the docstring and the declaration spec
-        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=obj)
-        spec = parse_ofp_ast(ast_spec, definitions=definitions, pp_info=pp_info, raw_source=raw_source,
-                             scope=obj)
+        docs = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=scope)
+        spec = parse_ofp_ast(ast_spec, definitions=definitions, pp_info=pp_info,
+                             raw_source=raw_source, scope=scope)
 
         # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=obj)
+        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=scope)
         body = Section(body=body)
 
         # Big, but necessary hack:
@@ -160,19 +152,17 @@ class Subroutine:
         members = None
         if ast.find('members'):
             members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions,
-                                           parent=obj)
+                                           parent_scope=scope)
                        for member in list(ast.find('members'))
                        if member.tag in ('subroutine', 'function')]
             members = as_tuple(members)
 
-        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
-                     members=members, ast=ast, symbols=obj.symbols, types=obj.types,
-                     parent=parent, is_function=is_function, source=source)
-        return obj
+        return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
+                   members=members, scope=scope, is_function=is_function, source=source)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, definitions=None, name=None, symbol_map=None,
-                  parent=None):
+                  parent_scope=None):
         name = name or ast.find('name').text
         # file = ast.attrib['file']
         type_map = {t.attrib['type']: t for t in typetable}
@@ -185,7 +175,7 @@ class Subroutine:
         is_function = name_id in type_map and type_map[name_id].attrib['return_type'] != 'Fvoid'
 
         source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-        obj = cls(name=name, parent=parent, is_function=is_function, source=source)
+        scope = Scope(parent=parent_scope)
 
         # Get the names of dummy variables from the type_map
         fhash = ast.find('name').attrib['type']
@@ -195,7 +185,7 @@ class Subroutine:
 
         # Generate spec
         spec = parse_omni_ast(ast.find('declarations'), definitions=definitions, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=obj)
+                              symbol_map=symbol_map, raw_source=raw_source, scope=scope)
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
@@ -227,14 +217,15 @@ class Subroutine:
         members = None
         if contains is not None:
             members = [Subroutine.from_omni(ast=s, typetable=typetable, definitions=definitions,
-                                            symbol_map=symbol_map, raw_source=raw_source, parent=obj)
+                                            symbol_map=symbol_map, raw_source=raw_source,
+                                            parent_scope=scope)
                        for s in contains.findall('FfunctionDefinition')]
             # Strip members from the XML before we proceed
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
         body = as_tuple(parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
-                                       symbol_map=symbol_map, raw_source=raw_source, scope=obj))
+                                       symbol_map=symbol_map, raw_source=raw_source, scope=scope))
         body = Section(body=body)
 
         # Big, but necessary hack:
@@ -242,13 +233,12 @@ class Subroutine:
         # dimension by finding any `allocate(var(<dims>))` statements.
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
-        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body,
-                     members=members, ast=ast, parent=parent, symbols=obj.symbols,
-                     types=obj.types, is_function=is_function, source=source)
-        return obj
+        return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
+                   members=members, scope=scope, is_function=is_function, source=source)
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
+    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None,
+                     parent_scope=None):
         is_function = isinstance(ast, Fortran2003.Function_Subprogram)
         if is_function:
             routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
@@ -258,15 +248,15 @@ class Subroutine:
             name = name or routine_stmt.get_name().string
 
         source = extract_fparser_source(ast, raw_source)
-        obj = cls(name, parent=parent, is_function=is_function, source=source)
+        scope = Scope(parent=parent_scope)
 
         dummy_arg_list = routine_stmt.items[2]
         args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         if spec_ast:
-            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions, scope=obj,
-                                     raw_source=raw_source)
+            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
+                                     scope=scope, raw_source=raw_source)
         else:
             spec = ()
         spec = Section(body=flatten(spec))
@@ -274,7 +264,7 @@ class Subroutine:
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
             body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
-                                              scope=obj, raw_source=raw_source))
+                                              scope=scope, raw_source=raw_source))
         else:
             body = ()
         body = Section(body=flatten(body))
@@ -310,13 +300,11 @@ class Subroutine:
         if contains_ast:
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
             members = [Subroutine.from_fparser(ast=s, raw_source=raw_source, definitions=definitions,
-                                               pp_info=pp_info, parent=obj)
+                                               pp_info=pp_info, parent_scope=scope)
                        for s in walk(contains_ast, routine_types)]
 
-        obj.__init__(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
-                     members=members, symbols=obj.symbols, types=obj.types, parent=parent,
-                     is_function=is_function, source=source)
-        return obj
+        return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
+                   members=members, scope=scope, is_function=is_function, source=source)
 
     @property
     def variables(self):
@@ -427,6 +415,25 @@ class Subroutine:
     def source(self):
         return self._source
 
+    @property
+    def scope(self):
+        return self._scope
+
+    @property
+    def symbols(self):
+        return self.scope.symbols
+
+    @property
+    def parent(self):
+        """
+        Enclosing object, as defined by the propagation of types via `Scope` objects
+        """
+        return self.scope.parent.defined_by if self.scope.parent else None
+
+    @property
+    def types(self):
+        return self.scope.types
+
     def to_fortran(self, conservative=False):
         return fgen(self, conservative=conservative)
 
@@ -462,19 +469,12 @@ class Subroutine:
         for decl in FindNodes(Declaration).visit(self.spec):
             if all(v.name in arg_names for v in decl.variables):
                 # Replicate declaration with re-scoped variables
-                variables = as_tuple(v.clone(scope=routine.symbols) for v in decl.variables)
+                variables = as_tuple(v.clone(scope=routine.scope) for v in decl.variables)
                 decl_map[decl] = decl.clone(variables=variables)
             else:
                 decl_map[decl] = None  # Remove local variable declarations
         routine.spec = Transformer(decl_map).visit(self.spec)
         return Interface(body=(routine,))
-
-    @property
-    def parent(self):
-        """
-        Access the enclosing scope.
-        """
-        return self._parent() if self._parent is not None else None
 
     def apply(self, op, **kwargs):
         """
@@ -500,24 +500,24 @@ class Subroutine:
             kwargs['name'] = self.name
         if self.argnames and 'args' not in kwargs:
             kwargs['args'] = self.argnames
-        if self.members and 'members' not in kwargs:
-            kwargs['members'] = [member.clone() for member in self.members]
         if self._ast and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
         if self.is_function and 'is_function' not in kwargs:
             kwargs['is_function'] = self.is_function
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
 
-        kwargs['symbols'] = TypeTable(parent=self.symbols.parent)
+        kwargs['scope'] = Scope(parent=kwargs.get('parent_scope', self.scope.parent))
+        if self.members and 'members' not in kwargs:
+            kwargs['members'] = [member.clone(parent_scope=kwargs['scope']) for member in self.members]
         kwargs['docstring'] = Transformer({}).visit(self.docstring)
-        spec_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.spec)}
+        spec_map = {v: v.clone(scope=kwargs['scope'])
+                    for v in FindVariables(unique=False).visit(self.spec)}
         kwargs['spec'] = SubstituteExpressions(spec_map).visit(Transformer({}).visit(self.spec))
-        body_map = {v: v.clone(scope=kwargs['symbols']) for v in FindVariables(unique=False).visit(self.body)}
+        body_map = {v: v.clone(scope=kwargs['scope'])
+                    for v in FindVariables(unique=False).visit(self.body)}
         kwargs['body'] = SubstituteExpressions(body_map).visit(Transformer({}).visit(self.body))
 
         return type(self)(**kwargs)

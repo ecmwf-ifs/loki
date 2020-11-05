@@ -3,7 +3,7 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType, SymbolType
+from loki.types import BasicType, DerivedType, SymbolType, Scope
 from loki.expression.mappers import LokiStringifyMapper
 
 
@@ -61,13 +61,59 @@ class StrCompareMixin:
 
         return super().__eq__(other)
 
+class TypedSymbol:
+    """
+    Base class for symbols that carry type information from an associated scope.
 
-class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.name = kwargs.get('name')
+        scope = kwargs.pop('scope')
+        type = kwargs.pop('type', None)
+
+        super().__init__(*args, **kwargs)
+
+        assert isinstance(scope, Scope)
+        self._scope = weakref.ref(scope)
+
+        if type is None:
+            # Insert the deferred type in the type table only if it does not exist
+            # yet (necessary for deferred type definitions, e.g., derived types in header or
+            # parameters from other modules)
+            self.scope.symbols.setdefault(self.name, SymbolType(BasicType.DEFERRED))
+        elif type is not self.scope.symbols.lookup(self.name):
+            # If the type information does already exist and is identical (not just
+            # equal) we don't update it. This makes sure that we don't create double
+            # entries for variables inherited from a parent scope
+            self.type = type.clone()
+
+    @property
+    def scope(self):
+        """
+        The object corresponding to the symbols scope.
+        """
+        return self._scope()
+
+    @property
+    def type(self):
+        """
+        Internal representation of the declared data type.
+        """
+        return self.scope.symbols.lookup(self.name)
+
+    @type.setter
+    def type(self, value):
+        self.scope.symbols[self.name] = value
+
+
+class Scalar(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
-    It is always associated with a given scope (typically a class:``Subroutine``)
-    where the corresponding `symbol_table` is found with its type.
+    It is always associated with a given class:``Scope`` (typically held by a
+    class:``Subroutine``) where the corresponding symbol table is found with its type.
 
     Warning: Providing a type overwrites the corresponding entry in the symbol table.
     This is due to the assumption that we might have encountered a variable name before
@@ -78,27 +124,9 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     def __init__(self, name, scope, type=None, parent=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super().__init__(name, **kwargs)
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
 
-        self._scope = weakref.ref(scope)
-        if type is None:
-            # Insert the deferred type in the type table only if it does not exist
-            # yet (necessary for deferred type definitions, e.g., derived types in header or
-            # parameters from other modules)
-            self.scope.setdefault(self.name, SymbolType(BasicType.DEFERRED))
-        elif type is not self.scope.lookup(self.name):
-            # If the type information does already exist and is identical (not just
-            # equal) we don't update it. This makes sure that we don't create double
-            # entries for variables inherited from a parent scope
-            self.type = type.clone()
         self.parent = parent
-
-    @property
-    def scope(self):
-        """
-        The object corresponding to the symbols scope.
-        """
-        return self._scope()
 
     @property
     def basename(self):
@@ -107,17 +135,6 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         """
         idx = self.name.rfind('%')
         return self.name[idx+1:]
-
-    @property
-    def type(self):
-        """
-        Internal representation of the declared data type.
-        """
-        return self.scope.lookup(self.name)
-
-    @type.setter
-    def type(self, value):
-        self.scope[self.name] = value
 
     @property
     def initial(self):
@@ -158,7 +175,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+class Array(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     """
     Expression node for array variables.
 
@@ -177,30 +194,13 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
     def __init__(self, name, scope, type=None, parent=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super().__init__(name, **kwargs)
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
 
-        self._scope = weakref.ref(scope)
-        if type is None:
-            # Insert the defered type in the type table only if it does not exist
-            # yet (necessary for deferred type definitions)
-            self.scope.setdefault(self.name, SymbolType(BasicType.DEFERRED))
-        elif type is not self.scope.lookup(self.name):
-            # If the type information does already exist and is identical (not just
-            # equal) we don't update it. This makes sure that we don't create double
-            # entries for variables inherited from a parent scope
-            self.type = type.clone()
         self.parent = parent
         # Ensure dimensions are treated via ArraySubscript objects
         if dimensions is not None and not isinstance(dimensions, ArraySubscript):
             dimensions = ArraySubscript(dimensions)
         self.dimensions = dimensions
-
-    @property
-    def scope(self):
-        """
-        The object corresponding to the symbols scope.
-        """
-        return self._scope()
 
     @property
     def basename(self):
@@ -209,17 +209,6 @@ class Array(ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         """
         idx = self.name.rfind('%')
         return self.name[idx+1:]
-
-    @property
-    def type(self):
-        """
-        Internal representation of the declared data type.
-        """
-        return self.scope.lookup(self.name)
-
-    @type.setter
-    def type(self, value):
-        self.scope[self.name] = value
 
     @property
     def initial(self):
@@ -309,7 +298,7 @@ class Variable:
         """
         name = kwargs['name']
         scope = kwargs['scope']
-        _type = kwargs.setdefault('type', scope.lookup(name))
+        _type = kwargs.setdefault('type', scope.symbols.lookup(name))
 
         dimensions = kwargs.pop('dimensions', None)
         shape = _type.shape if _type is not None else None

@@ -19,7 +19,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
-from loki.types import BasicType, SymbolType, DerivedType
+from loki.types import BasicType, SymbolType, DerivedType, Scope
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -181,7 +181,7 @@ class OFP2IR(GenericVisitor):
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
-        variable = sym.Variable(name=vname, scope=self.scope.symbols, source=source)
+        variable = sym.Variable(name=vname, scope=self.scope, source=source)
         lower = self.visit(o.find('header/index-variable/lower-bound'))
         upper = self.visit(o.find('header/index-variable/upper-bound'))
         step = None
@@ -313,8 +313,8 @@ class OFP2IR(GenericVisitor):
                 # We are dealing with a derived type
                 name = o.find('end-type-stmt').attrib['id']
 
-                # Create the TypeDef object to initialize the scope
-                typedef = ir.TypeDef(name=name, body=[], label=label, source=source)
+                # Initialize a local scope for typedef objects
+                typedef_scope = Scope(parent=self.scope)
 
                 # This is still ugly, but better than before! In order to
                 # process certain tag combinations (groups) into declaration
@@ -336,13 +336,13 @@ class OFP2IR(GenericVisitor):
                     elif len(group) == 2:
                         # Process declarations without attributes
                         decl = self.create_typedef_declaration(t=group[0], comps=group[1],
-                                                               typedef=typedef, source=source)
+                                                               scope=typedef_scope, source=source)
                         body.append(decl)
 
                     elif len(group) == 3:
                         # Process declarations with attributes
                         decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
-                                                               typedef=typedef, source=source)
+                                                               scope=typedef_scope, source=source)
                         body.append(decl)
 
                     else:
@@ -351,10 +351,11 @@ class OFP2IR(GenericVisitor):
                 # Infer any additional shape information from `!$loki dimension` pragmas
                 body = inline_pragmas(body)
                 body = process_dimension_pragmas(body)
-                typedef._update(body=as_tuple(body), symbols=typedef.symbols)
+                typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=typedef_scope,
+                                     label=label, source=source)
 
-                # Now create a SymbolType instance to make the typedef known in its scope's type table
-                self.scope.types[name] = SymbolType(DerivedType(name=name, typedef=typedef))
+                # Now make the typedef known in its scope's type table
+                self.scope.types[name] = DerivedType(name=name, typedef=typedef)
 
                 return typedef
 
@@ -366,7 +367,7 @@ class OFP2IR(GenericVisitor):
                 if kind.attrib['id'].isnumeric():
                     kind = sym.Literal(value=kind.attrib['id'])
                 else:
-                    kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
+                    kind = sym.Variable(name=kind.attrib['id'], scope=self.scope)
             intent = o.find('intent').attrib['type'] if o.find('intent') else None
             allocatable = o.find('attribute-allocatable') is not None
             pointer = o.find('attribute-pointer') is not None
@@ -380,29 +381,21 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
+                stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                    intent=intent, allocatable=allocatable, pointer=pointer,
                                    optional=optional, parameter=parameter, shape=dimensions,
                                    target=target, source=source)
             else:
                 # Create the local variant of the derived type
-                _type = self.scope.types.lookup(typename, recursive=True)
-                if _type is None:
-                    typedef = self.scope.symbols.lookup(typename, recursive=True)
-                    typedef = typedef if typedef is BasicType.DEFERRED else typedef.typedef
-                    _type = SymbolType(DerivedType(name=typename, typedef=typedef),
-                                       intent=intent, allocatable=allocatable, pointer=pointer,
-                                       optional=optional, parameter=parameter, target=target,
-                                       source=source)
+                dtype = self.scope.types.lookup(typename, recursive=True)
+                if dtype is None:
+                    dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
 
-                else:
-                    # Ensure we inherit declaration attributes via a local clone
-                    _type = _type.clone(intent=intent, allocatable=allocatable, pointer=pointer,
-                                        optional=optional, parameter=parameter, target=target,
-                                        source=source)
+                stype = SymbolType(dtype, intent=intent, allocatable=allocatable,
+                                   pointer=pointer, optional=optional, parameter=parameter,
+                                   target=target, source=source)
 
-
-            variables = [self.visit(v, type=_type, dimensions=dimensions, external=external)
+            variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
             variables = [v for v in variables if v is not None]
             return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
@@ -444,7 +437,7 @@ class OFP2IR(GenericVisitor):
                 shape = None
             _type = var.type.clone(name=None, parent=None, shape=shape)
             assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope.symbols,
+            associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope,
                                              source=source)
         body = self.visit(o.find('body'))
         return ir.Associate(body=as_tuple(body), associations=associations, label=label, source=source)
@@ -580,7 +573,7 @@ class OFP2IR(GenericVisitor):
                 indices = sym.ArraySubscript(indices, source=source)
 
             var = sym.Variable(name=vname, dimensions=indices, parent=parent,
-                               type=_type, scope=self.scope.symbols, source=source)
+                               type=_type, scope=self.scope, source=source)
             return var
 
         # Creating compound variables is a bit tricky, so let's first
@@ -628,7 +621,7 @@ class OFP2IR(GenericVisitor):
         external = kwargs.get('external')
         if external:
             _type.external = external
-        return sym.Variable(name=name, scope=self.scope.symbols, dimensions=dimensions,
+        return sym.Variable(name=name, scope=self.scope, dimensions=dimensions,
                             type=_type, source=source)
 
     def visit_part_ref(self, o, label=None, source=None):
@@ -761,7 +754,7 @@ class OFP2IR(GenericVisitor):
     def visit_operator(self, o, label=None, source=None):
         return o.attrib['operator']
 
-    def create_typedef_declaration(self, t, comps, attr=None, typedef=None, source=None):
+    def create_typedef_declaration(self, t, comps, attr=None, scope=None, source=None):
         """
         Utility method to create individual declarations from a group of AST nodes.
         """
@@ -776,24 +769,20 @@ class OFP2IR(GenericVisitor):
             if kind.attrib['id'].isnumeric():
                 kind = sym.Literal(value=kind.attrib['id'])
             else:
-                kind = sym.Variable(name=kind.attrib['id'], scope=self.scope.symbols)
+                kind = sym.Variable(name=kind.attrib['id'], scope=self.scope)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
+            stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
                                pointer='POINTER' in attrs,
                                allocatable='ALLOCATABLE' in attrs, source=t_source)
         else:
             # This is a derived type. Let's see if we know it already
-            _type = self.scope.types.lookup(typename, recursive=True)
-            if _type is not None:
-                _type = _type.clone(kind=kind, pointer='POINTER' in attrs,
-                                    allocatable='ALLOCATABLE' in attrs,
-                                    source=t_source)
-            else:
-                _type = SymbolType(DerivedType(name=typename), name=typename,
-                                   kind=kind, pointer='POINTER' in attrs,
-                                   allocatable='ALLOCATABLE' in attrs,
-                                   variables=OrderedDict(), source=t_source)
+            dtype = self.scope.types.lookup(typename, recursive=True)
+            if dtype is None:
+                dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
+            stype = SymbolType(dtype, kind=kind, pointer='POINTER' in attrs,
+                               allocatable='ALLOCATABLE' in attrs,
+                               variables=OrderedDict(), source=t_source)
 
         # Derive variables for this declaration entry
         variables = []
@@ -815,12 +804,12 @@ class OFP2IR(GenericVisitor):
             dimensions = as_tuple(d for d in dimensions if d is not None)
             dimensions = dimensions if len(dimensions) > 0 else None
             v_source = extract_source(v.attrib, self._raw_source)
-            v_type = _type.clone(shape=dimensions, source=v_source)
+            v_type = stype.clone(shape=dimensions, source=v_source)
             v_name = v.attrib['name']
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
 
             variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                       scope=typedef.symbols, source=source)]
+                                       scope=scope, source=source)]
 
         return ir.Declaration(variables=variables, source=t_source)

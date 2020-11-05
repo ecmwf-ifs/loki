@@ -23,7 +23,7 @@ from loki.expression import (
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple, flatten
-from loki.types import BasicType, SymbolType, DerivedType, TypeTable
+from loki.types import BasicType, SymbolType, DerivedType, TypeTable, Scope
 
 
 __all__ = ['FortranCTransformation']
@@ -83,7 +83,7 @@ class FortranCTransformation(Transformation):
         Create the :class:`TypeDef` for the C-wrapped struct definition.
         """
         typename = '%s_c' % (derived.name if isinstance(derived, TypeDef) else derived.dtype.name)
-        symbols = TypeTable()
+        scope = Scope()
         if isinstance(derived, TypeDef):
             variables = derived.variables
         else:
@@ -91,9 +91,9 @@ class FortranCTransformation(Transformation):
         declarations = []
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
-            vnew = v.clone(name=v.basename.lower(), scope=symbols, type=ctype)
+            vnew = v.clone(name=v.basename.lower(), scope=scope, type=ctype)
             declarations += (Declaration(variables=(vnew,)),)
-        return TypeDef(name=typename.lower(), bind_c=True, body=declarations, symbols=symbols)
+        return TypeDef(name=typename.lower(), bind_c=True, body=declarations, scope=scope)
 
     @staticmethod
     def iso_c_intrinsic_kind(_type):
@@ -123,12 +123,11 @@ class FortranCTransformation(Transformation):
 
     @classmethod
     def generate_iso_c_wrapper_routine(cls, routine, c_structs, bind_name=None):
-        # Create initial object to have a scope
-        wrapper = Subroutine(name='%s_fc' % routine.name)
+        wrapper_scope = Scope()
 
         if bind_name is None:
             bind_name = '%s_c' % routine.name
-        interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, wrapper)
+        interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper_scope)
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
@@ -144,7 +143,7 @@ class FortranCTransformation(Transformation):
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
-                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper.symbols)
+                cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope)
                 cast_in = InlineCall('transfer', parameters=(arg,), kw_parameters={'mold': cvar})
                 casts_in += [Assignment(lhs=cvar, rhs=cast_in)]
 
@@ -157,8 +156,8 @@ class FortranCTransformation(Transformation):
         wrapper_body += [CallStatement(name=interface.body[0].name, arguments=arguments)]
         wrapper_body += casts_out
         wrapper_body = Section(body=wrapper_body)
-        wrapper.__init__(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,
-                         symbols=wrapper.symbols, types=wrapper.types)
+        wrapper = Subroutine(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,
+                             scope=wrapper_scope)
 
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.arguments + tuple(v for _, v in local_arg_map.items())
@@ -180,7 +179,7 @@ class FortranCTransformation(Transformation):
         # Add module-based derived type/struct definitions
         spec += list(c_structs.values())
 
-        obj = Module(name='%s_fc' % module.name)
+        module_scope = Scope()
 
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
@@ -189,28 +188,26 @@ class FortranCTransformation(Transformation):
                 if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
                     continue
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
-                getter = Subroutine(name=gettername, parent=obj)
+                getter_scope = Scope(parent=module_scope)
 
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
                 isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
-                    Assignment(lhs=Variable(name=gettername, scope=getter.symbols), rhs=v)])
+                    Assignment(lhs=Variable(name=gettername, scope=getter_scope), rhs=v)])
 
-                getter.__init__(name=gettername, bind=gettername, spec=getterspec,
-                                body=getterbody, is_function=True, parent=obj,
-                                symbols=getter.symbols, types=getter.types)
+                getter = Subroutine(name=gettername, scope=getter_scope, spec=getterspec,
+                                    body=getterbody, bind=gettername, is_function=True)
                 getter.variables = as_tuple(Variable(name=gettername, type=isoctype,
-                                                     scope=getter.symbols))
+                                                     scope=getter.scope))
                 wrappers += [getter]
 
-        obj.__init__(name=obj.name, spec=spec, routines=wrappers, types=obj.types,
-                     symbols=obj.symbols)
-        return obj
+        modname = '{}_fc'.format(module.name)
+        return Module(name=modname, spec=spec, routines=wrappers, scope=module_scope)
 
     @classmethod
-    def generate_iso_c_interface(cls, routine, bind_name, c_structs, parent):
+    def generate_iso_c_interface(cls, routine, bind_name, c_structs, scope):
         """
         Generate the ISO-C subroutine interface
         """
@@ -220,8 +217,8 @@ class FortranCTransformation(Transformation):
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
         intf_spec.body += as_tuple(c_structs.values())
-        intf_routine = Subroutine(name=intf_name, spec=intf_spec, args=(), parent=parent,
-                                  body=None, bind=bind_name)
+        intf_routine = Subroutine(name=intf_name, spec=intf_spec, body=None,
+                                  args=(), scope=scope, bind=bind_name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
@@ -237,7 +234,7 @@ class FortranCTransformation(Transformation):
                                    kind=cls.iso_c_intrinsic_kind(arg.type))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
-                           scope=intf_routine.symbols)
+                           scope=intf_routine.scope)
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
 

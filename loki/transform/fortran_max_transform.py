@@ -214,7 +214,7 @@ class FortranMaxTransformation(Transformation):
             cond_vars = []
             for i, condition in enumerate(cond.conditions):
                 cond_vars += [sym.Variable(name='cond_{cnt}_{i}'.format(cnt=cnt, i=i),
-                                           type=cond_type.clone(), scope=max_kernel.symbols)]
+                                           type=cond_type.clone(), scope=max_kernel.scope)]
                 body += [ir.Assignment(lhs=cond_vars[-1], rhs=condition)]
             max_kernel.variables += as_tuple(cond_vars)
 
@@ -433,11 +433,11 @@ class FortranMaxTransformation(Transformation):
         spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
 
         max_module = Module(name=kernel.name, spec=ir.Section(body=as_tuple(spec)))
-        max_kernel = kernel.clone(parent=max_module)
+        max_kernel = kernel.clone(parent_scope=max_module.scope)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
         arg_type = SymbolType(BasicType.DEFERRED, name='KernelParameters', intent='in')
-        arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.symbols)
+        arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.scope)
         max_kernel.arguments = as_tuple(arg)
         max_kernel.spec.prepend(ir.CallStatement('super', arguments=(arg,)))
 
@@ -462,7 +462,7 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the setup
-        setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
+        setup = Subroutine(name='default void setup', parent_scope=manager.scope, spec=ir.Section(body=()))
 
         body = [ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(
             kernel.name))]
@@ -508,26 +508,27 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}ManagerMAX5C'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the constructor
-        constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
+        constructor = Subroutine(name=manager.name, parent_scope=manager.scope, spec=ir.Section(body=()))
         params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters', intent='in')
-        params = sym.Variable(name='params', type=params_type, scope=constructor.symbols)
+        params = sym.Variable(name='params', type=params_type, scope=constructor.scope)
         body = [ir.CallStatement('super', arguments=(params,)),
                 ir.CallStatement('setup', arguments=())]
         constructor.arguments = as_tuple(params)
         constructor.body = ir.Section(body=body)
 
         # Create the main function for maxJavaRun
-        main = Subroutine(name='public static void main', parent=manager, spec=ir.Section(body=()))
+        main = Subroutine(name='public static void main', parent_scope=manager.scope,
+                          spec=ir.Section(body=()))
         args_type = SymbolType(BasicType.DEFERRED, name='String[]', intent='in')
-        args = sym.Variable(name='args', type=args_type, scope=main.symbols)
+        args = sym.Variable(name='args', type=args_type, scope=main.scope)
         main.arguments = as_tuple(args)
 
         params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters',
                                  initial=sym.InlineCall('new EngineParameters', parameters=(args,)))
-        params = sym.Variable(name='params', type=params_type, scope=main.symbols)
+        params = sym.Variable(name='params', type=params_type, scope=main.scope)
         mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager',
                               initial=sym.InlineCall('new {}'.format(manager.name), parameters=(params,)))
-        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.symbols)
+        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.scope)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement('manager.build', arguments=())]
         main.body = ir.Section(body=body)
@@ -546,14 +547,14 @@ class FortranMaxTransformation(Transformation):
 
         # Add an argument for ticks
         size_t_type = SymbolType(BasicType.INTEGER, intent='in')  # TODO: make this size_t
-        ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel.symbols)
+        ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel.scope)
         arguments = (ticks_argument,) + slic_routine.arguments
 
         # The DFE wants to know array sizes, so we replace array arguments by pairs (arg, arg_size)
         def generate_arg_tuple(arg):
             if isinstance(arg, sym.Array):
                 return (arg, sym.Variable(name='{}_size'.format(arg.name), type=size_t_type,
-                                          scope=slic_routine.symbols))
+                                          scope=slic_routine.scope))
             return arg
         arguments = flatten([generate_arg_tuple(arg) for arg in arguments])
 

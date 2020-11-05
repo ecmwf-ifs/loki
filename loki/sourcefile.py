@@ -37,14 +37,11 @@ class SourceFile:
     :param Source source: string and line information about the original source file.
     """
 
-    def __init__(self, path, routines=None, modules=None, ast=None, symbols=None, types=None,
-                 source=None):
+    def __init__(self, path, routines=None, modules=None, ast=None, source=None):
         self.path = Path(path) if path is not None else path
         self._routines = routines
         self._modules = modules
         self._ast = ast
-        self.symbols = symbols if symbols is not None else TypeTable(None)
-        self.types = types if types is not None else TypeTable(None)
         self._source = source
 
     @classmethod
@@ -88,21 +85,17 @@ class SourceFile:
         """
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
-        obj = cls(path=path, ast=ast)
-
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
         routines = [Subroutine.from_omni(ast=routine, definitions=definitions, raw_source=raw_source,
-                                         typetable=typetable, parent=obj) for routine in ast_r]
+                                         typetable=typetable) for routine in ast_r]
 
         ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
         modules = [Module.from_omni(ast=module, definitions=definitions, raw_source=raw_source,
-                                    typetable=typetable, parent=obj) for module in ast_m]
+                                    typetable=typetable) for module in ast_m]
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        obj.__init__(path=path, routines=routines, modules=modules, ast=ast,
-                     symbols=obj.symbols, types=obj.types, source=source)
-        return obj
+        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
     def from_ofp(cls, filename, preprocess=False, definitions=None, builddir=None):
@@ -146,21 +139,17 @@ class SourceFile:
         """
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
-        obj = cls(path=path, ast=ast)
-
-        routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
-                                        parent=obj, pp_info=pp_info)
+        routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source,
+                                        definitions=definitions, pp_info=pp_info)
                     for routine in list(ast.find('file'))
                     if routine.tag in ('subroutine', 'function')]
 
-        modules = [Module.from_ofp(ast=module, definitions=definitions, parent=obj, raw_source=raw_source,
+        modules = [Module.from_ofp(ast=module, definitions=definitions, raw_source=raw_source,
                                    pp_info=pp_info) for module in ast.findall('file/module')]
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        obj.__init__(path=path, routines=routines, modules=modules,
-                     ast=ast, symbols=obj.symbols, types=obj.types, source=source)
-        return obj
+        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
     def from_fparser(cls, filename, definitions=None, preprocess=False, builddir=None):
@@ -199,21 +188,17 @@ class SourceFile:
         """
         Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
         """
-        obj = cls(path=path, ast=ast)
-
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-        routines = [Subroutine.from_fparser(ast=routine, definitions=definitions, parent=obj,
+        routines = [Subroutine.from_fparser(ast=routine, definitions=definitions,
                                             pp_info=pp_info, raw_source=raw_source)
                     for routine in ast.content if isinstance(routine, routine_types)]
-        modules = [Module.from_fparser(ast=module, definitions=definitions, parent=obj,
+        modules = [Module.from_fparser(ast=module, definitions=definitions,
                                        pp_info=pp_info, raw_source=raw_source)
                    for module in ast.content if isinstance(module, Fortran2003.Module)]
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        obj.__init__(path=path, routines=routines, modules=modules, ast=ast, symbols=obj.symbols,
-                     types=obj.types, source=source)
-        return obj
+        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=OFP):

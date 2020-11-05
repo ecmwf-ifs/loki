@@ -14,7 +14,7 @@ import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
-from loki.types import BasicType, SymbolType, DerivedType
+from loki.types import BasicType, SymbolType, DerivedType, Scope
 
 
 __all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -220,9 +220,10 @@ class OMNI2IR(GenericVisitor):
             if _type.dtype == BasicType.DEFERRED and _type.name in self.type_map:
                 tname = self.symbol_map[_type.name].find('name').text
                 variables = self._struct_type_variables(
-                    self.type_map[_type.name], scope=self.scope.symbols, parent=name.text, source=source)
+                    self.type_map[_type.name], scope=self.scope, parent=name.text, source=source)
 
                 typedef = ir.TypeDef(name=name.text, body=[])
+
                 declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
                 typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
 
@@ -247,23 +248,25 @@ class OMNI2IR(GenericVisitor):
         if external:
             _type.external = external
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
-                                scope=self.scope.symbols, source=source)
+                                scope=self.scope, source=source)
         return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-        typedef = ir.TypeDef(name=name.text, body=[])
+
+        # Initialize a local scope for typedef objects
+        typedef_scope = Scope(parent=self.scope)
 
         # Built the list of derived type members
         variables = self._struct_type_variables(self.type_map[name.attrib['type']],
-                                                typedef.symbols)
+                                                scope=typedef_scope)
 
         # Build individual declarations for each member
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
-        typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
+        typedef = ir.TypeDef(name=name.text, body=as_tuple(declarations), scope=typedef_scope)
 
-        # Now create a SymbolType instance to make the typedef known in its scope's type table
-        self.scope.types[name.text] = SymbolType(DerivedType(name=name.text, typedef=typedef))
+        # Now make the typedef known in its scope's type table
+        self.scope.types[name.text] = DerivedType(name=name.text, typedef=typedef)
 
         return typedef
 
@@ -295,11 +298,11 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        parent_type = self.scope.types.lookup(name, recursive=True)
-        if parent_type is not None:
-            return parent_type.clone()
+        dtype = self.scope.types.lookup(name, recursive=True)
+        if dtype is None:
+            dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
 
-        return SymbolType(DerivedType(name=name, typedef=BasicType.DEFERRED))
+        return SymbolType(dtype)
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -311,7 +314,7 @@ class OMNI2IR(GenericVisitor):
                 shape = None
             vname = i.find('name').text
             vtype = var.type.clone(name=None, parent=None, shape=shape)
-            associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
+            associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope,
                                              source=source)
         body = self.visit(o.find('body'))
         return ir.Associate(body=as_tuple(body), associations=associations, source=source)
@@ -420,7 +423,7 @@ class OMNI2IR(GenericVisitor):
 
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, parent=parent, scope=self.scope.symbols,
+        return sym.Variable(name=vname, type=vtype, parent=parent, scope=self.scope,
                             dimensions=dimensions, source=source)
 
     def visit_Var(self, o, **kwargs):
@@ -447,7 +450,7 @@ class OMNI2IR(GenericVisitor):
 
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, scope=self.scope.symbols,
+        return sym.Variable(name=vname, type=vtype, scope=self.scope,
                             dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):

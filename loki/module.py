@@ -11,7 +11,7 @@ from loki.backend.fgen import fgen
 from loki.ir import TypeDef, Section
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
-from loki.types import TypeTable
+from loki.types import Scope
 from loki.tools import as_tuple
 
 
@@ -28,27 +28,18 @@ class Module:
     :param ast: Frontend node for this module.
     :param Source source: Source object representing the raw source string information from
             the read file.
-    :param TypeTable symbols: type information for all symbols defined within this module's scope.
-    :param TypeTable types: type information for all (derived) types defined within this module's scope.
-    :param parent: Optional enclosing scope, to which a weakref can be held for symbol lookup.
+    :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
+                  cache type information for all symbols defined within this module's scope.
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None,
-                 source=None, symbols=None, types=None, parent=None):
+    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, scope=None):
         self.name = name or ast.attrib['name']
         self.spec = spec
         self.routines = routines
-        self._parent = weakref.ref(parent) if parent is not None else None
 
-        self.symbols = symbols
-        if self.symbols is None:
-            parent = self.parent.symbols if self.parent is not None else None
-            self.symbols = TypeTable(parent)
-
-        self.types = types
-        if self.types is None:
-            parent = self.parent.types if self.parent is not None else None
-            self.types = TypeTable(parent)
+        # Ensure we always have a local scope, and register ourselves with it
+        self._scope = Scope() if scope is None else scope
+        self.scope.defined_by = self
 
         self._ast = ast
         self._source = source
@@ -81,79 +72,73 @@ class Module:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, definitions=None, parent=None, pp_info=None):
+    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
         source = extract_source(ast, raw_source, full_lines=True)
 
         # Process module-level type specifications
         name = name or ast.attrib['name']
-        obj = cls(name=name, ast=ast, source=source, parent=parent)
+        scope = Scope()
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions, scope=obj,
-                             pp_info=pp_info)
+        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions,
+                             scope=scope, pp_info=pp_info)
 
         # Parse member subroutines and functions
         routines = None
         if ast.find('members'):
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
-                                            parent=obj, pp_info=pp_info)
+                                            parent_scope=scope, pp_info=pp_info)
                         for routine in ast.find('members')
                         if routine.tag in ('subroutine', 'function')]
             routines = as_tuple(routines)
 
-        obj.__init__(name=name, spec=spec, routines=routines, ast=ast, source=source,
-                     parent=parent, symbols=obj.symbols, types=obj.types)
-        return obj
+        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, definitions=None,
-                  symbol_map=None, parent=None):
+    def from_omni(cls, ast, raw_source, typetable, name=None, definitions=None, symbol_map=None):
         name = name or ast.attrib['name']
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
         source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-        obj = cls(name=name, ast=ast, source=source, parent=parent)
+        scope = Scope()
 
         # Generate spec, filter out external declarations and insert `implicit none`
         spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
-                              definitions=definitions, raw_source=raw_source, scope=obj)
+                              definitions=definitions, raw_source=raw_source, scope=scope)
         spec = Section(body=spec)
 
         # Parse member functions
         routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
-                                         definitions=definitions, raw_source=raw_source, parent=obj)
+                                         definitions=definitions, raw_source=raw_source,
+                                         parent_scope=scope)
                     for s in ast.findall('FcontainsStatement/FfunctionDefinition')]
 
-        obj.__init__(name=name, spec=spec, routines=routines, ast=ast, source=source,
-                     parent=parent, symbols=obj.symbols, types=obj.types)
-        return obj
+        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, parent=None, pp_info=None):
+    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
         name = name or ast.content[0].items[1].tostr()
         source = extract_fparser_source(ast, raw_source)
-        obj = cls(name, ast=ast, source=source, parent=parent)
+        scope = Scope()
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         spec = []
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=obj, pp_info=pp_info,
-                                     raw_source=raw_source)
+            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=scope,
+                                     pp_info=pp_info, raw_source=raw_source)
             spec = Section(body=spec)
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
         if routines_ast is not None:
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=obj,
+            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent_scope=scope,
                                                 pp_info=pp_info, raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]
             routines = as_tuple(routines)
 
-        obj.__init__(name=name, spec=spec, routines=routines, ast=ast, source=source,
-                     symbols=obj.symbols, types=obj.types, parent=parent)
-        return obj
+        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
 
     @property
     def typedefs(self):
@@ -171,11 +156,16 @@ class Module:
         return as_tuple(self.routines)
 
     @property
-    def parent(self):
-        """
-        Access the enclosing parent.
-        """
-        return self._parent() if self._parent is not None else None
+    def scope(self):
+        return self._scope
+
+    @property
+    def symbols(self):
+        return self.scope.symbols
+
+    @property
+    def types(self):
+        return self.scope.types
 
     @property
     def source(self):
