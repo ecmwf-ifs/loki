@@ -32,10 +32,9 @@ class Subroutine:
                         provide external variable and type definitions.
     :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
                   cache type information for all symbols defined within this module's scope.
-    :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
-                  cache type information for all symbols defined within this module's scope.
-    :param scope: ``Scope`` object with enclosing type information used to create
-                  local scope if no local scope is provided.
+    :param parent_scope: ``Scope`` object with enclosing type information used to create
+                         local scope if no local scope is provided. This is also used to
+                         define the backward link via `Subroutine.parent`.
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
