@@ -14,7 +14,7 @@ import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
 from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
-from loki.types import BasicType, SymbolType, DerivedType, Scope
+from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
 __all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -510,6 +510,20 @@ class OMNI2IR(GenericVisitor):
         # Separate keyrword argument from positional arguments
         kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
         args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
+
+        # Check if we're dealing with a previously known function call
+        stype = self.scope.symbols.lookup(name, recursive=True)
+        if stype and isinstance(stype.dtype, ProcedureType):
+            fct_symbol = sym.ProcedureSymbol(name, type=stype, scope=self.scope, source=source)
+            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
+
+        # No previous type declaration known for this symbol,
+        # see if it's a function call to a known procedure
+        dtype = self.scope.types.lookup(name, recursive=True)
+        if dtype and dtype.is_function:
+            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(dtype), scope=self.scope, source=source)
+            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
+
         # Slightly hacky: inlining is decided based on return type
         # TODO: Unify the two call types?
         if o.attrib.get('type', 'Fvoid') != 'Fvoid':
