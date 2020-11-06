@@ -3,14 +3,97 @@ Collection of utility routines that provide loop transformations.
 
 """
 from collections import defaultdict
+import numpy as np
+from pymbolic import primitives as pmbl
 
-from loki.expression import symbols as sym, SubstituteExpressions
+from loki.expression import (
+    symbols as sym, SubstituteExpressions, FindVariables,
+    accumulate_polynomial_terms, simplify)
 from loki.ir import Loop, Conditional, Comment
 from loki.logging import info
 from loki.tools import is_loki_pragma, get_pragma_parameters, flatten, as_tuple
 from loki.visitors import FindNodes, Transformer
 
-__all__ = ['loop_fusion']
+__all__ = ['loop_fusion', 'Polyhedron']
+
+
+class Polyhedron:
+    """
+    Halfspace representation of a (convex) polyhedron.
+
+    A polyhedron `P c R^d` is described by a set of inequalities, in matrix form
+    ```
+    P = { x=[x1,...,xd]^T c R^d | Ax <= b }
+    ```
+    with n-by-d matrix `A` and d-dimensional right hand side `b`.
+
+    In loop transformations, polyhedrons are used to represent iteration spaces of
+    d-deep loop nests.
+
+    :param np.array A: the representation matrix A.
+    :param np.array b: the right hand-side vector b.
+    :param list variables: list of variables representing the dimensions in the polyhedron.
+    """
+
+    def __init__(self, A, b, variables=None):
+        assert A.ndim == 2 and b.ndim == 1
+        assert A.shape[0] == b.shape[0]
+        self.A = A
+        self.b = b
+
+        self.variables = None
+        if variables is not None:
+            assert len(variables) == A.shape[1]
+            self.variables = [v.name.lower() if isinstance(v, pmbl.Variable) else str(v) for v in variables]
+
+    @classmethod
+    def from_loop_ranges(cls, loop_variables, loop_ranges):
+        assert len(loop_ranges) == len(loop_variables)
+
+        # Add any variables that are not loop variables to the vector of variables
+        variables = [v.name.lower() if isinstance(v, pmbl.Variable) else str(v) for v in loop_variables]
+        for v in sorted(FindVariables().visit(loop_ranges), key=lambda v: v.name.lower()):
+            if v.name.lower() not in variables:
+                variables += [v.name.lower()]
+
+        n = 2 * len(loop_ranges)
+        d = len(variables)
+        A = np.zeros([n, d], dtype=np.dtype(int))
+        b = np.zeros([n], dtype=np.dtype(int))
+
+        for i, (loop_variable, loop_range) in enumerate(zip(loop_variables, loop_ranges)):
+            assert loop_range.step is None or loop_range.step == '1'
+            j = variables.index(loop_variable.name.lower())
+
+            # Create inequality from lower bound
+            lower_bound = simplify(loop_range.start)
+            if not (pmbl.is_constant(lower_bound) or
+                    isinstance(lower_bound, (pmbl.Variable, sym.Sum, sym.Product))):
+                raise ValueError('Cannot derive inequality from bound {}'.format(str(lower_bound)))
+
+            summands = accumulate_polynomial_terms(lower_bound)
+            b[2*i] = -summands.pop(1, 0)
+            A[2*i, j] = -1
+            for base, coef in summands.items():
+                if not len(base) == 1:
+                    raise ValueError('Non-affine lower bound {}'.format(str(lower_bound)))
+                A[2*i, variables.index(base[0].name.lower())] = coef
+
+            # Create inequality from upper bound
+            upper_bound = simplify(loop_range.stop)
+            if not (pmbl.is_constant(upper_bound) or
+                    isinstance(upper_bound, (pmbl.Variable, sym.Sum, sym.Product))):
+                raise ValueError('Cannot derive inequality from bound {}'.format(str(upper_bound)))
+
+            summands = accumulate_polynomial_terms(upper_bound)
+            b[2*i+1] = summands.pop(1, 0)
+            A[2*i+1, j] = 1
+            for base, coef in summands.items():
+                if not len(base) == 1:
+                    raise ValueError('Non-affine upper bound {}'.format(str(upper_bound)))
+                A[2*i+1, variables.index(base[0].name.lower())] = -coef
+
+        return cls(A, b, variables)
 
 
 def loop_fusion(routine):

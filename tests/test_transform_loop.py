@@ -2,14 +2,73 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, clean_test, parse_expression
 from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop
-from loki.transform import loop_fusion
+from loki.transform import loop_fusion, Polyhedron
+from loki.expression import symbols as sym
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.mark.parametrize('variables_scopes, lbounds_scopes, ubounds_scopes, A, b, variable_names', [
+    # do i=0,5: do j=i,7: ...
+    ([parse_expression('i'), parse_expression('j')],
+     [parse_expression('0'), parse_expression('i')], [parse_expression('5'), parse_expression('7')],
+     [[-1, 0], [1, 0], [1, -1], [0, 1]], [0, 5, 0, 7], ['i', 'j']),
+    # do i=1,n: do j=0,2*i+1: do k=a,b: ...
+    ([parse_expression('i'), parse_expression('j'), parse_expression('k')],
+     [parse_expression('1'), parse_expression('0'), parse_expression('a')],
+     [parse_expression('n'), parse_expression('2*i+1'), parse_expression('b')],
+     [[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
+      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
+      ['i', 'j', 'k', 'a', 'b', 'n']),
+    # do jk=1,klev: ...
+    ([parse_expression('jk')], [parse_expression('1')], [parse_expression('klev')],
+     [[-1, 0], [1, -1]], [-1, 0], ['jk', 'klev']),
+    # do JK=1,klev-1: ...
+    ([parse_expression('JK')], [parse_expression('1')], [parse_expression('klev - 1')],
+     [[-1, 0], [1, -1]], [-1, -1], ['jk', 'klev']),
+    # do jk=ncldtop,klev: ...
+    ([parse_expression('jk')], [parse_expression('ncldtop')], [parse_expression('klev')],
+     [[-1, 0, 1], [1, -1, 0]], [0, 0], ['jk', 'klev', 'ncldtop']),
+    # do jk=1,KLEV+1: ...
+    ([parse_expression('jk')], [parse_expression('1')], [parse_expression('KLEV+1')],
+     [[-1, 0], [1, -1]], [-1, 1], ['jk', 'klev']),
+])
+def test_polyhedron_from_loop_ranges(variables_scopes, lbounds_scopes, ubounds_scopes, A, b, variable_names):
+    """
+    Test converting loop ranges to polyedron representation of iteration space.
+    """
+    loop_variables, _ = zip(*variables_scopes)
+    lbounds, _ = zip(*lbounds_scopes)
+    ubounds, _ = zip(*ubounds_scopes)
+    loop_ranges = [sym.LoopRange((l, u)) for l, u in zip(lbounds, ubounds)]
+    p = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
+    assert np.all(p.A == np.array(A, dtype=np.dtype(int)))
+    assert np.all(p.b == np.array(b, dtype=np.dtype(int)))
+    assert p.variables == variable_names
+
+
+def test_polyhedron_from_loop_ranges_failures():
+    """
+    Test known limitation of the conversion from loop ranges to polyhedron.
+    """
+    # m*n is non-affine and thus can't be represented
+    loop_variable, _ = parse_expression('i')
+    lower_bound, _ = parse_expression('1')
+    upper_bound, _ = parse_expression('m * n')
+    loop_range = sym.LoopRange((lower_bound, upper_bound))
+    with pytest.raises(ValueError):
+        _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
+
+    # no functionality to flatten exponentials, yet
+    upper_bound, _ = parse_expression('5**2')
+    loop_range = sym.LoopRange((lower_bound, upper_bound))
+    with pytest.raises(ValueError):
+        _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
