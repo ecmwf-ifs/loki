@@ -4,7 +4,8 @@ Collection of utility routines to perform code-level force-inlining.
 
 """
 from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions
+    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions,
+    LokiIdentityMapper
 )
 from loki.ir import Declaration, Import, Comment, Assignment
 from loki.types import BasicType
@@ -12,6 +13,28 @@ from loki.visitors import Transformer, FindNodes
 
 
 __all__ = ['inline_constant_parameters']
+
+
+class InlineSubstitutionMapper(LokiIdentityMapper):
+    """
+    An expression mapper that defines symbolic substitution for inlining.
+    """
+
+    def map_inline_call(self, expr, *args, **kwargs):
+        scope = kwargs.get('scope', None)
+        function = expr.procedure_type.procedure.clone(scope=scope)
+        v_result = [v for v in function.variables if v == function.name][0]
+
+        # Substitute all arguments through the elemental body
+        arg_map = dict(zip(function.arguments, expr.parameters))
+        fbody = SubstituteExpressions(arg_map).visit(function.body)
+
+        # Extract the RHS of the final result variable assignment
+        stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
+        assert len(stmts) == 1
+        rhs = stmts[0].rhs
+
+        return self.rec(rhs)
 
 
 def inline_constant_parameters(routine, external_only=True):
@@ -59,20 +82,9 @@ def inline_elemental_functions(routine):
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
         if call.procedure_type is not BasicType.DEFERRED:
-            function = call.procedure_type.procedure.clone(scope=routine.scope)
-            v_result = [v for v in function.variables if v == function.name][0]
-
-            # Substitute all arguments through the elemental body
-            arg_map = dict(zip(function.arguments, call.parameters))
-            fbody = SubstituteExpressions(arg_map).visit(function.body)
-
-            # Extract the RHS of the final result variable assignment
-            stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
-            assert len(stmts) == 1
-            rhs = stmts[0].rhs
-
-            # Mark replacement of function call with new RHS
-            exprmap[call] = rhs
+            # Map each call to its substitutions, as defined by the
+            # recursive inline stubstitution mapper
+            exprmap[call] = InlineSubstitutionMapper()(call, routine.scope)
 
             # Mark function as removed for later cleanup
             removed_functions.append(call.procedure_type)

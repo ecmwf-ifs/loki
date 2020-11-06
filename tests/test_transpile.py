@@ -804,3 +804,80 @@ end subroutine transpile_inline_elemental_functions
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
     (here/'{}.f90'.format(module.name)).unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_inline_elementals_recursive(here, builder, frontend):
+    """
+    Test correct transformation of multi-body conditionals.
+    """
+    fcode_module = """
+module multiply_plus_one_mod
+  use iso_fortran_env, only: real64
+  implicit none
+contains
+
+  elemental function multiply(a, b)
+    real(kind=real64) :: multiply
+    real(kind=real64), intent(in) :: a, b
+
+    multiply = a * b
+  end function multiply
+
+  elemental function plus_one(a)
+    real(kind=real64) :: plus_one
+    real(kind=real64), intent(in) :: a
+
+    plus_one = a + 1._real64
+  end function plus_one
+
+  elemental function multiply_plus_one(a, b)
+    real(kind=real64) :: multiply_plus_one
+    real(kind=real64), intent(in) :: a, b
+
+    ! TODO: Add temporary variables...
+    multiply_plus_one = multiply(plus_one(a), b)
+  end function multiply_plus_one
+end module multiply_plus_one_mod
+"""
+
+    fcode = """
+subroutine transpile_inline_elementals_recursive(v1, v2, v3)
+  use iso_fortran_env, only: real64
+  use multiply_plus_one_mod, only: multiply_plus_one
+  real(kind=real64), intent(in) :: v1
+  real(kind=real64), intent(out) :: v2, v3
+
+  v2 = multiply_plus_one(v1, 6._real64)
+  v3 = 600. + multiply_plus_one(5._real64, 11._real64)
+end subroutine transpile_inline_elementals_recursive
+"""
+    # Generate reference code, compile run and verify
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
+
+    v2, v3 = reference.transpile_inline_elementals_recursive(10.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    (here/'{}.f90'.format(routine.name)).unlink()
+
+    # Now transpile with supplied elementals but without module
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+
+    f2c = FortranCTransformation(inline_elementals=True)
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_mod = c_kernel.transpile_inline_elementals_recursive_fc_mod
+
+    v2, v3 = fc_mod.transpile_inline_elementals_recursive_fc(10.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    builder.clean()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
