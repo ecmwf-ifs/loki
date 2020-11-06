@@ -4,9 +4,10 @@ Collection of utility routines to perform code-level force-inlining.
 
 """
 from loki.expression import (
-    symbols as sym, FindVariables, SubstituteExpressions
+    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions
 )
-from loki.ir import Declaration
+from loki.ir import Declaration, Import, Comment, Assignment
+from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -37,3 +38,51 @@ def inline_constant_parameters(routine, external_only=True):
             if v.type.parameter and v.type.initial}
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+
+def inline_elemental_functions(routine):
+    """
+    Replaces `InlineCall` expression to elemental functions with the
+    called functions body. This will attempt to resolve the elemental
+    function into a single expression and perform a direct replacement
+    at expression level.
+
+    Note, that `InlineCall.function.type` is used to determine if a
+    function cal be inlined. For functions imported via module use
+    statements. This implies that the module needs to be provided in
+    the `definitions` argument to the original ``Subroutine`` constructor.
+    """
+
+    # Keep track of removed symbols
+    removed_functions = []
+
+    exprmap = {}
+    for call in FindInlineCalls().visit(routine.body):
+        if call.procedure_type is not BasicType.DEFERRED:
+            function = call.procedure_type.procedure.clone(scope=routine.scope)
+            v_result = [v for v in function.variables if v == function.name][0]
+
+            # Substitute all arguments through the elemental body
+            arg_map = dict(zip(function.arguments, call.parameters))
+            fbody = SubstituteExpressions(arg_map).visit(function.body)
+
+            # Extract the RHS of the final result variable assignment
+            stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
+            assert len(stmts) == 1
+            rhs = stmts[0].rhs
+
+            # Mark replacement of function call with new RHS
+            exprmap[call] = rhs
+
+            # Mark function as removed for later cleanup
+            removed_functions.append(call.procedure_type)
+
+    # Apply expression-level substitution to routine
+    routine.body = SubstituteExpressions(exprmap).visit(routine.body)
+
+    # Remove all module imports that have become obsolete now
+    import_map = {}
+    for im in FindNodes(Import).visit(routine.spec):
+        if all(s in removed_functions for s in im.symbols):
+            import_map[im] = None
+    routine.spec = Transformer(import_map).visit(routine.spec)

@@ -10,7 +10,7 @@ from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics, resolve_associates
 )
 from loki.transform.transform_inline import (
-    inline_constant_parameters
+    inline_constant_parameters, inline_elemental_functions
 )
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
@@ -42,7 +42,8 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, header_modules=None):
+    def __init__(self, header_modules=None, inline_elementals=True):
+        self.inline_elementals = inline_elementals
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
@@ -345,6 +346,10 @@ class FortranCTransformation(Transformation):
         # Inline all known parameters, since they can be used in declarations,
         # and thus need to be known before we can fetch them via getters.
         inline_constant_parameters(kernel, external_only=True)
+
+        if self.inline_elementals:
+            # Inline known elemental function via expression substitution
+            inline_elemental_functions(kernel)
 
         # Create calls to getter routines for module variables
         getter_calls = []

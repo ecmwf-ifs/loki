@@ -675,6 +675,14 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     def name(self):
         return self.function.name
 
+    @property
+    def procedure_type(self):
+        """
+        Returns the underpinning procedure type if the type is know,
+        ``BasicType.DEFFERED`` otherwise.
+        """
+        return self.function.type.dtype
+
 
 class Cast(ExprMetadataMixin, pmbl.Call):
     """
