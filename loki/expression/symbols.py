@@ -91,7 +91,7 @@ class TypedSymbol:
             self.type = type.clone()
 
     def __getinitargs__(self):
-        args = [('name', self.name), ('scope', self.scope)]
+        args = [self.name, ('scope', self.scope)]
         return tuple(args)
 
     @property
@@ -249,7 +249,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         self.type.shape = value
 
     def __getinitargs__(self):
-        args = [('scope', self.scope)]
+        args = []
         if self.dimensions:
             args += [('dimensions', self.dimensions)]
         if self.parent:
