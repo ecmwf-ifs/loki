@@ -19,7 +19,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
-from loki.types import BasicType, SymbolType, DerivedType, Scope
+from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -563,6 +563,9 @@ class OFP2IR(GenericVisitor):
                 vname = '%s%%%s' % (parent.name, vname)
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
+            if _type and isinstance(_type.dtype, ProcedureType):
+                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
