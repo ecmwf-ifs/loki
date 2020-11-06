@@ -548,19 +548,29 @@ class OFP2IR(GenericVisitor):
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
                                  'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
-                return sym.InlineCall(vname, parameters=indices, source=source)
+                fct_symbol = sym.ProcedureSymbol(vname, scope=self.scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
             if vname.upper() in ['REAL', 'INT']:
                 kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
                 return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
             if indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                return sym.InlineCall(o.attrib['id'], parameters=indices, source=source)
+                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=self.scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             if parent is not None:
                 basename = vname
                 vname = '%s%%%s' % (parent.name, vname)
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
+
+            # No previous type declaration known for this symbol,
+            # see if it's a function call to a known procedure
+            if not _type or _type.dtype == BasicType.DEFERRED:
+                if self.scope.types.lookup(vname):
+                    fct_type = SymbolType(self.scope.types.lookup(vname))
+                    fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=self.scope, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.

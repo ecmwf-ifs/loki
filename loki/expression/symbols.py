@@ -11,7 +11,8 @@ __all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
            'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'IntrinsicLiteral',
            'Literal', 'LiteralList',
            'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
-           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript']
+           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
+           'ProcedureSymbol']
 
 
 # pylint: disable=abstract-method
@@ -89,6 +90,10 @@ class TypedSymbol:
             # entries for variables inherited from a parent scope
             self.type = type.clone()
 
+    def __getinitargs__(self):
+        args = [('name', self.name), ('scope', self.scope)]
+        return tuple(args)
+
     @property
     def scope(self):
         """
@@ -108,7 +113,7 @@ class TypedSymbol:
         self.scope.symbols[self.name] = value
 
 
-class Scalar(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
     Expression node for scalar variables (and other algebraic leaves).
 
@@ -175,7 +180,7 @@ class Scalar(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
         return Variable(**kwargs)
 
 
-class Array(TypedSymbol, ExprMetadataMixin, StrCompareMixin, pmbl.Variable):
+class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
     Expression node for array variables.
 
@@ -582,7 +587,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
-        function = pmbl.make_variable(function)
+        assert isinstance(function, ProcedureSymbol)
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
@@ -672,3 +677,26 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
         return LokiStringifyMapper()
 
     mapper_method = intern('map_array_subscript')
+
+
+class _FunctionSymbol(pmbl.FunctionSymbol):
+    """
+    Adapter class for pmbl.FunctionSymbol that stores a name argument.
+
+    This is needed since the original symbol does not like having a `name`
+    parameter handed down in the constructor.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+
+class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
+    """
+    Internal representation of a callable subroutine or function.
+    """
+
+    def __init__(self, name, scope, type=None, **kwargs):
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+    mapper_method = intern('map_procedure_symbol')

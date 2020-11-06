@@ -11,7 +11,7 @@ from loki.backend.fgen import fgen
 from loki.ir import TypeDef, Section
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
-from loki.types import Scope
+from loki.types import Scope, ProcedureType
 from loki.tools import as_tuple
 
 
@@ -87,10 +87,16 @@ class Module:
         # Parse member subroutines and functions
         routines = None
         if ast.find('members'):
+            # We need to pre-populate the ProcedureType type table to
+            # correctly class inline function calls within the module
+            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
+            for ast in routine_asts:
+                fname = ast.attrib['name']
+                scope.types[fname] = ProcedureType(fname, is_function=ast.tag == 'function')
+
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent_scope=scope, pp_info=pp_info)
-                        for routine in ast.find('members')
-                        if routine.tag in ('subroutine', 'function')]
+                        for routine in routine_asts if routine.tag in ('subroutine', 'function')]
             routines = as_tuple(routines)
 
         return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
@@ -132,7 +138,21 @@ class Module:
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
         if routines_ast is not None:
+            # We need to pre-populate the ProcedureType type table to
+            # correctly class inline function calls within the module
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
+            routine_asts = [s for s in routines_ast.content if isinstance(s, routine_types)]
+            for s in routine_asts:
+                is_function = isinstance(s, Fortran2003.Function_Subprogram)
+                if is_function:
+                    routine_stmt = get_child(s, Fortran2003.Function_Stmt)
+                    fname = routine_stmt.items[1].tostr()
+                else:
+                    routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
+                    fname = routine_stmt.get_name().string
+                scope.types[fname] = ProcedureType(fname, is_function=is_function)
+
+            # Now create the actual Subroutine objects
             routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent_scope=scope,
                                                 pp_info=pp_info, raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]

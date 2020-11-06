@@ -205,10 +205,13 @@ class OMNI2IR(GenericVisitor):
             if _type is None:
                 if tast.attrib['return_type'] == 'Fvoid':
                     dtype = BasicType.DEFERRED
+                    _type = SymbolType(dtype)
+                elif tast.attrib['return_type'] in self.type_map:
+                    _type = self.visit(self.type_map[tast.attrib['return_type']])
                 else:
                     t = self._omni_types[tast.attrib['return_type']]
                     dtype = BasicType.from_fortran_type(t)
-                _type = SymbolType(dtype)
+                    _type = SymbolType(dtype)
 
             if tast.attrib.get('is_external') == 'true':
                 # This is an external declaration
@@ -520,7 +523,8 @@ class OMNI2IR(GenericVisitor):
                 else:
                     kind = None
                 return sym.Cast(o.find('name').text, expression=expr, kind=kind, source=source)
-            return sym.InlineCall(name, parameters=args, kw_parameters=kwargs, source=source)
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
+            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
         return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_FallocateStatement(self, o, source=None):

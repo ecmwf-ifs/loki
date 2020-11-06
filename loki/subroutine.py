@@ -14,7 +14,7 @@ from loki.ir import (
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten
-from loki.types import Scope
+from loki.types import Scope, ProcedureType
 
 
 __all__ = ['Subroutine']
@@ -58,6 +58,10 @@ class Subroutine:
 
         self.bind = bind
         self.is_function = is_function
+
+        # Register this procedure in the parent scope
+        if self.scope.parent:
+            self.scope.parent.types[self.name] = ProcedureType(procedure=self)
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):

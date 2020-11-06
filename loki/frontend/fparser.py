@@ -496,7 +496,9 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+        fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
+        return sym.InlineCall(fct_symbol, parameters=arguments,
+                              kw_parameters=kwarguments, source=source)
 
     visit_Function_Reference = visit_Intrinsic_Function_Reference
 
@@ -540,12 +542,22 @@ class FParser2IR(GenericVisitor):
             arguments = None
             kwarguments = None
 
+        source = kwargs.get('source')
+        if source:
+            source = source.clone_with_string(o.string)
+
+        fct_type = self.scope.types.lookup(name)
+        if fct_type:
+            # We know this function from out own type table
+            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(fct_type),
+                                             scope=self.scope, source=source)
+            return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
+                                  source=source)
+
         if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
-            source = kwargs.get('source')
-            if source:
-                source = source.clone_with_string(o.string)
             # This is (presumably) a function call
-            return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
+            return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                                   source=source)
 
         # This is an array access and the arguments define the dimension.
@@ -565,7 +577,8 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments,
+        fct_symbol = sym.ProcedureSymbol(name, scope=self.scope)
+        return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                               source=kwargs.get('source'))
 
     def visit_Proc_Component_Ref(self, o, **kwargs):

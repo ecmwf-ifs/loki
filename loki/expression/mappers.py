@@ -128,6 +128,9 @@ class LokiStringifyMapper(StringifyMapper):
         index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
         return '(%s)' % index_str
 
+    def map_procedure_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        return expr.name
+
 
 class ExpressionRetriever(WalkMapper):
     """
@@ -202,6 +205,8 @@ class ExpressionRetriever(WalkMapper):
         for elem in expr.elements:
             self.visit(elem)
         self.post_visit(expr, *args, **kwargs)
+
+    map_procedure_symbol = WalkMapper.map_function_symbol
 
 
 def retrieve_expressions(expr, cond, recurse_cond=None):
@@ -324,6 +329,8 @@ class ExpressionCallbackMapper(CombineMapper):
     def map_literal_list(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs) for c in expr.elements))
 
+    map_procedure_symbol = map_constant
+
 
 class LokiIdentityMapper(IdentityMapper):
     """
@@ -392,6 +399,7 @@ class LokiIdentityMapper(IdentityMapper):
     map_range = IdentityMapper.map_slice
     map_range_index = IdentityMapper.map_slice
     map_loop_range = IdentityMapper.map_slice
+    map_procedure_symbol = IdentityMapper.map_function_symbol
 
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
