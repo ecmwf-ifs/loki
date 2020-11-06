@@ -1,6 +1,7 @@
 from collections import defaultdict
 import enum
 from functools import reduce
+from math import gcd
 import operator
 import numpy as np
 import pymbolic.primitives as pmbl
@@ -16,11 +17,23 @@ def is_minus_prefix(expr):
     Return `True` if the given expression prefixes a nested expression with a minus sign,
     else return `False`.
 
-    It essentially means that `expr == Product((-1, other_expr))`.
+    It essentially means that `expr == Product((-1, ...))`.
     """
-    if isinstance(expr, sym.Product) and expr.children and len(expr.children) == 2:
+    if isinstance(expr, sym.Product) and expr.children:
         return pmbl.is_zero(expr.children[0]+1)
     return False
+
+
+def strip_minus_prefix(expr):
+    """
+    Return the expression without the minus prefix.
+    """
+    if not is_minus_prefix(expr):
+        raise ValueError('Given expression does not have a minus prefix.')
+    children = expr.children[1:]
+    if len(children) == 1:
+        return children[0]
+    return sym.Product(as_tuple(children))
 
 
 def distribute_product(expr):
@@ -30,10 +43,18 @@ def distribute_product(expr):
     This converts for example `a * (b + c) * (d + e)` to
     `a * b * d + a * c * d + a * b * e + a * c * e`.
     """
+    def _retval(numerator, denominator):
+        if not denominator:
+            return numerator
+        if len(denominator) == 1:
+            return sym.Quotient(numerator, denominator[0])
+        return sym.Quotient(numerator, sym.Product(as_tuple(denominator)))
+
     if not isinstance(expr, sym.Product):
         return expr
 
     queue = list(expr.children)
+    denominator = []
     done = [[]]
 
     while queue:
@@ -45,6 +66,10 @@ def distribute_product(expr):
         if isinstance(item, sym.Product):
             # Prepend children to maintain order of operands
             queue = list(item.children) + queue
+        elif isinstance(item, sym.Quotient):
+            # Enqueue the numerator and save the denominator for later
+            queue = [item.numerator] + queue
+            denominator += [item.denominator]
         elif isinstance(item, sym.Sum):
             # This is the distribution part
             old_done, done = done, []
@@ -55,33 +80,77 @@ def distribute_product(expr):
             done = [l + [item] for l in done]
 
     if not done:
-        return sym.IntLiteral(1)
+        return _retval(sym.IntLiteral(1), denominator)
 
     # Form the new products, eliminating multiple `-1` in the process
     children = []
     for components in done:
+        is_neg = False
         if -1 in components:
             is_neg = sum(1 for v in components if v == -1) % 2 == 1
             components = [v for v in components if v != -1]
-            if not components:
-                components = [sym.IntLiteral(1)]
-            if is_neg:
-                components = [-1] + components
+
         if not components:
-            components = [sym.IntLiteral(1)]
-        if len(components) == 1:
-            children.append(components[0])
+            components = sym.IntLiteral(1)
+        elif len(components) == 1:
+            components = components[0]
         else:
-            children.append(sym.Product(as_tuple(components)))
+            components = sym.Product(as_tuple(components))
+
+        if is_neg:
+            components = sym.Product((-1, components))
+        children.append(components)
 
     if len(children) == 1:
-        return children[0]
-    return sym.Sum(as_tuple(children))
+        return _retval(children[0], denominator)
+    return _retval(sym.Sum(as_tuple(children)), denominator)
+
+
+def distribute_quotient(expr):
+    """
+    Flatten (nested) quotients into a sum of quotients.
+
+    This converts for example `(a/b + c) / d` to `a / (b*d) + c / d`.
+    """
+    if not isinstance(expr, sym.Quotient):
+        return expr
+
+    if is_minus_prefix(expr.numerator):
+        q = sym.Quotient(strip_minus_prefix(expr.numerator), expr.denominator)
+        return sym.Product((-1, distribute_quotient(q)))
+
+    if is_minus_prefix(expr.denominator):
+        q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
+        return sym.Product((-1, distribute_quotient(q)))
+
+    queue = [expr.numerator]
+    done = []
+
+    while queue:
+        item = queue.pop(0)
+
+        if isinstance(item, sym.IntLiteral) and item.value == 0:
+            continue
+
+        if isinstance(item, sym.Sum):
+            # Prepend children to maintain order of operands
+            queue = list(item.children) + queue
+        elif isinstance(item, sym.Quotient):
+            done += [distribute_quotient(sym.Quotient(item.numerator, item.denominator * expr.denominator))]
+        else:
+            # Convert to a quotient
+            done += [sym.Quotient(item, expr.denominator)]
+
+    if not done:
+        return sym.IntLiteral(1)
+    if len(done) == 1:
+        return done[0]
+    return sym.Sum(as_tuple(done))
 
 
 def flatten_expr(expr):
     """
-    Flatten an expression by flattening any sub-sums and distributing products.
+    Flatten an expression by flattening any sub-sums and distributing products and quotients.
 
     This converts for example `a + (b - (c + d) * e)` to `a + b - c * e - d * e`.
 
@@ -101,6 +170,9 @@ def flatten_expr(expr):
         if isinstance(item, sym.Product):
             item = distribute_product(item)
 
+        if isinstance(item, sym.Quotient):
+            item = distribute_quotient(item)
+
         if isinstance(item, sym.Sum):
             # Prepend children to maintain order of operands
             queue = list(item.children) + queue
@@ -114,36 +186,41 @@ def flatten_expr(expr):
     return sym.Sum(as_tuple(done))
 
 
-def sum_int_literals(components):
+def sum_int_literals(expr):
     """
-    Sum up the values of all `IntLiteral` in the given list of components of a sum
-    and return the accumulated value as an `IntLiteral` in a list together with the
-    remaining (not summed-up) components.
+    Sum up the values of all `IntLiteral` in the sum and return the reduced sum.
     """
     def _process(child):
         if isinstance(child, sym.IntLiteral):
             return child.value, None
-        if is_minus_prefix(child) and isinstance(child.children[1], sym.IntLiteral):
-            return -child.children[1].value, None
+        if is_minus_prefix(child):
+            value, stripped_child = _process(strip_minus_prefix(child))
+            if value != 0:
+                return -value, stripped_child
         return 0, child
 
-    transformed_components = list(zip(*[_process(child) for child in components]))
+    if not isinstance(expr, sym.Sum):
+        return expr
+
+    transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = sum(transformed_components[0])
     remaining_components = [ch for ch in transformed_components[1] if ch is not None]
-    if value == 0 and remaining_components:
-        return remaining_components
-    return [sym.IntLiteral(value)] + remaining_components
+    if value != 0:
+        remaining_components = [sym.IntLiteral(value)] + remaining_components
+
+    if not remaining_components:
+        return sym.IntLiteral(0)
+    if len(remaining_components) == 1:
+        return remaining_components[0]
+    return sym.Sum(as_tuple(remaining_components))
 
 
-def separate_coefficients(components):
+def separate_coefficients(expr):
     """
     Helper routine that separates components of a product into constant coefficients
     and remaining factors.
 
-    This is used in `mul_int_literals` and `collect_coefficients`.
-
-    :param list components: the list of components containing constant and
-                            non-constant sub-expressions.
+    :param sym.Product expr: the product comprising constant and non-constant sub-expressions.
     :returns: the constant coefficient and remaining non-constant sub-expressions.
     :rtype: (int, list)
     """
@@ -159,30 +236,84 @@ def separate_coefficients(components):
             return -value, component
         return 1, child
 
-    transformed_components = list(zip(*[_process(child) for child in components]))
+    if isinstance(expr, sym.IntLiteral):
+        return expr.value, []
+    if not isinstance(expr, sym.Product):
+        return 1, [expr]
+
+    if is_minus_prefix(expr):
+        value, remaining_components = separate_coefficients(strip_minus_prefix(expr))
+        return -value, remaining_components
+
+    transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = reduce(operator.mul, transformed_components[0], 1)
     remaining_components = [ch for ch in transformed_components[1] if ch is not None]
-
     return value, remaining_components
 
 
-def mul_int_literals(components):
+def mul_int_literals(expr):
     """
-    Multiply the values of all `IntLiteral` in the given list of expressions and return the
-    resulting value as an `IntLiteral` together with the remaining (not multiplied) components.
+    Multiply all `IntLiteral` in the given `Product` and return the reduced expression.
     """
-    value, remaining_components = separate_coefficients(components)
+    if not isinstance(expr, sym.Product):
+        return expr
+
+    value, remaining_components = separate_coefficients(expr)
     if value == 0:
-        return [sym.IntLiteral(0)]
-    if value == 1 and remaining_components:
-        return remaining_components
+        return sym.IntLiteral(0)
+    if abs(value) != 1:
+        remaining_components = [sym.IntLiteral(abs(value))] + remaining_components
+
+    if not remaining_components:
+        ret = sym.IntLiteral(1)
+    elif len(remaining_components) == 1:
+        ret = remaining_components[0]
+    else:
+        ret = sym.Product(as_tuple(remaining_components))
+
     if value < 0:
-        value = abs(value)
-        return [sym.Product((-1, sym.IntLiteral(value)))] + remaining_components
-    return [sym.IntLiteral(value)] + remaining_components
+        return sym.Product((-1, ret))
+    return ret
 
 
-def accumulate_polynomial_terms(components):
+def div_int_literals(expr):
+    """
+    Reduce fractions where the denominator is a `IntLiteral`.
+    """
+    if not isinstance(expr, sym.Quotient):
+        return expr
+
+    if is_minus_prefix(expr.numerator):
+        q = sym.Quotient(strip_minus_prefix(expr.numerator), expr.denominator)
+        return sym.Product((-1, div_int_literals(q)))
+
+    if is_minus_prefix(expr.denominator):
+        q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
+        return sym.Product((-1, div_int_literals(q)))
+
+    if not isinstance(expr.denominator, sym.IntLiteral):
+        return expr
+
+    if isinstance(expr.numerator, sym.IntLiteral):
+        div = gcd(expr.numerator.value, expr.denominator.value)
+        numerator = sym.IntLiteral(expr.numerator.value / div)
+        denominator = sym.IntLiteral(expr.denominator.value / div)
+
+    elif isinstance(expr.numerator, sym.Product):
+        value, remaining_components = separate_coefficients(expr.numerator)
+        div = gcd(value, expr.denominator.value)
+        numerator = mul_int_literals(sym.Product((sym.IntLiteral(value / div), *remaining_components)))
+        denominator = sym.IntLiteral(expr.denominator.value / div)
+
+    else:
+        numerator, denominator = expr.numerator, expr.denominator
+
+    if denominator == 1:
+        return numerator
+    return sym.Quotient(numerator, denominator)
+
+
+def accumulate_polynomial_terms(expr):
     """
     Collect all occurences of each base and determine the constant coefficient
     in a list of expressions.
@@ -194,14 +325,15 @@ def accumulate_polynomial_terms(components):
     :returns: mapping of base and corresponding coefficient
     :rtype: dict
     """
+    if isinstance(expr, sym.Sum):
+        components = expr.children
+    else:
+        components = as_tuple(expr)
+
     summands = defaultdict(int)  # map (base, coefficient) pairs
-
-    if isinstance(components, sym.Sum):
-        components = components.children
-
-    for item in as_tuple(components):
+    for item in components:
         if isinstance(item, sym.Product):
-            value, remaining_components = separate_coefficients(item.children)
+            value, remaining_components = separate_coefficients(item)
             if value == 0:
                 continue
             if not remaining_components:
@@ -219,7 +351,7 @@ def accumulate_polynomial_terms(components):
     return dict(summands)
 
 
-def collect_coefficients(components):
+def collect_coefficients(expr):
     """
     Simplify a polynomial-type expression by combining all occurences of a non-constant
     subexpression into a single summand.
@@ -237,26 +369,30 @@ def collect_coefficients(components):
             return [-1, sym.IntLiteral(abs(value))]
         return [sym.IntLiteral(abs(value))]
 
-    summands = accumulate_polynomial_terms(components)
-    result = []
+    summands = accumulate_polynomial_terms(expr)
+    components = []
 
     # Treat the constant part separately to make sure this is flat
     constant = summands.pop(1, 0)
     if constant < 0:
-        result += [sym.Product((-1, sym.IntLiteral(abs(constant))))]
+        components += [sym.Product((-1, sym.IntLiteral(abs(constant))))]
     elif constant > 0:
-        result += [sym.IntLiteral(constant)]
+        components += [sym.IntLiteral(constant)]
 
     # Insert the remaining summands
     for base, factor in summands.items():
         if factor == 0:
             continue
         if factor == 1 and len(base) == 1:
-            result.append(base[0])
+            components.append(base[0])
         else:
-            result.append(sym.Product(as_tuple(_get_coefficient(factor) + list(base))))
+            components.append(sym.Product(as_tuple(_get_coefficient(factor) + list(base))))
 
-    return result or [sym.IntLiteral(0)]
+    if not components:
+        return sym.IntLiteral(0)
+    if len(components) == 1:
+        return components[0]
+    return sym.Sum(as_tuple(components))
 
 
 class Simplification(enum.Flag):
@@ -293,39 +429,48 @@ class SimplifyMapper(LokiIdentityMapper):
         self.enabled_simplifications = enabled_simplifications
 
     def map_sum(self, expr, *args, **kwargs):
-        children = [self.rec(child, *args, **kwargs) for child in expr.children]
+        new_expr = sym.Sum(as_tuple([self.rec(child, *args, **kwargs) for child in expr.children]))
 
         if self.enabled_simplifications & Simplification.Flatten:
-            flat_sum = flatten_expr(sym.Sum(as_tuple(children)))
-            if not isinstance(flat_sum, sym.Sum):
-                return flat_sum
-            children = flat_sum.children
+            new_expr = flatten_expr(new_expr)
 
         if self.enabled_simplifications & Simplification.IntegerArithmetic:
-            children = sum_int_literals(children)
+            new_expr = sum_int_literals(new_expr)
 
         if self.enabled_simplifications & Simplification.CollectCoefficients:
-            children = collect_coefficients(children)
+            new_expr = collect_coefficients(new_expr)
 
-        if len(children) == 1:
-            return children[0]
-        return type(expr)(as_tuple(children))
+        if new_expr != expr:
+            return self.rec(new_expr, *args, **kwargs)
+        return expr
 
     def map_product(self, expr, *args, **kwargs):
-        children = [self.rec(child, *args, **kwargs) for child in expr.children]
+        new_expr = sym.Product(as_tuple([self.rec(child, *args, **kwargs) for child in expr.children]))
 
         if self.enabled_simplifications & Simplification.Flatten:
-            flat_prod = flatten_expr(sym.Product(as_tuple(children)))
-            if not isinstance(flat_prod, sym.Product):
-                return self.rec(flat_prod, *args, **kwargs)
-            children = flat_prod.children
+            new_expr = flatten_expr(new_expr)
 
         if self.enabled_simplifications & Simplification.IntegerArithmetic:
-            children = mul_int_literals(children)
+            new_expr = mul_int_literals(new_expr)
 
-        if len(children) == 1:
-            return children[0]
-        return type(expr)(as_tuple(children))
+        if new_expr != expr:
+            return self.rec(new_expr, *args, **kwargs)
+        return expr
+
+    def map_quotient(self, expr, *args, **kwargs):
+        numerator = self.rec(expr.numerator, *args, **kwargs)
+        denominator = self.rec(expr.denominator, *args, **kwargs)
+        new_expr = sym.Quotient(numerator, denominator)
+
+        if self.enabled_simplifications & Simplification.Flatten:
+            new_expr = flatten_expr(new_expr)
+
+        if self.enabled_simplifications & Simplification.IntegerArithmetic:
+            new_expr = div_int_literals(new_expr)
+
+        if new_expr != expr:
+            return self.rec(new_expr, *args, **kwargs)
+        return expr
 
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
