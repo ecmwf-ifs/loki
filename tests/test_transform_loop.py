@@ -71,6 +71,37 @@ def test_polyhedron_from_loop_ranges_failures():
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
 
+@pytest.mark.parametrize('A, b, variable_names, lower_bounds, upper_bounds', [
+    # do i=1,n: ...
+    ([[-1, 0], [1, -1]], [-1, 0], ['i', 'n'], [['1'], ['i']], [['n'], []]),
+    # do i=1,10: ...
+    ([[-1], [1]], [-1, 10], ['i'], [['1']], [['10']]),
+    # do i=0,5: do j=i,7: ...
+    ([[-1, 0], [1, 0], [1, -1], [0, 1]], [0, 5, 0, 7], ['i', 'j'], [['0'], ['i']], [['5', 'j'], ['7']]),
+    # do i=1,n: do j=0,2*i+1: do k=a,b: ...
+    ([[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
+      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
+      ['i', 'j', 'k', 'a', 'b', 'n'],                               # variable names
+      [['1', '-1 / 2 + j / 2'], ['0'], ['a'], [], ['k'], ['i']],    # lower bounds
+      [['n'], ['1 + 2*i'], ['b'], ['k'], [], []]),                  # upper bounds
+])
+def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
+    """
+    Test the production of lower and upper bounds.
+    """
+    var, scope = parse_expression(variable_names[0])
+    variables = [var] + [parse_expression(v, scope) for v in variable_names[1:]]
+    p = Polyhedron(A, b, variables)
+    for var, ref_bounds in zip(variables, lower_bounds):
+        lbounds = p.lower_bounds(var)
+        assert len(lbounds) == len(ref_bounds)
+        assert all(str(b1) == b2 for b1, b2 in zip(lbounds, ref_bounds))
+    for var, ref_bounds in zip(variables, upper_bounds):
+        ubounds = p.upper_bounds(var)
+        assert len(ubounds) == len(ref_bounds)
+        assert all(str(b1) == b2 for b1, b2 in zip(ubounds, ref_bounds))
+
+
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_loop_fuse_matching(here, frontend):
     """

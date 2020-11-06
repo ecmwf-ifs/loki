@@ -36,25 +36,108 @@ class Polyhedron:
     """
 
     def __init__(self, A, b, variables=None):
+        A = np.array(A, dtype=np.dtype(int))
+        b = np.array(b, dtype=np.dtype(int))
         assert A.ndim == 2 and b.ndim == 1
         assert A.shape[0] == b.shape[0]
         self.A = A
         self.b = b
 
         self.variables = None
+        self.variable_names = None
         if variables is not None:
             assert len(variables) == A.shape[1]
-            self.variables = [v.name.lower() if isinstance(v, pmbl.Variable) else str(v) for v in variables]
+            self.variables = variables
+            self.variable_names = [v.name.lower() for v in self.variables]
+
+    def variable_to_index(self, variable):
+        if self.variable_names is None:
+            raise RuntimeError('No variables list associated with polyhedron.')
+        if isinstance(variable, (sym.Array, sym.Scalar)):
+            variable = variable.name.lower()
+        assert isinstance(variable, str)
+        return self.variable_names.index(variable)
+
+    @staticmethod
+    def _to_literal(value):
+        if value < 0:
+            return sym.Product((-1, sym.IntLiteral(abs(value))))
+        return sym.IntLiteral(value)
+
+    def lower_bounds(self, index_or_variable):
+        """
+        Return all lower bounds imposed on a variable.
+
+        :param index_or_variable: the index, name, or expression symbol for which the
+                    lower bounds are produced.
+        :type index_or_variable: int or str or sym.Array or sym.Scalar
+
+        :returns list: the bounds for that variable.
+        """
+        if isinstance(index_or_variable, int):
+            j = index_or_variable
+        else:
+            j = self.variable_to_index(index_or_variable)
+
+        bounds = []
+        for i in range(self.A.shape[0]):
+            if self.A[i,j] < 0:
+                components = [self._to_literal(self.A[i,k]) * self.variables[k]
+                              for k in range(self.A.shape[1]) if k != j and self.A[i,k] != 0]
+                if not components:
+                    lhs = sym.IntLiteral(0)
+                elif len(components) == 1:
+                    lhs = components[0]
+                else:
+                    lhs = sym.Sum(as_tuple(components))
+                bounds += [simplify(sym.Quotient(self._to_literal(self.b[i]) - lhs,
+                                                 self._to_literal(self.A[i,j])))]
+        return bounds
+
+    def upper_bounds(self, index_or_variable):
+        """
+        Return all upper bounds imposed on a variable.
+
+        :param index_or_variable: the index, name, or expression symbol for which the
+                    upper bounds are produced.
+        :type index_or_variable: int or str or sym.Array or sym.Scalar
+
+        :returns list: the bounds for that variable.
+        """
+        if isinstance(index_or_variable, int):
+            j = index_or_variable
+        else:
+            j = self.variable_to_index(index_or_variable)
+
+        bounds = []
+        for i in range(self.A.shape[0]):
+            if self.A[i,j] > 0:
+                components = [self._to_literal(self.A[i,k]) * self.variables[k]
+                              for k in range(self.A.shape[1]) if k != j and self.A[i,k] != 0]
+                if not components:
+                    lhs = sym.IntLiteral(0)
+                elif len(components) == 1:
+                    lhs = components[0]
+                else:
+                    lhs = sym.Sum(as_tuple(components))
+                bounds += [simplify(sym.Quotient(self._to_literal(self.b[i]) - lhs,
+                                                 self._to_literal(self.A[i,j])))]
+        return bounds
 
     @classmethod
     def from_loop_ranges(cls, loop_variables, loop_ranges):
+        """
+        Create polyhedron from a list of loop ranges and associated variables.
+        """
         assert len(loop_ranges) == len(loop_variables)
 
         # Add any variables that are not loop variables to the vector of variables
-        variables = [v.name.lower() if isinstance(v, pmbl.Variable) else str(v) for v in loop_variables]
+        variables = list(loop_variables)
+        variable_names = [v.name.lower() for v in variables]
         for v in sorted(FindVariables().visit(loop_ranges), key=lambda v: v.name.lower()):
-            if v.name.lower() not in variables:
-                variables += [v.name.lower()]
+            if v.name.lower() not in variable_names:
+                variables += [v]
+                variable_names += [v.name.lower()]
 
         n = 2 * len(loop_ranges)
         d = len(variables)
@@ -91,7 +174,7 @@ class Polyhedron:
             for base, coef in summands.items():
                 if not len(base) == 1:
                     raise ValueError('Non-affine upper bound {}'.format(str(upper_bound)))
-                A[2*i+1, variables.index(base[0].name.lower())] = -coef
+                A[2*i+1, variable_names.index(base[0].name.lower())] = -coef
 
         return cls(A, b, variables)
 
