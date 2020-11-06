@@ -2,7 +2,6 @@
 A selection of tests for symbolic computations using expression tree nodes.
 """
 import pytest
-
 from loki.expression import symbols as sym
 
 
@@ -38,7 +37,7 @@ from loki.expression import symbols as sym
     (4,                   sym.Literal(8.2), True,  False),
     (3.7,                 sym.Literal(6.5), True,  False),
     (sym.Literal(3.1),    3.1,              False, True),
-    (3.1,                 sym.Literal(3.1), False, True)
+    (3.1,                 sym.Literal(3.1), False, True),
 ])
 def test_symbolics_comparison(a, b, lt, eq):
     """
@@ -46,13 +45,13 @@ def test_symbolics_comparison(a, b, lt, eq):
     """
     if lt is None:
         with pytest.raises(TypeError):
-            a < b
+            _ = (a < b)
         with pytest.raises(TypeError):
-            a <= b
+            _ = (a <= b)
         with pytest.raises(TypeError):
-            a > b
+            _ = (a > b)
         with pytest.raises(TypeError):
-            a >= b
+            _ = (a >= b)
     else:
         assert (a < b) is lt
         assert (a <= b) is (lt or eq)

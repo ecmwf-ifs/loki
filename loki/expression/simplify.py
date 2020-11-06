@@ -8,7 +8,7 @@ import pymbolic.primitives as pmbl
 from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.tools import as_tuple
 
-__all__ = ['Simplification', 'SimplifyMapper', 'simplify']
+__all__ = ['Simplification', 'SimplifyMapper', 'simplify', 'accumulate_polynomial_terms']
 
 
 def is_minus_prefix(expr):
@@ -141,6 +141,11 @@ def separate_coefficients(components):
     and remaining factors.
 
     This is used in `mul_int_literals` and `collect_coefficients`.
+
+    :param list components: the list of components containing constant and
+                            non-constant sub-expressions.
+    :returns: the constant coefficient and remaining non-constant sub-expressions.
+    :rtype: (int, list)
     """
     def _process(child):
         if isinstance(child, (int, np.integer)):
@@ -177,23 +182,22 @@ def mul_int_literals(components):
     return [sym.IntLiteral(value)] + remaining_components
 
 
-def collect_coefficients(components):
+def accumulate_polynomial_terms(components):
     """
-    Collect all occurences of each base into a single summand in a polynomial-type expression.
+    Collect all occurences of each base and determine the constant coefficient
+    in a list of expressions.
 
-    Note that this works also if the "base" is a nested expression and thus this applies
-    not to polynomials alone.
+    Note that this works for any non-constant sub-expression as "base" for summands and thus
+    this can be applied not only to polynomials.
+
+    :param list components: list of expressions, e.g., components of a :py:class:`sym.Sum`.
+    :returns: mapping of base and corresponding coefficient
+    :rtype: dict
     """
-    def _get_coefficient(value):
-        if value == 1:
-            return []
-        if value == -1:
-            return [-1]
-        if value < 0:
-            return [-1, sym.IntLiteral(abs(value))]
-        return [sym.IntLiteral(abs(value))]
-
     summands = defaultdict(int)  # map (base, coefficient) pairs
+
+    if isinstance(components, sym.Sum):
+        components = components.children
 
     for item in as_tuple(components):
         if isinstance(item, sym.Product):
@@ -212,6 +216,28 @@ def collect_coefficients(components):
         else:
             summands[as_tuple(item)] += 1
 
+    return dict(summands)
+
+
+def collect_coefficients(components):
+    """
+    Simplify a polynomial-type expression by combining all occurences of a non-constant
+    subexpression into a single summand.
+
+    :param list components: list of expressions, e.g., components of a :py:class:`sym.Sum`.
+    :returns: reduced list of expressions.
+    :rtype: list
+    """
+    def _get_coefficient(value):
+        if value == 1:
+            return []
+        if value == -1:
+            return [-1]
+        if value < 0:
+            return [-1, sym.IntLiteral(abs(value))]
+        return [sym.IntLiteral(abs(value))]
+
+    summands = accumulate_polynomial_terms(components)
     result = []
 
     # Treat the constant part separately to make sure this is flat

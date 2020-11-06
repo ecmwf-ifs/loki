@@ -74,6 +74,7 @@ def test_simplify_collect_coefficients(source, ref):
     ('0*(a + b - a - b)', '0'),
     ('(a + b) * c - c*a - c*b + 1', '1'),
     ('1*a*b + 0*a*b', 'a*b'),
+    ('n+(((-1)*1)*n)', '0'),
 ])
 def test_simplify(source,ref):
     expr, _ = parse_expression(source)
