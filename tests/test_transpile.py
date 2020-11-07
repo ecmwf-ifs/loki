@@ -835,7 +835,6 @@ contains
     real(kind=real64) :: multiply_plus_one
     real(kind=real64), intent(in) :: a, b
 
-    ! TODO: Add temporary variables...
     multiply_plus_one = multiply(plus_one(a), b)
   end function multiply_plus_one
 end module multiply_plus_one_mod

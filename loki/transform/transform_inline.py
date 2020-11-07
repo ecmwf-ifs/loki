@@ -20,8 +20,23 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
     An expression mapper that defines symbolic substitution for inlining.
     """
 
+    def map_scalar(self, expr, *args, **kwargs):
+        # Ensure that re-scope variable symbols
+        kwargs['scope'] = kwargs.get('scope', expr.scope)
+        return super().map_scalar(expr, *args, **kwargs)
+
+    def map_array(self, expr, *args, **kwargs):
+        # Ensure that re-scope variable symbols
+        kwargs['scope'] = kwargs.get('scope', expr.scope)
+        return super().map_array(expr, *args, **kwargs)
+
     def map_inline_call(self, expr, *args, **kwargs):
-        scope = kwargs.get('scope', None)
+        if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
+            # Unkonw inline call, potentially an intrinsic
+            # We still need to recurse and ensure re-scoping
+            return super().map_inline_call(expr, *args, **kwargs)
+
+        scope = kwargs.get('scope')
         function = expr.procedure_type.procedure.clone(scope=scope)
         v_result = [v for v in function.variables if v == function.name][0]
 
@@ -34,7 +49,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         assert len(stmts) == 1
         rhs = stmts[0].rhs
 
-        return self.rec(rhs)
+        return self.rec(rhs, *args, **kwargs)
 
 
 def inline_constant_parameters(routine, external_only=True):
@@ -84,7 +99,7 @@ def inline_elemental_functions(routine):
         if call.procedure_type is not BasicType.DEFERRED:
             # Map each call to its substitutions, as defined by the
             # recursive inline stubstitution mapper
-            exprmap[call] = InlineSubstitutionMapper()(call, routine.scope)
+            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine.scope)
 
             # Mark function as removed for later cleanup
             removed_functions.append(call.procedure_type)

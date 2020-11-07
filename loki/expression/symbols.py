@@ -153,7 +153,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         self.type.initial = value
 
     def __getinitargs__(self):
-        args = [('scope', self.scope)]
+        args = []
         if self.parent:
             args += [('parent', self.parent)]
         return super().__getinitargs__() + tuple(args)
