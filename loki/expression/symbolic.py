@@ -2,14 +2,17 @@ from collections import defaultdict
 import enum
 from functools import reduce
 from math import gcd
-import operator
+import operator as _op
 import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.tools import as_tuple
 
-__all__ = ['Simplification', 'SimplifyMapper', 'simplify', 'accumulate_polynomial_terms']
+__all__ = [
+    'is_constant', 'symbolic_op', 'simplify', 'accumulate_polynomial_terms',
+    'Simplification', 'SimplifyMapper'
+]
 
 
 def is_minus_prefix(expr):
@@ -27,6 +30,8 @@ def is_minus_prefix(expr):
 def strip_minus_prefix(expr):
     """
     Return the expression without the minus prefix.
+
+    Raises a `ValueError` if the expression is not prefixed by a minus.
     """
     if not is_minus_prefix(expr):
         raise ValueError('Given expression does not have a minus prefix.')
@@ -34,6 +39,65 @@ def strip_minus_prefix(expr):
     if len(children) == 1:
         return children[0]
     return sym.Product(as_tuple(children))
+
+
+def is_constant(expr):
+    """
+    Return `True` if the given expression reduces to a constant value, else return `False`.
+    """
+    if is_minus_prefix(expr):
+        return is_constant(strip_minus_prefix(expr))
+    return pmbl.is_constant(expr)
+
+
+def symbolic_op(expr1, op, expr2):
+    """
+    Evaluate `expr1 <op> expr2` (or equivalently, `op(expr1, expr2)`) and
+    return the result.
+
+    `op` can be any binary operation such as the rich comparison operators
+    from the `operator` library.
+
+    While calling this function largely equivalent to applying the operator
+    directly, it is to be understood as a convenience layer that applies,
+    depending on the operator, a number of symbolically neutral manipulations.
+    Currently, this only applies to comparison operators (such as `eq`, `ne`,
+    `lt, `le`, `gt`, `ge`). Since expression nodes do not imply an order,
+    such comparisons would fail even if a symbolic meaning can be derived.
+
+    For that reason, these operations are reformulated as the difference
+    between the two expressions and compared against `0`. For example:
+    ```
+    # n < n + 1
+    Scalar('n') < Sum((Scalar('n'), IntLiteral(1)))
+    ```
+    raises a `TypeError` but
+    ```
+    # n < n + 1
+    symbolic_op(Scalar('n'), operator.lt, Sum((Scalar('n'), IntLiteral(1))))
+    ```
+    returns `True`.
+
+    This is done by transforming this expression into
+    ```
+    # n - (n + 1) < 0
+    Sum((Scalar('n'), Product(-1, Sum((Scalar('n'), IntLiteral(1)))))) < 0
+    ```
+    and then calling `simplify` on the left hand side to obtain
+    ```
+    # -1 < 0
+    Product(-1, IntLiteral(1)) < 0
+    ```
+    In combination with stripping the minus prefix this yields the result.
+    """
+    if op in (_op.eq, _op.ne, _op.lt, _op.le, _op.gt, _op.ge):
+        expr1, expr2 = simplify(expr1 - expr2), 0
+        if is_minus_prefix(expr1):
+            # Strip minus prefix to possibly yield constant expression
+            if op in (_op.eq, _op.ne):
+                return symbolic_op(strip_minus_prefix(expr1), op, expr2)
+            return not symbolic_op(strip_minus_prefix(expr1), op, expr2)
+    return op(expr1, expr2)
 
 
 def distribute_product(expr):
@@ -246,7 +310,7 @@ def separate_coefficients(expr):
         return -value, remaining_components
 
     transformed_components = list(zip(*[_process(child) for child in expr.children]))
-    value = reduce(operator.mul, transformed_components[0], 1)
+    value = reduce(_op.mul, transformed_components[0], 1)
     remaining_components = [ch for ch in transformed_components[1] if ch is not None]
     return value, remaining_components
 
@@ -420,6 +484,8 @@ class Simplification(enum.Flag):
 class SimplifyMapper(LokiIdentityMapper):
     """
     A mapper that attempts to symbolically simplify an expression.
+
+    It applies all enabled simplifications from `Simplification` to a expression.
     """
     # pylint: disable=abstract-method
 
