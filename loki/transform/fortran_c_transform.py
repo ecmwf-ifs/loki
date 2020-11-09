@@ -135,7 +135,7 @@ class FortranCTransformation(Transformation):
         wrapper_scope = Scope()
 
         if bind_name is None:
-            bind_name = '%s_c' % routine.name
+            bind_name = '%s_c' % routine.name.lower()
         interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper_scope)
 
         # Generate the wrapper function
