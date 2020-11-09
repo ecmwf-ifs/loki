@@ -3,12 +3,13 @@ Collection of utility routines that provide loop transformations.
 
 """
 from collections import defaultdict
+import operator as op
 import numpy as np
-from pymbolic import primitives as pmbl
+from pymbolic.primitives import Variable
 
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
-    accumulate_polynomial_terms, simplify)
+    accumulate_polynomial_terms, simplify, is_constant, symbolic_op)
 from loki.ir import Loop, Conditional, Comment
 from loki.logging import info
 from loki.tools import is_loki_pragma, get_pragma_parameters, flatten, as_tuple
@@ -68,6 +69,11 @@ class Polyhedron:
         """
         Return all lower bounds imposed on a variable.
 
+        Lower bounds for variable `j` are given by the index set
+        ```
+        L = {i in {0,...,d-1} | A_ij < 0}
+        ```
+
         :param index_or_variable: the index, name, or expression symbol for which the
                     lower bounds are produced.
         :type index_or_variable: int or str or sym.Array or sym.Scalar
@@ -97,6 +103,11 @@ class Polyhedron:
     def upper_bounds(self, index_or_variable):
         """
         Return all upper bounds imposed on a variable.
+
+        Upper bounds for variable `j` are given by the index set
+        ```
+        U = {i in {0,...,d-1} | A_ij > 0}
+        ```
 
         :param index_or_variable: the index, name, or expression symbol for which the
                     upper bounds are produced.
@@ -150,8 +161,8 @@ class Polyhedron:
 
             # Create inequality from lower bound
             lower_bound = simplify(loop_range.start)
-            if not (pmbl.is_constant(lower_bound) or
-                    isinstance(lower_bound, (pmbl.Variable, sym.Sum, sym.Product))):
+            if not (is_constant(lower_bound) or
+                    isinstance(lower_bound, (Variable, sym.Sum, sym.Product))):
                 raise ValueError('Cannot derive inequality from bound {}'.format(str(lower_bound)))
 
             summands = accumulate_polynomial_terms(lower_bound)
@@ -164,8 +175,8 @@ class Polyhedron:
 
             # Create inequality from upper bound
             upper_bound = simplify(loop_range.stop)
-            if not (pmbl.is_constant(upper_bound) or
-                    isinstance(upper_bound, (pmbl.Variable, sym.Sum, sym.Product))):
+            if not (is_constant(upper_bound) or
+                    isinstance(upper_bound, (Variable, sym.Sum, sym.Product))):
                 raise ValueError('Cannot derive inequality from bound {}'.format(str(upper_bound)))
 
             summands = accumulate_polynomial_terms(upper_bound)
@@ -186,74 +197,131 @@ def loop_fusion(routine):
     """
     # Extract all annotated loops and sort them into fusion groups
     fusion_groups = defaultdict(list)
-    fusion_variables = {}
-    fusion_ranges = {}
     for loop in FindNodes(Loop).visit(routine.body):
         if is_loki_pragma(loop.pragma, starts_with='loop-fusion'):
             parameters = get_pragma_parameters(loop.pragma, starts_with='loop-fusion')
             group = parameters.get('group', 'default')
             fusion_groups[group] += [loop]
-            fusion_variables.setdefault(group, loop.variable)
-
-            if 'range' in parameters:
-                bounds = []
-                for bound in parameters['range'].split(':'):
-                    if bound.isnumeric():
-                        bounds += [sym.IntLiteral(bound)]
-                    # TODO: parse more complex expressions
-                    else:
-                        bounds += [sym.Variable(name=bound, scope=routine.symbols)]
-                loop_range = sym.LoopRange(as_tuple(bounds))
-            else:
-                loop_range = loop.bounds
-            fusion_ranges.setdefault(group, loop_range)
-            # TODO: Check step (None vs 1)
-            if fusion_ranges[group].start != loop_range.start or fusion_ranges[group].stop != loop_range.stop:
-                raise RuntimeError('Loop ranges in group "{}" do not match'.format(group))
 
     if not fusion_groups:
         return
 
-    missing_ranges = set(fusion_groups.keys()) - set(fusion_ranges.keys())
-    if missing_ranges:
-        raise RuntimeError('No loop ranges given for group(s) "{}".'.format('", "'.join(missing_ranges)))
+    def _pragma_range_to_loop_range(parameters):
+        if 'range' not in parameters:
+            return None
 
-    # Built merged loops
+        # TODO: This would be easier and more powerful with a `parse_expression` routine
+        bounds = []
+        for bound in parameters['range'].split(':'):
+            if bound.isnumeric():
+                bounds += [sym.IntLiteral(bound)]
+            # TODO: parse more complex expressions
+            else:
+                bounds += [sym.Variable(name=bound, scope=routine.scope)]
+        return sym.LoopRange(as_tuple(bounds))
+
+    # Merge loops in each group and put them in the position of the group's first loop
     loop_map = {}
     for group, loop_list in fusion_groups.items():
-        loop_range = fusion_ranges[group]
-        loop_variable = fusion_variables[group]
 
-        bodies = []
-        for loop in loop_list:
-            # Replace loop variable if it differs
-            if loop.variable != loop_variable:
-                body = SubstituteExpressions({loop.variable: loop_variable}).visit(loop.body)
+        # First, extract user-annotated loop ranges from pragmas
+        loop_ranges = [_pragma_range_to_loop_range(get_pragma_parameters(loop.pragma, starts_with='loop-fusion'))
+                       for loop in loop_list]
+
+        # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
+        range_set = {r for r in loop_ranges if r is not None}
+        if len(range_set) not in (0, 1):
+            raise RuntimeError('Pragma-specified loop ranges in group "{}" do not match'.format(group))
+
+        fusion_range = None
+        if range_set:
+            fusion_range = range_set.pop()
+
+        # Next, extract loop ranges for remaining loops in group
+        loop_ranges = [loop_range if loop_range is not None else loop.bounds
+                       for loop_range, loop in zip(loop_ranges, loop_list)]
+
+        # Convert loop ranges to iteration space polyhedrons for easier alignment
+        iteration_spaces = [Polyhedron.from_loop_ranges([loop.variable], [loop.bounds]) for loop in loop_list]
+
+        # Find the fused iteration space (if not given by a pragma)
+        if fusion_range is None:
+            lower_bounds, upper_bounds = [], []
+            for p in iteration_spaces:
+                for bound in p.lower_bounds(0):
+                    # Decide if we learn something new from this bound, which could be because:
+                    # (1) we don't have any bounds, yet
+                    # (2) bound is smaller than existing lower bounds (i.e. diff < 0)
+                    # (3) bound is not constant and none of the existing bounds are lower (i.e. diff >= 0)
+                    diff = [simplify(bound - b) for b in lower_bounds]
+                    is_any_negative = any(is_constant(d) and symbolic_op(d, op.lt, 0) for d in diff)
+                    is_any_not_negative = any(is_constant(d) and symbolic_op(d, op.ge, 0) for d in diff)
+                    is_new_bound = (not lower_bounds or is_any_negative or
+                                    (not is_constant(bound) and not is_any_not_negative))
+                    if is_new_bound:
+                        # Remove any lower bounds made redundant by bound:
+                        lower_bounds = [b for b, d in zip(lower_bounds, diff)
+                                        if not (is_constant(d) and symbolic_op(d, op.lt, 0))]
+                        lower_bounds += [bound]
+
+                for bound in p.upper_bounds(0):
+                    # Decide if we learn something new from this bound, which could be because:
+                    # (1) we don't have any bounds, yet
+                    # (2) bound is larger than existing upper bounds (i.e. diff > 0)
+                    # (3) bound is not constant and none of the existing bounds are larger (i.e. diff <= 0)
+                    diff = [simplify(bound - b) for b in upper_bounds]
+                    is_any_positive = any(is_constant(d) and symbolic_op(d, op.gt, 0) for d in diff)
+                    is_any_not_positive = any(is_constant(d) and symbolic_op(d, op.le, 0) for d in diff)
+                    is_new_bound = (not upper_bounds or is_any_positive or
+                                    (not is_constant(bound) and not is_any_not_positive))
+                    if is_new_bound:
+                        # Remove any lower bounds made redundant by bound:
+                        upper_bounds = [b for b, d in zip(upper_bounds, diff)
+                                        if not (is_constant(d) and symbolic_op(d, op.gt, 0))]
+                        upper_bounds += [bound]
+
+            if len(lower_bounds) == 1:
+                lower_bounds = lower_bounds[0]
             else:
-                body = loop.body
+                fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
+                lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
-            # Enclose in a conditional block if loop range is smaller
+            if len(upper_bounds) == 1:
+                upper_bounds = upper_bounds[0]
+            else:
+                fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
+                upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
+
+            fusion_range = sym.LoopRange((lower_bounds, upper_bounds))
+
+        # Align loop ranges and collect bodies
+        loop_bodies = []
+        fusion_variable = loop_list[0].variable
+        for (loop, p) in zip(loop_list, iteration_spaces):
+            body = loop.body
+
+            # Replace loop variable if necessary
+            if loop.variable != fusion_variable:
+                body = SubstituteExpressions({loop.variable: fusion_variable}).visit(body)
+
+            # Wrap in conditional if loop length is different
             conditions = []
-            if loop.bounds.start != loop_range.start:
-                conditions += [sym.Comparison(loop_variable, '>=', loop.bounds.start)]
-            if loop.bounds.stop != loop_range.stop:
-                conditions += [sym.Comparison(loop_variable, '<=', loop.bounds.stop)]
-            if loop.bounds.step not in (None, loop_range.step or 1):
-                shifted_variable = sym.Sum(loop_variable, sym.Product(-1, loop.bounds.start))
-                call = sym.InlineCall('mod', parameters=(shifted_variable, loop.bounds.step))
-                conditions += [sym.Comparison(call, '==', sym.Literal(0))]
+            if symbolic_op(loop.bounds.start, op.ne, fusion_range.start):
+                conditions += [sym.Comparison(fusion_variable, '>=', loop.bounds.start)]
+            if symbolic_op(loop.bounds.stop, op.ne, fusion_range.stop):
+                conditions += [sym.Comparison(fusion_variable, '<=', loop.bounds.stop)]
             if conditions:
                 if len(conditions) == 1:
-                    condition = conditions[0]
+                    conditions = conditions[0]
                 else:
-                    condition = sym.LogicalAnd(conditions)
-                bodies += [Conditional(conditions=[condition], bodies=[body], else_body=())]
-            else:
-                bodies += [body]
+                    conditions = sym.LogicalAnd(as_tuple(conditions))
+                body = Conditional(conditions=[conditions], bodies=[body], else_body=())
+
+            loop_bodies += [body]
 
         loop_map[loop_list[0]] = (
             Comment('! Loki transformation loop-fusion group({})'.format(group)),
-            Loop(variable=loop_variable, body=flatten(bodies), bounds=loop_range))
+            Loop(variable=fusion_variable, body=flatten(loop_bodies), bounds=fusion_range))
         loop_map.update({loop: None for loop in loop_list[1:]})
 
     # Apply transformation

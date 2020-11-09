@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, parse_expression
-from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop
+from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional
 from loki.transform import loop_fusion, Polyhedron
 from loki.expression import symbols as sym
 
@@ -292,12 +292,36 @@ end subroutine transform_loop_fuse_groups
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_transform_loop_fuse_failures(here, frontend):
+def test_transform_loop_fuse_failures(frontend):
     """
     Test that loop-fusion fails for known mistakes.
     """
     fcode = """
-subroutine transform_loop_fuse_non_matching(a, b, n)
+subroutine transform_loop_fuse_failures(a, b, n)
+  integer, intent(out) :: a(n), b(n)
+  integer, intent(in) :: n
+  integer :: i
+
+  !$loki loop-fusion group(1) range(1:n)
+  do i=1,n
+    a(i) = i
+  end do
+
+  !$loki loop-fusion group(1) range(0:n-1)
+  do i=0,n-1
+    b(i+1) = n-i
+  end do
+end subroutine transform_loop_fuse_failures
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    with pytest.raises(RuntimeError):
+        loop_fusion(routine)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_alignment(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_alignment(a, b, n)
   integer, intent(out) :: a(n), b(n)
   integer, intent(in) :: n
   integer :: i
@@ -311,8 +335,202 @@ subroutine transform_loop_fuse_non_matching(a, b, n)
   do i=0,n-1
     b(i+1) = n-i
   end do
-end subroutine transform_loop_fuse_non_matching
+end subroutine transform_loop_fuse_alignment
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    with pytest.raises(RuntimeError):
-        loop_fusion(routine)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    function(a=a, b=b, n=n)
+    assert np.all(a == range(1, n+1))
+    assert np.all(b == range(n, 0, -1))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_fusion(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    fused_function(a=a, b=b, n=n)
+    assert np.all(a == range(1, n+1))
+    assert np.all(b == range(n, 0, -1))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_nonmatching_lower(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_nonmatching_lower(a, b, nclv, klev)
+  integer, intent(out) :: a(klev), b(klev)
+  integer, intent(in) :: nclv, klev
+  integer :: jl
+
+  !$loki loop-fusion group(1)
+  do jl=1,klev
+    a(jl) = jl
+  end do
+
+  !$loki loop-fusion group(1)
+  do jl=nclv,klev
+    b(jl) = jl - nclv
+  end do
+end subroutine transform_loop_fuse_nonmatching_lower
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klev, nclv = 100, 15
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev,), dtype=np.int32)
+    function(a=a, b=b, klev=klev, nclv=nclv)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_fusion(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert isinstance(loops[0].bounds.start, sym.InlineCall) and loops[0].bounds.start.name == 'min'
+    assert loops[0].bounds.stop == 'klev'
+    assert len(FindNodes(Conditional).visit(routine.body)) == 2
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klev, nclv = 100, 15
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev,), dtype=np.int32)
+    fused_function(a=a, b=b, klev=klev, nclv=nclv)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_nonmatching_lower_annotated(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_nonmatching_lower_annotated(a, b, nclv, klev)
+  integer, intent(out) :: a(klev), b(klev)
+  integer, intent(in) :: nclv, klev
+  integer :: jl
+
+  !$loki loop-fusion group(1)
+  do jl=1,klev
+    a(jl) = jl
+  end do
+
+  !$loki loop-fusion group(1) range(1:klev)
+  do jl=nclv,klev
+    b(jl) = jl - nclv
+  end do
+end subroutine transform_loop_fuse_nonmatching_lower_annotated
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klev, nclv = 100, 15
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev,), dtype=np.int32)
+    function(a=a, b=b, klev=klev, nclv=nclv)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_fusion(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].bounds.start == '1'
+    assert loops[0].bounds.stop == 'klev'
+    assert len(FindNodes(Conditional).visit(routine.body)) == 1
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klev, nclv = 100, 15
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev,), dtype=np.int32)
+    fused_function(a=a, b=b, klev=klev, nclv=nclv)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_nonmatching_upper(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_nonmatching_upper(a, b, klev)
+  integer, intent(out) :: a(klev), b(klev+1)
+  integer, intent(in) :: klev
+  integer :: jl
+
+  !$loki loop-fusion group(1)
+  do jl=1,klev
+    a(jl) = jl
+  end do
+
+  !$loki loop-fusion group(1)
+  do jl=1,klev+1
+    b(jl) = 2*jl
+  end do
+end subroutine transform_loop_fuse_nonmatching_upper
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klev = 100
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev+1,), dtype=np.int32)
+    function(a=a, b=b, klev=klev)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b == np.array(list(range(1, klev+2))) * 2)
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_fusion(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].bounds.start == '1'
+    assert loops[0].bounds.stop == '1 + klev'
+    assert len(FindNodes(Conditional).visit(routine.body)) == 1
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klev = 100
+    a = np.zeros(shape=(klev,), dtype=np.int32)
+    b = np.zeros(shape=(klev+1,), dtype=np.int32)
+    fused_function(a=a, b=b, klev=klev)
+    assert np.all(a == range(1,klev+1))
+    assert np.all(b == np.array(list(range(1, klev+2))) * 2)
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
