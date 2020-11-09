@@ -21,14 +21,29 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
     """
 
     def map_scalar(self, expr, *args, **kwargs):
-        # Ensure that re-scope variable symbols
-        kwargs['scope'] = kwargs.get('scope', expr.scope)
-        return super().map_scalar(expr, *args, **kwargs)
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+
+        scope = kwargs.get('scope', None) or expr.scope
+        stype = expr.type
+        # We're re-scoping an imported symbol
+        if expr.scope != scope:
+            stype = expr.type.clone()
+        return  expr.__class__(expr.name, scope=scope, type=stype, parent=parent, source=expr.source)
 
     def map_array(self, expr, *args, **kwargs):
-        # Ensure that re-scope variable symbols
-        kwargs['scope'] = kwargs.get('scope', expr.scope)
-        return super().map_array(expr, *args, **kwargs)
+        if expr.dimensions:
+            dimensions = self.rec(expr.dimensions, *args, **kwargs)
+        else:
+            dimensions = None
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+
+        scope = kwargs.get('scope', None) or expr.scope
+        stype = expr.type
+        # We're re-scoping an imported symbol
+        if expr.scope != scope:
+            stype = expr.type.clone()
+        return expr.__class__(expr.name, scope=scope, type=stype, parent=parent,
+                              dimensions=dimensions, source=expr.source)
 
     def map_inline_call(self, expr, *args, **kwargs):
         if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
