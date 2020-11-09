@@ -416,7 +416,7 @@ class FortranCTransformation(Transformation):
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
-                        'EXP': 'exp', 'SQRT': 'sqrt', 'sign': 'copysign'}
+                        'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
 
         return kernel
