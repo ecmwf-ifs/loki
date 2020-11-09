@@ -547,7 +547,8 @@ class OFP2IR(GenericVisitor):
                 # return reshape(indices[0], shape=indices[1])
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
-                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
+                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT',
+                                 'SIGN', 'EPSILON']:
                 fct_symbol = sym.ProcedureSymbol(vname, scope=self.scope, source=source)
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
             if vname.upper() in ['REAL', 'INT']:
