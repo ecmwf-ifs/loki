@@ -12,7 +12,7 @@ from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 
 
-__all__ = ['inline_constant_parameters']
+__all__ = ['inline_constant_parameters', 'inline_elemental_functions']
 
 
 class InlineSubstitutionMapper(LokiIdentityMapper):
