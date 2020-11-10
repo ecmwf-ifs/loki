@@ -4,14 +4,18 @@ import sys
 import pytest
 import numpy as np
 
+import pymbolic.primitives as pmbl
+
+from conftest import (
+    jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured, parse_expression
+)
 from loki import (
-    OFP, OMNI, FP, SourceFile, fgen, Cast, Range, Assignment, Intrinsic, Variable,
+    OFP, OMNI, FP, SourceFile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
-from conftest import jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 
 
 @pytest.fixture(scope='module', name='here')
@@ -749,7 +753,7 @@ def test_string_compare():
     assert not all(v.dimensions == exp for exp in ['i, j', '(j, i)', '[i, j]'])
 
     # Test a standard array dimension range
-    r = Range(children=(i, j))
+    r = RangeIndex(children=(i, j))
     w = Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
     assert all(w == exp for exp in ['w(i:j)', 'w (i : j)', 'W(i:J)', ' w( I:j)'])
 
@@ -773,3 +777,21 @@ def test_string_compare():
     assert symbols.Literal('u') == 'u'
     assert symbols.Literal('u') != 'U'
     assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
+
+
+@pytest.mark.parametrize('source, ref', [
+    ('1 + 1', '1 + 1'),
+    ('1+2+3+4', '1 + 2 + 3 + 4'),
+    ('5*4 - 3*2 - 1', '5*4 - 3*2 - 1'),
+    ('1*(2 + 3)', '1*(2 + 3)'),
+    ('5*a +3*7**5 - 4/b', '5*a + 3*7**5 - 4 / b'),
+    ('5 + (4 + 3) - (2*1)', '5 + (4 + 3) - (2*1)'),
+    ('a*(b*(c+(d+e)))', 'a*(b*(c + (d + e)))'),
+])
+def test_parse_expression(source, ref):
+    """
+    Test the utility function that parses simple expressions.
+    """
+    ir, _ = parse_expression(source)
+    assert isinstance(ir, pmbl.Expression)
+    assert str(ir) == ref
