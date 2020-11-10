@@ -466,7 +466,7 @@ def is_loki_pragma(pragma, starts_with=None):
         return False
     if not pragma.keyword == 'loki':
         return False
-    if starts_with is not None and not pragma.content.startswith(starts_with):
+    if starts_with is not None and not (pragma.content and pragma.content.startswith(starts_with)):
         return False
     return True
 
@@ -480,7 +480,7 @@ def get_pragma_parameters(pragma, starts_with=None):
 
     Optionally, skip the given keyword at the beginning if it is found.
     """
-    content = pragma.content
+    content = pragma.content or ''
     if starts_with is not None and content.startswith(starts_with):
         content = content[len(starts_with):]
     return {match.group('command'): match.group('arg')

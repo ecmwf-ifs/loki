@@ -3,7 +3,8 @@ Unit tests for utility functions and classes in loki.tools.
 """
 
 import pytest
-from loki.tools import JoinableStringList, truncate_string
+from loki.ir import Pragma
+from loki.tools import JoinableStringList, truncate_string, is_loki_pragma, get_pragma_parameters
 
 
 @pytest.mark.parametrize('items, sep, width, cont, ref', [
@@ -68,3 +69,52 @@ def test_truncate_string(string, length, continuation, ref):
     Test string truncation for different string lengths.
     """
     assert truncate_string(string, length, continuation) == ref
+
+
+@pytest.mark.parametrize('keyword, content, starts_with, ref', [
+    ('foo', None, None, False),
+    ('foo', 'bar', None, False),
+    ('foo', 'loki', None, False),
+    ('foo', 'loki', 'loki', False),
+    ('loki', None, None, True),
+    ('loki', None, 'foo', False),
+    ('loki', 'dataflow', None, True),
+    ('loki', 'dataflow', 'dataflow', True),
+    ('loki', 'dataflow', 'foobar', False),
+    ('loki', 'fusion group(1)', None, True),
+    ('loki', 'fusion group(1)', 'fusion', True),
+    ('loki', 'fusion group(1)', 'group', False),
+])
+def test_is_loki_pragma(keyword, content, starts_with, ref):
+    """
+    Test correct identification of Loki pragmas.
+    """
+    pragma = Pragma(keyword, content)
+    if starts_with is not None:
+        assert is_loki_pragma(pragma, starts_with=starts_with) == ref
+    else:
+        assert is_loki_pragma(pragma) == ref
+
+
+@pytest.mark.parametrize('content, starts_with, ref', [
+    (None, None, {}),
+    ('', None, {}),
+    ('', 'foo', {}),
+    ('dataflow', None, {'dataflow': None}),
+    ('dataflow', 'dataflow', {}),
+    ('dataflow group(1)', None, {'dataflow': None, 'group': '1'}),
+    ('dataflow group(1)', 'dataflow', {'group': '1'}),
+    ('dataflow group(1)', 'foo', {'dataflow': None, 'group': '1'}),
+    ('dataflow group(1) group(2)', 'dataflow', {'group': '2'}),
+    ('foo bar(^£!$%*[]:@+-_=~#/?.,<>;) baz foobar(abc_123")', 'foo',
+     {'bar':'^£!$%*[]:@+-_=~#/?.,<>;', 'baz': None, 'foobar': 'abc_123"'}),
+])
+def test_get_pragma_parameters(content, starts_with, ref):
+    """
+    Test correct extraction of Loki pragma parameters.
+    """
+    pragma = Pragma('loki', content)
+    if starts_with is not None:
+        assert get_pragma_parameters(pragma, starts_with=starts_with) == ref
+    else:
+        assert get_pragma_parameters(pragma, starts_with=starts_with) == ref
