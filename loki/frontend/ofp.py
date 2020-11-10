@@ -19,7 +19,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
 from loki.logging import info, DEBUG
-from loki.types import BasicType, SymbolType, DerivedType, Scope
+from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -547,7 +547,8 @@ class OFP2IR(GenericVisitor):
                 # return reshape(indices[0], shape=indices[1])
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
-                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT']:
+                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT',
+                                 'SIGN', 'EPSILON']:
                 fct_symbol = sym.ProcedureSymbol(vname, scope=self.scope, source=source)
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
             if vname.upper() in ['REAL', 'INT']:
@@ -563,6 +564,9 @@ class OFP2IR(GenericVisitor):
                 vname = '%s%%%s' % (parent.name, vname)
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
+            if _type and isinstance(_type.dtype, ProcedureType):
+                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure

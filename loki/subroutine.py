@@ -128,8 +128,12 @@ class Subroutine:
         scope = Scope(parent=parent_scope)
 
         # Store the names of variables in the subroutine signature
-        arg_ast = ast.findall('header/arguments/argument')
-        args = [arg.attrib['name'].upper() for arg in arg_ast]
+        if is_function:
+            arg_ast = ast.findall('header/names/name')
+            args = [arg.attrib['id'].upper() for arg in arg_ast]
+        else:
+            arg_ast = ast.findall('header/arguments/argument')
+            args = [arg.attrib['name'].upper() for arg in arg_ast]
 
         # Decompose the body into known sections
         ast_body = list(ast.find('body'))

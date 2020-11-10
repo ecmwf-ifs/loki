@@ -9,6 +9,9 @@ from loki.transform.transform_array_indexing import (
 from loki.transform.transform_utilities import (
     convert_to_lower_case, replace_intrinsics, resolve_associates
 )
+from loki.transform.transform_inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
 from loki.sourcefile import SourceFile
 from loki.backend import cgen, fgen
 from loki.ir import (
@@ -22,7 +25,7 @@ from loki.expression import (
     SubstituteExpressions, ProcedureSymbol
 )
 from loki.visitors import Transformer, FindNodes
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, TypeTable, Scope
 
 
@@ -36,46 +39,52 @@ class FortranCTransformation(Transformation):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, header_modules=None):
-        # Fortran modules that can be imported as C headers
-        self.header_modules = header_modules or None
+    # Set of standard module names that have no C equivalent
+    __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
+
+    def __init__(self, header_modules=None, inline_elementals=True):
+        self.inline_elementals = inline_elementals
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
 
     def transform_module(self, module, **kwargs):
         path = Path(kwargs.get('path'))
+        role = kwargs.get('role', 'kernel')
 
         for name, td in module.typedefs.items():
             self.c_structs[name.lower()] = self.c_struct_typedef(td)
 
-        # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper_module(module, self.c_structs)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-        SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+        if role == 'header':
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_module(module)
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            SourceFile.to_file(source=fgen(wrapper), path=self.wrapperpath)
 
-        # Generate C header file from module
-        c_header = self.generate_c_header(module)
-        self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-        SourceFile.to_file(source=cgen(c_header), path=self.c_path)
+            # Generate C header file from module
+            c_header = self.generate_c_header(module)
+            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+            SourceFile.to_file(source=cgen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         path = Path(kwargs.get('path'))
+        role = kwargs.get('role', 'kernel')
 
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
-        # Generate Fortran wrapper module
-        wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
-        self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-        module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
-        SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
+        if role == 'kernel':
+            # Generate Fortran wrapper module
+            wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs)
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
+            SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
 
-        # Generate C source file from Loki IR
-        c_kernel = self.generate_c_kernel(routine)
-        self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-        SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
+            # Generate C source file from Loki IR
+            c_kernel = self.generate_c_kernel(routine)
+            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            SourceFile.to_file(source=cgen(c_kernel), path=self.c_path)
 
     @classmethod
     def c_struct_typedef(cls, derived):
@@ -126,7 +135,7 @@ class FortranCTransformation(Transformation):
         wrapper_scope = Scope()
 
         if bind_name is None:
-            bind_name = '%s_c' % routine.name
+            bind_name = '%s_c' % routine.name.lower()
         interface = cls.generate_iso_c_interface(routine, bind_name, c_structs, scope=wrapper_scope)
 
         # Generate the wrapper function
@@ -167,9 +176,13 @@ class FortranCTransformation(Transformation):
         return wrapper
 
     @classmethod
-    def generate_iso_c_wrapper_module(cls, module, c_structs):
+    def generate_iso_c_wrapper_module(cls, module):
         """
         Generate the ISO-C wrapper module for a raw Fortran module.
+
+        Note, we only create getter functions for module variables here,
+        since certain type definitions cannot be used in ISO-C interfaces
+        due to pointer variables, etc.
         """
         # Generate bind(c) intrinsics for module variables
         original_import = Import(module=module.name)
@@ -177,9 +190,6 @@ class FortranCTransformation(Transformation):
                              symbols=('c_int', 'c_double', 'c_float'))
         implicit_none = Intrinsic(text='implicit none')
         spec = [original_import, isoc_import, implicit_none]
-
-        # Add module-based derived type/struct definitions
-        spec += list(c_structs.values())
 
         module_scope = Scope()
 
@@ -205,6 +215,29 @@ class FortranCTransformation(Transformation):
                                                      scope=getter.scope))
                 wrappers += [getter]
 
+        # Create function interface definitions for module functions
+        intfs = []
+        for fct in module.subroutines:
+            if fct.is_function:
+                intf_fct = fct.clone(bind='%s' % fct.name.lower())
+                intf_fct.body = Section(body=())
+
+                intf_args = []
+                for arg in intf_fct.arguments:
+                    # Only scalar, intent(in) arguments are pass by value
+                    # Pass by reference for array types
+                    value = isinstance(arg, Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
+                    ctype = SymbolType(arg.type.dtype, value=value,
+                                       kind=cls.iso_c_intrinsic_kind(arg.type))
+                    dimensions = arg.dimensions if isinstance(arg, Array) else None
+                    var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
+                                   scope=intf_fct.scope)
+                    intf_args += (var,)
+                intf_fct.arguments = intf_args
+
+                intfs.append(intf_fct)
+        spec.append(Interface(body=(intfs,)))
+
         modname = '{}_fc'.format(module.name)
         return Module(name=modname, spec=spec, routines=wrappers, scope=module_scope)
 
@@ -217,8 +250,9 @@ class FortranCTransformation(Transformation):
         isoc_import = Import(module='iso_c_binding',
                              symbols=('c_int', 'c_double', 'c_float'))
         intf_spec = Section(body=as_tuple(isoc_import))
-        intf_spec.body += as_tuple(Intrinsic(text='implicit none'))
-        intf_spec.body += as_tuple(c_structs.values())
+        intf_spec.append(im for im in FindNodes(Import).visit(routine.spec) if not im.c_import)
+        intf_spec.append(Intrinsic(text='implicit none'))
+        intf_spec.append(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, body=None,
                                   args=(), scope=scope, bind=bind_name)
 
@@ -277,6 +311,17 @@ class FortranCTransformation(Transformation):
             td = td.clone(body=declarations)
             spec += [td]
 
+        # Generate a header declaration for module routines
+        for fct in module.subroutines:
+            if fct.is_function:
+                fct_type = 'void'
+                if fct.name in fct.variables:
+                    fct_type = self.c_intrinsic_kind(fct.variable_map[fct.name.lower()].type)
+
+                args = ['{} {}'.format(self.c_intrinsic_kind(a.type), a.name.lower()) for a in fct.arguments]
+                fct_decl = '{} {}({});'.format(fct_type, fct.name.lower(), ', '.join(args))
+                spec.append(Intrinsic(text=fct_decl))
+
         # Re-generate header module without subroutines
         return Module(name='%s_c' % module.name, spec=spec)
 
@@ -286,37 +331,63 @@ class FortranCTransformation(Transformation):
         such as the explicit getter calls for imported module-level variables.
         """
 
-        # Change imports to C header includes
-        imports = []
+        kernel = routine
+        kernel.name = '%s_c' % kernel.name.lower()
+
+        # Clean up Fortran vector notation
+        resolve_vector_notation(kernel)
+        normalize_range_indexing(kernel)
+
+        # Convert array indexing to C conventions
+        # TODO: Resolve reductions (eg. SUM(myvar(:)))
+        invert_array_indices(kernel)
+        shift_to_zero_indexing(kernel)
+
+        # Inline all known parameters, since they can be used in declarations,
+        # and thus need to be known before we can fetch them via getters.
+        inline_constant_parameters(kernel, external_only=True)
+
+        if self.inline_elementals:
+            # Inline known elemental function via expression substitution
+            inline_elemental_functions(kernel)
+
+        # Create calls to getter routines for module variables
         getter_calls = []
-        header_map = {m.name.lower(): m for m in as_tuple(self.header_modules)}
-        for imp in FindNodes(Import).visit(routine.spec):
-            if imp.module.lower() in header_map:
-                # Create a C-header import
-                imports += [Import(module='%s_c.h' % imp.module, c_import=True)]
+        for im in FindNodes(Import).visit(kernel.spec):
+            for s in im.symbols:
+                if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED:
+                    # Skip parameters, as they will be inlined
+                    if s.type.parameter:
+                        continue
+                    decl = Declaration(variables=(s,))
+                    getter = '%s__get__%s' % (im.module.lower(), s.name.lower())
+                    vget = Assignment(lhs=s, rhs=InlineCall(ProcedureSymbol(getter, scope=s.scope)))
+                    getter_calls += [decl, vget]
+        kernel.body.prepend(getter_calls)
 
-                # For imported modulevariables, create a declaration and call the getter
-                module = header_map[imp.module]
-                mod_vars = flatten(d.variables for d in FindNodes(Declaration).visit(module.spec))
-                mod_vars = {v.name.lower(): v for v in mod_vars}
+        # Change imports to C header includes
+        import_map = {}
+        for im in FindNodes(Import).visit(kernel.spec):
+            if str(im.module).upper() in self.__fortran_intrinsic_modules:
+                # Remove imports of Fortran intrinsic modules
+                import_map[im] = None
 
-                for s in imp.symbols:
-                    if str(s).lower() in mod_vars:
-                        var = mod_vars[str(s).lower()]
+            elif not im.c_import and im.symbols:
+                # Create a C-header import for any converted modules
+                import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True)
 
-                        decl = Declaration(variables=(var,))
-                        getter = '%s__get__%s' % (module.name.lower(), var.name.lower())
-                        vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
-                        getter_calls += [decl, vget]
+            else:
+                # Remove other imports, as they might include untreated Fortran code
+                import_map[im] = None
+        kernel.spec = Transformer(import_map).visit(kernel.spec)
 
-        # Replicate the kernel to strip the Fortran-specific boilerplate
-        spec = Section(body=imports)
-        body = Transformer({}).visit(routine.body)
-        body = Section(body=as_tuple(getter_calls) + as_tuple(body))
+        # Remove intrinsics from spec (eg. implicit none)
+        intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
+                         if 'implicit' in i.text.lower()}
+        kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 
-        kernel = Subroutine(name='%s_c' % routine.name, spec=spec, body=body)
-        kernel.arguments = routine.arguments
-        kernel.variables = routine.variables
+        # Resolve implicit struct mappings through "associates"
+        resolve_associates(kernel)
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)
@@ -343,20 +414,9 @@ class FortranCTransformation(Transformation):
                 vmap[v] = v.clone(type=dtype)
         SubstituteExpressions(vmap).visit(kernel.body)
 
-        # Resolve implicit struct mappings through "associates"
-        resolve_associates(kernel)
-
-        # Clean up Fortran vector notation
-        resolve_vector_notation(kernel)
-        normalize_range_indexing(kernel)
-
-        # Convert array indexing to C conventions
-        # TODO: Resolve reductions (eg. SUM(myvar(:)))
-        invert_array_indices(kernel)
-        shift_to_zero_indexing(kernel)
-
         symbol_map = {'epsilon': 'DBL_EPSILON'}
-        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs', 'sign': 'copysign'}
+        function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
+                        'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
 
         return kernel

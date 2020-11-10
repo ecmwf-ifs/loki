@@ -1,5 +1,5 @@
 """
-Collection of utility routines to deal general conversion.
+Collection of utility routines to deal with general language conversion.
 
 
 """
@@ -9,6 +9,7 @@ from loki.expression import (
 )
 from loki.ir import Associate
 from loki.visitors import Transformer, FindNodes
+from loki.tools import CaseInsensitiveDict
 
 
 __all__ = ['convert_to_lower_case', 'replace_intrinsics', 'resolve_associates']
@@ -24,19 +25,29 @@ def convert_to_lower_case(routine):
     """
 
     # Force all variables in a subroutine body to lower-caps
-    vmap = {v: v.clone(name=v.name.lower()) for v in FindVariables().visit(routine.body)
+    variables = [v for v in FindVariables().visit(routine.spec)]
+    variables += [v for v in FindVariables().visit(routine.body)]
+    vmap = {v: v.clone(name=v.name.lower()) for v in variables
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
+
+    # Capture nesting by applying map to itself before applying to the routine
+    for _ in range(2):
+        mapper = SubstituteExpressionsMapper(vmap)
+        vmap = {k: mapper(v) for k, v in vmap.items()}
+
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
     # Down-case all subroutine arguments and variables
     mapper = SubstituteExpressionsMapper(vmap)
+
     routine.arguments = [mapper(arg) for arg in routine.arguments]
     routine.variables = [mapper(var) for var in routine.variables]
 
 
 def replace_intrinsics(routine, function_map=None, symbol_map=None):
     """
-    Replace known numerical intrinsic functions and symbols.
+    Replace known intrinsic functions and symbols.
 
     :param function_map: Map (string: string) for replacing intrinsic
                          functions (`InlineCall` objects).
@@ -73,7 +84,7 @@ def resolve_associates(routine):
     assoc_map = {}
     vmap = {}
     for assoc in FindNodes(Associate).visit(routine.body):
-        invert_assoc = {v.name: k for k, v in assoc.associations.items()}
+        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations.items()})
         for v in FindVariables(unique=False).visit(routine.body):
             if v.name in invert_assoc:
                 vmap[v] = invert_assoc[v.name]

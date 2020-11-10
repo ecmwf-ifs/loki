@@ -231,20 +231,34 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
               help='Path for additional module file(s)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
-def transpile(out_path, header, source, driver, xmod, include):
+@click.option('--frontend', default='omni', type=click.Choice(['fp', 'ofp', 'omni']),
+              help='Frontend parser to use (default FP)')
+def transpile(out_path, header, source, driver, xmod, include, frontend):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
     driver_name = 'CLOUDSC_DRIVER'
     kernel_name = 'CLOUDSC'
 
+    frontend = Frontend[frontend.upper()]
+    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+
+    # Note, in order to get function inlinig correct, we need full knowledge
+    # of any imported symbols and functions. Since we cannot yet retro-fit that
+    # after creation, we need to make sure that the order of definitions can
+    # be used to create a coherent stack of type definitions.
+    definitions = []
+    for h in header:
+        sfile = SourceFile.from_file(h, xmods=xmod, definitions=definitions,
+                                     frontend=frontend_type)
+        definitions = definitions + list(sfile.modules)
+
     # Parse original driver and kernel routine, and enrich the driver
-    definitions = flatten(SourceFile.from_file(h, xmods=xmod, frontend=Frontend.OFP).modules for h in header)
     kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=Frontend.OMNI, definitions=definitions,
+                                  frontend=frontend, definitions=definitions,
                                   builddir=out_path)
     driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=Frontend.OMNI, builddir=out_path)
+                                  frontend=frontend, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
@@ -252,14 +266,13 @@ def transpile(out_path, header, source, driver, xmod, include):
     driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
     kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
 
-    typepaths = [Path(h) for h in header]
-    typemods = [SourceFile.from_file(tp, frontend=Frontend.OFP)[tp.stem] for tp in typepaths]
-    for typemod in typemods:
-        FortranCTransformation().apply(source=typemod, path=out_path)
-
     # Now we instantiate our pipeline and apply the changes
-    transformation = FortranCTransformation(header_modules=typemods)
-    transformation.apply(kernel, path=out_path)
+    transformation = FortranCTransformation()
+    transformation.apply(kernel, role='kernel', path=out_path)
+
+    # Traverse header modules to create getter functions for module variables
+    for header in definitions:
+        transformation.apply(header, role='header', path=out_path)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')

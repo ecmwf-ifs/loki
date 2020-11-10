@@ -91,7 +91,7 @@ class TypedSymbol:
             self.type = type.clone()
 
     def __getinitargs__(self):
-        args = [('name', self.name), ('scope', self.scope)]
+        args = [self.name, ('scope', self.scope)]
         return tuple(args)
 
     @property
@@ -153,7 +153,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         self.type.initial = value
 
     def __getinitargs__(self):
-        args = [('scope', self.scope)]
+        args = []
         if self.parent:
             args += [('parent', self.parent)]
         return super().__getinitargs__() + tuple(args)
@@ -249,7 +249,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         self.type.shape = value
 
     def __getinitargs__(self):
-        args = [('scope', self.scope)]
+        args = []
         if self.dimensions:
             args += [('dimensions', self.dimensions)]
         if self.parent:
@@ -674,6 +674,14 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     @property
     def name(self):
         return self.function.name
+
+    @property
+    def procedure_type(self):
+        """
+        Returns the underpinning procedure type if the type is know,
+        ``BasicType.DEFFERED`` otherwise.
+        """
+        return self.function.type.dtype
 
 
 class Cast(ExprMetadataMixin, pmbl.Call):

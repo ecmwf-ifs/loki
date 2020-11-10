@@ -482,6 +482,9 @@ class Import(Node):
     """
     Internal representation of a module import.
     """
+
+    _traversable = ['symbols']
+
     def __init__(self, module, symbols=None, c_import=False, f_include=False, **kwargs):
         super().__init__(**kwargs)
 
@@ -496,6 +499,10 @@ class Import(Node):
     def __repr__(self):
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return '{}Import:: {} => {}'.format(_c, self.module, self.symbols)
+
+    @property
+    def children(self):
+        return tuple((self.symbols,))
 
 
 class Interface(Node):

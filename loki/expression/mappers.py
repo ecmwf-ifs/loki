@@ -362,7 +362,8 @@ class LokiIdentityMapper(IdentityMapper):
     map_intrinsic_literal = IdentityMapper.map_constant
 
     def map_scalar(self, expr, *args, **kwargs):
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=parent,
                               source=expr.source)
 
     def map_array(self, expr, *args, **kwargs):
@@ -370,7 +371,8 @@ class LokiIdentityMapper(IdentityMapper):
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=expr.parent,
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=parent,
                               dimensions=dimensions, source=expr.source)
 
     def map_array_subscript(self, expr, *args, **kwargs):

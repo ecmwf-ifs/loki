@@ -219,11 +219,11 @@ end subroutine transpile_derived_type
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
@@ -245,7 +245,6 @@ end subroutine transpile_derived_type
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 
@@ -301,11 +300,11 @@ end subroutine transpile_associates
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
@@ -327,7 +326,6 @@ end subroutine transpile_associates
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 
@@ -374,7 +372,7 @@ module transpile_type_mod
 
   save
 
-  integer :: param1
+  integer :: PARAM1
   real(kind=real32) :: param2
   real(kind=real64) :: param3
 end module transpile_type_mod
@@ -383,13 +381,13 @@ end module transpile_type_mod
     fcode_routine = """
 subroutine transpile_module_variables(a, b, c)
   use iso_fortran_env, only: real32, real64
-  use transpile_type_mod, only: param1, param2, param3
+  use transpile_type_mod, only: PARAM1, param2, param3
 
   integer, intent(out) :: a
   real(kind=real32), intent(out) :: b
   real(kind=real64), intent(out) :: c
 
-  a = 1 + param1
+  a = 1 + PARAM1  ! Ensure downcasing is done right
   b = 1. + param2
   c = 1. + param3
 end subroutine transpile_module_variables
@@ -408,11 +406,11 @@ end subroutine transpile_module_variables
 
     # Translate the header module to expose parameters
     mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=here)
+    mod2c.apply(source=module, path=here, role='header')
 
     # Create transformation object and apply
     f2c = FortranCTransformation(header_modules=[module])
-    f2c.apply(source=routine, path=here)
+    f2c.apply(source=routine, path=here, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
@@ -431,7 +429,6 @@ end subroutine transpile_module_variables
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
     (here/'{}.f90'.format(module.name)).unlink()
 
 
@@ -679,3 +676,207 @@ end subroutine transpile_logical_statements
     clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_multibody_conditionals(here, builder, frontend):
+    """
+    Test correct transformation of multi-body conditionals.
+    """
+    fcode = """
+subroutine transpile_multibody_conditionals(in1, out1, out2)
+  integer, intent(in) :: in1
+  integer, intent(out) :: out1, out2
+
+  if (in1 > 5) then
+    out1 = 5
+  else
+    out1 = 1
+  end if
+
+  if (in1 < 0) then
+    out2 = 0
+  else if (in1 > 5) then
+    out2 = 6
+    out2 = out2 - 1
+  else if (3 < in1 .and. in1 <= 5) then
+    out2 = 4
+  else
+    out2 = in1
+  end if
+end subroutine transpile_multibody_conditionals
+"""
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('transpile_multibody_conditionals_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname='transpile_multibody_conditionals')
+
+    out1, out2 = function(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = function(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = function(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = function(10)
+    assert out1 == 5 and out2 == 5
+
+    # Generate and test the transpiled C kernel
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_multibody_conditionals_fc_mod.transpile_multibody_conditionals_fc
+
+    out1, out2 = fc_function(5)
+    assert out1 == 1 and out2 == 4
+
+    out1, out2 = fc_function(2)
+    assert out1 == 1 and out2 == 2
+
+    out1, out2 = fc_function(-1)
+    assert out1 == 1 and out2 == 0
+
+    out1, out2 = fc_function(10)
+    assert out1 == 5 and out2 == 5
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_inline_elemental_functions(here, builder, frontend):
+    """
+    Test correct transformation of multi-body conditionals.
+    """
+    fcode_module = """
+module multiply_mod
+  use iso_fortran_env, only: real64
+  implicit none
+contains
+
+  elemental function multiply(a, b)
+    real(kind=real64) :: multiply
+    real(kind=real64), intent(in) :: a, b
+
+    multiply = a * b
+  end function multiply
+end module multiply_mod
+"""
+
+    fcode = """
+subroutine transpile_inline_elemental_functions(v1, v2, v3)
+  use iso_fortran_env, only: real64
+  use multiply_mod, only: multiply
+  real(kind=real64), intent(in) :: v1
+  real(kind=real64), intent(out) :: v2, v3
+
+  v2 = multiply(v1, 6._real64)
+  v3 = 600. + multiply(6._real64, 11._real64)
+end subroutine transpile_inline_elemental_functions
+"""
+    # Generate reference code, compile run and verify
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
+
+    v2, v3 = reference.transpile_inline_elemental_functions(11.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    (here/'{}.f90'.format(routine.name)).unlink()
+
+    # Now transpile with supplied elementals but without module
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+
+    f2c = FortranCTransformation(inline_elementals=True)
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_mod = c_kernel.transpile_inline_elemental_functions_fc_mod
+
+    v2, v3 = fc_mod.transpile_inline_elemental_functions_fc(11.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    builder.clean()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_inline_elementals_recursive(here, builder, frontend):
+    """
+    Test correct transformation of multi-body conditionals.
+    """
+    fcode_module = """
+module multiply_plus_one_mod
+  use iso_fortran_env, only: real64
+  implicit none
+contains
+
+  elemental function multiply(a, b)
+    real(kind=real64) :: multiply
+    real(kind=real64), intent(in) :: a, b
+
+    multiply = a * b
+  end function multiply
+
+  elemental function plus_one(a)
+    real(kind=real64) :: plus_one
+    real(kind=real64), intent(in) :: a
+
+    plus_one = a + 1._real64
+  end function plus_one
+
+  elemental function multiply_plus_one(a, b)
+    real(kind=real64) :: multiply_plus_one
+    real(kind=real64), intent(in) :: a, b
+
+    multiply_plus_one = multiply(plus_one(a), b)
+  end function multiply_plus_one
+end module multiply_plus_one_mod
+"""
+
+    fcode = """
+subroutine transpile_inline_elementals_recursive(v1, v2, v3)
+  use iso_fortran_env, only: real64
+  use multiply_plus_one_mod, only: multiply_plus_one
+  real(kind=real64), intent(in) :: v1
+  real(kind=real64), intent(out) :: v2, v3
+
+  v2 = multiply_plus_one(v1, 6._real64)
+  v3 = 600. + multiply_plus_one(5._real64, 11._real64)
+end subroutine transpile_inline_elementals_recursive
+"""
+    # Generate reference code, compile run and verify
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
+
+    v2, v3 = reference.transpile_inline_elementals_recursive(10.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    (here/'{}.f90'.format(routine.name)).unlink()
+
+    # Now transpile with supplied elementals but without module
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+
+    f2c = FortranCTransformation(inline_elementals=True)
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_mod = c_kernel.transpile_inline_elementals_recursive_fc_mod
+
+    v2, v3 = fc_mod.transpile_inline_elementals_recursive_fc(10.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    builder.clean()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
