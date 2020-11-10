@@ -10,12 +10,12 @@ from pymbolic.primitives import Variable
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
     accumulate_polynomial_terms, simplify, is_constant, symbolic_op)
-from loki.ir import Loop, Conditional, Comment
+from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
 from loki.tools import is_loki_pragma, get_pragma_parameters, flatten, as_tuple
 from loki.visitors import FindNodes, Transformer
 
-__all__ = ['loop_fusion', 'Polyhedron']
+__all__ = ['loop_fusion', 'loop_fission', 'Polyhedron']
 
 
 class Polyhedron:
@@ -329,3 +329,28 @@ def loop_fusion(routine):
 
     info('%s: fused %d loops in %d groups.', routine.name,
          sum(len(loop_list) for loop_list in fusion_groups.values()), len(fusion_groups))
+
+
+def loop_fission(routine):
+    """
+    Search for `loki loop-fission` pragmas inside loops and attempt to split them into
+    multiple loops.
+    """
+    comment = Comment('! Loki transformation loop-fission')
+    loop_map = {}
+
+    for loop in FindNodes(Loop).visit(routine.body):
+        pragmas = [ch for ch in loop.body
+                   if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission')]
+        if not pragmas:
+            continue
+
+        pragma_indices = [-1] + sorted([loop.body.index(p) for p in pragmas]) + [len(loop.body)]
+        bodies = [loop.body[start+1:stop] for start, stop in zip(pragma_indices[:-1], pragma_indices[1:])]
+        loop_map[loop] = [(comment, Loop(variable=loop.variable, bounds=loop.bounds, body=body))
+                          for body in bodies]
+
+    if loop_map:
+        routine.body = Transformer(loop_map).visit(routine.body)
+        info('%s: split %d loops into %d loops.', routine.name, len(loop_map),
+             sum(len(loop_list) for loop_list in loop_map.values()))

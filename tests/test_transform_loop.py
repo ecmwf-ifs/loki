@@ -4,7 +4,7 @@ import numpy as np
 
 from conftest import jit_compile, clean_test, parse_expression
 from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional
-from loki.transform import loop_fusion, Polyhedron
+from loki.transform import loop_fusion, loop_fission, Polyhedron
 from loki.expression import symbols as sym
 
 
@@ -534,3 +534,113 @@ end subroutine transform_loop_fuse_nonmatching_upper
 
     clean_test(filepath)
     clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fission_single(here, frontend):
+    fcode = """
+subroutine transform_loop_fission_single(a, b, n)
+  integer, intent(out) :: a(n), b(n)
+  integer, intent(in) :: n
+  integer :: j
+
+  do j=1,n
+    a(j) = j
+    !$loki loop-fission
+    b(j) = n-j
+  end do
+end subroutine transform_loop_fission_single
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    function(a=a, b=b, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n-1, -1, -1))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_fission(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    for loop in loops:
+        assert loop.bounds.start == '1'
+        assert loop.bounds.stop == 'n'
+
+    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
+
+    # Test transformation
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    fissioned_function(a=a, b=b, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n-1, -1, -1))
+
+    clean_test(filepath)
+    clean_test(fissioned_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fission_multiple(here, frontend):
+    fcode = """
+subroutine transform_loop_fission_multiple(a, b, c, n)
+  integer, intent(out) :: a(n), b(n), c(n)
+  integer, intent(in) :: n
+  integer :: j
+
+  do j=1,n
+    a(j) = j
+    !$loki loop-fission
+    b(j) = n-j
+    !$loki loop-fission
+    c(j) = a(j) + b(j)
+  end do
+end subroutine transform_loop_fission_multiple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    c = np.zeros(shape=(n,), dtype=np.int32)
+    function(a=a, b=b, c=c, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n-1, -1, -1))
+    assert np.all(c == n)
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_fission(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 3
+    for loop in loops:
+        assert loop.bounds.start == '1'
+        assert loop.bounds.stop == 'n'
+
+    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
+
+    # Test transformation
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    c = np.zeros(shape=(n,), dtype=np.int32)
+    fissioned_function(a=a, b=b, c=c, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n-1, -1, -1))
+    assert np.all(c == n)
+
+    clean_test(filepath)
+    clean_test(fissioned_filepath)
