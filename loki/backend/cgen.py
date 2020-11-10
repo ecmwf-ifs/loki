@@ -320,12 +320,10 @@ class CCodegen(Stringifier):
             [...body...]
           }
         """
-        header = ('if', '')
         footer = self.format_line('}')
-        other_case = ('} else if','')
         conditions = self.visit_all(o.conditions, **kwargs)
-        conditions = [self.format_line(items[0], ' (', cond, ') {', items[1])
-                      for items, cond in zip_longest([header], conditions, fillvalue=other_case)]
+        conditions = [self.format_line(item, ' (', cond, ') {')
+                      for item, cond in zip_longest(['if'], conditions, fillvalue='} else if')]
         if o.else_body:
             conditions.append(self.format_line('} else {'))
 
