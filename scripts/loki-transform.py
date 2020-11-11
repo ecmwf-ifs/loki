@@ -72,11 +72,11 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
     definitions = flatten(SourceFile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
-    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend, builddir=out_path)
     kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend, builddir=out_path)
 
     # Get a separate list of routine objects ad names for transformations
     kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
@@ -168,11 +168,11 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
     definitions = flatten(SourceFile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
-    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend, builddir=out_path)
     kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
+    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+                                  frontend=frontend, builddir=out_path)
 
     # Get a separate list of routine objects and names for transformations
     kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
