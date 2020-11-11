@@ -347,19 +347,38 @@ def loop_fission(routine):
     # Moreover, this makes it easier to apply multiple fission steps for a loop at the same time.
     for loop in FindNodes(Loop).visit(routine.body):
 
-        # Look for all loop-fission pragmas inside this routine's body and create split loop bodies
-        pragmas = [ch for ch in loop.body
-                   if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission')]
+        # Look for all loop-fission pragmas inside this routine's body
+        # Note that we need to store (node, pragma) pairs as pragmas can also be attached to nodes
+        pragmas = {}
+        for ch in loop.body:
+            if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission'):
+                pragmas[ch] = ch
+            elif (hasattr(ch, 'pragma') and ch.pragma is not None and
+                  is_loki_pragma(ch.pragma, starts_with='loop-fission')):
+                pragmas[ch] = ch.pragma
+
         if not pragmas:
             continue
 
-        pragma_indices = [-1] + sorted([loop.body.index(p) for p in pragmas]) + [len(loop.body)]
-        bodies = [loop.body[start+1:stop] for start, stop in zip(pragma_indices[:-1], pragma_indices[1:])]
+        # Create the bodies for the split loops
+        bodies = []
+        current_body = []
+        for ch in loop.body:
+            if ch in pragmas:
+                bodies += [current_body]
+                if isinstance(ch, Pragma):
+                    current_body = []
+                else:
+                    current_body = [ch.clone(pragma=None)]
+            else:
+                current_body += [ch]
+        if current_body:
+            bodies += [current_body]
 
         # Promote variables given in promotion list
         loop_length = simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
-        promote_vars = {var.strip().lower() for pragma in pragmas
-                        for var in get_pragma_parameters(pragma).get('promote', '').split(',')}
+        promote_vars = {var.strip().lower() for pragma in pragmas.values()
+                        for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
         for var_name in promote_vars:
             var = variable_map[var_name]
 
@@ -368,8 +387,8 @@ def loop_fission(routine):
                 # We have already marked this variable for promotion: let's make sure the added
                 # dimension is large enough for this loop
                 shape = promotion_vars_dims[var_name]
-                if symbolic_op(shape[:-1], op.lt, loop_length):
-                    shape[-1] = loop_length
+                if symbolic_op(shape[-1], op.lt, loop_length):
+                    shape = shape[:-1] + (loop_length,)
             else:
                 shape = getattr(var, 'shape', ()) + (loop_length,)
             promotion_vars_dims[var_name] = shape
