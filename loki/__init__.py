@@ -21,6 +21,7 @@ from loki.scheduler import *  # noqa
 from loki.lint import *  # noqa
 from loki.pragma_utils import *  # noqa
 from loki.analyse import *  # noqa
+from loki.dimension import *  # noqa
 
 try:
     __version__ = get_distribution(__name__).version

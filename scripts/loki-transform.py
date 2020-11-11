@@ -11,7 +11,7 @@ import click
 
 from loki import (
     Sourcefile, Module, Transformation, Transformer, Scheduler,
-    FindNodes, Loop, Pragma, Frontend, flatten
+    FindNodes, Loop, Pragma, Frontend, flatten, Dimension
 )
 
 # Get generalized transformations provided by Loki
@@ -21,7 +21,7 @@ from loki.transform import DependencyTransformation, FortranCTransformation
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
-from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
+from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import DataOffloadTransformation
 
 
