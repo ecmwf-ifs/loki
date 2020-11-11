@@ -13,7 +13,7 @@ from loki.ir import (
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple, flatten, is_loki_pragma
+from loki.tools import as_tuple, flatten, is_loki_pragma, CaseInsensitiveDict
 from loki.types import Scope, ProcedureType
 
 
@@ -458,7 +458,7 @@ class Subroutine:
         """
         Map of variable names to `Variable` objects
         """
-        return {v.name.lower(): v for v in self.variables}
+        return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
     def interface(self):
