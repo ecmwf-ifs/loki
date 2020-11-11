@@ -934,3 +934,73 @@ end subroutine transform_loop_fission_multiple_promote
 
     clean_test(filepath)
     clean_test(fissioned_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fusion_fission(here, frontend):
+    fcode = """
+subroutine transform_loop_fusion_fission(a, b, klon, klev)
+  integer, intent(inout) :: a(klon, klev), b(klon, klev)
+  integer, intent(in) :: klon, klev
+  integer :: jk, jl, zsupsat(klon)
+
+!$loki loop-fusion
+  do jk=1,klev
+    do jl=1,klon
+      a(jl, jk) = jk
+    end do
+  end do
+
+!$loki loop-fusion
+  do jk=1,klev
+    do jl=1,klon
+      zsupsat(jl) = jl
+    end do
+    !$loki loop-fission promote(zsupsat)
+    b(:, jk) = a(:, jk) + zsupsat(:)
+  end do
+end subroutine transform_loop_fusion_fission
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+1)], order='F'))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 4
+    loop_fusion(routine)
+    assert len(FindNodes(Loop).visit(routine.body)) == 3
+    loop_fission(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 4
+    assert all(loop.bounds.start == '1' for loop in loops)
+    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 2
+    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 2
+    if frontend == OMNI:
+        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['1:klon', 'klev']
+    else:
+        assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
+
+    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
+
+    # Test transformation
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    fissioned_function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+1)], order='F'))
+
+    clean_test(filepath)
+    clean_test(fissioned_filepath)
