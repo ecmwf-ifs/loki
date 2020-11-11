@@ -229,7 +229,9 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
 
     if mode == 'scc':
         horizontal = scheduler.config.dimensions['horizontal']
-        transformation = SingleColumnCoalescedTransformation(horizontal=horizontal)
+        transformation = SingleColumnCoalescedTransformation(
+            horizontal=horizontal, directive='openacc'
+        )
 
     if transformation:
         scheduler.process(transformation=transformation)

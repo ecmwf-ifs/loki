@@ -1,7 +1,7 @@
 from loki import (
     Transformation, FindNodes, Transformer, CallStatement, Loop,
-    Variable, LoopRange, SymbolAttributes, BasicType, CaseInsensitiveDict,
-    as_tuple
+    Variable, LoopRange, SymbolAttributes, Pragma,BasicType,
+    CaseInsensitiveDict, as_tuple, pragmas_attached
 )
 
 
@@ -43,10 +43,16 @@ class SingleColumnCoalescedTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in existing
         code to define the horizontal data dimension and iteration space.
+    directive : string or None
+        Directives flavour to use for parallelism annotations; either
+        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal):
+    def __init__(self, horizontal, directive=None):
         self.horizontal = horizontal
+
+        assert directive in [None, 'openacc']
+        self.directive = directive
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -96,6 +102,20 @@ class SingleColumnCoalescedTransformation(Transformation):
         v_index = get_integer_variable(routine, name=self.horizontal.index)
         if v_index not in routine.arguments:
             routine.arguments += as_tuple(v_index)
+
+        if self.directive == 'openacc':
+
+            with pragmas_attached(routine, Loop):
+                # Mark all remaining loops as seq (in place)
+                for loop in FindNodes(Loop).visit(routine.body):
+                    # Skip loops explicitly marked with `!$loki/claw nodep`
+                    if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                        continue
+
+                    loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
+
+            # Mark routine as `!$acc routine seq` to make it device-callable
+            routine.body.prepend(Pragma(keyword='acc', content='routine seq'))
 
     def process_driver(self, routine, targets=None):
         """
