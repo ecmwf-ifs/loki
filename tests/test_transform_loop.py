@@ -644,3 +644,56 @@ end subroutine transform_loop_fission_multiple
 
     clean_test(filepath)
     clean_test(fissioned_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fission_promote(here, frontend):
+    fcode = """
+subroutine transform_loop_fission_promote(a, b, n)
+  integer, intent(out) :: a(n), b(n)
+  integer, intent(in) :: n
+  integer :: j, tmp
+
+  do j=1,n
+    a(j) = j
+    tmp = j - 1
+    !$loki loop-fission promote(tmp)
+    b(j) = n-tmp
+  end do
+end subroutine transform_loop_fission_promote
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    function(a=a, b=b, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n, 0, -1))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+    loop_fission(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    for loop in loops:
+        assert loop.bounds.start == '1'
+        assert loop.bounds.stop == 'n'
+
+    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
+
+    # Test transformation
+    n = 100
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    fissioned_function(a=a, b=b, n=n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == range(n, 0, -1))
+
+    clean_test(filepath)
+    clean_test(fissioned_filepath)

@@ -12,7 +12,8 @@ from loki.expression import (
     accumulate_polynomial_terms, simplify, is_constant, symbolic_op)
 from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
-from loki.tools import is_loki_pragma, get_pragma_parameters, flatten, as_tuple
+from loki.tools import (
+    is_loki_pragma, get_pragma_parameters, flatten, as_tuple, CaseInsensitiveDict)
 from loki.visitors import FindNodes, Transformer
 
 __all__ = ['loop_fusion', 'loop_fission', 'Polyhedron']
@@ -337,9 +338,16 @@ def loop_fission(routine):
     multiple loops.
     """
     comment = Comment('! Loki transformation loop-fission')
+    variable_map = routine.variable_map
     loop_map = {}
+    promotion_vars_dims = CaseInsensitiveDict()
 
+    # Run over all loops and look for pragmas in each loop's body instead of searching for pragmas
+    # directly as we would otherwise need a second pass to find the loop that pragma refers to.
+    # Moreover, this makes it easier to apply multiple fission steps for a loop at the same time.
     for loop in FindNodes(Loop).visit(routine.body):
+
+        # Look for all loop-fission pragmas inside this routine's body and create split loop bodies
         pragmas = [ch for ch in loop.body
                    if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission')]
         if not pragmas:
@@ -347,10 +355,48 @@ def loop_fission(routine):
 
         pragma_indices = [-1] + sorted([loop.body.index(p) for p in pragmas]) + [len(loop.body)]
         bodies = [loop.body[start+1:stop] for start, stop in zip(pragma_indices[:-1], pragma_indices[1:])]
+
+        # Promote variables given in promotion list
+        loop_length = simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
+        promote_vars = {var.strip().lower() for pragma in pragmas
+                        for var in get_pragma_parameters(pragma).get('promote', '').split(',')}
+        for var_name in promote_vars:
+            var = variable_map[var_name]
+
+            # Promoted variable shape
+            if var_name in promotion_vars_dims:
+                # We have already marked this variable for promotion: let's make sure the added
+                # dimension is large enough for this loop
+                shape = promotion_vars_dims[var_name]
+                if symbolic_op(shape[:-1], op.lt, loop_length):
+                    shape[-1] = loop_length
+            else:
+                shape = getattr(var, 'shape', ()) + (loop_length,)
+            promotion_vars_dims[var_name] = shape
+
+            # Insert loop variable as last subscript dimension
+            var_maps = []
+            for body in bodies:
+                var_uses = [v for v in FindVariables().visit(body) if v.name.lower() == var_name]
+                var_dimensions = [getattr(v, 'dimensions', sym.ArraySubscript(())).index + (loop.variable,)
+                                  for v in var_uses]
+                var_maps += [{v: v.clone(dimensions=dim) for v, dim in zip(var_uses, var_dimensions)}]
+            bodies = [SubstituteExpressions(var_map).visit(body) if var_map else body
+                      for var_map, body in zip(var_maps, bodies)]
+
+        # Finally, create the new loops
         loop_map[loop] = [(comment, Loop(variable=loop.variable, bounds=loop.bounds, body=body))
                           for body in bodies]
 
+    # Apply loop maps and shape promotion
     if loop_map:
         routine.body = Transformer(loop_map).visit(routine.body)
-        info('%s: split %d loops into %d loops.', routine.name, len(loop_map),
+        info('%s: split %d loop(s) into %d loops.', routine.name, len(loop_map),
              sum(len(loop_list) for loop_list in loop_map.values()))
+    if promotion_vars_dims:
+        var_map = {}
+        for var_name, shape in promotion_vars_dims.items():
+            var = variable_map[var_name]
+            var_map[var] = var.clone(type=var.type.clone(shape=shape), dimensions=shape)
+        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+        info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
