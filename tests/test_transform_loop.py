@@ -532,6 +532,191 @@ end subroutine transform_loop_fuse_nonmatching_upper
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_collapse(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_collapse(a, b, klon, klev)
+  integer, intent(inout) :: a(klon, klev), b(klon, klev)
+  integer, intent(in) :: klon, klev
+  integer :: jk, jl
+
+!$loki loop-fusion collapse(2)
+  do jk=1,klev
+    do jl=1,klon
+      a(jl, jk) = jk
+    end do
+  end do
+
+!$loki loop-fusion collapse(2)
+  do jk=1,klev
+    do jl=1,klon
+      b(jl, jk) = jl + jk
+    end do
+  end do
+end subroutine transform_loop_fuse_collapse
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+1)], order='F'))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 4
+    loop_fusion(routine)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.bounds.start == '1' for loop in loops)
+    assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 1
+    assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 1
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
+    fused_function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+1)], order='F'))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_collapse_nonmatching(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_collapse_nonmatching(a, b, klon, klev)
+  integer, intent(inout) :: a(klon, klev+1), b(klon+1, klev)
+  integer, intent(in) :: klon, klev
+  integer :: jk, jl
+
+!$loki loop-fusion collapse(2)
+  do jk=1,klev+1
+    do jl=1,klon
+      a(jl, jk) = jk
+    end do
+  end do
+
+!$loki loop-fusion collapse(2)
+  do jk=1,klev
+    do jl=1,klon+1
+      b(jl, jk) = jl + jk
+    end do
+  end do
+end subroutine transform_loop_fuse_collapse_nonmatching
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
+    function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+2)], order='F'))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 4
+    loop_fusion(routine)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.bounds.start == '1' for loop in loops)
+    assert sum([loop.bounds.stop == '1 + klev' for loop in loops]) == 1
+    assert sum([loop.bounds.stop == '1 + klon' for loop in loops]) == 1
+    assert len(FindNodes(Conditional).visit(routine.body)) == 2
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
+    fused_function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
+    assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
+                                for jl in range(1, klon+2)], order='F'))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fuse_collapse_range(here, frontend):
+    fcode = """
+subroutine transform_loop_fuse_collapse_range(a, b, klon, klev)
+  integer, intent(inout) :: a(klon, klev+1), b(klon+1, klev)
+  integer, intent(in) :: klon, klev
+  integer :: jk, jl, start = 15
+
+!$loki loop-fusion collapse(2)
+  do jk=1,klev+1
+    do jl=1,klon
+      a(jl, jk) = jk
+    end do
+  end do
+
+!$loki loop-fusion collapse(2) range(1:1+klev,1:klon+1)
+  do jk=start,klev
+    do jl=1,klon+1
+      b(jl, jk) = jl + jk
+    end do
+  end do
+end subroutine transform_loop_fuse_collapse_range
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
+    function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
+    assert np.all(b[..., 14:] == np.array([[jl + jk for jk in range(15, klev+1)]
+                                           for jl in range(1, klon+2)], order='F'))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 4
+    loop_fusion(routine)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.bounds.start == '1' for loop in loops)
+    assert sum([loop.bounds.stop == '1 + klev' for loop in loops]) == 1
+    assert sum([loop.bounds.stop == 'klon + 1' for loop in loops]) == 1
+    assert len(FindNodes(Conditional).visit(routine.body)) == 2
+
+    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
+
+    # Test transformation
+    klon, klev = 32, 100
+    a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
+    b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
+    fused_function(a=a, b=b, klon=klon, klev=klev)
+    assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
+    assert np.all(b[..., 14:] == np.array([[jl + jk for jk in range(15, klev+1)]
+                                           for jl in range(1, klon+2)], order='F'))
+
+    clean_test(filepath)
+    clean_test(fused_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_loop_fission_single(here, frontend):
     fcode = """
 subroutine transform_loop_fission_single(a, b, n)
