@@ -7,12 +7,13 @@ import numpy as np
 import pymbolic.primitives as pmbl
 
 from conftest import (
-    jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured, parse_expression
+    jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 )
 from loki import (
     OFP, OMNI, FP, SourceFile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType
+    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType,
+    parse_fparser_expression
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -788,10 +789,11 @@ def test_string_compare():
     ('5 + (4 + 3) - (2*1)', '5 + (4 + 3) - (2*1)'),
     ('a*(b*(c+(d+e)))', 'a*(b*(c + (d + e)))'),
 ])
-def test_parse_expression(source, ref):
+def test_parse_fparser_expression(source, ref):
     """
     Test the utility function that parses simple expressions.
     """
-    ir, _ = parse_expression(source)
+    scope = Scope()
+    ir = parse_fparser_expression(source, scope)
     assert isinstance(ir, pmbl.Expression)
     assert str(ir) == ref

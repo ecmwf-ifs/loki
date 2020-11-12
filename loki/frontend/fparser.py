@@ -27,7 +27,8 @@ from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, SymbolType, Scope
 
 
-__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast']
+__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast',
+           'parse_fparser_expression']
 
 
 @timeit(log_level=DEBUG)
@@ -69,6 +70,25 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
     _ir = cluster_comments(_ir)
 
     return _ir
+
+
+def parse_fparser_expression(source, scope):
+    """
+    Parse an expression string into an expression tree.
+
+    This exploits Fparser's internal parser structure that relies on recursively
+    matching strings against a list of node types. Usually, this would start
+    by matching against module, subroutine or program. Here, we shortcut this
+    hierarchy by directly matching against a primary expression, thus this
+    should be able to parse any syntactically correct Fortran expression.
+
+    :param str source: the expression as a string.
+    :param Scope scope: the scope to which symbol names inside the expression belong.
+
+    :return: the expression tree.
+    """
+    _ = ParserFactory().create(std='f2008')
+    return parse_fparser_ast(Fortran2003.Primary(source), source, scope=scope)
 
 
 def node_sublist(nodelist, starttype, endtype):

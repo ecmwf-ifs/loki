@@ -3,20 +3,14 @@ import contextlib
 import os
 import io
 
-from fparser.two.parser import ParserFactory
-import fparser.two.Fortran2003 as f2003
-
 from loki import (
-    SourceFile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement,
-    Scope)
+    SourceFile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement)
 from loki.build import Builder, Lib, Obj
-from loki.frontend.fparser import parse_fparser_ast
 from loki.tools import gettempdir, filehash
 
 
 __all__ = ['generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
-           'clean_preprocessing', 'stdchannel_redirected', 'stdchannel_is_captured',
-           'parse_expression']
+           'clean_preprocessing', 'stdchannel_redirected', 'stdchannel_is_captured']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -219,20 +213,3 @@ def stdchannel_is_captured(capsys):
 
     capturemanager = capsys.request.config.pluginmanager.getplugin("capturemanager")
     return capturemanager._global_capturing.out is not None
-
-
-def parse_expression(source, scope=None):
-    """
-    Parse an expression string into an expression tree.
-    """
-    scope_ = scope if scope is not None else Scope()
-
-    # Unfortunately, this is necessary if fparser has not been invoked before
-    # to instantiate the class hierarchy. Not sure if there is any way of
-    # testing if that has already been done.
-    _ = ParserFactory().create('f2008')
-
-    ir = parse_fparser_ast(f2003.Primary(source), source, scope=scope_)
-    if scope is None:
-        return ir, scope_
-    return ir

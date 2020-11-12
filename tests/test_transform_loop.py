@@ -2,8 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, parse_expression
-from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional
+from conftest import jit_compile, clean_test
+from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope
+from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import loop_fusion, loop_fission, Polyhedron
 from loki.expression import symbols as sym
 
@@ -13,39 +14,32 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('variables_scopes, lbounds_scopes, ubounds_scopes, A, b, variable_names', [
+@pytest.mark.parametrize('variables, lbounds, ubounds, A, b, variable_names', [
     # do i=0,5: do j=i,7: ...
-    ([parse_expression('i'), parse_expression('j')],
-     [parse_expression('0'), parse_expression('i')], [parse_expression('5'), parse_expression('7')],
+    (['i', 'j'], ['0', 'i'], ['5', '7'],
      [[-1, 0], [1, 0], [1, -1], [0, 1]], [0, 5, 0, 7], ['i', 'j']),
     # do i=1,n: do j=0,2*i+1: do k=a,b: ...
-    ([parse_expression('i'), parse_expression('j'), parse_expression('k')],
-     [parse_expression('1'), parse_expression('0'), parse_expression('a')],
-     [parse_expression('n'), parse_expression('2*i+1'), parse_expression('b')],
+    (['i', 'j', 'k'], ['1', '0', 'a'], ['n', '2*i+1', 'b'],
      [[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
-      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
-     ['i', 'j', 'k', 'a', 'b', 'n']),
+      [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0], ['i', 'j', 'k', 'a', 'b', 'n']),
     # do jk=1,klev: ...
-    ([parse_expression('jk')], [parse_expression('1')], [parse_expression('klev')],
-     [[-1, 0], [1, -1]], [-1, 0], ['jk', 'klev']),
+    (['jk'], ['1'], ['klev'], [[-1, 0], [1, -1]], [-1, 0], ['jk', 'klev']),
     # do JK=1,klev-1: ...
-    ([parse_expression('JK')], [parse_expression('1')], [parse_expression('klev - 1')],
-     [[-1, 0], [1, -1]], [-1, -1], ['jk', 'klev']),
+    (['JK'], ['1'], ['klev - 1'], [[-1, 0], [1, -1]], [-1, -1], ['jk', 'klev']),
     # do jk=ncldtop,klev: ...
-    ([parse_expression('jk')], [parse_expression('ncldtop')], [parse_expression('klev')],
-     [[-1, 0, 1], [1, -1, 0]], [0, 0], ['jk', 'klev', 'ncldtop']),
+    (['jk'], ['ncldtop'], ['klev'], [[-1, 0, 1], [1, -1, 0]], [0, 0], ['jk', 'klev', 'ncldtop']),
     # do jk=1,KLEV+1: ...
-    ([parse_expression('jk')], [parse_expression('1')], [parse_expression('KLEV+1')],
-     [[-1, 0], [1, -1]], [-1, 1], ['jk', 'klev']),
+    (['jk'], ['1'], ['KLEV+1'], [[-1, 0], [1, -1]], [-1, 1], ['jk', 'klev']),
 ])
-def test_polyhedron_from_loop_ranges(variables_scopes, lbounds_scopes, ubounds_scopes, A, b, variable_names):
+def test_polyhedron_from_loop_ranges(variables, lbounds, ubounds, A, b, variable_names):
     """
     Test converting loop ranges to polyedron representation of iteration space.
     """
-    loop_variables, _ = zip(*variables_scopes)
-    lbounds, _ = zip(*lbounds_scopes)
-    ubounds, _ = zip(*ubounds_scopes)
-    loop_ranges = [sym.LoopRange((l, u)) for l, u in zip(lbounds, ubounds)]
+    scope = Scope()
+    loop_variables = [parse_fparser_expression(expr, scope) for expr in variables]
+    loop_lbounds = [parse_fparser_expression(expr, scope) for expr in lbounds]
+    loop_ubounds = [parse_fparser_expression(expr, scope) for expr in ubounds]
+    loop_ranges = [sym.LoopRange((l, u)) for l, u in zip(loop_lbounds, loop_ubounds)]
     p = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
     assert np.all(p.A == np.array(A, dtype=np.dtype(int)))
     assert np.all(p.b == np.array(b, dtype=np.dtype(int)))
@@ -57,15 +51,16 @@ def test_polyhedron_from_loop_ranges_failures():
     Test known limitation of the conversion from loop ranges to polyhedron.
     """
     # m*n is non-affine and thus can't be represented
-    loop_variable, _ = parse_expression('i')
-    lower_bound, _ = parse_expression('1')
-    upper_bound, _ = parse_expression('m * n')
+    scope = Scope()
+    loop_variable = parse_fparser_expression('i', scope)
+    lower_bound = parse_fparser_expression('1', scope)
+    upper_bound = parse_fparser_expression('m * n', scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
 
     # no functionality to flatten exponentials, yet
-    upper_bound, _ = parse_expression('5**2')
+    upper_bound = parse_fparser_expression('5**2', scope)
     loop_range = sym.LoopRange((lower_bound, upper_bound))
     with pytest.raises(ValueError):
         _ = Polyhedron.from_loop_ranges([loop_variable], [loop_range])
@@ -89,8 +84,8 @@ def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
     """
     Test the production of lower and upper bounds.
     """
-    var, scope = parse_expression(variable_names[0])
-    variables = [var] + [parse_expression(v, scope) for v in variable_names[1:]]
+    scope = Scope()
+    variables = [parse_fparser_expression(v, scope) for v in variable_names]
     p = Polyhedron(A, b, variables)
     for var, ref_bounds in zip(variables, lower_bounds):
         lbounds = p.lower_bounds(var)
