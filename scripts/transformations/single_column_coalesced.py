@@ -1,6 +1,7 @@
 from loki import (
-    Transformation, FindNodes, Transformer, CallStatement, Loop,
-    Variable, LoopRange, SymbolAttributes, Pragma,BasicType,
+    Transformation, FindNodes, FindVariables, Transformer,
+    SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
+    Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached
 )
 
@@ -103,6 +104,10 @@ class SingleColumnCoalescedTransformation(Transformation):
         if v_index not in routine.arguments:
             routine.arguments += as_tuple(v_index)
 
+
+        # Demote all local variables
+        self.demote_locals(routine)
+
         if self.directive == 'openacc':
 
             with pragmas_attached(routine, Loop):
@@ -162,3 +167,37 @@ class SingleColumnCoalescedTransformation(Transformation):
                 # Replace the call with a parallel loop over the iteration dimemsion
                 call_map[call] = parallel_loop
         routine.body = Transformer(call_map).visit(routine.body)
+
+    def demote_locals(self, routine):
+        """
+        Demotes all local variables (not in routine.arguments).
+        """
+
+        # Establish the new dimensions and shapes first, before cloning the variables
+        # The reason for this is that shapes of all variable instances are linked
+        # via caching, meaning we can easily void the shape of an unprocessed variable.
+        variables = list(routine.variables)
+        variables += list(FindVariables(unique=False).visit(routine.body))
+
+        # Filter out purely local array variables
+        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+        variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
+        variables = [v for v in variables if not v.name in argument_map]
+        # Record original array shapes
+        shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
+
+        # Demote local variables
+        vmap = {}
+        for v in variables:
+            old_shape = shape_map[v.name]
+            new_shape = as_tuple(s for s in old_shape if s not in self.horizontal.size_expressions)
+
+            if old_shape and old_shape[0] in self.horizontal.size_expressions:
+                new_type = v.type.clone(shape=new_shape)
+                if len(old_shape) > 1:
+                    vmap[v] = v.clone(dimensions=v.dimensions[1:], type=new_type)
+                else:
+                    vmap[v] = Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
+
+        routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
