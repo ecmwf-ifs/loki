@@ -59,6 +59,11 @@ cloudsc_config = {
             'index': 'JL',
             'bounds': ('KIDIA', 'KFDIA'),
             'aliases': ['NPROMA', 'KDIM%KLON'],
+        },
+        {
+            'name': 'vertical',
+            'size': 'KLEV',
+            'index': 'JK',
         }
     ]
 }
@@ -229,8 +234,9 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
 
     if mode == 'scc':
         horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
         transformation = SingleColumnCoalescedTransformation(
-            horizontal=horizontal, directive='openacc'
+            horizontal=horizontal, vertical=vertical, directive='openacc'
         )
 
     if transformation:

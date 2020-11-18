@@ -42,15 +42,19 @@ class SingleColumnCoalescedTransformation(Transformation):
     Parameters
     ----------
     horizontal : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions used in existing
-        code to define the horizontal data dimension and iteration space.
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the horizontal data dimension and iteration space.
+    vertical : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the vertical dimension, as needed to decide array privatization.
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive=None):
+    def __init__(self, horizontal, vertical=None, directive=None):
         self.horizontal = horizontal
+        self.vertical = vertical
 
         assert directive in [None, 'openacc']
         self.directive = directive
@@ -105,8 +109,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             routine.arguments += as_tuple(v_index)
 
 
-        # Demote all local variables
-        self.demote_locals(routine)
+        # Demote all private local variables
+        self.demote_private_locals(routine)
 
         if self.directive == 'openacc':
 
@@ -168,9 +172,22 @@ class SingleColumnCoalescedTransformation(Transformation):
                 call_map[call] = parallel_loop
         routine.body = Transformer(call_map).visit(routine.body)
 
-    def demote_locals(self, routine):
+    def demote_private_locals(self, routine):
         """
-        Demotes all local variables (not in routine.arguments).
+        Demotes all local variables that can be privatized at the `acc loop vector`
+        level.
+
+        We assumet that array variables that do not include the
+        vertical dimensions can be privatized without requiring shared
+        GPU memory. Array variables that include the vertical
+        dimensions, which has an unknown sequential iteration and data
+        space at compiler time, cannot be privatized at the vector
+        loop level and should therefore not be demoted here.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
         """
 
         # Establish the new dimensions and shapes first, before cloning the variables
@@ -181,12 +198,18 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Filter out purely local array variables
         argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        variables = [v for v in variables if isinstance(v, Array) and v.shape is not None]
         variables = [v for v in variables if not v.name in argument_map]
+        variables = [v for v in variables if isinstance(v, Array)]
+
+        # Find all arrays with shapes that do not include the vertical
+        # dimension and can thus be privatized.
+        variables = [v for v in variables if v.shape is not None]
+        variables = [v for v in variables if not any(self.vertical.size in d for d in v.shape)]
+
         # Record original array shapes
         shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
 
-        # Demote local variables
+        # Demote private local variables
         vmap = {}
         for v in variables:
             old_shape = shape_map[v.name]
