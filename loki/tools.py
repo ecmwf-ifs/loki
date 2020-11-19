@@ -16,7 +16,7 @@ from loki.logging import log, info, INFO
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
            'filehash', 'truncate_string', 'JoinableStringList', 'CaseInsensitiveDict',
-           'strip_inline_comments', 'find_files']
+           'strip_inline_comments', 'find_files', 'is_loki_pragma', 'get_pragma_parameters']
 
 
 def as_tuple(item, type=None, length=None):
@@ -455,3 +455,33 @@ def strip_inline_comments(source, comment_char='!', str_delim='"\''):
             open_str_delim = update_str_delim(open_str_delim, line[end:])
 
     return '\n'.join(clean_lines)
+
+
+def is_loki_pragma(pragma, starts_with=None):
+    """
+    Checks for a pragma annotation and, if it exists, for the `loki` keyword.
+    Optionally, the pragma content is tested for a specific start.
+    """
+    if pragma is None:
+        return False
+    if not pragma.keyword == 'loki':
+        return False
+    if starts_with is not None and not (pragma.content and pragma.content.startswith(starts_with)):
+        return False
+    return True
+
+
+_get_pragma_parameters_re = re.compile(r'(?P<command>\w+)(?:\((?P<arg>.+?)\))?')
+
+def get_pragma_parameters(pragma, starts_with=None):
+    """
+    Parse the pragma content for parameters in the form `<command>[(<arg>)]` and
+    return them as a map {<command>: <arg> or None}`.
+
+    Optionally, skip the given keyword at the beginning if it is found.
+    """
+    content = pragma.content or ''
+    if starts_with is not None and content.startswith(starts_with):
+        content = content[len(starts_with):]
+    return {match.group('command'): match.group('arg')
+            for match in re.finditer(_get_pragma_parameters_re, content)}

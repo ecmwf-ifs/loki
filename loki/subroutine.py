@@ -13,7 +13,7 @@ from loki.ir import (
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, is_loki_pragma
 from loki.types import Scope, ProcedureType
 
 
@@ -401,10 +401,7 @@ class Subroutine:
         for call in FindNodes(CallStatement).visit(self.body):
             if call.name.upper() in routine_map:
                 # Calls marked as 'reference' are inactive and thus skipped
-                active = True
-                if call.pragma is not None and call.pragma.keyword == 'loki':
-                    active = not call.pragma.content.startswith('reference')
-
+                active = not is_loki_pragma(call.pragma, starts_with='reference')
                 context = CallContext(routine=routine_map[call.name.upper()],
                                       active=active)
                 call._update(context=context)
