@@ -3,9 +3,9 @@ A selection of tests for symbolic computations using expression tree nodes.
 """
 import operator as op
 import pytest
-from conftest import parse_expression
 
 import pymbolic.primitives as pmbl
+from loki import parse_fparser_expression, Scope
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
 
 
@@ -89,8 +89,9 @@ def test_symbolic_op(a, _op, b, ref):
     """
     Test correct evaluation of operators on expressions.
     """
-    expr_a, scope = parse_expression(a)
-    expr_b = parse_expression(b, scope)
+    scope = Scope()
+    expr_a = parse_fparser_expression(a, scope)
+    expr_b = parse_fparser_expression(b, scope)
     ret = symbolic_op(expr_a, _op, expr_b)
     if isinstance(ret, pmbl.Expression):
         assert simplify(ret) == ref
@@ -117,7 +118,8 @@ def test_symbolic_op(a, _op, b, ref):
     ('a * (b + c/d) * e', 'a*b*e + (a*c*e) / d'),
 ])
 def test_simplify_flattened(source, ref):
-    expr, _ = parse_expression(source)
+    scope = Scope()
+    expr = parse_fparser_expression(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.Flatten)
     assert str(expr) == ref
 
@@ -144,7 +146,8 @@ def test_simplify_flattened(source, ref):
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '8*a - 4*a + 2*a')
 ])
 def test_simplify_integer_arithmetic(source, ref):
-    expr, _ = parse_expression(source)
+    scope = Scope()
+    expr = parse_fparser_expression(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
     assert str(expr) == ref
 
@@ -165,7 +168,8 @@ def test_simplify_integer_arithmetic(source, ref):
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '8*a - (8*a) / 2 + (6 / 3)*a')
 ])
 def test_simplify_collect_coefficients(source, ref):
-    expr, _ = parse_expression(source)
+    scope = Scope()
+    expr = parse_fparser_expression(source, scope)
     expr = simplify(expr, enabled_simplifications=Simplification.CollectCoefficients)
     assert str(expr) == ref
 
@@ -187,6 +191,7 @@ def test_simplify_collect_coefficients(source, ref):
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '6*a')
 ])
 def test_simplify(source,ref):
-    expr, _ = parse_expression(source)
+    scope = Scope()
+    expr = parse_fparser_expression(source, scope)
     expr = simplify(expr)
     assert str(expr) == ref
