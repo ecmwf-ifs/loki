@@ -114,7 +114,7 @@ def test_get_pragma_parameters(content, starts_with, ref):
     Test correct extraction of Loki pragma parameters.
     """
     pragma = Pragma('loki', content)
-    if starts_with is not None:
-        assert get_pragma_parameters(pragma, starts_with=starts_with) == ref
+    if starts_with is None:
+        assert get_pragma_parameters(pragma) == ref
     else:
         assert get_pragma_parameters(pragma, starts_with=starts_with) == ref

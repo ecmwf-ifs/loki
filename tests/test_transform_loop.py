@@ -24,7 +24,7 @@ def fixture_here():
      [parse_expression('n'), parse_expression('2*i+1'), parse_expression('b')],
      [[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
       [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
-      ['i', 'j', 'k', 'a', 'b', 'n']),
+     ['i', 'j', 'k', 'a', 'b', 'n']),
     # do jk=1,klev: ...
     ([parse_expression('jk')], [parse_expression('1')], [parse_expression('klev')],
      [[-1, 0], [1, -1]], [-1, 0], ['jk', 'klev']),
@@ -81,9 +81,9 @@ def test_polyhedron_from_loop_ranges_failures():
     # do i=1,n: do j=0,2*i+1: do k=a,b: ...
     ([[-1, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, -1], [0, -1, 0, 0, 0, 0], [-2, 1, 0, 0, 0, 0],
       [0, 0, -1, 1, 0, 0], [0, 0, 1, 0, -1, 0]], [-1, 0, 0, 1, 0, 0],
-      ['i', 'j', 'k', 'a', 'b', 'n'],                               # variable names
-      [['1', '-1 / 2 + j / 2'], ['0'], ['a'], [], ['k'], ['i']],    # lower bounds
-      [['n'], ['1 + 2*i'], ['b'], ['k'], [], []]),                  # upper bounds
+     ['i', 'j', 'k', 'a', 'b', 'n'],                               # variable names
+     [['1', '-1 / 2 + j / 2'], ['0'], ['a'], [], ['k'], ['i']],    # lower bounds
+     [['n'], ['1 + 2*i'], ['b'], ['k'], [], []]),                  # upper bounds
 ])
 def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
     """
@@ -396,7 +396,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev,), dtype=np.int32)
     function(a=a, b=b, klev=klev, nclv=nclv)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
 
     # Apply transformation
@@ -417,7 +417,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev,), dtype=np.int32)
     fused_function(a=a, b=b, klev=klev, nclv=nclv)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
 
     clean_test(filepath)
@@ -452,7 +452,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev,), dtype=np.int32)
     function(a=a, b=b, klev=klev, nclv=nclv)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
 
     # Apply transformation
@@ -473,7 +473,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev,), dtype=np.int32)
     fused_function(a=a, b=b, klev=klev, nclv=nclv)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b[nclv:klev+1] == range(1, klev-nclv+1))
 
     clean_test(filepath)
@@ -508,7 +508,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev+1,), dtype=np.int32)
     function(a=a, b=b, klev=klev)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b == np.array(list(range(1, klev+2))) * 2)
 
     # Apply transformation
@@ -529,7 +529,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     a = np.zeros(shape=(klev,), dtype=np.int32)
     b = np.zeros(shape=(klev+1,), dtype=np.int32)
     fused_function(a=a, b=b, klev=klev)
-    assert np.all(a == range(1,klev+1))
+    assert np.all(a == range(1, klev+1))
     assert np.all(b == np.array(list(range(1, klev+2))) * 2)
 
     clean_test(filepath)
