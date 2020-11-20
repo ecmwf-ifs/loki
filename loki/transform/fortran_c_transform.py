@@ -262,14 +262,13 @@ class FortranCTransformation(Transformation):
         intf_spec.append(Intrinsic(text='implicit none'))
         intf_spec.append(c_structs.values())
         intf_routine = Subroutine(name=intf_name, spec=intf_spec, body=None,
-                                  args=(), scope=scope, bind=bind_name)
+                                  args=(), parent_scope=scope, bind=bind_name)
 
         # Generate variables and types for argument declarations
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 struct_name = c_structs[arg.type.dtype.name.lower()].name
-                ctype = SymbolType(DerivedType(name=struct_name), shape=arg.type.shape,
-                                   name=struct_name)
+                ctype = SymbolType(DerivedType(name=struct_name), shape=arg.type.shape)
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
