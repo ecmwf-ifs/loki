@@ -129,6 +129,9 @@ class DerivedType:
     def variable_map(self):
         return OrderedDict([(v.basename, v) for v in self.variables])
 
+    def __str__(self):
+        return self.name
+
 
 class ProcedureType:
     """
@@ -149,14 +152,16 @@ class ProcedureType:
     def parameters(self):
         if self.procedure is BasicType.DEFERRED:
             return tuple()
-        else:
-            return self.procedure.arguments
+        return self.procedure.arguments
 
     @property
     def is_function(self):
         if self.procedure is BasicType.DEFERRED:
             return self._is_function
         return self.procedure.is_function
+
+    def __str__(self):
+        return self.name
 
 
 class SymbolType:

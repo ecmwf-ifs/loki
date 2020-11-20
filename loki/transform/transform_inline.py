@@ -4,10 +4,9 @@ Collection of utility routines to perform code-level force-inlining.
 
 """
 from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls, SubstituteExpressions,
-    LokiIdentityMapper
+    FindVariables, FindInlineCalls, SubstituteExpressions, LokiIdentityMapper
 )
-from loki.ir import Declaration, Import, Comment, Assignment
+from loki.ir import Import, Comment, Assignment
 from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 
@@ -69,7 +68,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
 
 def inline_constant_parameters(routine, external_only=True):
     """
-    Replace instances of variables with knwon constant values by `Literals`.
+    Replace instances of variables with known constant values by `Literals`.
 
     :param external_only: Do not replace variables declared in the local scope
 
@@ -77,6 +76,9 @@ def inline_constant_parameters(routine, external_only=True):
     which means for symbols imported from external modules, the parent `Module`
     needs to be supplied in the `definitions` to the constructor when creating
     :param routine:.
+
+    Variables that are replaced are also removed from their corresponding import
+    statements, with empty import statements being removed alltogether.
     """
     # Find all variable instances in spec and body
     variables = [v for v in FindVariables().visit(routine.spec)]
@@ -86,9 +88,20 @@ def inline_constant_parameters(routine, external_only=True):
     if external_only:
         variables = [v for v in variables if v not in routine.variables]
 
-    # Create mapping and flush through spec and body
+    # Create mapping for variables and imports
     vmap = {v: v.type.initial for v in variables
             if v.type.parameter and v.type.initial}
+    imprtmap = {}
+    for imprt in FindNodes(Import).visit(routine.spec):
+        if imprt.symbols:
+            symbols = tuple(s for s in imprt.symbols if s not in vmap)
+            if not symbols:
+                imprtmap[imprt] = Comment('! Loki: parameters from {} inlined'.format(imprt.module))
+            elif len(symbols) < len(imprt.symbols):
+                imprtmap[imprt] = imprt.clone(symbols=symbols)
+
+    # Flush mappings through spec and body
+    routine.spec = Transformer(imprtmap).visit(routine.spec)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 

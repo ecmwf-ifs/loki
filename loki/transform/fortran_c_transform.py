@@ -7,7 +7,7 @@ from loki.transform.transform_array_indexing import (
     resolve_vector_notation, normalize_range_indexing
 )
 from loki.transform.transform_utilities import (
-    convert_to_lower_case, replace_intrinsics, resolve_associates
+    convert_to_lower_case, replace_intrinsics, resolve_associates, sanitise_imports
 )
 from loki.transform.transform_inline import (
     inline_constant_parameters, inline_elemental_functions
@@ -173,6 +173,10 @@ class FortranCTransformation(Transformation):
         # Copy internal argument and declaration definitions
         wrapper.variables = routine.arguments + tuple(v for _, v in local_arg_map.items())
         wrapper.arguments = routine.arguments
+
+        # Remove any unused imports
+        sanitise_imports(wrapper)
+
         return wrapper
 
     @classmethod
@@ -234,12 +238,16 @@ class FortranCTransformation(Transformation):
                                    scope=intf_fct.scope)
                     intf_args += (var,)
                 intf_fct.arguments = intf_args
-
+                sanitise_imports(intf_fct)
                 intfs.append(intf_fct)
         spec.append(Interface(body=(intfs,)))
 
+        # Create the module and remove any unused imports
         modname = '{}_fc'.format(module.name)
-        return Module(name=modname, spec=spec, routines=wrappers, scope=module_scope)
+        wrapper_module = Module(name=modname, spec=spec, routines=wrappers, scope=module_scope)
+        sanitise_imports(wrapper_module)
+
+        return wrapper_module
 
     @classmethod
     def generate_iso_c_interface(cls, routine, bind_name, c_structs, scope):
@@ -273,6 +281,8 @@ class FortranCTransformation(Transformation):
                            scope=intf_routine.scope)
             intf_routine.variables += (var,)
             intf_routine.arguments += (var,)
+
+        sanitise_imports(intf_routine)
 
         return Interface(body=(intf_routine, ))
 
@@ -374,7 +384,7 @@ class FortranCTransformation(Transformation):
 
             elif not im.c_import and im.symbols:
                 # Create a C-header import for any converted modules
-                import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True)
+                import_map[im] = im.clone(module='%s_c.h' % im.module.lower(), c_import=True, symbols=None)
 
             else:
                 # Remove other imports, as they might include untreated Fortran code
@@ -418,5 +428,8 @@ class FortranCTransformation(Transformation):
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
                         'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
+
+        # Remove redundant imports
+        sanitise_imports(kernel)
 
         return kernel
