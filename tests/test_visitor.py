@@ -337,6 +337,42 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_find_variables_associates(frontend):
+    """
+    Test correct discovery of variables in associates.
+    """
+    fcode = """
+subroutine find_variables_associates (x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i, j
+
+  do i=1, x
+    associate (v => vector(i), m => matrix(i, :))
+      vector(i) = vector(i) + scalar
+      do j=1, y
+        if (j > i) then
+          m(j) = real(i * j, kind=jprb) + 1.
+        else
+          matrix(i, j) = i * vector(j)
+        end if
+      end do
+    end associate
+  end do
+end subroutine find_variables_associates
+"""
+    # Test the internals of the subroutine
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    variables = FindVariables(unique=False).visit(routine.body)
+    assert len(variables) == 27
+    assert len([v for v in variables if v.name == 'v']) == 1
+    assert len([v for v in variables if v.name == 'm']) == 2
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_stringifier(frontend):
     """
     Test basic stringifier capability for most IR nodes.

@@ -407,11 +407,19 @@ class Associate(Section):
     eg. variable associations.
     """
 
+    _traversable = ['body', 'associations']
+
     def __init__(self, body=None, associations=None, **kwargs):
         super().__init__(body=body, **kwargs)
 
+        if isinstance(associations, tuple):
+            associations = OrderedDict(associations)
         assert isinstance(associations, (dict, OrderedDict)) or associations is None
         self.associations = associations
+
+    @property
+    def children(self):
+        return tuple((self.body,) + (tuple(self.associations.items()),))
 
     def __repr__(self):
         if self.associations:
@@ -668,6 +676,7 @@ class TypeDef(Node):
         self.body = as_tuple(body)
         self.bind_c = bind_c
         self._scope = Scope() if scope is None else scope
+        self.scope.defined_by = self
 
     @property
     def scope(self):
