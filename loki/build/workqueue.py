@@ -3,8 +3,8 @@ from multiprocessing import Manager
 from logging.handlers import QueueListener, QueueHandler
 from concurrent.futures import ProcessPoolExecutor
 
+from loki.logging import default_logger, DEBUG
 from loki.build.tools import execute
-from loki.build.logging import default_logger, DEBUG
 
 
 __all__ = ['workqueue', 'wait_and_check', 'MEMORY_URL', 'DEFAULT_TIMEOUT']

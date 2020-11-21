@@ -25,3 +25,12 @@ try:
 except DistributionNotFound:
     # package is not installed
     pass
+
+
+# Define Loki's global config options
+config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
+                callback=set_log_level, preprocess=lambda i: log_levels[i])
+
+# Trigger configuration initialisation, including
+# a scan of the current environment variables
+config.initialize()

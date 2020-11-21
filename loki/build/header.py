@@ -2,8 +2,8 @@ import re
 from pathlib import Path
 from cached_property import cached_property
 
+from loki.logging import debug
 from loki.build.tools import cached_func
-from loki.build.logging import debug
 
 
 __all__ = ['Header']
