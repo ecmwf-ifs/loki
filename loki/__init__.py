@@ -31,6 +31,11 @@ except DistributionNotFound:
 config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
                 callback=set_log_level, preprocess=lambda i: log_levels[i])
 
+# Disk-caching, which causes OFP ASTs to be cached on disk for
+# fast re-parsing of unchanged source files
+config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
 # Trigger configuration initialisation, including
 # a scan of the current environment variables
 config.initialize()
