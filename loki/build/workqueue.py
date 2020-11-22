@@ -3,7 +3,7 @@ from multiprocessing import Manager
 from logging.handlers import QueueListener, QueueHandler
 from concurrent.futures import ProcessPoolExecutor
 
-from loki.logging import default_logger, DEBUG
+from loki.logging import default_logger
 from loki.build.tools import execute
 
 
@@ -44,9 +44,12 @@ def init_worker(log_queue=None):
     the queue-based logging, etc.
     """
     if log_queue is not None:
+        from loki import config  # pylint: disable=import-outside-toplevel
+        log_level = config['log-level']
+
         # Set up logger to funnel logs back to master via ``log_queue``
         qh = QueueHandler(log_queue)
-        qh.setLevel(DEBUG)
+        qh.setLevel(log_level)
 
         # Wipe all local handlers, since we dispatch to the master.
         # We also drop the logging level, so that the master may
@@ -54,7 +57,7 @@ def init_worker(log_queue=None):
         for handler in default_logger.handlers:
             default_logger.removeHandler(handler)
         default_logger.addHandler(qh)
-        default_logger.setLevel(DEBUG)
+        default_logger.setLevel(log_level)
 
 
 def init_call(fn, *args, **kwargs):
