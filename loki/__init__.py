@@ -26,6 +26,9 @@ except DistributionNotFound:
     # package is not installed
     pass
 
+# Add flag to trigger an initial print out of the global config
+config.register('print-config', False, env_variable='LOKI_PRINT_CONFIG',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
 # Define Loki's global config options
 config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
@@ -39,3 +42,6 @@ config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',
 # Trigger configuration initialisation, including
 # a scan of the current environment variables
 config.initialize()
+
+if config['print-config']:
+    config.print_state()

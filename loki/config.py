@@ -63,6 +63,15 @@ class Configuration(OrderedDict):
         self._preprocess_functions[key] = preprocess
         self._callback_functions[key] = callback
 
+    def print_state(self):
+        """
+        Print the current configuration state.
+        """
+        from loki.logging import info  # pylint: disable=import-outside-toplevel
+        info("[Loki] global config:")
+        for k, v in self.items():
+            info('  %s: %s' % (k, v))
+
     def _updated(self, key, value):
         # Execute callback function for ``key``
         if self._callback_functions[key]:
