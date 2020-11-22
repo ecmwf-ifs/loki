@@ -65,7 +65,7 @@ def init_call(fn, *args, **kwargs):
     initialization mechanism is only added to :class:`ProcessPoolExecutor`
     in Python3.7, which (at the time of writing) is not out or mature yet.
     """
-    global _initialized
+    global _initialized  # pylint: disable=global-statement
     log_queue = kwargs.pop('log_queue', None)
     if not _initialized:
         init_worker(log_queue=log_queue)

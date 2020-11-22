@@ -51,6 +51,9 @@ class Builder:
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
 
+    def get_item(self, key):
+        return self[key]
+
     @staticmethod
     def get_dependency_graph(objs, depgen=None):
         """
@@ -116,7 +119,7 @@ class Builder:
             for f in path.glob(r):
                 delete(f)
 
-    def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):
+    def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):  # pylint: disable=unused-argument
         item = self.get_item(filename)
         self.logger.info("Building %s", item)
 
