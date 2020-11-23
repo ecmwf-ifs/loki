@@ -34,6 +34,10 @@ config.register('print-config', False, env_variable='LOKI_PRINT_CONFIG',
 config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
                 callback=set_log_level, preprocess=lambda i: log_levels[i])
 
+# Causes OMNI frontend to dump intermediate XML files to LOKI_TMP_DIR
+config.register('omni-dump-xml', False, env_variable='LOKI_OMNI_DUMP_XML',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
 # Disk-caching, which causes OFP ASTs to be cached on disk for
 # fast re-parsing of unchanged source files
 config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',

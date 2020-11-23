@@ -1,4 +1,3 @@
-from subprocess import check_output, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
@@ -13,6 +12,7 @@ import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
+from loki.config import config
 from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
@@ -34,6 +34,7 @@ def preprocess_omni(filename, outname, includes=None):
         cmd += ['-I', '%s' % Path(incl)]
     cmd += ['-o', '%s' % outpath]
     cmd += ['%s' % filepath]
+
     execute(cmd)
 
 
@@ -41,7 +42,12 @@ def preprocess_omni(filename, outname, includes=None):
 def parse_omni_file(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
+
+    Note that the intermediate XML files can be dumped to file via by setting
+    the environment variable ``LOKI_OMNI_DUMP_XML``.
     """
+    dump_xml_files = config['omni-dump-xml']
+
     filepath = Path(filename)
     info("[Frontend.OMNI] Parsing %s" % filepath)
 
@@ -51,11 +57,16 @@ def parse_omni_file(filename, xmods=None):
     cmd = ['F_Front', '-fleave-comment']
     for m in xmods:
         cmd += ['-M', '%s' % Path(m)]
-    cmd += ['-o', '%s' % xml_path]
     cmd += ['%s' % filepath]
-    execute(cmd)
 
-    return ET.parse(str(xml_path)).getroot()
+    if dump_xml_files:
+        # Parse AST from xml file dumped to disk
+        cmd += ['-o', '%s' % xml_path]
+        execute(cmd)
+        return ET.parse(str(xml_path)).getroot()
+
+    result = execute(cmd, silent=False, capture_output=True, text=True)
+    return ET.fromstring(result.stdout)
 
 
 @timeit(log_level=DEBUG)

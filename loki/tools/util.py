@@ -103,24 +103,23 @@ def timeit(log_level=INFO, argname=None):
     return decorator
 
 
-def execute(command, **kwargs):
+def execute(command, silent=True, **kwargs):
     """
     Execute a single command within a given director or envrionment.
 
     Parameters:
     ===========
     ``command``: String or list of strings with the command to execute
+    ``silent``: Silences output by redirecting stdout/stderr (default: ``True``)
     ``cwd`` Directory in which to execute command (will be stringified)
-
-    Note that this currently silences stdin/stdout, but passes any
-    additinal ``**kwargs`` onto ``subprocess.run(...)``.
     """
 
     cwd = kwargs.pop('cwd', None)
     cwd = cwd if cwd is None else str(cwd)
 
-    stdout = kwargs.pop('stdout', PIPE)
-    stderr = kwargs.pop('stderr', STDOUT)
+    if silent:
+        kwargs['stdout'] = kwargs.pop('stdout', PIPE)
+        kwargs['stderr'] = kwargs.pop('stderr', STDOUT)
 
     # Some string mangling to support lists and strings
     if isinstance(command, list):
@@ -130,7 +129,7 @@ def execute(command, **kwargs):
 
     debug('[Loki] Executing: %s', ' '.join(command))
     try:
-        return run(command, check=True, stdout=stdout, stderr=stderr, cwd=cwd, **kwargs)
+        return run(command, check=True, cwd=cwd, **kwargs)
     except CalledProcessError as e:
         error('Execution failed with:')
         error(e.output.decode("utf-8"))
