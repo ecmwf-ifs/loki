@@ -4,14 +4,13 @@ Fortran source code file.
 """
 import pickle
 from pathlib import Path
-from collections import OrderedDict
 from fparser.two import Fortran2003
 
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, blacklist, read_file, Source
+from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
@@ -115,7 +114,7 @@ class SourceFile:
                 pp_path = Path(builddir)/pp_path.name
                 info_path = Path(builddir)/info_path.name
 
-            cls.preprocess(OFP, file_path, pp_path, info_path)
+            preprocess_internal(OFP, file_path, pp_path, info_path)
             file_path = pp_path
 
         # Import and store the raw file content
@@ -165,7 +164,7 @@ class SourceFile:
                 pp_path = Path(builddir)/pp_path.name
                 info_path = Path(builddir)/info_path.name
 
-            cls.preprocess(FP, file_path, pp_path, info_path)
+            preprocess_internal(FP, file_path, pp_path, info_path)
             file_path = pp_path
 
         # Import and store the raw file content
@@ -218,45 +217,6 @@ class SourceFile:
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
-
-    @classmethod
-    def preprocess(cls, frontend, file_path, pp_path, info_path):
-        """
-        A dedicated pre-processing step to ensure smooth source parsing.
-        """
-        # Check for previous preprocessing of this file
-        if pp_path.exists() and info_path.exists():
-            # Make sure the existing PP data belongs to this file
-            if pp_path.stat().st_mtime > file_path.stat().st_mtime:
-                with info_path.open('rb') as f:
-                    pp_info = pickle.load(f)
-                    if pp_info.get('original_file_path') == str(file_path):
-                        # Already pre-processed this one, skip!
-                        return
-
-        info("Pre-processing %s => %s" % (file_path, pp_path))
-        source = read_file(file_path)
-
-        # Apply preprocessing rules and store meta-information
-        pp_info = OrderedDict()
-        pp_info['original_file_path'] = str(file_path)
-        for name, rule in blacklist[frontend].items():
-            # Apply rule filter over source file
-            rule.reset()
-            new_source = ''
-            for ll, line in enumerate(source.splitlines(keepends=True)):
-                ll += 1  # Correct for Fortran counting
-                new_source += rule.filter(line, lineno=ll)
-
-            # Store met-information from rule
-            pp_info[name] = rule.info
-            source = new_source
-
-        with pp_path.open('w') as f:
-            f.write(source)
-
-        with info_path.open('wb') as f:
-            pickle.dump(pp_info, f)
 
     @property
     def source(self):

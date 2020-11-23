@@ -1,12 +1,58 @@
 import re
-from collections import defaultdict
+import pickle
+from collections import defaultdict, OrderedDict
 
+from loki.logging import info
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
-from loki.frontend.util import OMNI, OFP, FP
+from loki.frontend.util import OMNI, OFP, FP, read_file
 
 
-__all__ = ['blacklist', 'PPRule']
+__all__ = ['preprocess_internal', 'preprocess_registry', 'PPRule']
+
+
+def preprocess_internal(frontend, file_path, pp_path, info_path):
+    """
+    Apply internal preprocessing rules to filter out known frontend
+    incompatibilities.
+
+    See below in the ``preprocess_registry`` for pre-defined rules
+    for each frontend.
+    """
+    # Check for previous preprocessing of this file
+    if pp_path.exists() and info_path.exists():
+        # Make sure the existing PP data belongs to this file
+        if pp_path.stat().st_mtime > file_path.stat().st_mtime:
+            with info_path.open('rb') as f:
+                pp_info = pickle.load(f)
+                if pp_info.get('original_file_path') == str(file_path):
+                    # Already pre-processed this one, skip!
+                    return
+
+    info("Pre-processing %s => %s" % (file_path, pp_path))
+    source = read_file(file_path)
+
+    # Apply preprocessing rules and store meta-information
+    pp_info = OrderedDict()
+    pp_info['original_file_path'] = str(file_path)
+    for name, rule in preprocess_registry[frontend].items():
+        # Apply rule filter over source file
+        rule.reset()
+        new_source = ''
+        for ll, line in enumerate(source.splitlines(keepends=True)):
+            ll += 1  # Correct for Fortran counting
+            new_source += rule.filter(line, lineno=ll)
+
+        # Store met-information from rule
+        pp_info[name] = rule.info
+        source = new_source
+
+    with pp_path.open('w') as f:
+        f.write(source)
+
+    with info_path.open('wb') as f:
+        pickle.dump(pp_info, f)
+
 
 
 def reinsert_contiguous(ir, pp_info):
@@ -110,7 +156,7 @@ class PPRule:
 """
 A black list of Fortran features that cause bugs and failures in frontends.
 """
-blacklist = {
+preprocess_registry = {
     OMNI: {},
     OFP: {
         # Remove various IBM directives
