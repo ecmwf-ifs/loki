@@ -3,6 +3,7 @@ import pickle
 from collections import defaultdict, OrderedDict
 
 from loki.logging import info
+from loki.tools import gettempdir
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP, read_file
@@ -11,7 +12,7 @@ from loki.frontend.util import OMNI, OFP, FP, read_file
 __all__ = ['preprocess_internal', 'preprocess_registry', 'PPRule']
 
 
-def preprocess_internal(frontend, file_path, pp_path, info_path):
+def preprocess_internal(frontend, filepath):
     """
     Apply internal preprocessing rules to filter out known frontend
     incompatibilities.
@@ -19,22 +20,33 @@ def preprocess_internal(frontend, file_path, pp_path, info_path):
     See below in the ``preprocess_registry`` for pre-defined rules
     for each frontend.
     """
+    tmpdir = gettempdir()
+    pp_path = filepath.with_suffix('.{}{}'.format(str(frontend), filepath.suffix))
+    pp_path = tmpdir/pp_path.name
+    info_path = filepath.with_suffix('.{}.info'.format(str(frontend)))
+    info_path = tmpdir/info_path.name
+
     # Check for previous preprocessing of this file
     if pp_path.exists() and info_path.exists():
         # Make sure the existing PP data belongs to this file
-        if pp_path.stat().st_mtime > file_path.stat().st_mtime:
+        if pp_path.stat().st_mtime > filepath.stat().st_mtime:
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
-                if pp_info.get('original_file_path') == str(file_path):
-                    # Already pre-processed this one, skip!
-                    return
+                if pp_info.get('original_file_path') == str(filepath):
+                    # Already pre-processed this one,
+                    # return the cached info and source.
+                    with pp_path.open() as f:
+                        source = f.read()
+                    with info_path.open('rb') as f:
+                        pp_info = pickle.load(f)
+                    return source, pp_info
 
-    info("Pre-processing %s => %s" % (file_path, pp_path))
-    source = read_file(file_path)
+    info("Pre-processing %s => %s" % (filepath, pp_path))
+    source = read_file(filepath)
 
     # Apply preprocessing rules and store meta-information
     pp_info = OrderedDict()
-    pp_info['original_file_path'] = str(file_path)
+    pp_info['original_file_path'] = str(filepath)
     for name, rule in preprocess_registry[frontend].items():
         # Apply rule filter over source file
         rule.reset()
@@ -47,12 +59,13 @@ def preprocess_internal(frontend, file_path, pp_path, info_path):
         pp_info[name] = rule.info
         source = new_source
 
+    # Write out the preprocessed source and according info file
     with pp_path.open('w') as f:
         f.write(source)
-
     with info_path.open('wb') as f:
         pickle.dump(pp_info, f)
 
+    return source, pp_info
 
 
 def reinsert_contiguous(ir, pp_info):

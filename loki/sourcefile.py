@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source
+from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source, read_file
 from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
@@ -102,36 +102,24 @@ class SourceFile:
         Parse a given source file with the OFP frontend to instantiate
         a `SourceFile` object.
         """
-        file_path = Path(filename)
-        info_path = file_path.with_suffix('.ofp.info')
+        filepath = Path(filename)
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the OFP, as it will otherwise drop certain
         # terms due to advanced bugged-ness! :(
+        pp_info = None
         if preprocess:
-            pp_path = file_path.with_suffix('.ofp%s' % file_path.suffix)
-            if builddir is not None:
-                pp_path = Path(builddir)/pp_path.name
-                info_path = Path(builddir)/info_path.name
-
-            preprocess_internal(OFP, file_path, pp_path, info_path)
-            file_path = pp_path
-
-        # Import and store the raw file content
-        with file_path.open() as f:
-            raw_source = f.read()
+            # Preprocess using internally rules and get pp_info
+            source, pp_info = preprocess_internal(OFP, filepath)
+        else:
+            # Read the raw file content
+            source = read_file(filepath)
 
         # Parse the file content into a Fortran AST
-        ast = parse_ofp_file(filename=str(file_path))
-
-        # Extract subroutines and pre/post sections from file
-        pp_info = None
-        if info_path.exists():
-            with info_path.open('rb') as f:
-                pp_info = pickle.load(f)
+        ast = parse_ofp_source(source)
 
         return cls._from_ofp_ast(path=filename, ast=ast, definitions=definitions,
-                                 pp_info=pp_info, raw_source=raw_source)
+                                 pp_info=pp_info, raw_source=source)
 
     @classmethod
     def _from_ofp_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
@@ -152,35 +140,24 @@ class SourceFile:
 
     @classmethod
     def from_fparser(cls, filename, definitions=None, preprocess=False, builddir=None):
-        file_path = Path(filename)
-        info_path = file_path.with_suffix('.fp.info')
+        filepath = Path(filename)
 
         # Unfortunately we need a pre-processing step to sanitize
         # the input to the FP, as it will otherwise drop certain
         # terms due to missing features in FP
+        pp_info = None
         if preprocess:
-            pp_path = file_path.with_suffix('.fp%s' % file_path.suffix)
-            if builddir is not None:
-                pp_path = Path(builddir)/pp_path.name
-                info_path = Path(builddir)/info_path.name
-
-            preprocess_internal(FP, file_path, pp_path, info_path)
-            file_path = pp_path
-
-        # Import and store the raw file content
-        with file_path.open() as f:
-            raw_source = f.read()
+            # Preprocess using internally rules and get pp_info
+            source, pp_info = preprocess_internal(FP, filepath)
+        else:
+            # Read the raw file content
+            source = read_file(filepath)
 
         # Parse the file content into a Fortran AST
-        ast = parse_fparser_file(filename=str(file_path))
+        ast = parse_fparser_source(source)
 
-        # Extract preprocessing replacements from file
-        pp_info = None
-        if info_path.exists():
-            with info_path.open('rb') as f:
-                pp_info = pickle.load(f)
         return cls._from_fparser_ast(path=filename, ast=ast, definitions=definitions,
-                                     pp_info=pp_info, raw_source=raw_source)
+                                     pp_info=pp_info, raw_source=source)
 
     @classmethod
     def _from_fparser_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):

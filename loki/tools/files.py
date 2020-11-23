@@ -18,9 +18,14 @@ def gettempdir():
     """
     Create a Loki-specific tempdir in the systems temporary directory.
     """
-    tmpdir = Path(tempfile.gettempdir())/'loki'
+    if config['tmp-dir']:
+        tmpdir = Path(config['tmp-dir'])
+    else:
+        tmpdir = Path(tempfile.gettempdir())/'loki'
+
     if not tmpdir.exists():
         tmpdir.mkdir()
+
     return tmpdir
 
 
