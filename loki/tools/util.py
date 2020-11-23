@@ -2,13 +2,13 @@ import re
 import time
 from functools import wraps
 from collections import OrderedDict
+from subprocess import run, PIPE, STDOUT, CalledProcessError
 
-
-from loki.logging import log, INFO
+from loki.logging import log, debug, error, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'timeit',
-           'CaseInsensitiveDict', 'strip_inline_comments',
+           'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
            'is_loki_pragma', 'get_pragma_parameters']
 
 
@@ -101,6 +101,40 @@ def timeit(log_level=INFO, argname=None):
 
         return timed
     return decorator
+
+
+def execute(command, **kwargs):
+    """
+    Execute a single command within a given director or envrionment.
+
+    Parameters:
+    ===========
+    ``command``: String or list of strings with the command to execute
+    ``cwd`` Directory in which to execute command (will be stringified)
+
+    Note that this currently silences stdin/stdout, but passes any
+    additinal ``**kwargs`` onto ``subprocess.run(...)``.
+    """
+
+    cwd = kwargs.pop('cwd', None)
+    cwd = cwd if cwd is None else str(cwd)
+
+    stdout = kwargs.pop('stdout', PIPE)
+    stderr = kwargs.pop('stderr', STDOUT)
+
+    # Some string mangling to support lists and strings
+    if isinstance(command, list):
+        command = ' '.join(command)
+    if isinstance(command, str):
+        command = command.split(' ')
+
+    debug('[Loki] Executing: %s', ' '.join(command))
+    try:
+        return run(command, check=True, stdout=stdout, stderr=stderr, cwd=cwd, **kwargs)
+    except CalledProcessError as e:
+        error('Execution failed with:')
+        error(e.output.decode("utf-8"))
+        raise e
 
 
 class CaseInsensitiveDict(OrderedDict):

@@ -13,7 +13,7 @@ import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, error, DEBUG
-from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
+from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
@@ -34,12 +34,7 @@ def preprocess_omni(filename, outname, includes=None):
         cmd += ['-I', '%s' % Path(incl)]
     cmd += ['-o', '%s' % outpath]
     cmd += ['%s' % filepath]
-
-    try:
-        check_output(cmd)
-    except CalledProcessError as e:
-        error('[OMNI] Preprocessing failed: %s' % ' '.join(cmd))
-        raise e
+    execute(cmd)
 
 
 @timeit(log_level=DEBUG)
@@ -58,12 +53,7 @@ def parse_omni_file(filename, xmods=None):
         cmd += ['-M', '%s' % Path(m)]
     cmd += ['-o', '%s' % xml_path]
     cmd += ['%s' % filepath]
-
-    try:
-        check_output(cmd)
-    except CalledProcessError as e:
-        error('[%s] Parsing failed: %s' % ('omni', ' '.join(cmd)))
-        raise e
+    execute(cmd)
 
     return ET.parse(str(xml_path)).getroot()
 
