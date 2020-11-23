@@ -3,10 +3,10 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.symbols import Array, Scalar, InlineCall
 from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
+from loki.expression.symbols import Array, Scalar, InlineCall, TypedSymbol
 
-__all__ = ['FindExpressions', 'FindVariables', 'FindInlineCalls', 'FindExpressionRoot',
+__all__ = ['FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls', 'FindExpressionRoot',
            'SubstituteExpressions', 'ExpressionFinder']
 
 
@@ -114,6 +114,17 @@ class FindExpressions(ExpressionFinder):
     """
     retrieval_function = staticmethod(
         lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, Expression)))
+
+
+class FindTypedSymbols(ExpressionFinder):
+    """
+    A visitor to collect all typed symbols (which includes :class:`loki.Scalar`, :class:`loki.Array`,
+    and :class:`loki.ProcedureSymbol`) used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (TypedSymbol))))
 
 
 class FindVariables(ExpressionFinder):

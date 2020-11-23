@@ -450,7 +450,9 @@ END ASSOCIATE
 END SUBROUTINE
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    some_var = FindVariables().visit(routine.body).pop()
+    variables = {v.name: v for v in FindVariables().visit(routine.body)}
+    assert len(variables) == 3
+    some_var = variables['SOME_VAR']
     assert isinstance(some_var, Scalar)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED

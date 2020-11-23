@@ -3,8 +3,11 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test
-from loki import SourceFile, Subroutine, Module, OFP, OMNI, FP, FortranCTransformation
-from loki.build import Builder, Obj, Lib
+from loki import (
+    Subroutine, Module, OFP, OMNI, FP, FortranCTransformation, FindNodes, Import,
+    inline_constant_parameters, inline_elemental_functions
+)
+from loki.build import Builder
 
 
 @pytest.fixture(scope='module', name='here')
@@ -330,7 +333,7 @@ end subroutine transpile_associates
 
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
-def test_transpile_derived_type_array(here, builder, frontend):
+def test_transpile_derived_type_array():
     """
     Tests handling of multi-dimensional arrays and pointers.
 
@@ -745,9 +748,71 @@ end subroutine transpile_multibody_conditionals
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_inline_constant_parameters(here, builder, frontend):
+    """
+    Test correct inlining of constant parameters.
+    """
+    fcode_module = """
+module parameters_mod
+  implicit none
+  integer, parameter :: a = 1
+  integer, parameter :: b = -1
+contains
+  subroutine dummy
+  end subroutine dummy
+end module parameters_mod
+"""
+
+    fcode = """
+module transpile_inline_constant_parameters_mod
+  ! TODO: use parameters_mod, only: b
+  implicit none
+  integer, parameter :: c = 1+1
+contains
+  subroutine transpile_inline_constant_parameters(v1, v2, v3)
+    use parameters_mod, only: a, b
+    integer, intent(in) :: v1
+    integer, intent(out) :: v2, v3
+
+    v2 = v1 + b - a
+    v3 = c
+  end subroutine transpile_inline_constant_parameters
+end module transpile_inline_constant_parameters_mod
+"""
+    # Generate reference code, compile run and verify
+    param_module = Module.from_source(fcode_module, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (module.name, frontend)
+    reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
+
+    v2, v3 = reference.transpile_inline_constant_parameters_mod.transpile_inline_constant_parameters(10)
+    assert v2 == 8
+    assert v3 == 2
+    (here/'{}.f90'.format(module.name)).unlink()
+    (here/'{}.f90'.format(param_module.name)).unlink()
+
+    # Now transpile with supplied elementals but without module
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
+    assert len(FindNodes(Import).visit(module['transpile_inline_constant_parameters'].spec)) == 1
+    for routine in module.subroutines:
+        inline_constant_parameters(routine, external_only=True)
+    assert not FindNodes(Import).visit(module['transpile_inline_constant_parameters'].spec)
+
+    # Hack: rename module to use a different filename in the build
+    module.name = '%s_' % module.name
+    obj = jit_compile_lib([module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+
+    v2, v3 = obj.transpile_inline_constant_parameters_mod_.transpile_inline_constant_parameters(10)
+    assert v2 == 8
+    assert v3 == 2
+
+    (here/'{}.f90'.format(module.name)).unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transpile_inline_elemental_functions(here, builder, frontend):
     """
-    Test correct transformation of multi-body conditionals.
+    Test correct inlining of elemental functions.
     """
     fcode_module = """
 module multiply_mod
@@ -785,6 +850,67 @@ end subroutine transpile_inline_elemental_functions
     assert v2 == 66.
     assert v3 == 666.
 
+    (here/'{}.f90'.format(module.name)).unlink()
+    (here/'{}.f90'.format(routine.name)).unlink()
+
+    # Now inline elemental functions
+    routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
+    inline_elemental_functions(routine)
+
+    # Hack: rename routine to use a different filename in the build
+    routine.name = '%s_' % routine.name
+    kernel = jit_compile_lib([routine], path=here, name=routine.name, builder=builder)
+
+    v2, v3 = kernel.transpile_inline_elemental_functions_(11.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    builder.clean()
+    (here/'{}.f90'.format(routine.name)).unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_inline_elemental_functions_c(here, builder, frontend):
+    """
+    Test correct inlining of elemental functions in C transpilation.
+    """
+    fcode_module = """
+module multiply_mod_c
+  use iso_fortran_env, only: real64
+  implicit none
+contains
+
+  elemental function multiply(a, b)
+    real(kind=real64) :: multiply
+    real(kind=real64), intent(in) :: a, b
+
+    multiply = a * b
+  end function multiply
+end module multiply_mod_c
+"""
+
+    fcode = """
+subroutine transpile_inline_elemental_functions_c(v1, v2, v3)
+  use iso_fortran_env, only: real64
+  use multiply_mod_c, only: multiply
+  real(kind=real64), intent(in) :: v1
+  real(kind=real64), intent(out) :: v2, v3
+
+  v2 = multiply(v1, 6._real64)
+  v3 = 600. + multiply(6._real64, 11._real64)
+end subroutine transpile_inline_elemental_functions_c
+"""
+    # Generate reference code, compile run and verify
+    module = Module.from_source(fcode_module, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (routine.name, frontend)
+    reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
+
+    v2, v3 = reference.transpile_inline_elemental_functions_c(11.)
+    assert v2 == 66.
+    assert v3 == 666.
+
+    (here/'{}.f90'.format(module.name)).unlink()
     (here/'{}.f90'.format(routine.name)).unlink()
 
     # Now transpile with supplied elementals but without module
@@ -794,22 +920,21 @@ end subroutine transpile_inline_elemental_functions
     f2c.apply(source=routine, path=here)
     libname = 'fc_{}_{}'.format(routine.name, frontend)
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
-    fc_mod = c_kernel.transpile_inline_elemental_functions_fc_mod
+    fc_mod = c_kernel.transpile_inline_elemental_functions_c_fc_mod
 
-    v2, v3 = fc_mod.transpile_inline_elemental_functions_fc(11.)
+    v2, v3 = fc_mod.transpile_inline_elemental_functions_c_fc(11.)
     assert v2 == 66.
     assert v3 == 666.
 
     builder.clean()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(module.name)).unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transpile_inline_elementals_recursive(here, builder, frontend):
     """
-    Test correct transformation of multi-body conditionals.
+    Test correct inlining of nested elemental functions.
     """
     fcode_module = """
 module multiply_plus_one_mod
@@ -861,6 +986,7 @@ end subroutine transpile_inline_elementals_recursive
     assert v2 == 66.
     assert v3 == 666.
 
+    (here/'{}.f90'.format(module.name)).unlink()
     (here/'{}.f90'.format(routine.name)).unlink()
 
     # Now transpile with supplied elementals but without module
@@ -879,4 +1005,3 @@ end subroutine transpile_inline_elementals_recursive
     builder.clean()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(module.name)).unlink()
