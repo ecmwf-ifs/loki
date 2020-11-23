@@ -2,8 +2,8 @@ import re
 from pathlib import Path
 from cached_property import cached_property
 
+from loki.logging import debug
 from loki.build.tools import cached_func, as_tuple, flatten, execute
-from loki.build.logging import debug
 from loki.build.compiler import _default_compiler
 from loki.build.header import Header
 
@@ -29,7 +29,7 @@ class Obj:
     # TODO: Make configurable!
     _ext = ['.f90', '.F90', '.f', '.F', '.c']
 
-    def __new__(cls, *args, name=None, source_dir=None, **kwargs):
+    def __new__(cls, *args, name=None, **kwargs):  # pylint: disable=unused-argument
         # Name is either provided or inferred from source_path
         name = name or Path(kwargs.get('source_path')).stem
         name = name.lower()  # Ensure no-caps!
@@ -39,26 +39,26 @@ class Obj:
         return Obj.__xnew_cached_(cls, name)
 
     def __new_stage2_(self, name):
-        obj = super(Obj, self).__new__(self)
+        obj = super().__new__(self)
         obj.name = name
         return obj
 
     __xnew_cached_ = staticmethod(cached_func(__new_stage2_))
 
-    def __init__(self, name=None, source_path=None, builder=None, source_dirs=None):
+    def __init__(self, name=None, source_path=None):  # pylint: disable=unused-argument
         self.path = None  # The eventual .o path
         self.q_task = None  # The parallel worker task
 
         if not hasattr(self, 'source_path'):
             # If this is the first time, establish the source path
-            self.source_path = Path(source_path or self.name)
+            self.source_path = Path(source_path or self.name)  # pylint: disable=no-member
 
             if not self.source_path.exists():
                 debug('Could not find source file for %s', self)
                 self.source_path = None
 
     def __repr__(self):
-        return 'Obj<%s>' % self.name
+        return 'Obj<%s>' % self.name  # pylint: disable=no-member
 
     @cached_property
     def source(self):
@@ -71,21 +71,21 @@ class Obj:
 
     @cached_property
     def modules(self):
-        return [m for m in _re_module.findall(self.source)]
+        return list(_re_module.findall(self.source))
 
     @cached_property
     def subroutines(self):
-        return [m for m in _re_subroutine.findall(self.source)]
+        return list(_re_subroutine.findall(self.source))
 
     @cached_property
     def uses(self):
         if self.source is None:
             return []
-        return [m for m in _re_use.findall(self.source)]
+        return list(_re_use.findall(self.source))
 
     @cached_property
     def includes(self):
-        return [m for m in _re_include.findall(self.source)]
+        return list(_re_include.findall(self.source))
 
     @property
     def dependencies(self):
@@ -131,7 +131,7 @@ class Obj:
 
         mode = self.MODEMAP[self.source_path.suffix.lower()]
         source = self.source_path.absolute()
-        target = (build_dir/self.name).with_suffix('.o')
+        target = (build_dir/self.name).with_suffix('.o')  # pylint: disable=no-member
         t_time = target.stat().st_mtime if target.exists() else None
         s_time = source.stat().st_mtime if source.exists() else None
 

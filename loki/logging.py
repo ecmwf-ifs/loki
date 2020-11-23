@@ -2,43 +2,102 @@ import logging
 import sys
 
 
-__all__ = ['logger', 'debug', 'info', 'warning', 'error', 'log',
-           'DEBUG', 'INFO', 'WARNING', 'ERROR']
+__all__ = ['logger', 'log_levels', 'set_log_level', 'FileLogger',
+           'debug', 'info', 'warning', 'error', 'log']
 
 
+def FileLogger(name, filename, level=None, file_level=None, fmt=None,
+               mode='a'):
+    """
+    Logger that emits to a single logfile, as well as stdout/stderr.
+    """
+    import coloredlogs  # pylint: disable=import-outside-toplevel
+
+    level = level or INFO
+    file_level = file_level or level
+
+    _logger = logging.getLogger(name)
+    _logger.setLevel(level if level <= file_level else file_level)
+
+    fmt = fmt or '%(asctime)s %(name)s[%(process)d] %(levelname)s %(message)s'
+    fh = logging.FileHandler(str(filename), mode=mode)
+    fh.setFormatter(logging.Formatter(fmt))
+    fh.setLevel(file_level)
+    _logger.addHandler(fh)
+
+    # Install the colored logging handlers
+    coloredlogs.install(level=level, logger=_logger)
+
+    # TODO: For concurrent file writes, initialize queue and
+    # main logging thread.
+
+    return _logger
+
+
+# Initialize base logger
+logger = logging.getLogger('Loki')
+stream_handler = logging.StreamHandler()
+logger.addHandler(stream_handler)
+
+# This one is primarily used by loki.build
+default_logger = logger
+
+# Note, this a remnant from loki.build.logging, which not only adds
+# colour, but also adds hostname and timestamps, etc. to the log line
+# We might want to re-eanble this under some specific logging options
+
+# coloredlogs.install(level=default_level, logger=logger)
+
+
+# Define available log levels
 DEBUG = logging.DEBUG
 INFO = logging.INFO
 WARNING = logging.WARNING
 ERROR = logging.ERROR
 
-logger = logging.getLogger('loki')
-_ch = logging.StreamHandler()
-logger.addHandler(_ch)
-logger.setLevel(INFO)
+# Internally accepted log levels
+log_levels = {
+    'DEBUG': DEBUG,
+    'INFO': INFO,
+    'WARNING': WARNING,
+    'ERROR': ERROR,
+    # Lower case keywords for env variables
+    'debug': DEBUG,
+    'info': INFO,
+    'warning': WARNING,
+    'error': ERROR,
+}
 
+# Internally used log colours (in simple mode)
 NOCOLOR = '%s'
 RED = '\033[1;37;31m%s\033[0m'
 BLUE = '\033[1;37;34m%s\033[0m'
 GREEN = '\033[1;37;32m%s\033[0m'
-COLORS = {
+colors = {
     DEBUG: NOCOLOR,
     INFO: GREEN,
     WARNING: BLUE,
     ERROR: RED,
 }
 
+def set_log_level(level):
+    """
+    Set the log level for the Loki logger.
+    """
+    if level not in log_levels.values():
+        raise ValueError("Illegal logging level %s" % level)
+
+    logger.setLevel(level)
+
 
 def log(msg, level, *args, **kwargs):
     """
     Wrapper of the main Python's logging function. Print 'msg % args' with
     the severity 'level'.
-    :param msg: the message to be printed.
-    :param level: accepted values are: DEBUG, INFO, AUTOTUNER, DSE, DSE_WARN,
-                  DLE, DLE_WARN, WARNING, ERROR, CRITICAL
-    """
-    assert level in [DEBUG, INFO, WARNING, ERROR]
 
-    color = COLORS[level] if sys.stdout.isatty() and sys.stderr.isatty() else '%s'
+    :param msg: the message to be printed.
+    """
+    color = colors[level] if sys.stdout.isatty() and sys.stderr.isatty() else '%s'
     logger.log(level, color % msg, *args, **kwargs)
 
 

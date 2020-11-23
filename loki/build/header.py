@@ -2,8 +2,8 @@ import re
 from pathlib import Path
 from cached_property import cached_property
 
+from loki.logging import debug
 from loki.build.tools import cached_func
-from loki.build.logging import debug
 
 
 __all__ = ['Header']
@@ -20,7 +20,7 @@ class Header:
 
     _ext = ['.intfb.h', '.h']
 
-    def __new__(cls, *args, name=None, **kwargs):
+    def __new__(cls, *args, name=None, **kwargs):  # pylint: disable=unused-argument
         # Name is either provided or inferred from source_path
         name = name or Path(kwargs.get('source_path')).stem
         # Hack: Remove the .intfb from the name
@@ -33,23 +33,23 @@ class Header:
         return Header.__xnew_cached_(cls, name)
 
     def __new_stage2_(self, name):
-        obj = super(Header, self).__new__(self)
+        obj = super().__new__(self)
         obj.name = name
         return obj
 
     __xnew_cached_ = staticmethod(cached_func(__new_stage2_))
 
-    def __init__(self, name=None, source_path=None):
+    def __init__(self, name=None, source_path=None):  # pylint: disable=unused-argument
         if not hasattr(self, 'source_path'):
             # If this is the first time, establish the source path
-            self.source_path = Path(source_path or self.name)
+            self.source_path = Path(source_path or self.name)  # pylint: disable=no-member
 
             if not self.source_path.exists():
                 debug('Could not find source file for %s', self)
                 self.source_path = None
 
     def __repr__(self):
-        return 'Header<%s>' % self.name
+        return 'Header<%s>' % self.name  # pylint: disable=no-member
 
     @cached_property
     def source(self):

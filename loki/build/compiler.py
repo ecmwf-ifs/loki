@@ -37,7 +37,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, use_f90wrap=True):
+def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=unused-argument
     """
     Just-in-time compiles Fortran source code and loads the respective
     module or class. Both paths, classic subroutine-only and modern
@@ -76,7 +76,7 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):
     execute(f2py, cwd=cwd)
 
     moddir = str(filepath.parent)
-    if not moddir in sys.path:
+    if moddir not in sys.path:
         sys.path.append(moddir)
     return import_module(filepath.stem)
 
@@ -126,7 +126,7 @@ class Compiler:
         args += [str(source)]
         return args
 
-    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None, logger=None):
+    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
         """
         Execute a build command for a given source.
         """

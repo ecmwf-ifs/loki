@@ -12,6 +12,7 @@ from collections import OrderedDict
 
 
 from loki.logging import log, info, INFO
+from loki.config import config
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'disk_cached', 'timeit', 'gettempdir',
@@ -109,8 +110,9 @@ def disk_cached(argname, suffix='cache'):
             """
             filename = kwargs[argname]
             cachefile = '%s.%s' % (filename, suffix)
-            caching_active = os.environ.get('LOKI_DISK_CACHE', None)
-            if caching_active and os.path.exists(cachefile):
+
+            # Read cached file from disc if it's been cached before
+            if config['disk-cache'] and os.path.exists(cachefile):
                 # Only use cache if it is newer than the file
                 filetime = os.path.getmtime(filename)
                 cachetime = os.path.getmtime(cachefile)
@@ -123,7 +125,7 @@ def disk_cached(argname, suffix='cache'):
             res = fn(*args, **kwargs)
 
             # Write to cache file
-            if caching_active:
+            if config['disk-cache']:
                 with open(cachefile, 'wb') as cachehandle:
                     info("Saving cache: '%s'" % cachefile)
                     pickle.dump(res, cachehandle)

@@ -5,9 +5,9 @@ from importlib import import_module
 from operator import attrgetter
 import networkx as nx
 
+from loki.logging import default_logger
 from loki.build.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
-from loki.build.logging import default_logger
 from loki.build.obj import Obj
 from loki.build.header import Header
 
@@ -50,6 +50,9 @@ class Builder:
 
     def __getitem__(self, *args, **kwargs):
         return Obj(*args, **kwargs)
+
+    def get_item(self, key):
+        return self[key]
 
     @staticmethod
     def get_dependency_graph(objs, depgen=None):
@@ -116,7 +119,7 @@ class Builder:
             for f in path.glob(r):
                 delete(f)
 
-    def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):
+    def build(self, filename, target=None, shared=True, include_dirs=None, external_objs=None):  # pylint: disable=unused-argument
         item = self.get_item(filename)
         self.logger.info("Building %s", item)
 

@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from fastcache import clru_cache
 
-from loki.build.logging import debug, error
+from loki.logging import debug, error
 
 
 __all__ = ['execute', 'delete', 'as_tuple', 'filter_ordered', 'flatten']
