@@ -19,7 +19,7 @@ from loki.expression import symbols as sym
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import SourceFile
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, is_loki_pragma
 from loki.types import SymbolType, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
@@ -189,8 +189,7 @@ class FortranMaxTransformation(Transformation):
         var_map = {}
         dataflow_indices = []
         for loop in FindNodes(ir.Loop).visit(max_kernel.body):
-            if (loop.pragma is not None and loop.pragma.keyword == 'loki' and
-                    'dataflow' in loop.pragma.content):
+            if is_loki_pragma(loop.pragma, starts_with='dataflow'):
                 loop_map[loop] = loop.body
                 # We have to add 1 since FORTRAN counts from 1
                 call_fct = sym.ProcedureSymbol('control.count.simpleCounter', scope=max_kernel.scope)
