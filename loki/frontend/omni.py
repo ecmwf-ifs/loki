@@ -17,25 +17,7 @@ from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInse
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
-__all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
-
-
-def preprocess_omni(filename, outname, includes=None):
-    """
-    Call C-preprocessor to sanitize input for OMNI frontend.
-    """
-    filepath = Path(filename)
-    outpath = Path(outname)
-    includes = [Path(incl) for incl in includes or []]
-
-    # TODO Make CPP driveable via flags/config
-    cmd = ['gfortran', '-E', '-cpp']
-    for incl in includes:
-        cmd += ['-I', '%s' % Path(incl)]
-    cmd += ['-o', '%s' % outpath]
-    cmd += ['%s' % filepath]
-
-    execute(cmd)
+__all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
 
 
 @timeit(log_level=DEBUG)

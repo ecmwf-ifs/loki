@@ -38,6 +38,10 @@ config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
 # Define Loki's temporary directory for generating intermediate files
 config.register('tmp-dir', None, env_variable='LOKI_TMP_DIR')
 
+# Causes external frontend preprocessor to dump intermediate soruce files
+config.register('cpp-dump-files', False, env_variable='LOKI_CPP_DUMP_FILES',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
 # Causes OMNI frontend to dump intermediate XML files to LOKI_TMP_DIR
 config.register('omni-dump-xml', False, env_variable='LOKI_OMNI_DUMP_XML',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)

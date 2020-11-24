@@ -10,6 +10,7 @@ tqdm
 pymbolic
 junit_xml
 PyYAML
+pcpp
 
 # Some dependencies require specific dev branches
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser

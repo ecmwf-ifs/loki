@@ -10,8 +10,8 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source, read_file
-from loki.frontend.omni import preprocess_omni, parse_omni_file, parse_omni_source
+from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source, read_file, preprocess_cpp
+from loki.frontend.omni import parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
 from loki.types import TypeTable
@@ -45,10 +45,10 @@ class Sourcefile:
 
     @classmethod
     def from_file(cls, filename, preprocess=False, definitions=None,
-                  xmods=None, includes=None, builddir=None, frontend=OFP):
+                  xmods=None, includes=None, frontend=OFP):
         if frontend == OMNI:
             return cls.from_omni(filename, definitions=definitions, xmods=xmods,
-                                 includes=includes, builddir=builddir)
+                                 includes=includes)
         if frontend == OFP:
             return cls.from_ofp(filename, definitions=definitions)
         if frontend == FP:
@@ -56,23 +56,21 @@ class Sourcefile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, definitions=None, xmods=None, includes=None, builddir=None):
+    def from_omni(cls, filename, definitions=None, xmods=None, includes=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
         filepath = Path(filename)
-        pppath = Path(filename).with_suffix('.omni%s' % filepath.suffix)
-        if builddir is not None:
-            pppath = Path(builddir)/pppath.name
-
-        preprocess_omni(filename, pppath, includes=includes)
 
         with filepath.open() as f:
             raw_source = f.read()
 
+        # Always preprocess source files for OMNI...
+        source = preprocess_cpp(raw_source, filepath=filepath, includes=includes)
+
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni_file(filename=str(pppath), xmods=xmods)
+        ast = parse_omni_source(source=source, xmods=xmods)
         typetable = ast.find('typeTable')
         return cls._from_omni_ast(ast=ast, path=filename, raw_source=raw_source,
                                   definitions=definitions, typetable=typetable)

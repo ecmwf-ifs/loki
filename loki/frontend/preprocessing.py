@@ -1,16 +1,70 @@
+import io
 import re
+import pcpp
 import pickle
 from collections import defaultdict, OrderedDict
 
 from loki.logging import debug, DEBUG
 from loki.config import config
-from loki.tools import gettempdir, timeit
+from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP, read_file
 
 
-__all__ = ['preprocess_internal', 'preprocess_registry', 'PPRule']
+__all__ = ['preprocess_cpp', 'preprocess_internal', 'preprocess_registry', 'PPRule']
+
+
+def preprocess_cpp(source, filepath=None, includes=None, defines=None):
+    """
+    Invoke an external C-preprocessor to sanitize input files.
+
+    Note that the global option ``LOKI_CPP_DUMP_FILES`` will cause the intermediate
+    preprocessed source to be written to a temporary file in ``LOKI_TMP_DIR``.
+
+    Parameters:
+    ===========
+    * ``source``: Source string to preprocess via ``pcpp``
+    * ``filepath``: Optional filepath name, which will be used to derive the filename
+                    should intermediate file dumping be enabled via the global config.
+    * ``includes``: (List of) include paths to add to the C-preprocessor.
+    * ``defines``: (List of) symbol definitions to add to the C-preprocessor.
+    """
+
+    # Add include paths to PP
+    pp = pcpp.Preprocessor()
+    for i in as_tuple(includes):
+        pp.add_path(str(i))
+
+    # Add and sanitize defines to PP
+    for d in as_tuple(defines):
+        if '=' not in d:
+            d += '=1'
+        d = d.replace('=', ' ', 1)
+        pp.define(d)
+
+    # Parse source through preprocessor
+    pp.parse(source)
+
+    if config['cpp-dump-files']:
+        if filepath is None:
+            pp_path = Path(filehash(source, suffix='.cpp.f90'))
+        else:
+            pp_path = filepath.with_suffix('.cpp.f90')
+        pp_path = gettempdir()/pp_path.name
+        debug("[Loki] C-preprocessor, writing {}".format(str(pp_path)))
+
+        # Dump preprocessed source to file and read it
+        with pp_path.open('w') as f:
+            pp.write(f)
+        with pp_path.open('r') as f:
+            preprocessed = f.read()
+        return preprocessed
+
+    # Return the preprocessed string
+    s = io.StringIO()
+    pp.write(s)
+    return s.getvalue()
 
 
 @timeit(log_level=DEBUG, getter=lambda x: x['filepath'].name)
