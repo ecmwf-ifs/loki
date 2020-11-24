@@ -54,13 +54,15 @@ def cli():
               help='Path for additional module file(s)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
+@click.option('--define', '-I', multiple=True,
+              help='Additional symbol definitions for C-preprocessor')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def idempotence(out_path, source, driver, header, xmod, include, flatten_args, openmp, frontend):
+def idempotence(out_path, source, driver, header, xmod, include, define, flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -73,10 +75,10 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
                                                frontend=frontend_type).modules for h in header)
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
-                                    xmods=xmod, includes=include, builddir=out_path)
+                                    preprocess=True, includes=include, defines=define,
+                                    xmods=xmod)
                for src in source]
-    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend, builddir=out_path)
+    driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
 
     # Get a separate list of routine objects ad names for transformations
     kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
@@ -146,13 +148,15 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
               help='Path for additional module file(s)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
+@click.option('--define', '-I', multiple=True,
+              help='Additional symbol definitions for C-preprocessor')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode, frontend):
+def convert(out_path, source, driver, header, xmod, include, define, strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -169,10 +173,10 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
                                                frontend=frontend_type).modules for h in header)
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
-                                    xmods=xmod, includes=include, builddir=out_path)
+                                    preprocess=True, includes=include, defines=define,
+                                    xmods=xmod)
                for src in source]
-    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend, builddir=out_path)
+    driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
 
     # Get a separate list of routine objects and names for transformations
     kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
@@ -231,9 +235,11 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
               help='Path for additional module file(s)')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
+@click.option('--define', '-I', multiple=True,
+              help='Additional symbol definitions for C-preprocessor')
 @click.option('--frontend', default='omni', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def transpile(out_path, header, source, driver, xmod, include, frontend):
+def transpile(out_path, header, source, driver, xmod, include, define, frontend):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
@@ -254,11 +260,10 @@ def transpile(out_path, header, source, driver, xmod, include, frontend):
         definitions = definitions + list(sfile.modules)
 
     # Parse original driver and kernel routine, and enrich the driver
-    kernel = Sourcefile.from_file(source, xmods=xmod, includes=include,
-                                  frontend=frontend, definitions=definitions,
-                                  builddir=out_path)
-    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
-                                  frontend=frontend, builddir=out_path)
+    kernel = Sourcefile.from_file(source, definitions=definitions, preprocess=True,
+                                  includes=include, defines=define, xmods=xmod,
+                                  frontend=frontend)
+    driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])
 
