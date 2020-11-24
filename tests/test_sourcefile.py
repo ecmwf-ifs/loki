@@ -150,3 +150,34 @@ def test_sourcefile_pp_include(here, frontend):
         assert len(imports) == 1
         assert imports[0].c_import
         assert imports[0].module == 'some_header.h'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_sourcefile_cpp_preprocessing(here, frontend):
+    """
+    Test the use of the external CPP-preprocessor.
+    """
+    filepath = here/'sources/sourcefile_cpp_preprocessing.F90'
+
+    source = Sourcefile.from_file(filepath, preprocess=True, frontend=frontend)
+    routine = source['sourcefile_external_preprocessing']
+    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+
+    if frontend is not OMNI:
+        # OMNI skips the import in the frontend
+        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        assert len(imports) == 1
+        assert imports[0].c_import
+        assert imports[0].module == 'some_header.h'
+
+    assert len(directives) == 0
+    assert 'b = 123' in fgen(routine)
+
+    # Check that the ``define`` gets propagated correctly
+    source = Sourcefile.from_file(filepath, preprocess=True, defines='FLAG_SMALL',
+                                  frontend=frontend)
+    routine = source['sourcefile_external_preprocessing']
+    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+
+    assert len(directives) == 0
+    assert 'b = 6' in fgen(routine)

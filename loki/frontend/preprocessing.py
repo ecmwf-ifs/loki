@@ -31,8 +31,18 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     * ``defines``: (List of) symbol definitions to add to the C-preprocessor.
     """
 
+    class _LokiCPreprocessor(pcpp.Preprocessor):
+
+        def on_error(self, file, line, msg):
+            # Redict CPP error to our logger and increment return code
+            debug("[Lok-CPP] %s:%d error: %s" % (file, line, msg))
+            self.return_code += 1
+
     # Add include paths to PP
-    pp = pcpp.Preprocessor()
+    pp = _LokiCPreprocessor()
+    # Suppress line directives
+    pp.line_directive = None
+
     for i in as_tuple(includes):
         pp.add_path(str(i))
 
