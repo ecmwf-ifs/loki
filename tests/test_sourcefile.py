@@ -1,19 +1,25 @@
 from pathlib import Path
 import pytest
 
-from loki import Sourcefile, OFP, OMNI, FP
+from loki import (
+    Sourcefile, OFP, OMNI, FP, FindNodes, PreprocessorDirective,
+    Intrinsic, Assignment, fgen
+)
 
 
-@pytest.fixture(scope='module', name='refpath')
-def fixture_refpath():
-    return Path(__file__).parent/'sources/sourcefile.f90'
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_subroutine_properties(refpath, frontend):
-    """Test that all subroutines and functions are discovered
-    and exposed via `subroutines` and `all_subroutines` properties."""
-    source = Sourcefile.from_file(refpath, frontend=frontend)
+def test_sourcefile_properties(here, frontend):
+    """
+    Test that all subroutines and functions are discovered
+    and exposed via `subroutines` and `all_subroutines` properties.
+    """
+    filepath = here/'sources/sourcefile.f90'
+    source = Sourcefile.from_file(filepath, frontend=frontend)
     assert len(source.subroutines) == 3
     assert len(source.all_subroutines) == 5
 
@@ -31,7 +37,7 @@ def test_subroutine_properties(refpath, frontend):
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_subroutine_from_source(frontend):
+def test_sourcefile_from_source(frontend):
     """
     Test the `from_source` constructor for `Sourcefile` objects.
     """
@@ -86,3 +92,39 @@ end function function_d
     assert sum(routine.name in subroutines for routine in source.all_subroutines) == 3
     assert sum(routine.name in all_subroutines for routine in source.all_subroutines) == 5
     assert sum(routine.name in contained_routines for routine in source.all_subroutines) == 0
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
+    FP
+])
+def test_sourcefile_pp_macros(here, frontend):
+    filepath = here/'sources/sourcefile_pp_macros.F90'
+    routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_macros']
+    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    assert len(directives) == 8
+    assert all(node.text.startswith('#') for node in directives)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='Cannot handle directives')),
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
+    FP
+])
+def test_sourcefile_pp_directives(here, frontend):
+    filepath = here/'sources/sourcefile_pp_directives.F90'
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_pp_directives']
+
+    # Note: these checks are rather loose as we currently do not restore the original version but
+    # simply replace the PP constants by strings
+    directives = FindNodes(PreprocessorDirective).visit(routine.body)
+    assert len(directives) == 1
+    assert directives[0].text == '#define __FILENAME__ __FILE__'
+    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
+    assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
+
+    statements = FindNodes(Assignment).visit(routine.body)
+    assert len(statements) == 1
+    assert fgen(statements[0]) == 'y = 0*5 + 0'
