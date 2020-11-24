@@ -83,8 +83,17 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def timeit(log_level=INFO, argname=None):
-    argname = as_tuple(argname)
+def timeit(log_level=INFO, getter=None):
+    """
+    Timing decorator that logs the time taken in a specific function call.
+
+    Parameters
+    ==========
+    * ``log_level``: The lvel at which to log the resulting time
+    * ``getter``: (List of) lambda function to extract additinal strings for
+                  the log message. Each getter will be invoked on ``**kwargs``.
+    """
+    getter = as_tuple(getter)
 
     def decorator(fn):
 
@@ -94,8 +103,8 @@ def timeit(log_level=INFO, argname=None):
             result = fn(*args, **kwargs)
             te = time.time()
 
-            argvals = ', '.join(kwargs[arg] for arg in argname)
-            log('[%s: %s] Executed in %.2fs' % (fn.__name__, argvals, (te - ts)),
+            argvals = ', '.join(g(kwargs) for g in getter)
+            log('[Loki::%s: %s] Executed in %.2fs' % (fn.__name__, argvals, (te - ts)),
                 level=log_level)
             return result
 

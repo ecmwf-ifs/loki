@@ -13,6 +13,7 @@ from loki.frontend.util import OMNI, OFP, FP, read_file
 __all__ = ['preprocess_internal', 'preprocess_registry', 'PPRule']
 
 
+@timeit(log_level=DEBUG, getter=lambda x: x['filepath'].name)
 def preprocess_internal(frontend, filepath):
     """
     Apply internal preprocessing rules to filter out known frontend
