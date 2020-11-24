@@ -2,9 +2,9 @@ import re
 import pickle
 from collections import defaultdict, OrderedDict
 
-from loki.logging import info
+from loki.logging import debug, DEBUG
 from loki.config import config
-from loki.tools import gettempdir
+from loki.tools import gettempdir, timeit
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP, read_file
@@ -32,18 +32,18 @@ def preprocess_internal(frontend, filepath):
     if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
         # Make sure the existing PP data belongs to this file
         if pp_path.stat().st_mtime > filepath.stat().st_mtime:
+            debug("[Loki] Frontend preprocessor, reading {}".format(str(info_path)))
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
-                if pp_info.get('original_file_path') == str(filepath):
-                    # Already pre-processed this one,
-                    # return the cached info and source.
-                    with pp_path.open() as f:
-                        source = f.read()
-                    with info_path.open('rb') as f:
-                        pp_info = pickle.load(f)
-                    return source, pp_info
+            if pp_info.get('original_file_path') == str(filepath):
+                # Already pre-processed this one,
+                # return the cached info and source.
+                debug("[Loki] Frontend preprocessor, reading {}".format(str(pp_path)))
+                with pp_path.open() as f:
+                    source = f.read()
+                return source, pp_info
 
-    info("Pre-processing %s => %s" % (filepath, pp_path))
+    debug("[Loki] Pre-processing source file {}".format(str(filepath)))
     source = read_file(filepath)
 
     # Apply preprocessing rules and store meta-information
@@ -63,8 +63,10 @@ def preprocess_internal(frontend, filepath):
 
     if config['frontend-pp-cache']:
         # Write out the preprocessed source and according info file
+        debug("[Loki] Frontend preprocessor, storing {}".format(str(pp_path)))
         with pp_path.open('w') as f:
             f.write(source)
+        debug("[Loki] Frontend preprocessor, storing {}".format(str(info_path)))
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
 

@@ -8,7 +8,7 @@ from loki import (
     SymbolType, StringLiteral, fgen, fexprgen, Assignment, Declaration, Loop,
     is_loki_pragma, get_pragma_parameters
 )
-from conftest import jit_compile, clean_test, clean_preprocessing
+from conftest import jit_compile, clean_test
 
 
 @pytest.fixture(scope='module', name='here')
@@ -875,7 +875,6 @@ end subroutine routine_pp_directives
     statements = FindNodes(Assignment).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
@@ -909,7 +908,6 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
         body = body.replace('&\n  & ', '')
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
@@ -943,7 +941,6 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
         body = body.replace('&\n  & ', '')
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
@@ -1202,7 +1199,6 @@ end subroutine routine_contiguous
     routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
     assert len(routine.arguments) == 1
     assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
