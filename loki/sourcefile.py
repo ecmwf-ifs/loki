@@ -18,10 +18,10 @@ from loki.types import TypeTable
 from loki.backend.fgen import fgen
 
 
-__all__ = ['SourceFile']
+__all__ = ['Sourcefile']
 
 
-class SourceFile:
+class Sourcefile:
     """
     Class to handle and manipulate source files.
 
@@ -80,7 +80,7 @@ class SourceFile:
     @classmethod
     def _from_omni_ast(cls, ast, path=None, raw_source=None, definitions=None, typetable=None):
         """
-        Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
+        Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
         """
         ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
         routines = [Subroutine.from_omni(ast=routine, definitions=definitions, raw_source=raw_source,
@@ -98,7 +98,7 @@ class SourceFile:
     def from_ofp(cls, filename, definitions=None):
         """
         Parse a given source file with the OFP frontend to instantiate
-        a `SourceFile` object.
+        a `Sourcefile` object.
         """
         filepath = Path(filename)
 
@@ -115,7 +115,7 @@ class SourceFile:
     @classmethod
     def _from_ofp_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
         """
-        Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
+        Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
         """
         routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source,
                                         definitions=definitions, pp_info=pp_info)
@@ -146,7 +146,7 @@ class SourceFile:
     @classmethod
     def _from_fparser_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
         """
-        Generate the full set of `Subroutine` and `Module` members of the `SourceFile`.
+        Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
         """
         routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
         routines = [Subroutine.from_fparser(ast=routine, definitions=definitions,
@@ -216,7 +216,7 @@ class SourceFile:
         Apply a given transformation to the source file object.
 
         Note that the dispatch routine `op.apply(source)` will ensure
-        that all entities of this `SourceFile` are correctly traversed.
+        that all entities of this `Sourcefile` are correctly traversed.
         """
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)

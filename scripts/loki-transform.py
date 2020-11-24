@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from loki import (
-    SourceFile, Module, Transformation, Transformer, FindNodes, Loop,
+    Sourcefile, Module, Transformation, Transformer, FindNodes, Loop,
     Pragma, Frontend, flatten
 )
 
@@ -69,13 +69,13 @@ def idempotence(out_path, source, driver, header, xmod, include, flatten_args, o
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
-    definitions = flatten(SourceFile.from_file(h, xmods=xmod,
+    definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
-    kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
+    kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
-    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
 
     # Get a separate list of routine objects ad names for transformations
@@ -165,13 +165,13 @@ def convert(out_path, source, driver, header, xmod, include, strip_omp_do, mode,
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
-    definitions = flatten(SourceFile.from_file(h, xmods=xmod,
+    definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
-    kernels = [SourceFile.from_file(src, definitions=definitions, frontend=frontend,
+    kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
                                     xmods=xmod, includes=include, builddir=out_path)
                for src in source]
-    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
 
     # Get a separate list of routine objects and names for transformations
@@ -249,15 +249,15 @@ def transpile(out_path, header, source, driver, xmod, include, frontend):
     # be used to create a coherent stack of type definitions.
     definitions = []
     for h in header:
-        sfile = SourceFile.from_file(h, xmods=xmod, definitions=definitions,
+        sfile = Sourcefile.from_file(h, xmods=xmod, definitions=definitions,
                                      frontend=frontend_type)
         definitions = definitions + list(sfile.modules)
 
     # Parse original driver and kernel routine, and enrich the driver
-    kernel = SourceFile.from_file(source, xmods=xmod, includes=include,
+    kernel = Sourcefile.from_file(source, xmods=xmod, includes=include,
                                   frontend=frontend, definitions=definitions,
                                   builddir=out_path)
-    driver = SourceFile.from_file(driver, xmods=xmod, includes=include,
+    driver = Sourcefile.from_file(driver, xmods=xmod, includes=include,
                                   frontend=frontend, builddir=out_path)
     # Ensure that the kernel calls have all meta-information
     driver[driver_name].enrich_calls(routines=kernel[kernel_name])

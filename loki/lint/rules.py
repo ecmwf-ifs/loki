@@ -1,6 +1,6 @@
 from enum import Enum
 
-from loki import SourceFile, Module, Subroutine
+from loki import Sourcefile, Module, Subroutine
 
 
 class RuleType(Enum):
@@ -69,7 +69,7 @@ class GenericRule:
         as applicable for all entities in the given IR object.
 
         :param ast: the IR object to be checked.
-        :type ast: :py:class:`SourceFile`, :py:class:`Module`, or
+        :type ast: :py:class:`Sourcefile`, :py:class:`Module`, or
                    :py:class:`Subroutine`
         :param rule_report: the reporter object for the rule.
         :type rule_report: :py:class:`RuleReport`
@@ -77,7 +77,7 @@ class GenericRule:
 
         '''
         # Perform checks on source file level
-        if isinstance(ast, SourceFile):
+        if isinstance(ast, Sourcefile):
             cls.check_file(ast, rule_report, config)
 
             # Then recurse for all modules and subroutines in that file

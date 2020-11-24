@@ -9,7 +9,7 @@ import re
 from loki import (
     FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
     flatten, as_tuple, strip_inline_comments,
-    SourceFile, Module, Subroutine, BasicType)
+    Sourcefile, Module, Subroutine, BasicType)
 from loki.lint import GenericRule, RuleType
 import loki.ir as ir
 from loki.expression import symbols as sym

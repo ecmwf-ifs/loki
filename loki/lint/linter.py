@@ -5,14 +5,14 @@ from pathlib import Path
 
 from loki.lint.reporter import FileReport, RuleReport
 from loki.lint.utils import Fixer
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 
 
 class Linter:
     """
     The operator class for Loki's linter functionality.
 
-    It allows to check `SourceFile` objects for compliance to the rules
+    It allows to check `Sourcefile` objects for compliance to the rules
     implemented in `loki.lint.rules`.
 
     :param `loki.lint.reporter.Reporter` reporter: the reporter instance to be
@@ -84,15 +84,15 @@ class Linter:
         Check the given `sourcefile` and compile the `FileReport`.
         The report is then stored in the `reporter` and returned (e.g., to use it for `fix()`).
 
-        :param SourceFile sourcefile: the source file to check.
+        :param Sourcefile sourcefile: the source file to check.
         :param list overwrite_rules: (optional) list of rules to check.
         :param dict overwrite_config: (optional) configuration that is used to update the
             stored configuration.
 
         :return: the `FileReport`.
         """
-        if not isinstance(sourcefile, SourceFile):
-            raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
+        if not isinstance(sourcefile, Sourcefile):
+            raise TypeError('{} given, {} expected'.format(type(sourcefile), Sourcefile))
         # Prepare list of rules and configuration
         rules = overwrite_rules if overwrite_rules is not None else self.rules
         config = self.config
@@ -117,14 +117,14 @@ class Linter:
         """
         Fix all problems reported by fixable rules.
 
-        :param SourceFile sourcefile: the source file to fix.
+        :param Sourcefile sourcefile: the source file to fix.
         :param FileReport file_report: the report created by `check()` for that file.
         :param str backup_suffix: (optional) suffix to use for a copy of the original file.
         :param dict overwrite_config: (optional) configuration that is used to update the
             stored configuration.
         """
-        if not isinstance(sourcefile, SourceFile):
-            raise TypeError('{} given, {} expected'.format(type(sourcefile), SourceFile))
+        if not isinstance(sourcefile, Sourcefile):
+            raise TypeError('{} given, {} expected'.format(type(sourcefile), Sourcefile))
         file_path = Path(sourcefile.path)
         assert file_path == Path(file_report.filename)
 

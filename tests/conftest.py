@@ -4,7 +4,7 @@ import os
 import io
 
 from loki import (
-    SourceFile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement)
+    Sourcefile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement)
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
 
@@ -18,7 +18,7 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     Generate the "identity" of a single subroutine with a frontend-specific suffix.
     """
     testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, frontend))
-    source = SourceFile.from_file(refpath, frontend=frontend)
+    source = Sourcefile.from_file(refpath, frontend=frontend)
 
     if modulename:
         module = [m for m in source.modules if m.name == modulename][0]
@@ -46,7 +46,7 @@ def jit_compile(source, filepath=None, objname=None):
     Generate, Just-in-Time compile and load a given item (`Module` or
     `Subroutine`) for interactive execution.
     """
-    if isinstance(source, SourceFile):
+    if isinstance(source, Sourcefile):
         filepath = source.filepath if filepath is None else Path(filepath)
         source.write(path=filepath)
     else:
@@ -55,7 +55,7 @@ def jit_compile(source, filepath=None, objname=None):
             filepath = gettempdir()/filehash(source, prefix='', suffix='.f90')
         else:
             filepath = Path(filepath)
-        SourceFile(filepath).write(source=source)
+        Sourcefile(filepath).write(source=source)
 
     pymod = compile_and_load(filepath, cwd=str(filepath.parent), use_f90wrap=True)
 
@@ -83,20 +83,20 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
         if isinstance(source, (str, Path)):
             sourcefiles.append(source)
 
-        if isinstance(source, SourceFile):
+        if isinstance(source, Sourcefile):
             filepath = source.path or path/'{}.f90'.format(source.name)
             source.write(path=filepath)
             sourcefiles.append(source.path)
 
         elif isinstance(source, Module):
             filepath = path/'{}.f90'.format(source.name)
-            source = SourceFile(filepath, modules=[source])
+            source = Sourcefile(filepath, modules=[source])
             source.write(path=filepath)
             sourcefiles.append(source.path)
 
         elif isinstance(source, Subroutine):
             filepath = path/'{}.f90'.format(source.name)
-            source = SourceFile(filepath, routines=[source])
+            source = Sourcefile(filepath, routines=[source])
             source.write(path=filepath)
             sourcefiles.append(source.path)
 

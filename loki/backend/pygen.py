@@ -80,7 +80,7 @@ class PyCodegen(Stringifier):
 
     # Handler for outer objects
 
-    def visit_SourceFile(self, o, **kwargs):
+    def visit_Sourcefile(self, o, **kwargs):
         """
         Format as
           ...modules...

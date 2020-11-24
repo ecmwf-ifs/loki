@@ -2,7 +2,7 @@ import pytest
 import sys
 from pathlib import Path
 
-from loki import OFP, OMNI, FP, SourceFile
+from loki import OFP, OMNI, FP, Sourcefile
 
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -43,7 +43,7 @@ def test_extract_sca_horizontal(frontend):
     END DO
   END SUBROUTINE compute_column
 """
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel')
@@ -89,7 +89,7 @@ def test_extract_sca_iteration(frontend):
     END DO
   END SUBROUTINE compute_column
 """
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel')
@@ -111,7 +111,7 @@ def test_extract_sca_nested_level_zero(frontend):
     """
     Test nested subroutine call outside the vertical loop.
     """
-    source = SourceFile.from_source(source="""
+    source = Sourcefile.from_source(source="""
   SUBROUTINE compute_column(jstart, jend, nlon, nz, q, t)
     INTEGER, INTENT(IN)   :: jstart, jend  ! Explicit iteration bounds of the kernel
     INTEGER, INTENT(IN)   :: nlon, nz      ! Size of the horizontal and vertical
@@ -129,7 +129,7 @@ def test_extract_sca_nested_level_zero(frontend):
   END SUBROUTINE compute_column
 """, frontend=frontend)
 
-    level_zero = SourceFile.from_source(source="""
+    level_zero = Sourcefile.from_source(source="""
   SUBROUTINE compute_level_zero(jstart, jend, nlon, nz, c, q, t)
     INTEGER, INTENT(IN)   :: jstart, jend
     INTEGER, INTENT(IN)   :: nlon, nz
@@ -173,7 +173,7 @@ def test_extract_sca_nested_level_one(frontend):
     """
     Test nested subroutine call inside vertical loop.
     """
-    source = SourceFile.from_source(source="""
+    source = Sourcefile.from_source(source="""
   SUBROUTINE compute_column(jstart, jend, nlon, nz, q, t)
     INTEGER, INTENT(IN)   :: jstart, jend  ! Explicit iteration bounds of the kernel
     INTEGER, INTENT(IN)   :: nlon, nz      ! Size of the horizontal and vertical
@@ -193,7 +193,7 @@ def test_extract_sca_nested_level_one(frontend):
   END SUBROUTINE compute_column
 """, frontend=frontend)
 
-    level_one = SourceFile.from_source(source="""
+    level_one = Sourcefile.from_source(source="""
   SUBROUTINE compute_level_one(jstart, jend, nlon, jk, c, q, t)
     INTEGER, INTENT(IN)   :: jstart, jend
     INTEGER, INTENT(IN)   :: nlon, jk

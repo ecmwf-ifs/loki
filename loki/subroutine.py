@@ -486,7 +486,7 @@ class Subroutine:
         Apply a given transformation to the source file object.
 
         Note that the dispatch routine `op.apply(source)` will ensure
-        that all entities of this `SourceFile` are correctly traversed.
+        that all entities of this `Sourcefile` are correctly traversed.
         """
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)

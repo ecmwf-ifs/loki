@@ -45,7 +45,7 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, FP, SourceFile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
+    Scheduler, FP, Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
 )
 
 
@@ -281,7 +281,7 @@ def test_scheduler_definitions(here, builddir, config):
     """
     projA = here/'sources/projA'
 
-    header = SourceFile.from_file(projA/'module/header_mod.f90',
+    header = Sourcefile.from_file(projA/'module/header_mod.f90',
                                   builddir=builddir, frontend=FP)
 
     scheduler = Scheduler(paths=projA, definitions=header['header_mod'],

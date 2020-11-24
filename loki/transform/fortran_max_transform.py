@@ -18,7 +18,7 @@ import loki.ir as ir
 from loki.expression import symbols as sym
 from loki.module import Module
 from loki.subroutine import Subroutine
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, flatten, is_loki_pragma
 from loki.types import SymbolType, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
@@ -57,7 +57,7 @@ class FortranMaxTransformation(Transformation):
         maxj_kernel = self._generate_dfe_kernel(routine)
         self.maxj_kernel_path = (self.maxj_src / maxj_kernel.name).with_suffix('.maxj')
         maxj_module = self._generate_dfe_kernel_module(maxj_kernel)
-        SourceFile.to_file(source=maxjgen(maxj_module), path=self.maxj_kernel_path)
+        Sourcefile.to_file(source=maxjgen(maxj_module), path=self.maxj_kernel_path)
 
         # Generate the SLiC host interface
         host_interface = self._generate_slic_interface(routine, maxj_kernel)
@@ -67,22 +67,22 @@ class FortranMaxTransformation(Transformation):
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
         module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
-        SourceFile.to_file(source=fgen(module), path=self.wrapperpath)
+        Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
         # Generate C host code
         host_interface.spec.prepend(ir.Import('{}.h'.format(routine.name), c_import=True))
         host_interface = self._convert_arguments_to_pointer(host_interface)
         self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
-        SourceFile.to_file(source=cgen(host_interface), path=self.c_path)
+        Sourcefile.to_file(source=cgen(host_interface), path=self.c_path)
 
         # Generate kernel manager
         maxj_manager_intf = self._generate_dfe_manager_intf(maxj_kernel)
         self.maxj_manager_intf_path = (self.maxj_src / maxj_manager_intf.name).with_suffix('.maxj')
-        SourceFile.to_file(source=maxjgen(maxj_manager_intf), path=self.maxj_manager_intf_path)
+        Sourcefile.to_file(source=maxjgen(maxj_manager_intf), path=self.maxj_manager_intf_path)
 
         maxj_manager = self._generate_dfe_manager(maxj_kernel)
         self.maxj_manager_path = (self.maxj_src / maxj_manager.name).with_suffix('.maxj')
-        SourceFile.to_file(source=maxjgen(maxj_manager), path=self.maxj_manager_path)
+        Sourcefile.to_file(source=maxjgen(maxj_manager), path=self.maxj_manager_path)
 
     @staticmethod
     def _convert_variables_to_lowercase(routine):

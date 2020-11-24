@@ -1,4 +1,4 @@
-from loki import SourceFile, Module, Subroutine, Transformer
+from loki import Sourcefile, Module, Subroutine, Transformer
 
 __all__ = ['Fixer', 'get_filename_from_parent']
 
@@ -55,7 +55,7 @@ class Fixer:
         as applicable for all rules on all entities in the given IR object.
 
         :param ast: the IR object to be fixed.
-        :type ast: :py:class:`SourceFile`, :py:class:`Module`, or
+        :type ast: :py:class:`Sourcefile`, :py:class:`Module`, or
                    :py:class:`Subroutine`
         :param list reports: the fixable :py:class:`RuleReport` reports.
         :type rule_report: :py:class:`FileReport`
@@ -65,7 +65,7 @@ class Fixer:
         """
 
         # Fix on source file level
-        if isinstance(ast, SourceFile):
+        if isinstance(ast, Sourcefile):
             # Depth-first traversal
             if hasattr(ast, 'subroutines') and ast.subroutines is not None:
                 ast._routines = [cls.fix(routine, reports, config) for routine in ast.subroutines]
@@ -96,7 +96,7 @@ class Fixer:
 def get_filename_from_parent(obj):
     """
     Try to determine filename by following ``parent`` attributes
-    until :py:class:``loki.sourcefile.SourceFile`` is encountered.
+    until :py:class:``loki.sourcefile.Sourcefile`` is encountered.
 
     :param obj: A source file, module or subroutine object.
     :return: The filename or ``None``
@@ -104,7 +104,7 @@ def get_filename_from_parent(obj):
     """
     scope = obj
     while hasattr(scope, 'parent') and scope.parent:
-        # Go up until we are at SourceFile level
+        # Go up until we are at Sourcefile level
         scope = scope.parent
     if hasattr(scope, 'path'):
         return scope.path

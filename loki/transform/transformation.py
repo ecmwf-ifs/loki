@@ -1,5 +1,5 @@
 from loki.module import Module
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 
 
@@ -21,7 +21,7 @@ class Transformation:
     The generic dispatch mechanism behind the `Transform.apply(source,
     **kwargs)` method will ensure that all hierarchies of the data
     model are traversed and apply the specific method for each
-    level. Note that in `SourceFile` objects, `Module`s will be
+    level. Note that in `Sourcefile` objects, `Module`s will be
     traversed before standalone `Subroutine` objects.
     """
 
@@ -37,14 +37,14 @@ class Transformation:
 
     def transform_file(self, sourcefile, **kwargs):
         """
-        Defines the transformation to apply to `SourceFile` items.
+        Defines the transformation to apply to `Sourcefile` items.
         """
 
     def apply(self, source, **kwargs):
         """
         Apply transformation to all source items in :param source:.
         """
-        if isinstance(source, SourceFile):
+        if isinstance(source, Sourcefile):
             self.apply_file(source, **kwargs)
 
         if isinstance(source, Subroutine):
@@ -57,8 +57,8 @@ class Transformation:
         """
         Apply transformation to all items in :param sourcefile:.
         """
-        if not isinstance(sourcefile, SourceFile):
-            raise TypeError('Transformation.apply_file can only be applied to SourceFile object')
+        if not isinstance(sourcefile, Sourcefile):
+            raise TypeError('Transformation.apply_file can only be applied to Sourcefile object')
 
         # Apply file-level transformations
         self.transform_file(sourcefile, **kwargs)
