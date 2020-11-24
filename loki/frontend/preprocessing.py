@@ -3,6 +3,7 @@ import pickle
 from collections import defaultdict, OrderedDict
 
 from loki.logging import info
+from loki.config import config
 from loki.tools import gettempdir
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
@@ -27,7 +28,7 @@ def preprocess_internal(frontend, filepath):
     info_path = tmpdir/info_path.name
 
     # Check for previous preprocessing of this file
-    if pp_path.exists() and info_path.exists():
+    if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
         # Make sure the existing PP data belongs to this file
         if pp_path.stat().st_mtime > filepath.stat().st_mtime:
             with info_path.open('rb') as f:
@@ -59,11 +60,12 @@ def preprocess_internal(frontend, filepath):
         pp_info[name] = rule.info
         source = new_source
 
-    # Write out the preprocessed source and according info file
-    with pp_path.open('w') as f:
-        f.write(source)
-    with info_path.open('wb') as f:
-        pickle.dump(pp_info, f)
+    if config['frontend-pp-cache']:
+        # Write out the preprocessed source and according info file
+        with pp_path.open('w') as f:
+            f.write(source)
+        with info_path.open('wb') as f:
+            pickle.dump(pp_info, f)
 
     return source, pp_info
 

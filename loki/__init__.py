@@ -26,6 +26,7 @@ except DistributionNotFound:
     # package is not installed
     pass
 
+
 # Add flag to trigger an initial print out of the global config
 config.register('print-config', False, env_variable='LOKI_PRINT_CONFIG',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
@@ -39,6 +40,10 @@ config.register('tmp-dir', None, env_variable='LOKI_TMP_DIR')
 
 # Causes OMNI frontend to dump intermediate XML files to LOKI_TMP_DIR
 config.register('omni-dump-xml', False, env_variable='LOKI_OMNI_DUMP_XML',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
+# Use internal frontend preprocessor caching (see loki/frontend/preprocessing.py)
+config.register('frontend-pp-cache', False, env_variable='LOKI_FRONTEND_PP_CACHE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
 # Disk-caching, which causes OFP ASTs to be cached on disk for
