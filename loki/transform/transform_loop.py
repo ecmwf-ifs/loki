@@ -280,6 +280,7 @@ def loop_interchange(routine, project_bounds=False):
     # Apply loop-interchange mapping
     if loop_map:
         routine.body = Transformer(loop_map).visit(routine.body)
+        info('%s: interchanged %d loop nest(s)', routine.name, len(loop_map))
 
 
 def loop_fusion(routine):
@@ -396,9 +397,12 @@ def loop_fusion(routine):
         # Align loop ranges and collect bodies
         fusion_bodies = []
         fusion_variables = loop_variables[0]
-        for variables, ranges, bodies, p in zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces):
+        for idx, (variables, ranges, bodies, p) in enumerate(
+                zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces)):
             # TODO: This throws away anything that is not in the inner-most loop body.
-            body = bodies[-1]
+            body = flatten([Comment('! Loki loop-fusion - body {} begin'.format(idx)),
+                            bodies[-1],
+                            Comment('! Loki loop-fusion - body {} end'.format(idx))])
 
             # Replace loop variables if necessary
             var_map = {}
@@ -430,9 +434,10 @@ def loop_fusion(routine):
         for fusion_variable, fusion_range in zip(reversed(fusion_variables), reversed(fusion_ranges)):
             fusion_loop = Loop(variable=fusion_variable, body=as_tuple(fusion_loop), bounds=fusion_range)
 
-        loop_map[loop_list[0]] = (Comment('! Loki transformation loop-fusion group({})'.format(group)),
-                                  fusion_loop)
-        loop_map.update({loop: None for loop in loop_list[1:]})
+        comment = Comment('! Loki loop-fusion group({})'.format(group))
+        loop_map[loop_list[0]] = (comment, fusion_loop)
+        comment = Comment('! Loki loop-fusion group({}) - loop hoisted'.format(group))
+        loop_map.update({loop: comment for loop in loop_list[1:]})
 
     # Apply transformation
     routine.body = Transformer(loop_map).visit(routine.body)
@@ -445,7 +450,6 @@ def loop_fission(routine):
     Search for `loki loop-fission` pragmas inside loops and attempt to split them into
     multiple loops.
     """
-    comment = Comment('! Loki transformation loop-fission')
     variable_map = routine.variable_map
     loop_map = {}
     promotion_vars_dims = CaseInsensitiveDict()
@@ -512,6 +516,7 @@ def loop_fission(routine):
                       for var_map, body in zip(var_maps, bodies)]
 
         # Finally, create the new loops
+        comment = Comment('! Loki loop-fission')
         loop_map[loop] = [(comment, Loop(variable=loop.variable, bounds=loop.bounds, body=body))
                           for body in bodies]
 
