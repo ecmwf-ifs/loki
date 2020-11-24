@@ -5,7 +5,7 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope
 from loki.frontend.fparser import parse_fparser_expression
-from loki.transform import loop_fusion, loop_fission, Polyhedron
+from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron
 from loki.expression import symbols as sym
 
 
@@ -95,6 +95,67 @@ def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
         ubounds = p.upper_bounds(var)
         assert len(ubounds) == len(ref_bounds)
         assert all(str(b1) == b2 for b1, b2 in zip(ubounds, ref_bounds))
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_interchange_plain(here, frontend):
+    """
+    Apply loop interchange for two loops without further arguments.
+    """
+    fcode = """
+subroutine transform_loop_interchange_plain(a, m, n)
+  integer, intent(out) :: a(m, n)
+  integer, intent(in) :: m, n
+  integer :: i, j
+
+  !$loki loop-interchange
+  do i=1,n
+    do j=1,m
+      a(j, i) = i + j
+    end do
+  end do
+
+  ! This loop is to make sure everything else stays as is
+  do i=1,n
+    do j=1,m
+      a(j, i) = a(j, i) - 2
+    end do
+  end do
+end subroutine transform_loop_interchange_plain
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    m, n = 10, 20
+    ref = np.array([[i+j for i in range(n)] for j in range(m)], order='F')
+
+    # Test the reference solution
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 4
+    assert [str(loop.variable) for loop in loops] == ['i', 'j', 'i', 'j']
+
+    a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
+    function(a=a, m=m, n=n)
+    assert np.all(a == ref)
+
+    # Apply transformation
+    loop_interchange(routine)
+
+    interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
+
+    # Test transformation
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 4
+    assert [str(loop.variable) for loop in loops] == ['j', 'i', 'i', 'j']
+
+    a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
+    interchanged_function(a=a, m=m, n=n)
+    assert np.all(a == ref)
+    return
+
+    clean_test(filepath)
+    clean_test(interchanged_filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
