@@ -114,7 +114,7 @@ def test_sourcefile_pp_macros(here, frontend):
 ])
 def test_sourcefile_pp_directives(here, frontend):
     filepath = here/'sources/sourcefile_pp_directives.F90'
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_pp_directives']
+    routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_directives']
 
     # Note: these checks are rather loose as we currently do not restore the original version but
     # simply replace the PP constants by strings
@@ -133,8 +133,8 @@ def test_sourcefile_pp_directives(here, frontend):
 @pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
 def test_sourcefile_pp_include(here, frontend):
     filepath = here/'sources/sourcefile_pp_include.F90'
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True,
-                                   includes=[here/'include'])['routine_pp_include']
+    sourcefile = Sourcefile.from_file(filepath, frontend=frontend, includes=[here/'include'])
+    routine = sourcefile['routine_pp_include']
 
     statements = FindNodes(Assignment).visit(routine.body)
     assert len(statements) == 1

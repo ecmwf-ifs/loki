@@ -10,7 +10,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, preprocess_internal, Source, read_file, preprocess_cpp
+from loki.frontend import OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp
 from loki.frontend.omni import parse_omni_file, parse_omni_source
 from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
@@ -44,35 +44,67 @@ class Sourcefile:
         self._source = source
 
     @classmethod
-    def from_file(cls, filename, preprocess=False, definitions=None,
-                  xmods=None, includes=None, frontend=OFP):
+    def from_file(cls, filename, definitions=None, preprocess=False,
+                  includes=None, defines=None, xmods=None, frontend=FP):
+        """
+        Constructor from raw source files that can apply a
+        C-preprocessor before invoking frontend parsers.
+
+        Parameters:
+        ===========
+        * ``filename``: Name of the file to parse into a ``Sourcefile`` object.
+        * ``definitions``: (List of) ``Module`` object(s) that may supply external
+                           type of procedure definitions.
+        * ``preprocess``: Flag to trigger CPP preprocessing (by default ``False``)
+        * ``includes``: (List of) include paths to pass to the C-preprocessor.
+        * ``defines``: (List of) symbol definitions to pass to the C-preprocessor.
+        * ``xmods``: (Optional) path to directory to find and store ``.xmod`` files
+                     when using the OMNI frontend.
+        * ``frontend``: Frontend to use for AST parsing (default FP).
+
+        Please note that, when using the OMNI frontend, C-preprocessing will always
+        be applied, so ``includes`` and ``defines`` may need to be defined eve with
+        ``preprocess=False``.
+        """
+        filepath = Path(filename)
+        raw_source = read_file(filepath)
+
+        if preprocess:
+            # Trigger CPP-preprocessing explicitly, as includes and
+            # defines can also be used by our OMNI frontend
+            source = preprocess_cpp(source=raw_source, filepath=filepath,
+                                    includes=includes, defines=defines)
+        else:
+            source = raw_source
+
         if frontend == OMNI:
-            return cls.from_omni(filename, definitions=definitions, xmods=xmods,
-                                 includes=includes)
+            return cls.from_omni(source, raw_source, filepath, definitions=definitions,
+                                 xmods=xmods, includes=includes, defines=defines)
+
         if frontend == OFP:
-            return cls.from_ofp(filename, definitions=definitions)
+            return cls.from_ofp(source, raw_source, filepath, definitions=definitions)
+
         if frontend == FP:
-            return cls.from_fparser(filename, definitions=definitions)
+            return cls.from_fparser(source, raw_source, filepath, definitions=definitions)
+
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, filename, definitions=None, xmods=None, includes=None):
+    def from_omni(cls, source, raw_source, filepath, definitions=None,
+                  xmods=None, includes=None, defines=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
-        filepath = Path(filename)
 
-        with filepath.open() as f:
-            raw_source = f.read()
-
-        # Always preprocess source files for OMNI...
-        source = preprocess_cpp(raw_source, filepath=filepath, includes=includes)
+        # Always CPP-preprocess source files for OMNI...
+        source = preprocess_cpp(raw_source, filepath=filepath,
+                                includes=includes, defines=defines)
 
         # Parse the file content into an OMNI Fortran AST
         ast = parse_omni_source(source=source, xmods=xmods)
         typetable = ast.find('typeTable')
-        return cls._from_omni_ast(ast=ast, path=filename, raw_source=raw_source,
+        return cls._from_omni_ast(ast=ast, path=filepath, raw_source=raw_source,
                                   definitions=definitions, typetable=typetable)
 
     @classmethod
@@ -93,22 +125,21 @@ class Sourcefile:
         return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
-    def from_ofp(cls, filename, definitions=None):
+    def from_ofp(cls, source, raw_source, filepath, definitions=None):
         """
         Parse a given source file with the OFP frontend to instantiate
         a `Sourcefile` object.
         """
-        filepath = Path(filename)
 
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = preprocess_internal(OFP, filepath=filepath)
+        source, pp_info = sanitize_input(source=source, frontend=OFP, filepath=filepath)
 
         # Parse the file content into a Fortran AST
         ast = parse_ofp_source(source)
 
-        return cls._from_ofp_ast(path=filename, ast=ast, definitions=definitions,
-                                 pp_info=pp_info, raw_source=source)
+        return cls._from_ofp_ast(path=filepath, ast=ast, definitions=definitions,
+                                 pp_info=pp_info, raw_source=raw_source)
 
     @classmethod
     def _from_ofp_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
@@ -128,18 +159,17 @@ class Sourcefile:
         return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
-    def from_fparser(cls, filename, definitions=None):
-        filepath = Path(filename)
+    def from_fparser(cls, source, raw_source, filepath, definitions=None):
 
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
-        source, pp_info = preprocess_internal(FP, filepath=filepath)
+        source, pp_info = sanitize_input(source=source, frontend=FP, filepath=filepath)
 
         # Parse the file content into a Fortran AST
         ast = parse_fparser_source(source)
 
-        return cls._from_fparser_ast(path=filename, ast=ast, definitions=definitions,
-                                     pp_info=pp_info, raw_source=source)
+        return cls._from_fparser_ast(path=filepath, ast=ast, definitions=definitions,
+                                     pp_info=pp_info, raw_source=raw_source)
 
     @classmethod
     def _from_fparser_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):

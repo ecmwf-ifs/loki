@@ -9,10 +9,10 @@ from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
-from loki.frontend.util import OMNI, OFP, FP, read_file
+from loki.frontend.util import OMNI, OFP, FP
 
 
-__all__ = ['preprocess_cpp', 'preprocess_internal', 'preprocess_registry', 'PPRule']
+__all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
 
 
 def preprocess_cpp(source, filepath=None, includes=None, defines=None):
@@ -67,13 +67,17 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     return s.getvalue()
 
 
-@timeit(log_level=DEBUG, getter=lambda x: x['filepath'].name)
-def preprocess_internal(frontend, filepath):
+@timeit(log_level=DEBUG, getter=lambda x: '' if 'filepath' not in x else x['filepath'].stem)
+def sanitize_input(source, frontend, filepath=None):
     """
-    Apply internal preprocessing rules to filter out known frontend
-    incompatibilities.
+    Apply internal regex-based sanitisation rules to filter out known
+    frontend incompatibilities.
 
-    See below in the ``preprocess_registry`` for pre-defined rules
+    Note that this will create a record of all things stripped
+    (``pp_info``), which will be used to re-insert the dropped
+    source info when converting the parsed AST to our IR.
+
+    The ``sanitize_registry`` (see below) holds pre-defined rules
     for each frontend.
     """
     tmpdir = gettempdir()
@@ -81,6 +85,8 @@ def preprocess_internal(frontend, filepath):
     pp_path = tmpdir/pp_path.name
     info_path = filepath.with_suffix('.{}.info'.format(str(frontend)))
     info_path = tmpdir/info_path.name
+
+    debug("[Loki] Pre-processing source file {}".format(str(filepath)))
 
     # Check for previous preprocessing of this file
     if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
@@ -97,13 +103,10 @@ def preprocess_internal(frontend, filepath):
                     source = f.read()
                 return source, pp_info
 
-    debug("[Loki] Pre-processing source file {}".format(str(filepath)))
-    source = read_file(filepath)
-
     # Apply preprocessing rules and store meta-information
     pp_info = OrderedDict()
     pp_info['original_file_path'] = str(filepath)
-    for name, rule in preprocess_registry[frontend].items():
+    for name, rule in sanitize_registry[frontend].items():
         # Apply rule filter over source file
         rule.reset()
         new_source = ''
@@ -228,7 +231,7 @@ class PPRule:
 """
 A black list of Fortran features that cause bugs and failures in frontends.
 """
-preprocess_registry = {
+sanitize_registry = {
     OMNI: {},
     OFP: {
         # Remove various IBM directives
