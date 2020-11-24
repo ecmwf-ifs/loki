@@ -3,7 +3,7 @@ import pytest
 
 from loki import (
     Sourcefile, OFP, OMNI, FP, FindNodes, PreprocessorDirective,
-    Intrinsic, Assignment, fgen
+    Intrinsic, Assignment, Import, fgen
 )
 
 
@@ -128,3 +128,25 @@ def test_sourcefile_pp_directives(here, frontend):
     statements = FindNodes(Assignment).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
+
+
+@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
+def test_sourcefile_pp_include(here, frontend):
+    filepath = here/'sources/sourcefile_pp_include.F90'
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True,
+                                   includes=[here/'include'])['routine_pp_include']
+
+    statements = FindNodes(Assignment).visit(routine.body)
+    assert len(statements) == 1
+    if frontend == OMNI:
+        # OMNI resolves that statement function!
+        assert fgen(statements[0]) == 'c = real(a + b, kind=4)'
+    else:
+        assert fgen(statements[0]) == 'c = add(a, b)'
+
+    if frontend is not OMNI:
+        # OMNI resolves the import in the frontend
+        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        assert len(imports) == 1
+        assert imports[0].c_import
+        assert imports[0].module == 'some_header.h'
