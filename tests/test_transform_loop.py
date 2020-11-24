@@ -234,6 +234,61 @@ end subroutine transform_loop_interchange
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_interchange_project(here, frontend):
+    """
+    Apply loop interchange for two loops with bounds projection.
+    """
+    fcode = """
+subroutine transform_loop_interchange_project(a, m, n)
+  integer, intent(inout) :: a(m, n)
+  integer, intent(in) :: m, n
+  integer :: i, j
+
+  !$loki loop-interchange
+  do i=1,n
+    do j=i,m
+      a(j, i) = i + j
+    end do
+  end do
+end subroutine transform_loop_interchange_project
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    m, n = 10, 20
+    ref = np.array([[i+j if j>=i else 0 for i in range(1, n+1)]
+                    for j in range(1, m+1)], order='F')
+
+    # Test the reference solution
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert [str(loop.variable) for loop in loops] == ['i', 'j']
+
+    a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
+    function(a=a, m=m, n=n)
+    assert np.all(a == ref)
+
+    # Apply transformation
+    with pytest.raises(NotImplementedError):
+        loop_interchange(routine, project_bounds=True)
+
+    # interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    # interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
+
+    # # Test transformation
+    # loops = FindNodes(Loop).visit(routine.body)
+    # assert len(loops) == 2
+    # assert [str(loop.variable) for loop in loops] == ['j', 'i']
+
+    # a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
+    # interchanged_function(a=a, m=m, n=n)
+    # assert np.all(a == ref)
+
+    clean_test(filepath)
+    # clean_test(interchanged_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_loop_fuse_matching(here, frontend):
     """
     Apply loop fusion for two loops with matching iteration spaces.

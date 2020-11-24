@@ -221,6 +221,10 @@ def loop_interchange(routine, project_bounds=False):
     Note that this effectively just exchanges variable and bounds for each of the loops,
     leaving the rest (including bodies, pragmas, etc.) intact.
     """
+    if project_bounds:
+        # For that we need Fourier-Motzkin Elimination in the Polyhedron first
+        raise NotImplementedError
+
     loop_map = {}
     for loop_nest in FindNodes(Loop).visit(routine.body):
         if not is_loki_pragma(loop_nest.pragma, starts_with='loop-interchange'):
@@ -237,7 +241,8 @@ def loop_interchange(routine, project_bounds=False):
         # Extract loop nest and determine iteration space
         loops = get_nested_loops(loop_nest, depth)
         loop_variables, loop_ranges, _ = get_loop_components(loops)
-        iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
+        if project_bounds:
+            iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
 
         if var_order is None:
             var_order = [str(var).lower() for var in reversed(loop_variables)]
@@ -263,9 +268,9 @@ def loop_interchange(routine, project_bounds=False):
             inner_loop_map = {loop: outer_loop}
 
         # Annotate loop-interchange in a comment
-        var_order = ', '.join(var_order)
-        new_var_order = ', '.join(loop_variable_names[idx] for idx in loop_order)
-        comment = Comment('! Loki loop-interchange ({} <--> {})'.format(var_order, new_var_order))
+        old_vars = ', '.join(loop_variable_names)
+        new_vars = ', '.join(var_order)
+        comment = Comment('! Loki loop-interchange ({} <--> {})'.format(old_vars, new_vars))
 
         # Strip loop-interchange pragma and register new loop nest in map
         pragmas = tuple(p for p in as_tuple(loops[0].pragma)
