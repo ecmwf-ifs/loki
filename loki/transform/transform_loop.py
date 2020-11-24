@@ -200,7 +200,8 @@ def get_nested_loops(loop, depth):
     for _ in range(1, depth):
         loops_in_body = [node for node in loop.body if isinstance(node, Loop)]
         assert len(loops_in_body) == 1
-        loops += [loops_in_body[0]]
+        loop = loops_in_body[0]
+        loops += [loop]
     return as_tuple(loops)
 
 
@@ -225,9 +226,13 @@ def loop_interchange(routine, project_bounds=False):
         if not is_loki_pragma(loop_nest.pragma, starts_with='loop-interchange'):
             continue
 
-        # TODO: parse variable order from pragma
-        depth = 2
-        var_order = None
+        # Get variable order from pragma
+        var_order = get_pragma_parameters(loop_nest.pragma).get('loop-interchange', None)
+        if var_order:
+            var_order = [var.strip().lower() for var in var_order.split(',')]
+            depth = len(var_order)
+        else:
+            depth = 2
 
         # Extract loop nest and determine iteration space
         loops = get_nested_loops(loop_nest, depth)

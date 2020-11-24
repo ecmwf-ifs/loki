@@ -479,7 +479,7 @@ def is_loki_pragma(pragma, starts_with=None):
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>\w+)(?:\((?P<arg>.+?)\))?')
+_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
