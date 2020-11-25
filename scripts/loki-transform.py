@@ -50,21 +50,23 @@ def cli():
               help='Driver file to convert.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
 @click.option('--define', '-I', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
 @click.option('--omni-include', '-I', type=click.Path(), multiple=True,
               help='Additional path for header files, specifically for OMNI')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def idempotence(out_path, source, driver, header, xmod, include, define, omni_include,
+def idempotence(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
                 flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
@@ -78,7 +80,7 @@ def idempotence(out_path, source, driver, header, xmod, include, define, omni_in
                                                frontend=frontend_type).modules for h in header)
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
-                                    preprocess=True, includes=include, defines=define,
+                                    preprocess=cpp, includes=include, defines=define,
                                     omni_includes=omni_include, xmods=xmod)
                for src in source]
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
@@ -147,21 +149,23 @@ def idempotence(out_path, source, driver, header, xmod, include, define, omni_in
               help='Driver file to convert.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
 @click.option('--define', '-I', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
 @click.option('--omni-include', '-I', type=click.Path(), multiple=True,
               help='Additional path for header files, specifically for OMNI')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def convert(out_path, source, driver, header, xmod, include, define, omni_include,
+def convert(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
             strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -179,7 +183,7 @@ def convert(out_path, source, driver, header, xmod, include, define, omni_includ
                                                frontend=frontend_type).modules for h in header)
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
-                                    preprocess=True, includes=include, defines=define,
+                                    preprocess=cpp, includes=include, defines=define,
                                     omni_includes=omni_include, xmods=xmod)
                for src in source]
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
@@ -237,15 +241,17 @@ def convert(out_path, source, driver, header, xmod, include, define, omni_includ
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
               help='Driver file to convert.')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
+@click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
 @click.option('--define', '-I', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
+@click.option('--xmod', '-M', type=click.Path(), multiple=True,
+              help='Path for additional module file(s)')
 @click.option('--frontend', default='omni', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def transpile(out_path, header, source, driver, xmod, include, define, frontend):
+def transpile(out_path, header, source, driver, cpp, include, define, frontend, xmod):
     """
     Convert kernels to C and generate ISO-C bindings and interfaces.
     """
@@ -266,7 +272,7 @@ def transpile(out_path, header, source, driver, xmod, include, define, frontend)
         definitions = definitions + list(sfile.modules)
 
     # Parse original driver and kernel routine, and enrich the driver
-    kernel = Sourcefile.from_file(source, definitions=definitions, preprocess=True,
+    kernel = Sourcefile.from_file(source, definitions=definitions, preprocess=cpp,
                                   includes=include, defines=define, xmods=xmod,
                                   frontend=frontend)
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
