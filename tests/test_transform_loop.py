@@ -1391,6 +1391,9 @@ end subroutine transform_loop_fusion_fission
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_section_hoist(here, frontend):
+    """
+    A very simple hoisting example
+    """
     fcode = """
 subroutine transform_section_hoist(a, b, c)
   integer, intent(out) :: a, b, c
@@ -1431,6 +1434,9 @@ end subroutine transform_section_hoist
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_section_hoist_inlined_pragma(here, frontend):
+    """
+    Hoisting when pragmas are potentially inlined into other nodes.
+    """
     fcode = """
 subroutine transform_section_hoist_inlined_pragma(a, b, klon, klev)
   integer, intent(inout) :: a(klon, klev), b(klon, klev)
@@ -1497,6 +1503,57 @@ end subroutine transform_section_hoist_inlined_pragma
     hoisted_function(a=a, b=b, klon=klon, klev=klev)
     assert np.all(a == ref_a)
     assert np.all(b == ref_b)
+
+    clean_test(filepath)
+    clean_test(hoisted_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_section_hoist_multiple(here, frontend):
+    """
+    Test hoisting with multiple groups and multiple sections per group
+    """
+    fcode = """
+subroutine transform_section_hoist_multiple(a, b, c)
+  integer, intent(out) :: a, b, c
+
+  a = 1
+
+!$loki section-hoist target
+!$loki section-hoist target group(some-group)
+
+  a = a + 1
+  a = a + 1
+!$loki section-hoist begin group(some-group)
+  a = a + 1
+!$loki section-hoist end group(some-group)
+  a = a + 1
+
+!$loki section-hoist begin
+  b = a
+!$loki section-hoist end
+
+!$loki section-hoist begin group(some-group)
+  c = a + b
+!$loki section-hoist end group(some-group)
+end subroutine transform_section_hoist_multiple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    a, b, c = function()
+    assert a == 5 and b == 5 and c == 10
+
+    # Apply transformation
+    section_hoist(routine)
+    hoisted_filepath = here/('%s_hoisted_%s.f90' % (routine.name, frontend))
+    hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
+
+    # Test transformation
+    a, b, c = hoisted_function()
+    assert a == 5 and b == 1 and c == 3
 
     clean_test(filepath)
     clean_test(hoisted_filepath)

@@ -568,7 +568,7 @@ def section_hoist(routine):
 
         for pragma in pragmas:
             if is_loki_pragma(pragma, starts_with='section-hoist'):
-                parameters = get_pragma_parameters(pragma, starts_with='loop-fusion')
+                parameters = get_pragma_parameters(pragma, starts_with='section-hoist')
                 group = parameters.get('group', 'default')
                 hoist_groups[group] += [(pragma, node)]
 
@@ -617,4 +617,8 @@ def section_hoist(routine):
         # Insert target <-> hoisted sections into map
         hoist_map.update(pragma_replacement_mapper(target_pragma, target_node, hoist_body))
 
-    routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)
+    if hoist_map:
+        routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)
+
+        num_sections = sum((len(group) - 1) // 2 for group in hoist_groups.values())
+        info('%s: hoisted %d section(s) in %d group(s)', routine.name, num_sections, len(hoist_groups))
