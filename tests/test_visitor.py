@@ -6,7 +6,7 @@ from loki import (
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -669,6 +669,7 @@ end subroutine routine_simple
         for stmt in FindNodes(Assignment).visit(ir):
             if stmt.lhs == routine.arguments[0]:
                 return stmt
+        return None
 
     node_without_src = get_new_statement(body_without_source)
     assert node_without_src.source is None
@@ -687,3 +688,59 @@ end subroutine routine_simple
             break
         assert node_without_src.source is None
         assert node_with_src.source and node_with_src.source == orig_node.source
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_masked_transformer(frontend):
+    """
+    A very basic sanity test for the MaskedTransformer class.
+    """
+    fcode = """
+subroutine masked_transformer(a)
+  integer, intent(inout) :: a
+
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+  a = a + 1
+end subroutine masked_transformer
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    # Removes all nodes
+    body = MaskedTransformer(start=None, stop=None).visit(routine.body)
+    assert not FindNodes(Assignment).visit(body)
+
+    # Removes all nodes but the last
+    body = MaskedTransformer(start=assignments[-1], stop=None).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+
+    # Retains all nodes but the last
+    body = MaskedTransformer(start=None, stop=assignments[-1], active=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == len(assignments) - 1
+
+    # Retains the first two and last two nodes
+    start = [assignments[0], assignments[-2]]
+    stop = assignments[2]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+
+    # Retains the first two and the second to last node
+    start = [assignments[0], assignments[-2]]
+    stop = [assignments[2], assignments[-1]]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+
+    # Retains three nodes in the middle
+    start = assignments[3]
+    stop = assignments[6]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
