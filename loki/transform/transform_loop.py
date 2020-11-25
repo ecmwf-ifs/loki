@@ -11,13 +11,13 @@ from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
     accumulate_polynomial_terms, simplify, is_constant, symbolic_op)
 from loki.frontend.fparser import parse_fparser_expression
-from loki.ir import Loop, Conditional, Comment, Pragma
+from loki.ir import Loop, WhileLoop, Conditional, Comment, Pragma, CallStatement
 from loki.logging import info
 from loki.tools import (
     is_loki_pragma, get_pragma_parameters, flatten, as_tuple, CaseInsensitiveDict)
-from loki.visitors import FindNodes, Transformer
+from loki.visitors import FindNodes, Transformer, MaskedTransformer
 
-__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron']
+__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']
 
 
 class Polyhedron:
@@ -527,3 +527,94 @@ def loop_fission(routine):
             var_map[var] = var.clone(type=var.type.clone(shape=shape), dimensions=shape)
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
         info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
+
+
+def pragma_replacement_mapper(pragma, node, replacement=None):
+    """
+    Utility function that produces a mapper that can be used with a :class:`Transformer` to
+    replace a pragma.
+
+    :param :class:`ir.Pragma` pragma: the pragma to be replaced.
+    :param :class:`ir.Node` node: the pragma node or a node in which the pragma is inlined.
+    :param replacement: the replacement for the pragma. Can be `None` to simply remove it.
+    """
+    if isinstance(node, Pragma):
+        # Given node is the pragma
+        assert node == pragma
+        return {node: replacement}
+
+    # Pragma is inlined in the given node
+    assert hasattr(node, 'pragma') and pragma in node.pragma
+    pragmas = [p for p in node.pragma if p != pragma]
+
+    if replacement is not None:
+        return {node: as_tuple(flatten([replacement, node.clone(pragma=pragmas)]))}
+    return {node: node.clone(pragma=pragmas)}
+
+
+def section_hoist(routine):
+    """
+    Hoist one or multiple code sections and insert them at a specified target location.
+    """
+    hoist_groups = defaultdict(list)
+
+    # We need to look for Pragma nodes as well as inlined pragmas to find all section-hoist directives
+    node_types = (Loop, WhileLoop, CallStatement)
+    for node in FindNodes((Pragma,) + node_types).visit(routine.body):
+        if isinstance(node, Pragma):
+            pragmas = as_tuple(node)
+        else:
+            pragmas = as_tuple(node.pragma)
+
+        for pragma in pragmas:
+            if is_loki_pragma(pragma, starts_with='section-hoist'):
+                parameters = get_pragma_parameters(pragma, starts_with='loop-fusion')
+                group = parameters.get('group', 'default')
+                hoist_groups[group] += [(pragma, node)]
+
+    hoist_map = {}
+    starts, stops = [], []
+    for group, pragma_node_pairs in hoist_groups.items():
+
+        # Extract sections
+        section_starts = [(pragma, node) for pragma, node in pragma_node_pairs
+                          if 'begin' in get_pragma_parameters(pragma)]
+        section_ends = [(pragma, node) for pragma, node in pragma_node_pairs
+                        if 'end' in get_pragma_parameters(pragma)]
+        assert len(section_starts) == len(section_ends)
+
+        hoist_body = ()
+        for (start_pragma, start_node), (end_pragma, end_node) in zip(section_starts, section_ends):
+            reach = get_pragma_parameters(start_pragma).get('reach', None)
+            if reach is not None:
+                raise NotImplementedError
+
+            # For some reason this always produces a Section object which we avoid here
+            # by passing routine.body.body
+            mapper = pragma_replacement_mapper(start_pragma, start_node)
+            section = MaskedTransformer(start=start_node, stop=end_node, mapper=mapper).visit(routine.body.body)
+            start_comment = Comment('! Loki section-hoist group({}) - begin section'.format(group))
+            end_comment = Comment('! Loki section-hoist group({}) - end section'.format(group))
+            hoist_body += as_tuple(flatten([start_comment, section, end_comment]))
+
+            # Register start and end nodes for transformer mask
+            starts += [end_node]
+            stops += [start_node]
+
+            # Replace end pragma by comment
+            comment = Comment('! Loki section-hoist group({}) - section hoisted'.format(group))
+            hoist_map.update(pragma_replacement_mapper(end_pragma, end_node, comment))
+
+        # Find the target for this hoisting group
+        target = [(pragma, node) for pragma, node in pragma_node_pairs
+                  if 'target' in get_pragma_parameters(pragma)]
+        if not target:
+            raise RuntimeError('No target found for section-hoist group {}'.format(group))
+        if len(target) > 1:
+            raise RuntimeError('Multiple targets given for section-hoist group {}'.format(group))
+        target_pragma, target_node = target[0]
+
+        # Insert target <-> hoisted sections into map
+        hoist_map.update(pragma_replacement_mapper(target_pragma, target_node, hoist_body))
+
+    routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)

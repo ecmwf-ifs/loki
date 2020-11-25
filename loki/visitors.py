@@ -5,7 +5,7 @@ from loki.ir import Node
 from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
 __all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
-           'Stringifier']
+           'Stringifier', 'MaskedTransformer']
 
 
 class GenericVisitor:
@@ -251,6 +251,58 @@ class NestedTransformer(Transformer):
                 return self._rebuild_without_source(o, extended)
             return o._rebuild(*extended, **o.args_frozen)
         return self._rebuild(handle, rebuilt)
+
+
+class MaskedTransformer(Transformer):
+    """
+    An enriched :class:`Transformer` that allows to selectively activate and
+    deactivate including nodes or subtrees in the produced tree.
+
+    This can be used, e.g., to extract the subtree between two nodes. Or to
+    create a copy of the entire tree but without the subtree between two nodes.
+
+    :param start: a node or list/set of nodes. When a node from this list is
+        encountered, it and all subsequently traversed nodes are included in
+        the produced tree until a node from the `stop` list is encountered.
+    :param stop: a node or list/set of nodes. When a node from this list is
+        encountered, it and all subsequently traversed nodes are excluded from
+        the produced tree until a node from the `start` list is encountered.
+    :param bool active: if set to `True` nodes are included in the produced tree
+        from the beginning.
+    """
+
+    def __init__(self, start=None, stop=None, active=False, **kwargs):
+        super().__init__(**kwargs)
+
+        self.start = set(as_tuple(start))
+        self.stop = set(as_tuple(stop))
+        self.active = active
+
+    def _rebuild(self, o, children):
+        if self.active:
+            return super()._rebuild(o, children)
+        return None
+
+    def visit_Node(self, o, **kwargs):
+        if o in self.stop:
+            self.active = False
+            return None
+        if o in self.start:
+            self.active = True
+        return super().visit_Node(o, **kwargs)
+
+    def visit_tuple(self, o, **kwargs):
+        new_o, active = [], self.active
+        for i in o:
+            if i in self.start:
+                active = True
+            if i in self.stop:
+                active = False
+            if active:
+                new_o += [i]
+        return super().visit_tuple(as_tuple(new_o), **kwargs)
+
+    visit_list = visit_tuple
 
 
 class FindNodes(Visitor):
