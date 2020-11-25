@@ -187,13 +187,17 @@ class Transformer(Visitor):
     def visit_object(self, o, **kwargs):
         return o
 
-    def visit_tuple(self, o, **kwargs):
+    def _inject_tuple_mapping(self, o):
         # For one-to-many mappings check iterables for the replacement
         # node and insert the sub-list/tuple into the list/tuple.
         for k, handle in self.mapper.items():
             if k in o and is_iterable(handle):
                 i = o.index(k)
                 o = o[:i] + tuple(handle) + o[i+1:]
+        return o
+
+    def visit_tuple(self, o, **kwargs):
+        o = self._inject_tuple_mapping(o)
         visited = tuple(self.visit(i, **kwargs) for i in o)
         return tuple(i for i in visited if i is not None)
 
@@ -205,16 +209,6 @@ class Transformer(Visitor):
             if handle is None:
                 # None -> drop /o/
                 return None
-            # Commenting the following as I could not find a use case for it in our
-            # test base or external CLOUDSC regression tests. Possibly related: LOKI-14
-            # if is_iterable(handle):
-            #     # Original implementation to extend o.children:
-            #     if not o.children:
-            #         raise ValueError
-            #     extended = (tuple(handle) + o.children[0],) + o.children[1:]
-            #     if self.invalidate_source:
-            #         return self._rebuild_without_source(o, extended)
-            #     return o._rebuild(*extended, **o.args_frozen)
 
             # For one-to-many mappings making sure this is not replaced again
             # as it has been inserted by visit_tuple already
@@ -258,8 +252,11 @@ class MaskedTransformer(Transformer):
     An enriched :class:`Transformer` that allows to selectively activate and
     deactivate including nodes or subtrees in the produced tree.
 
-    This can be used, e.g., to extract the subtree between two nodes. Or to
-    create a copy of the entire tree but without the subtree between two nodes.
+    This can be used, e.g., to extract everything between two nodes. Or to
+    create a copy of the entire tree but without all nodes between two nodes.
+
+    Parameters `start` and `stop` are to be understood in a Pythonic way, i.e.,
+    `start` will be included in the result and `stop` excluded.
 
     :param start: a node or list/set of nodes. When a node from this list is
         encountered, it and all subsequently traversed nodes are included in
@@ -278,29 +275,43 @@ class MaskedTransformer(Transformer):
         self.stop = set(as_tuple(stop))
         self.active = active
 
-    def _rebuild(self, o, children):
-        if self.active:
-            return super()._rebuild(o, children)
+    def visit(self, o, *args, **kwargs):
+        # Vertical active status update
+        active = kwargs.get('active', self.active)
+        kwargs['active'] = (active and o not in self.stop) or o in self.start
+        return super().visit(o, *args, **kwargs)
+
+    def visit_object(self, o, **kwargs):
+        if kwargs['active']:
+            return o
         return None
 
     def visit_Node(self, o, **kwargs):
-        if o in self.stop:
-            self.active = False
-            return None
-        if o in self.start:
-            self.active = True
-        return super().visit_Node(o, **kwargs)
+        if o in self.mapper:
+            handle = self.mapper[o]
+            if handle is None:
+                # None -> drop /o/
+                return None
+
+            # For one-to-many mappings making sure this is not replaced again
+            # as it has been inserted by visit_tuple already
+            if not is_iterable(handle) or o not in handle:
+                return handle._rebuild(**handle.args)
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        if kwargs['active']:
+            return self._rebuild(o, rebuilt)
+        return tuple(i for i in rebuilt if i is not None) or None
 
     def visit_tuple(self, o, **kwargs):
-        new_o, active = [], self.active
+        o = self._inject_tuple_mapping(o)
+        active = kwargs.pop('active')
+        visited = []
         for i in o:
-            if i in self.start:
-                active = True
-            if i in self.stop:
-                active = False
-            if active:
-                new_o += [i]
-        return super().visit_tuple(as_tuple(new_o), **kwargs)
+            # Lateral active status update
+            active = (active and i not in self.stop) or i in self.start
+            visited += [self.visit(i, active=active, **kwargs)]
+        return tuple(i for i in visited if i is not None) or None
 
     visit_list = visit_tuple
 

@@ -589,10 +589,11 @@ def section_hoist(routine):
             if reach is not None:
                 raise NotImplementedError
 
-            # For some reason this always produces a Section object which we avoid here
-            # by passing routine.body.body
+            # Extract the section to hoist
             mapper = pragma_replacement_mapper(start_pragma, start_node)
-            section = MaskedTransformer(start=start_node, stop=end_node, mapper=mapper).visit(routine.body.body)
+            section = MaskedTransformer(start=start_node, stop=end_node, mapper=mapper).visit(routine.body)
+
+            # Append it to the group's body, wrapped in comments
             start_comment = Comment('! Loki section-hoist group({}) - begin section'.format(group))
             end_comment = Comment('! Loki section-hoist group({}) - end section'.format(group))
             hoist_body += as_tuple(flatten([start_comment, section, end_comment]))

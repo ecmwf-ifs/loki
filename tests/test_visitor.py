@@ -3,7 +3,7 @@ from pymbolic.primitives import Expression
 
 from loki import (
     OFP, OMNI, FP,
-    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum,
+    Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
     ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer)
@@ -700,15 +700,15 @@ subroutine masked_transformer(a)
   integer, intent(inout) :: a
 
   a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
-  a = a + 1
+  a = a + 2
+  a = a + 3
+  a = a + 4
+  a = a + 5
+  a = a + 6
+  a = a + 7
+  a = a + 8
+  a = a + 9
+  a = a + 10
 end subroutine masked_transformer
     """
 
@@ -718,6 +718,10 @@ end subroutine masked_transformer
     # Removes all nodes
     body = MaskedTransformer(start=None, stop=None).visit(routine.body)
     assert not FindNodes(Assignment).visit(body)
+
+    # Retains all nodes
+    body = MaskedTransformer(start=None, stop=None, active=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 10
 
     # Removes all nodes but the last
     body = MaskedTransformer(start=assignments[-1], stop=None).visit(routine.body)
@@ -744,3 +748,85 @@ end subroutine masked_transformer
     stop = assignments[6]
     body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 3
+
+    # Retains nodes two to four and replaces the third by the first node
+    start = assignments[1]
+    stop = assignments[4]
+    mapper = {assignments[2]: assignments[0]}
+    body = MaskedTransformer(start=start, stop=stop, mapper=mapper).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert str(FindNodes(Assignment).visit(body)[1]) == str(assignments[0])
+
+    # Retains nodes two to four and replaces the second by the first node
+    start = assignments[1]
+    stop = assignments[4]
+    mapper = {assignments[1]: assignments[0]}
+    body = MaskedTransformer(start=start, stop=stop, mapper=mapper).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert str(FindNodes(Assignment).visit(body)[0]) == str(assignments[0])
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_masked_transformer_associates(frontend):
+    """
+    Test the masked transformer in conjunction with associate blocks
+    """
+    fcode = """
+subroutine masked_transformer(a)
+  integer, intent(inout) :: a
+
+associate(b=>a)
+  b = b + 1
+  b = b + 2
+  b = b + 3
+  b = b + 4
+  b = b + 5
+  b = b + 6
+  b = b + 7
+  b = b + 8
+  b = b + 9
+  b = b + 10
+end associate
+end subroutine masked_transformer
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+    assert len(assignments) == 10
+    assert len(FindNodes(Associate).visit(routine.body)) == 1
+
+    # Removes all nodes
+    body = MaskedTransformer(start=None, stop=None).visit(routine.body)
+    assert not FindNodes(Assignment).visit(body)
+    assert not FindNodes(Associate).visit(body)
+
+    # Removes all nodes but the last
+    body = MaskedTransformer(start=assignments[-1], stop=None).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert not FindNodes(Associate).visit(body)
+
+    # Retains all nodes but the last
+    body = MaskedTransformer(start=None, stop=assignments[-1], active=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == len(assignments) - 1
+    assert len(FindNodes(Associate).visit(body)) == 1
+
+    # Retains the first two and last two nodes
+    start = [assignments[0], assignments[-2]]
+    stop = assignments[2]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+    assert not FindNodes(Associate).visit(body)
+
+    # Retains the first two and the second to last node
+    start = [assignments[0], assignments[-2]]
+    stop = [assignments[2], assignments[-1]]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert not FindNodes(Associate).visit(body)
+
+    # Retains three nodes in the middle
+    start = assignments[3]
+    stop = assignments[6]
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert not FindNodes(Associate).visit(body)

@@ -1460,6 +1460,7 @@ subroutine transform_section_hoist_inlined_pragma(a, b, klon, klev)
     b(1, jk) = jk
   end do
 !$loki section-hoist end
+!Buffer comment
 
   do jk=1,klev
     do jl=2,klon
