@@ -56,13 +56,16 @@ def cli():
               help='Path for additional header file(s)')
 @click.option('--define', '-I', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
+@click.option('--omni-include', '-I', type=click.Path(), multiple=True,
+              help='Additional path for header files, specifically for OMNI')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
 @click.option('--openmp/--no-openmp', default=False,
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def idempotence(out_path, source, driver, header, xmod, include, define, flatten_args, openmp, frontend):
+def idempotence(out_path, source, driver, header, xmod, include, define, omni_include,
+                flatten_args, openmp, frontend):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -76,7 +79,7 @@ def idempotence(out_path, source, driver, header, xmod, include, define, flatten
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
                                     preprocess=True, includes=include, defines=define,
-                                    xmods=xmod)
+                                    omni_includes=omni_include, xmods=xmod)
                for src in source]
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
 
@@ -150,13 +153,16 @@ def idempotence(out_path, source, driver, header, xmod, include, define, flatten
               help='Path for additional header file(s)')
 @click.option('--define', '-I', multiple=True,
               help='Additional symbol definitions for C-preprocessor')
+@click.option('--omni-include', '-I', type=click.Path(), multiple=True,
+              help='Additional path for header files, specifically for OMNI')
 @click.option('--strip-omp-do', is_flag=True, default=False,
               help='Removes existing !$omp do loop pragmas')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
-def convert(out_path, source, driver, header, xmod, include, define, strip_omp_do, mode, frontend):
+def convert(out_path, source, driver, header, xmod, include, define, omni_include,
+            strip_omp_do, mode, frontend):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -174,7 +180,7 @@ def convert(out_path, source, driver, header, xmod, include, define, strip_omp_d
 
     kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
                                     preprocess=True, includes=include, defines=define,
-                                    xmods=xmod)
+                                    omni_includes=omni_include, xmods=xmod)
                for src in source]
     driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
 

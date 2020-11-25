@@ -45,7 +45,8 @@ class Sourcefile:
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
-                  includes=None, defines=None, xmods=None, frontend=FP):
+                  includes=None, defines=None, omni_includes=None,
+                  xmods=None, frontend=FP):
         """
         Constructor from raw source files that can apply a
         C-preprocessor before invoking frontend parsers.
@@ -60,6 +61,10 @@ class Sourcefile:
         * ``defines``: (List of) symbol definitions to pass to the C-preprocessor.
         * ``xmods``: (Optional) path to directory to find and store ``.xmod`` files
                      when using the OMNI frontend.
+        * ``omni_includes``: (List of) additional include paths to pass to the
+                             preprocessor run as part of the OMNI frontend parse.
+                             If set, this replaces(!) ``includes``, if not ``includes``
+                             will be used instead.
         * ``frontend``: Frontend to use for AST parsing (default FP).
 
         Please note that, when using the OMNI frontend, C-preprocessing will always
@@ -79,7 +84,8 @@ class Sourcefile:
 
         if frontend == OMNI:
             return cls.from_omni(source, filepath, definitions=definitions,
-                                 xmods=xmods, includes=includes, defines=defines)
+                                 includes=includes, defines=defines,
+                                 xmods=xmods, omni_includes=omni_includes)
 
         if frontend == OFP:
             return cls.from_ofp(source, filepath, definitions=definitions)
@@ -90,16 +96,20 @@ class Sourcefile:
         raise NotImplementedError('Unknown frontend: %s' % frontend)
 
     @classmethod
-    def from_omni(cls, raw_source, filepath, definitions=None,
-                  xmods=None, includes=None, defines=None):
+    def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
+                  defines=None, xmods=None, omni_includes=None):
         """
         Use the OMNI compiler frontend to generate internal subroutine
         and module IRs.
         """
 
-        # Always CPP-preprocess source files for OMNI...
-        source = preprocess_cpp(raw_source, filepath=filepath, includes=includes,
-                                defines=defines)
+        # Always CPP-preprocess source files for OMNI, but optionally
+        # use a different set of include paths if specified that way.
+        # (It's a hack, I know, but OMNI sucks, so what can I do...?)
+        if omni_includes is not None:
+            includes = omni_includes
+        source = preprocess_cpp(raw_source, filepath=filepath,
+                                includes=includes, defines=defines)
 
         # Parse the file content into an OMNI Fortran AST
         ast = parse_omni_source(source=source, filepath=filepath, xmods=xmods)
