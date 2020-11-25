@@ -54,17 +54,6 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.fixture(scope='module', name='builddir')
-def fixture_builddir(here):
-    builddir = here/'build'
-    builddir.mkdir(parents=True, exist_ok=True)
-    yield builddir
-
-    # Clean up after us
-    if builddir.exists():
-        shutil.rmtree(builddir)
-
-
 @pytest.fixture(name='config')
 def fixture_config():
     """
@@ -102,7 +91,7 @@ class VisGraphWrapper:
         return [m for m in self._re_edges.findall(self.text)]
 
 
-def test_scheduler_graph_simple(here, builddir, config):
+def test_scheduler_graph_simple(here, config):
     """
     Create a simple task graph from a single sub-project:
 
@@ -112,8 +101,7 @@ def test_scheduler_graph_simple(here, builddir, config):
     """
     projA = here/'sources/projA'
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include',
-                          config=config, builddir=builddir)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
     scheduler.populate('driverA')
 
     expected_items = [
@@ -130,15 +118,17 @@ def test_scheduler_graph_simple(here, builddir, config):
     assert all(e in scheduler.dependencies for e in expected_dependencies)
 
     # Testing of callgraph visualisation
-    cg_path = builddir/'callgraph_simple'
+    cg_path = here/'callgraph_simple'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
     assert all(n.upper() in vgraph.nodes for n in expected_items)
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
+    cg_path.unlink()
 
-def test_scheduler_graph_partial(here, builddir, config):
+
+def test_scheduler_graph_partial(here, config):
     """
     Create a sub-graph from a select set of branches in  single project:
 
@@ -160,7 +150,7 @@ def test_scheduler_graph_partial(here, builddir, config):
         },
     ]
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
     scheduler.populate(scheduler.config.routines)
 
     expected_items = [
@@ -178,7 +168,7 @@ def test_scheduler_graph_partial(here, builddir, config):
     assert 'kernelA' not in scheduler.items
 
     # Testing of callgraph visualisation
-    cg_path = builddir/'callgraph_partial'
+    cg_path = here/'callgraph_partial'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
@@ -187,8 +177,10 @@ def test_scheduler_graph_partial(here, builddir, config):
     assert 'DRIVERA' not in vgraph.nodes
     assert 'KERNELA' not in vgraph.nodes
 
+    cg_path.unlink()
 
-def test_scheduler_graph_config_file(here, builddir):
+
+def test_scheduler_graph_config_file(here):
     """
     Create a sub-graph from a branches using a config file:
 
@@ -199,7 +191,7 @@ def test_scheduler_graph_config_file(here, builddir):
     projA = here/'sources/projA'
     config = projA/'scheduler_partial.config'
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
     scheduler.populate(scheduler.config.routines)
 
     expected_items = ['compute_l1', 'another_l1', 'another_l2']
@@ -211,7 +203,7 @@ def test_scheduler_graph_config_file(here, builddir):
     assert 'compute_l2' not in scheduler.items  # We're blocking `compute_l2` in config file
 
     # Testing of callgraph visualisation
-    cg_path = builddir/'callgraph_config_file'
+    cg_path = here/'callgraph_config_file'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
@@ -222,8 +214,10 @@ def test_scheduler_graph_config_file(here, builddir):
     assert len(vgraph.nodes) == 4
     assert len(vgraph.edges) == 2
 
+    cg_path.unlink()
 
-def test_scheduler_graph_blocked(here, builddir, config):
+
+def test_scheduler_graph_blocked(here, config):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -235,8 +229,7 @@ def test_scheduler_graph_blocked(here, builddir, config):
 
     config['default']['block'] = ['another_l1']
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include',
-                          config=config, builddir=builddir)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
     scheduler.populate('driverA')
 
     expected_items = [
@@ -257,7 +250,7 @@ def test_scheduler_graph_blocked(here, builddir, config):
     assert ('another_l1', 'another_l2') not in scheduler.dependencies
 
     # Testing of callgraph visualisation
-    cg_path = builddir/'callgraph_block'
+    cg_path = here/'callgraph_block'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
@@ -269,8 +262,10 @@ def test_scheduler_graph_blocked(here, builddir, config):
     assert len(vgraph.nodes) == 5
     assert len(vgraph.edges) == 4
 
+    cg_path.unlink()
 
-def test_scheduler_definitions(here, builddir, config):
+
+def test_scheduler_definitions(here, config):
     """
     Create a simple task graph with and inject type info via `definitions`.
 
@@ -281,11 +276,10 @@ def test_scheduler_definitions(here, builddir, config):
     """
     projA = here/'sources/projA'
 
-    header = Sourcefile.from_file(projA/'module/header_mod.f90',
-                                  builddir=builddir, frontend=FP)
+    header = Sourcefile.from_file(projA/'module/header_mod.f90', frontend=FP)
 
     scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
-                          includes=projA/'include', config=config, builddir=builddir)
+                          includes=projA/'include', config=config)
     scheduler.populate('driverA')
 
     driver = scheduler.item_map['driverA'].routine
@@ -296,7 +290,7 @@ def test_scheduler_definitions(here, builddir, config):
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 
-def test_scheduler_process(here, builddir, config):
+def test_scheduler_process(here, config):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
@@ -321,7 +315,7 @@ def test_scheduler_process(here, builddir, config):
         },
     ]
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, builddir=builddir)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
     scheduler.populate([r['name'] for r in config['routine']])
 
     class AppendRole(Transformation):
@@ -340,7 +334,7 @@ def test_scheduler_process(here, builddir, config):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_graph_multiple_combined(here, builddir, config):
+def test_scheduler_graph_multiple_combined(here, config):
     """
     Create a single task graph spanning two projects
 
@@ -351,8 +345,7 @@ def test_scheduler_graph_multiple_combined(here, builddir, config):
     projA = here/'sources/projA'
     projB = here/'sources/projB'
 
-    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include',
-                          config=config, builddir=builddir)
+    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
     scheduler.populate('driverB')
 
     expected_items = [
@@ -369,15 +362,17 @@ def test_scheduler_graph_multiple_combined(here, builddir, config):
     assert all(e in scheduler.dependencies for e in expected_dependencies)
 
     # Testing of callgraph visualisation
-    cg_path = builddir/'callgraph_multiple_combined'
+    cg_path = here/'callgraph_multiple_combined'
     scheduler.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
     assert all(n.upper() in vgraph.nodes for n in expected_items)
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
+    cg_path.unlink()
 
-def test_scheduler_graph_multiple_separate(here, builddir, config):
+
+def test_scheduler_graph_multiple_separate(here, config):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -403,8 +398,7 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
         },
     ]
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include',
-                           config=configA, builddir=builddir)
+    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA)
     schedulerA.populate('driverB')
 
     expected_itemsA = [
@@ -422,12 +416,14 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     # assert 'ext_kernel' not in schedulerA.items
 
     # Test callgraph visualisation
-    cg_path = builddir/'callgraph_multiple_separate_A'
+    cg_path = here/'callgraph_multiple_separate_A'
     schedulerA.callgraph(cg_path)
 
     vgraph = VisGraphWrapper(cg_path)
     assert all(n.upper() in vgraph.nodes for n in expected_itemsA)
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependenciesA)
+
+    cg_path.unlink()
 
     # Test second scheduler instance that holds the receiver items
     configB = config.copy()
@@ -438,7 +434,7 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
         },
     ]
 
-    schedulerB = Scheduler(paths=projB, config=configB, builddir=builddir)
+    schedulerB = Scheduler(paths=projB, config=configB)
     schedulerB.populate('ext_driver')
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
@@ -452,7 +448,7 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
 
     # Test callgraph visualisation
-    cg_path = builddir/'callgraph_multiple_separate_B'
+    cg_path = here/'callgraph_multiple_separate_B'
     schedulerB.callgraph(cg_path)
 
     vgraphB = VisGraphWrapper(cg_path)
@@ -460,8 +456,10 @@ def test_scheduler_graph_multiple_separate(here, builddir, config):
     assert 'EXT_KERNEL' in vgraphB.nodes
     assert ('EXT_DRIVER', 'EXT_KERNEL') in vgraphB.edges
 
+    cg_path.unlink()
 
-def test_scheduler_module_dependency(here, builddir, config):
+
+def test_scheduler_module_dependency(here, config):
     """
     Ensure dependency chasing is done correctly, even with surboutines
     that do not match module names.
@@ -473,8 +471,7 @@ def test_scheduler_module_dependency(here, builddir, config):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
-                          config=config, builddir=builddir)
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config)
     scheduler.populate('driverC')
 
     expected_items = [
@@ -495,7 +492,7 @@ def test_scheduler_module_dependency(here, builddir, config):
     assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
 
 
-def test_scheduler_module_dependencies_unqualified(here, builddir, config):
+def test_scheduler_module_dependencies_unqualified(here, config):
     """
     Ensure dependency chasing is done correctly for unqualified module imports.
 
@@ -508,8 +505,7 @@ def test_scheduler_module_dependencies_unqualified(here, builddir, config):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include',
-                          config=config, builddir=builddir)
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config)
     scheduler.populate('driverD')
 
     expected_items = [
