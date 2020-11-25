@@ -102,7 +102,7 @@ class Sourcefile:
                                 defines=defines)
 
         # Parse the file content into an OMNI Fortran AST
-        ast = parse_omni_source(source=source, xmods=xmods)
+        ast = parse_omni_source(source=source, filepath=filepath, xmods=xmods)
         typetable = ast.find('typeTable')
         return cls._from_omni_ast(ast=ast, path=filepath, raw_source=raw_source,
                                   definitions=definitions, typetable=typetable)
@@ -136,7 +136,7 @@ class Sourcefile:
         source, pp_info = sanitize_input(source=raw_source, frontend=OFP, filepath=filepath)
 
         # Parse the file content into a Fortran AST
-        ast = parse_ofp_source(source)
+        ast = parse_ofp_source(source, filepath=filepath)
 
         return cls._from_ofp_ast(path=filepath, ast=ast, definitions=definitions,
                                  pp_info=pp_info, raw_source=raw_source)

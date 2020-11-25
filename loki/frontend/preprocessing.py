@@ -2,6 +2,7 @@ import io
 import re
 import pcpp
 import pickle
+from pathlib import Path
 from collections import defaultdict, OrderedDict
 
 from loki.logging import debug, DEBUG
@@ -96,7 +97,7 @@ def sanitize_input(source, frontend, filepath=None):
     info_path = filepath.with_suffix('.{}.info'.format(str(frontend)))
     info_path = tmpdir/info_path.name
 
-    debug("[Loki] Pre-processing source file {}".format(str(filepath)))
+    debug("[Loki] Sanitizing source file {}".format(str(filepath)))
 
     # Check for previous preprocessing of this file
     if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():

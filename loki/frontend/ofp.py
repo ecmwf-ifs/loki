@@ -18,7 +18,7 @@ from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
-from loki.logging import info, DEBUG
+from loki.logging import info, debug, DEBUG
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
@@ -34,16 +34,25 @@ def parse_ofp_file(filename):
     Note: The parsing is cached on disk in ``<filename>.cache``.
     """
     filepath = Path(filename)
-    info("[Frontend.OFP] Parsing %s" % filepath.name)
+    info("[Loki::OFP] Parsing %s" % filepath)
     return open_fortran_parser.parse(filepath, raise_on_error=True)
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_source(source, xmods=None):  # pylint: disable=unused-argument
+def parse_ofp_source(source, filepath=None):
     """
     Read and parse a source string using the Open Fortran Parser (OFP).
     """
-    filepath = gettempdir()/filehash(source, prefix='ofp-', suffix='.f90')
+    # Use basename of filepath if given
+    if filepath is None:
+        filepath = Path(filehash(source, prefix='ofp-', suffix='.f90'))
+    else:
+        filepath = filepath.with_suffix('.ofp{}'.format(filepath.suffix))
+
+    # Always store intermediate flies in tmp dir
+    filepath = gettempdir()/filepath.name
+
+    debug('[Loki::OFP] Writing temporary source {}'.format(str(filepath)))
     with filepath.open('w') as f:
         f.write(source)
 

@@ -11,7 +11,7 @@ from loki.visitors import GenericVisitor
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
-from loki.logging import info, error, DEBUG
+from loki.logging import info, debug, error, DEBUG
 from loki.config import config
 from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
@@ -31,7 +31,7 @@ def parse_omni_file(filename, xmods=None):
     dump_xml_files = config['omni-dump-xml']
 
     filepath = Path(filename)
-    info("[Frontend.OMNI] Parsing %s" % filepath)
+    info("[Loki::OMNI] Parsing %s" % filepath)
 
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
@@ -52,11 +52,20 @@ def parse_omni_file(filename, xmods=None):
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_source(source, xmods=None):
+def parse_omni_source(source, filepath=None, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to AST for a source string.
     """
-    filepath = gettempdir()/filehash(source, prefix='omni-', suffix='.f90')
+    # Use basename of filepath if given
+    if filepath is None:
+        filepath = Path(filehash(source, prefix='omni-', suffix='.f90'))
+    else:
+        filepath = filepath.with_suffix('.omni{}'.format(filepath.suffix))
+
+    # Always store intermediate flies in tmp dir
+    filepath = gettempdir()/filepath.name
+
+    debug('[Loki::OMNI] Writing temporary source {}'.format(str(filepath)))
     with filepath.open('w') as f:
         f.write(source)
 
