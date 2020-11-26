@@ -39,8 +39,8 @@ extensions = [
     'sphinxcontrib.confluencebuilder'  # create confluence output
 ]
 
-# The file extensions of source files. Sphinx considers the files with 
-# this suffix as sources. The value can be a dictionary mapping file 
+# The file extensions of source files. Sphinx considers the files with
+# this suffix as sources. The value can be a dictionary mapping file
 # extensions to file types.
 source_suffix = {
     '.rst': 'restructuredtext',
@@ -70,6 +70,15 @@ html_static_path = ['_static']
 
 
 # -- Extension configuration -------------------------------------------------
+
+confluence_publish = True
+confluence_space_name = '~nabr'
+confluence_parent_page = 'Loki'
+confluence_server_url = 'https://confluence.ecmwf.int/'
+#confluence_server_user = ''
+#confluence_server_pass = ''
+confluence_ask_user = True
+confluence_ask_password = True
 
 # -- Options for todo extension ----------------------------------------------
 
