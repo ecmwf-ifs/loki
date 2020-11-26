@@ -1,9 +1,9 @@
 import io
 import re
-import pcpp
 import pickle
 from pathlib import Path
 from collections import defaultdict, OrderedDict
+import pcpp
 
 from loki.logging import debug, DEBUG
 from loki.config import config
@@ -36,7 +36,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
 
         def on_error(self, file, line, msg):
             # Redict CPP error to our logger and increment return code
-            debug("[Lok-CPP] %s:%d error: %s" % (file, line, msg))
+            debug("[Loki-CPP] %s:%d error: %s" % (file, line, msg))
             self.return_code += 1
 
     # Add include paths to PP
@@ -240,7 +240,10 @@ class PPRule:
 
 
 """
-A black list of Fortran features that cause bugs and failures in frontends.
+The frontend sanitization registry dict holds workaround rules for
+Fortran features that cause bugs and failures in frontends. It's
+mostly a regex expression that removes certains strings and stores
+them, so that they can be re-inserted into the IR by a callback.
 """
 sanitize_registry = {
     OMNI: {},

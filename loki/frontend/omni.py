@@ -11,7 +11,7 @@ from loki.visitors import GenericVisitor
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
-from loki.logging import info, debug, error, DEBUG
+from loki.logging import info, debug, DEBUG
 from loki.config import config
 from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope

@@ -1,5 +1,3 @@
-import weakref
-
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
 

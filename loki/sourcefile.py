@@ -2,7 +2,6 @@
 Module containing a set of classes to represent and manipuate a
 Fortran source code file.
 """
-import pickle
 from pathlib import Path
 from fparser.two import Fortran2003
 
@@ -11,10 +10,9 @@ from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
 from loki.frontend import OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp
-from loki.frontend.omni import parse_omni_file, parse_omni_source
-from loki.frontend.ofp import parse_ofp_file, parse_ofp_source
-from loki.frontend.fparser import parse_fparser_file, parse_fparser_source
-from loki.types import TypeTable
+from loki.frontend.omni import parse_omni_source
+from loki.frontend.ofp import parse_ofp_source
+from loki.frontend.fparser import parse_fparser_source
 from loki.backend.fgen import fgen
 
 
@@ -29,10 +27,6 @@ class Sourcefile:
     :param tuple routines: the subroutines (functions) contained in this source.
     :param tuple modules: the Fortran modules contained in this source.
     :param ast: optional parser-AST of the original source file
-    :param TypeTable symbols: existing type information for all symbols defined within this
-            file's scope.
-    :param TypeTable types: existing type information for all (derived) types defined within
-            this file's scope.
     :param Source source: string and line information about the original source file.
     """
 

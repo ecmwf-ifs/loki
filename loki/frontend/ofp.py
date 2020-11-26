@@ -574,8 +574,8 @@ class OFP2IR(GenericVisitor):
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
             if _type and isinstance(_type.dtype, ProcedureType):
-                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
-                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
