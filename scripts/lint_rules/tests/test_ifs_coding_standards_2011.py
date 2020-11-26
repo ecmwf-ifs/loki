@@ -2,7 +2,7 @@ import importlib
 from pathlib import Path
 import pytest
 
-from loki import FP, SourceFile
+from loki import FP, Sourcefile
 from loki.lint import Reporter, Linter, DefaultHandler
 
 
@@ -73,7 +73,7 @@ else
 end if
 end subroutine routine_nesting
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     config = {'CodeBodyRule': {'max_nesting_depth': nesting_depth}}
@@ -115,7 +115,7 @@ module module_naming
 integer baz
 end module module_naming
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     # We don't actually write the file but simply set the filename to something sensible
     for m in source.modules:
         m.source.file = str(Path(__file__).parent / 'module_naming_mod.f90')
@@ -172,7 +172,7 @@ if (lhook) call dr_hook('routine_okay%routine_contained_okay', 1, zhook_handle)
 end subroutine routine_contained_okay
 end subroutine routine_okay
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.DrHookRule], handlers=[handler])
@@ -276,7 +276,7 @@ if (lhook) call dr_hook('routine_contained_not_okay', 1, zhook_handle)
 end subroutine routine_contained_not_okay
 end subroutine routine_not_okay_e
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.DrHookRule], handlers=[handler])
@@ -353,7 +353,7 @@ end subroutine mod_contained_routine_not_okay
 end subroutine mod_routine_not_okay
 end module some_mod
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.DrHookRule], handlers=[handler])
@@ -396,7 +396,7 @@ end associate
 
 end subroutine routine_limit_statements
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     config = {'LimitSubroutineStatementsRule': {'max_num_statements': max_num_statements}}
@@ -423,7 +423,7 @@ integer, intent(in) :: a, b, c, d, e, f, g, h
 print *, a, b, c, d, e, f, g, h
 end subroutine routine_max_dummy_args
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     config = {'MaxDummyArgsRule': {'max_num_arguments': max_num_arguments}}
@@ -457,7 +457,7 @@ use MPL_INIT
 call MPL_INIT(kprocs=5)
 end subroutine routine_also_not_okay
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.MplCdstringRule], handlers=[handler])
@@ -541,7 +541,7 @@ end subroutine contained_contained_routine_not_okay
 end subroutine contained_mod_routine_not_okay
 end module mod_also_not_okay
     """
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.ImplicitNoneRule], handlers=[handler])
@@ -585,7 +585,7 @@ a(1:3) = 3e0
 b = 4.0 + 5d0 + 6._4
 end subroutine routine_not_okay
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     # Need to include INTEGER constants in config as (temporarily) removed from defaults
@@ -623,7 +623,7 @@ print *, dummy
 100 continue
 end subroutine banned_statements
     """
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.BannedStatementsRule], handlers=[handler])
@@ -653,7 +653,7 @@ print *, dummy
 100 continue
 end subroutine banned_statements
     """
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     config = {'BannedStatementsRule': {'banned': banned_statements}}
@@ -704,7 +704,7 @@ do while (ia >= 3 .or. & ! This <= should not cause confusion
 end do
 end subroutine test_routine
     """.strip()
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     messages = []
     handler = DefaultHandler(target=messages.append)
     _ = run_linter(source, [rules.Fortran90OperatorsRule], handlers=[handler])

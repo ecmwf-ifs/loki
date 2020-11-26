@@ -8,7 +8,7 @@ they mostly check whether at the end comes out what went in at the beginning.
 from pathlib import Path
 import pytest
 from conftest import clean_test
-from loki import SourceFile, Subroutine, OFP, OMNI, FP, fgen, FindNodes
+from loki import Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes
 import loki.ir as ir
 
 
@@ -42,9 +42,9 @@ end do outer
 end subroutine routine_raw_source_loop
     """.strip()
     filename = here / ('routine_raw_source_loop_%s.f90' % frontend)
-    SourceFile.to_file(fcode, filename)
+    Sourcefile.to_file(fcode, filename)
 
-    source = SourceFile.from_file(filename, frontend=frontend)
+    source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_loop']
     assert source.source.string == fcode
     assert routine.source.string == fcode
@@ -109,9 +109,9 @@ if (ic == 1) print *, ic
 end subroutine routine_raw_source_cond
     """.strip()
     filename = here / ('routine_raw_source_cond_%s.f90' % frontend)
-    SourceFile.to_file(fcode, filename)
+    Sourcefile.to_file(fcode, filename)
 
-    source = SourceFile.from_file(filename, frontend=frontend)
+    source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_cond']
     assert source.source.string == fcode
     assert routine.source.string == fcode
@@ -174,9 +174,9 @@ end select multicond
 end subroutine routine_raw_source_multicond
     """.strip()
     filename = here / ('routine_raw_source_multicond_%s.f90' % frontend)
-    SourceFile.to_file(fcode, filename)
+    Sourcefile.to_file(fcode, filename)
 
-    source = SourceFile.from_file(filename, frontend=frontend)
+    source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_multicond']
     assert source.source.string == fcode
     assert routine.source.string == fcode

@@ -1,7 +1,7 @@
 import pytest
 
 from loki.lint import GenericHandler, Reporter, Linter, GenericRule
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 
 import rules
 
@@ -19,7 +19,7 @@ def test_linter_lookup_rules(rule_names, num_rules):
 
 def test_linter_fail():
     '''Make sure that linter fails if it is not given a source file.'''
-    with pytest.raises(TypeError, match=r'.*SourceFile.*expected.*'):
+    with pytest.raises(TypeError, match=r'.*Sourcefile.*expected.*'):
         Linter(None, rules).check(None)
 
 
@@ -72,4 +72,4 @@ def test_linter_check():
     reporter = Reporter(handlers=[TestHandler()])
     rule_list = [TestRule2, TestRule]
     linter = Linter(reporter, rule_list, config=config)
-    linter.check(SourceFile('test_file'))
+    linter.check(Sourcefile('test_file'))

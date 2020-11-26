@@ -2,7 +2,7 @@ from random import choice
 import pytest
 
 from loki import (
-    OFP, OMNI, FP, SourceFile, Module, Subroutine, BasicType,
+    OFP, OMNI, FP, Sourcefile, Module, Subroutine, BasicType,
     SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper
 )
 
@@ -140,7 +140,7 @@ end module types
 """
     fsymgen = FCodeMapper()
 
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].types['pragma_type']
 
     assert fsymgen(pragma_type.variable_map['matrix'].shape) == '(3, 3)'

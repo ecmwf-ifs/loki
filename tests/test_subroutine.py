@@ -2,13 +2,13 @@ from pathlib import Path
 import pytest
 import numpy as np
 
+from conftest import jit_compile, clean_test
 from loki import (
-    SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
-    Section, Intrinsic, PreprocessorDirective, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Assignment, Declaration, Loop,
+    Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
+    Section, CallStatement, BasicType, Array, Scalar, Variable,
+    SymbolType, StringLiteral, fgen, fexprgen, Declaration, Loop,
     is_loki_pragma, get_pragma_parameters
 )
-from conftest import jit_compile, clean_test, clean_preprocessing
 
 
 @pytest.fixture(scope='module', name='here')
@@ -584,7 +584,7 @@ subroutine routine_typedefs_simple(item)
 
 end subroutine routine_typedefs_simple
 """
-    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
 
     # Verify that all derived type variables have shape info
@@ -707,7 +707,7 @@ subroutine routine_typedefs_simple(item)
 
 end subroutine routine_typedefs_simple
 """
-    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
 
     # Check that external typedefs have been propagated to kernel variables
@@ -750,7 +750,7 @@ subroutine routine_call_caller(x, y, vector, matrix, item)
 
 end subroutine routine_call_caller
 """
-    header = SourceFile.from_file(header_path, frontend=frontend)['header']
+    header = Sourcefile.from_file(header_path, frontend=frontend)['header']
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header)
     call = FindNodes(CallStatement).visit(routine.body)[0]
 
@@ -831,54 +831,6 @@ end subroutine routine_call_args_kwargs
     assert calls[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
-    FP
-])
-def test_pp_macros(here, frontend):
-    refpath = here/'sources/subroutine_pp_macros.F90'
-    routine = SourceFile.from_file(refpath, frontend=frontend)['routine_pp_macros']
-    visitor = FindNodes(PreprocessorDirective)
-    directives = visitor.visit(routine.ir)
-    assert len(directives) == 8
-    assert all(node.text.startswith('#') for node in directives)
-
-
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Cannot handle directives')),
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
-    FP
-])
-def test_pp_directives(here, frontend):
-    fcode = """
-subroutine routine_pp_directives
-  print *,"Compiled ",__FILENAME__," on ",__DATE__
-#define __FILENAME__ __FILE__
-  print *,"This is ",__FILE__,__VERSION__
-  y = __LINE__ * 5 + __LINE__
-end subroutine routine_pp_directives
-"""
-    filepath = here/('routine_pp_directives_%s.F90' % frontend)
-    SourceFile.to_file(fcode, filepath)
-    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_pp_directives']
-
-    # Note: these checks are rather loose as we currently do not restore the original version but
-    # simply replace the PP constants by strings
-    directives = FindNodes(PreprocessorDirective).visit(routine.body)
-    assert len(directives) == 1
-    assert directives[0].text == '#define __FILENAME__ __FILE__'
-    intrinsics = FindNodes(Intrinsic).visit(routine.body)
-    assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
-    assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
-
-    statements = FindNodes(Assignment).visit(routine.body)
-    assert len(statements) == 1
-    assert fgen(statements[0]) == 'y = 0*5 + 0'
-    clean_preprocessing(filepath, frontend)
-    filepath.unlink()
-
-
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_convert_endian(here, frontend):
     pre = """
@@ -899,8 +851,8 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
     fcode = pre + body + post
 
     filepath = here/('routine_convert_endian_%s.F90' % frontend)
-    SourceFile.to_file(fcode, filepath)
-    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
+    Sourcefile.to_file(fcode, filepath)
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
 
     if frontend == OMNI:
         # F... OMNI
@@ -909,7 +861,6 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
         body = body.replace('&\n  & ', '')
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
@@ -934,8 +885,8 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
     fcode = pre + body + post
 
     filepath = here/('routine_open_newunit_%s.F90' % frontend)
-    SourceFile.to_file(fcode, filepath)
-    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
+    Sourcefile.to_file(fcode, filepath)
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
 
     if frontend == OMNI:
         # F... OMNI
@@ -943,7 +894,6 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
         body = body.replace('&\n  & ', '')
     # TODO: This is hacky as the fgen backend is still pretty much WIP
     assert fgen(routine.body).upper().strip() == body.strip()
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 
@@ -1029,7 +979,7 @@ end subroutine routine_member_procedures
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_member_routine_clone(here, frontend):
+def test_member_routine_clone(frontend):
     """
     Test that member subroutine scopes get cloned correctly.
     """
@@ -1153,7 +1103,7 @@ contains
 end subroutine routine_call_external_stmt
 """
 
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['routine_external_stmt']
     assert len(routine.arguments) == 8
 
@@ -1197,12 +1147,11 @@ end subroutine routine_contiguous
     """
     # We need to write this one to file as OFP has to preprocess the file
     filepath = here/('routine_contiguous_%s.f90' % frontend)
-    SourceFile.to_file(fcode, filepath)
+    Sourcefile.to_file(fcode, filepath)
 
-    routine = SourceFile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
     assert len(routine.arguments) == 1
     assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
-    clean_preprocessing(filepath, frontend)
     filepath.unlink()
 
 

@@ -1,12 +1,144 @@
+import io
 import re
-from collections import defaultdict
+import pickle
+from pathlib import Path
+from collections import defaultdict, OrderedDict
+import pcpp
 
+from loki.logging import debug, DEBUG
+from loki.config import config
+from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
 from loki.ir import Declaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP
 
 
-__all__ = ['blacklist', 'PPRule']
+__all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
+
+
+def preprocess_cpp(source, filepath=None, includes=None, defines=None):
+    """
+    Invoke an external C-preprocessor to sanitize input files.
+
+    Note that the global option ``LOKI_CPP_DUMP_FILES`` will cause the intermediate
+    preprocessed source to be written to a temporary file in ``LOKI_TMP_DIR``.
+
+    Parameters:
+    ===========
+    * ``source``: Source string to preprocess via ``pcpp``
+    * ``filepath``: Optional filepath name, which will be used to derive the filename
+                    should intermediate file dumping be enabled via the global config.
+    * ``includes``: (List of) include paths to add to the C-preprocessor.
+    * ``defines``: (List of) symbol definitions to add to the C-preprocessor.
+    """
+
+    class _LokiCPreprocessor(pcpp.Preprocessor):
+
+        def on_error(self, file, line, msg):
+            # Redict CPP error to our logger and increment return code
+            debug("[Loki-CPP] %s:%d error: %s" % (file, line, msg))
+            self.return_code += 1
+
+    # Add include paths to PP
+    pp = _LokiCPreprocessor()
+    # Suppress line directives
+    pp.line_directive = None
+
+    for i in as_tuple(includes):
+        pp.add_path(str(i))
+
+    # Add and sanitize defines to PP
+    for d in as_tuple(defines):
+        if '=' not in d:
+            d += '=1'
+        d = d.replace('=', ' ', 1)
+        pp.define(d)
+
+    # Parse source through preprocessor
+    pp.parse(source)
+
+    if config['cpp-dump-files']:
+        if filepath is None:
+            pp_path = Path(filehash(source, suffix='.cpp.f90'))
+        else:
+            pp_path = filepath.with_suffix('.cpp.f90')
+        pp_path = gettempdir()/pp_path.name
+        debug("[Loki] C-preprocessor, writing {}".format(str(pp_path)))
+
+        # Dump preprocessed source to file and read it
+        with pp_path.open('w') as f:
+            pp.write(f)
+        with pp_path.open('r') as f:
+            preprocessed = f.read()
+        return preprocessed
+
+    # Return the preprocessed string
+    s = io.StringIO()
+    pp.write(s)
+    return s.getvalue()
+
+
+@timeit(log_level=DEBUG, getter=lambda x: '' if 'filepath' not in x else x['filepath'].stem)
+def sanitize_input(source, frontend, filepath=None):
+    """
+    Apply internal regex-based sanitisation rules to filter out known
+    frontend incompatibilities.
+
+    Note that this will create a record of all things stripped
+    (``pp_info``), which will be used to re-insert the dropped
+    source info when converting the parsed AST to our IR.
+
+    The ``sanitize_registry`` (see below) holds pre-defined rules
+    for each frontend.
+    """
+    tmpdir = gettempdir()
+    pp_path = filepath.with_suffix('.{}{}'.format(str(frontend), filepath.suffix))
+    pp_path = tmpdir/pp_path.name
+    info_path = filepath.with_suffix('.{}.info'.format(str(frontend)))
+    info_path = tmpdir/info_path.name
+
+    debug("[Loki] Sanitizing source file {}".format(str(filepath)))
+
+    # Check for previous preprocessing of this file
+    if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
+        # Make sure the existing PP data belongs to this file
+        if pp_path.stat().st_mtime > filepath.stat().st_mtime:
+            debug("[Loki] Frontend preprocessor, reading {}".format(str(info_path)))
+            with info_path.open('rb') as f:
+                pp_info = pickle.load(f)
+            if pp_info.get('original_file_path') == str(filepath):
+                # Already pre-processed this one,
+                # return the cached info and source.
+                debug("[Loki] Frontend preprocessor, reading {}".format(str(pp_path)))
+                with pp_path.open() as f:
+                    source = f.read()
+                return source, pp_info
+
+    # Apply preprocessing rules and store meta-information
+    pp_info = OrderedDict()
+    pp_info['original_file_path'] = str(filepath)
+    for name, rule in sanitize_registry[frontend].items():
+        # Apply rule filter over source file
+        rule.reset()
+        new_source = ''
+        for ll, line in enumerate(source.splitlines(keepends=True)):
+            ll += 1  # Correct for Fortran counting
+            new_source += rule.filter(line, lineno=ll)
+
+        # Store met-information from rule
+        pp_info[name] = rule.info
+        source = new_source
+
+    if config['frontend-pp-cache']:
+        # Write out the preprocessed source and according info file
+        debug("[Loki] Frontend preprocessor, storing {}".format(str(pp_path)))
+        with pp_path.open('w') as f:
+            f.write(source)
+        debug("[Loki] Frontend preprocessor, storing {}".format(str(info_path)))
+        with info_path.open('wb') as f:
+            pickle.dump(pp_info, f)
+
+    return source, pp_info
 
 
 def reinsert_contiguous(ir, pp_info):
@@ -108,9 +240,12 @@ class PPRule:
 
 
 """
-A black list of Fortran features that cause bugs and failures in frontends.
+The frontend sanitization registry dict holds workaround rules for
+Fortran features that cause bugs and failures in frontends. It's
+mostly a regex expression that removes certains strings and stores
+them, so that they can be re-inserted into the IR by a callback.
 """
-blacklist = {
+sanitize_registry = {
     OMNI: {},
     OFP: {
         # Remove various IBM directives

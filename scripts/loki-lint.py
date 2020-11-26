@@ -11,7 +11,7 @@ import click
 import yaml
 
 from loki.logging import logger, DEBUG, warning, info, debug
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
@@ -93,7 +93,7 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
                        backup_suffix=None, ctx=None):
     debug('[%s] Parsing...', filename)
     try:
-        source = SourceFile.from_file(filename, frontend=frontend, preprocess=preprocess)
+        source = Sourcefile.from_file(filename, frontend=frontend, preprocess=preprocess)
         debug('[%s] Parsing completed without error.', filename)
         report = linter.check(source)
         if fix:

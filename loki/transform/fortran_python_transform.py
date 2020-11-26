@@ -9,7 +9,7 @@ from loki.transform.transform_utilities import (
 )
 from loki.backend import pygen, dacegen
 from loki.visitors import Transformer
-from loki import ir, Subroutine, SourceFile
+from loki import ir, Subroutine, Sourcefile
 
 
 class FortranPythonTransformation(Transformation):
@@ -25,7 +25,7 @@ class FortranPythonTransformation(Transformation):
         self.py_path = (path/kernel.name.lower()).with_suffix('.py')
         self.mod_name = kernel.name.lower()
         source = dacegen(kernel) if kwargs.get('with_dace', False) is True else pygen(kernel)
-        SourceFile.to_file(source=source, path=self.py_path)
+        Sourcefile.to_file(source=source, path=self.py_path)
 
     @classmethod
     def generate_kernel(cls, routine, **kwargs):

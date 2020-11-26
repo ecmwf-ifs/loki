@@ -6,7 +6,7 @@ from loki.build import Obj
 from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
-from loki.sourcefile import SourceFile
+from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import info, warning, error
 
@@ -88,7 +88,7 @@ class Item:
 
     def __init__(self, name, path, role, mode=None, expand=True, strict=True,
                  ignore=None, enrich=None, block=None, replicate=False, xmods=None,
-                 includes=None, builddir=None, definitions=None, frontend=FP):
+                 includes=None, defines=None, definitions=None, frontend=FP):
         # Essential item attributes
         self.name = name
         self.path = path
@@ -110,9 +110,8 @@ class Item:
         if path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.source = SourceFile.from_file(path, preprocess=True,
-                                                   xmods=xmods, includes=includes,
-                                                   builddir=builddir,
+                self.source = Sourcefile.from_file(path, preprocess=True, xmods=xmods,
+                                                   includes=includes, defines=defines,
                                                    definitions=definitions, frontend=frontend)
                 self.routine = self.source[self.name]
 
@@ -163,8 +162,8 @@ class Scheduler:
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '_mod.f90']
 
-    def __init__(self, paths, config=None, xmods=None, includes=None,
-                 builddir=None, definitions=None, frontend=FP):
+    def __init__(self, paths, config=None, xmods=None, includes=None, defines=None,
+                 definitions=None, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -177,7 +176,7 @@ class Scheduler:
         self.paths = [Path(p) for p in as_tuple(paths)]
         self.xmods = xmods
         self.includes = includes
-        self.builddir = builddir
+        self.defines = defines
         self.definitions = definitions
         self.frontend = frontend
 
@@ -242,9 +241,8 @@ class Scheduler:
 
         name = item_conf.pop('name', source)
         return Item(name=name, **item_conf, path=self.find_path(source),
-                    xmods=self.xmods,
-                    includes=self.includes, definitions=self.definitions,
-                    builddir=self.builddir, frontend=self.frontend)
+                    xmods=self.xmods, includes=self.includes, defines=self.defines,
+                    definitions=self.definitions, frontend=self.frontend)
 
     def populate(self, routines):
         """
@@ -298,10 +296,10 @@ class Scheduler:
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
                 path = self.find_path(routine)
-                source = SourceFile.from_file(path, preprocess=True,
+                source = Sourcefile.from_file(path, preprocess=True,
                                               xmods=self.xmods,
                                               includes=self.includes,
-                                              builddir=self.builddir,
+                                              defines=self.defines,
                                               definitions=self.definitions,
                                               frontend=self.frontend)
                 item.routine.enrich_calls(source.all_subroutines)

@@ -175,7 +175,7 @@ class GenericHandler:
 
         :param str filename: the file name of the source file.
         :param location: the AST node that triggered the problem report.
-        :type location: an IR or expression node, or a Subroutine, SourceFile or Module
+        :type location: an IR or expression node, or a Subroutine, Sourcefile or Module
             object.
 
         :return: the formatted string in the form

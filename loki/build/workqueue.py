@@ -4,7 +4,7 @@ from logging.handlers import QueueListener, QueueHandler
 from concurrent.futures import ProcessPoolExecutor
 
 from loki.logging import default_logger
-from loki.build.tools import execute
+from loki.tools import execute
 
 
 __all__ = ['workqueue', 'wait_and_check', 'MEMORY_URL', 'DEFAULT_TIMEOUT']

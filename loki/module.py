@@ -1,5 +1,3 @@
-import weakref
-
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
 
@@ -213,7 +211,7 @@ class Module:
         Apply a given transformation to the source file object.
 
         Note that the dispatch routine `op.apply(source)` will ensure
-        that all entities of this `SourceFile` are correctly traversed.
+        that all entities of this `Sourcefile` are correctly traversed.
         """
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)

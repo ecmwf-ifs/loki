@@ -1,4 +1,3 @@
-from subprocess import check_output, CalledProcessError
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
@@ -12,43 +11,27 @@ from loki.visitors import GenericVisitor
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
-from loki.logging import info, error, DEBUG
-from loki.tools import as_tuple, timeit, gettempdir, filehash, CaseInsensitiveDict
+from loki.logging import info, debug, DEBUG
+from loki.config import config
+from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
-__all__ = ['preprocess_omni', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
-
-
-def preprocess_omni(filename, outname, includes=None):
-    """
-    Call C-preprocessor to sanitize input for OMNI frontend.
-    """
-    filepath = Path(filename)
-    outpath = Path(outname)
-    includes = [Path(incl) for incl in includes or []]
-
-    # TODO Make CPP driveable via flags/config
-    cmd = ['gfortran', '-E', '-cpp']
-    for incl in includes:
-        cmd += ['-I', '%s' % Path(incl)]
-    cmd += ['-o', '%s' % outpath]
-    cmd += ['%s' % filepath]
-
-    try:
-        check_output(cmd)
-    except CalledProcessError as e:
-        error('[OMNI] Preprocessing failed: %s' % ' '.join(cmd))
-        raise e
+__all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
 
 
 @timeit(log_level=DEBUG)
 def parse_omni_file(filename, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to generate the OMNI AST.
+
+    Note that the intermediate XML files can be dumped to file via by setting
+    the environment variable ``LOKI_OMNI_DUMP_XML``.
     """
+    dump_xml_files = config['omni-dump-xml']
+
     filepath = Path(filename)
-    info("[Frontend.OMNI] Parsing %s" % filepath)
+    info("[Loki::OMNI] Parsing %s" % filepath)
 
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
@@ -56,24 +39,33 @@ def parse_omni_file(filename, xmods=None):
     cmd = ['F_Front', '-fleave-comment']
     for m in xmods:
         cmd += ['-M', '%s' % Path(m)]
-    cmd += ['-o', '%s' % xml_path]
     cmd += ['%s' % filepath]
 
-    try:
-        check_output(cmd)
-    except CalledProcessError as e:
-        error('[%s] Parsing failed: %s' % ('omni', ' '.join(cmd)))
-        raise e
+    if dump_xml_files:
+        # Parse AST from xml file dumped to disk
+        cmd += ['-o', '%s' % xml_path]
+        execute(cmd)
+        return ET.parse(str(xml_path)).getroot()
 
-    return ET.parse(str(xml_path)).getroot()
+    result = execute(cmd, silent=False, capture_output=True, text=True)
+    return ET.fromstring(result.stdout)
 
 
 @timeit(log_level=DEBUG)
-def parse_omni_source(source, xmods=None):
+def parse_omni_source(source, filepath=None, xmods=None):
     """
     Deploy the OMNI compiler's frontend (F_Front) to AST for a source string.
     """
-    filepath = gettempdir()/filehash(source, prefix='omni-', suffix='.f90')
+    # Use basename of filepath if given
+    if filepath is None:
+        filepath = Path(filehash(source, prefix='omni-', suffix='.f90'))
+    else:
+        filepath = filepath.with_suffix('.omni{}'.format(filepath.suffix))
+
+    # Always store intermediate flies in tmp dir
+    filepath = gettempdir()/filepath.name
+
+    debug('[Loki::OMNI] Writing temporary source {}'.format(str(filepath)))
     with filepath.open('w') as f:
         f.write(source)
 
@@ -191,8 +183,12 @@ class OMNI2IR(GenericVisitor):
         return ir.Import(module=name, symbols=symbols, c_import=False)
 
     def visit_FinterfaceDecl(self, o, source=None):
-        header = Path(o.attrib['file']).name
-        return ir.Import(module=header, c_import=True)
+        # TODO: We can only deal with interface blocks partially
+        # in the frontend, as we cannot yet create `Subroutine` objects
+        # cleanly here. So for now we skip this, but we should start
+        # moving the `Subroutine` constructors into the frontend.
+        spec = [self.visit(c) for c in o if c.tag != 'FfunctionDecl']
+        return ir.Interface(spec=spec, body=(), source=source)
 
     def visit_varDecl(self, o, source=None):
         name = o.find('name')

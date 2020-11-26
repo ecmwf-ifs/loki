@@ -10,7 +10,7 @@ from conftest import (
     jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 )
 from loki import (
-    OFP, OMNI, FP, SourceFile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
+    OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType,
     parse_fparser_expression
@@ -530,7 +530,7 @@ subroutine nested_call_inline_call(v1, v2, v3)
 end subroutine nested_call_inline_call
 """
     filepath = here/('expression_nested_call_inline_call_%s.f90' % frontend)
-    routine = SourceFile.from_source(fcode, frontend=frontend)
+    routine = Sourcefile.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='nested_call_inline_call')
 
     v2, v3 = function(1)

@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, SourceFile, fexprgen
+from loki import OFP, OMNI, FP, Sourcefile, fexprgen
 
 @pytest.mark.parametrize('frontend', [
     FP,
@@ -16,24 +16,24 @@ def test_nested_types(frontend):
     here = Path(__file__).parent
 
     # First, get the sub_type and check that the dimension annotation is honoured
-    subtypes = SourceFile.from_file(here/'sub_types.f90', frontend=frontend)['sub_types']
+    subtypes = Sourcefile.from_file(here/'sub_types.f90', frontend=frontend)['sub_types']
     child = subtypes.typedefs['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
     # Check that dimension in sub_type has propagated to parent_type
-    types = SourceFile.from_file(here/'types.f90', definitions=subtypes,
+    types = Sourcefile.from_file(here/'types.f90', definitions=subtypes,
                                  frontend=frontend)['types']
     parent = types.typedefs['parent_type']
     x = parent.variables[1].type.dtype.variable_map['x']
     assert fexprgen(x.shape) == '(size,)'
 
     # Ensure that the driver has the correct shape info for pt%type_member%x
-    driver = SourceFile.from_file(here/'driver.f90', definitions=types, frontend=frontend)['driver']
+    driver = Sourcefile.from_file(here/'driver.f90', definitions=types, frontend=frontend)['driver']
     pt_d = driver.routines[0].variables[0]
     x_d = pt_d.type.dtype.variable_map['type_member'].type.dtype.variable_map['x']
     assert fexprgen(x_d.shape) == '(size,)'
 
-    kernel = SourceFile.from_file(here/'kernel.f90', definitions=types, frontend=frontend)['kernel']
+    kernel = Sourcefile.from_file(here/'kernel.f90', definitions=types, frontend=frontend)['kernel']
     pt_k = kernel.routines[0].variables[1]
     x_k = pt_k.type.dtype.variable_map['type_member'].type.dtype.variable_map['x']
     assert fexprgen(x_k.shape) == '(size,)'

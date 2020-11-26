@@ -12,7 +12,7 @@ from fparser.common.readfortran import FortranStringReader
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
-from loki.frontend.preprocessing import blacklist
+from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
     inline_comments, cluster_comments, inline_pragmas,
     process_dimension_pragmas, read_file, import_external_symbols, FP
@@ -59,7 +59,7 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
     if pp_info is not None:
-        for r_name, rule in blacklist[FP].items():
+        for r_name, rule in sanitize_registry[FP].items():
             info = pp_info.get(r_name, None)
             _ir = rule.postprocess(_ir, info)
 

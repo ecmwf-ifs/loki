@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, SourceFile, CallStatement, Import, FindNodes
+from loki import OFP, OMNI, FP, Sourcefile, CallStatement, Import, FindNodes
 from loki.transform import Transformation, DependencyTransformation
 
 
@@ -44,7 +44,7 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let source apply transformation to all items and verify
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     source.apply(rename_transform)
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
@@ -52,7 +52,7 @@ end subroutine myroutine
     assert source['myroutine_test'] == source.subroutines[0]
 
     # Apply transformation explicitly to whole source and verify
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     rename_transform.apply(source)
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
@@ -92,7 +92,7 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let only the inner module routine apply the transformation
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     source['module_routine'].apply(rename_transform)
     assert source.modules[0].name == 'mymodule'
     assert source['mymodule'] == source.modules[0]
@@ -105,7 +105,7 @@ end subroutine myroutine
     assert source['module_routine_test'].members[0].name == 'member_func_test'
 
     # Apply transformation explicitly to the outer routine
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     rename_transform.apply_subroutine(source['myroutine'])
     assert source.modules[0].name == 'mymodule'
     assert source['mymodule'] == source.modules[0]
@@ -141,7 +141,7 @@ subroutine myroutine(a, b)
 end subroutine myroutine
 """
     # Let the module and apply the transformation to everything it contains
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     source['mymodule'].apply(rename_transform)
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
@@ -154,7 +154,7 @@ end subroutine myroutine
     assert source['module_routine_test'] == source.all_subroutines[1]
 
     # Apply transformation only to modules, not subroutines, in the source
-    source = SourceFile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend)
     rename_transform.apply_module(source['mymodule'])
     assert source.modules[0].name == 'mymodule_test'
     assert source['mymodule_test'] == source.modules[0]
@@ -172,7 +172,7 @@ def test_dependency_transformation_module_imports(frontend):
     routines via module imports.
     """
 
-    kernel = SourceFile.from_source(source="""
+    kernel = Sourcefile.from_source(source="""
 MODULE kernel_mod
 CONTAINS
     SUBROUTINE kernel(a, b, c)
@@ -185,7 +185,7 @@ CONTAINS
 END MODULE kernel_mod
 """, frontend=frontend)
 
-    driver = SourceFile.from_source(source="""
+    driver = Sourcefile.from_source(source="""
 MODULE driver_mod
   USE kernel_mod, only: kernel
 CONTAINS
@@ -235,7 +235,7 @@ def test_dependency_transformation_header_includes(here, frontend):
     routines via c-header includes.
     """
 
-    driver = SourceFile.from_source(source="""
+    driver = Sourcefile.from_source(source="""
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -245,7 +245,7 @@ SUBROUTINE driver(a, b, c)
 END SUBROUTINE driver
 """, frontend=frontend)
 
-    kernel = SourceFile.from_source(source="""
+    kernel = Sourcefile.from_source(source="""
 SUBROUTINE kernel(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -296,7 +296,7 @@ def test_dependency_transformation_module_wrap(frontend):
     routines automatic module wrapping of the kernel.
     """
 
-    driver = SourceFile.from_source(source="""
+    driver = Sourcefile.from_source(source="""
 SUBROUTINE driver(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 
@@ -306,7 +306,7 @@ SUBROUTINE driver(a, b, c)
 END SUBROUTINE driver
 """, frontend=frontend)
 
-    kernel = SourceFile.from_source(source="""
+    kernel = Sourcefile.from_source(source="""
 SUBROUTINE kernel(a, b, c)
   INTEGER, INTENT(INOUT) :: a, b, c
 

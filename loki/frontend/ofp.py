@@ -6,7 +6,7 @@ import re
 import open_fortran_parser
 
 from loki.frontend.source import extract_source
-from loki.frontend.preprocessing import blacklist
+from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
     inline_comments, cluster_comments, inline_pragmas, inline_labels,
     process_dimension_pragmas, import_external_symbols, OFP
@@ -18,7 +18,7 @@ from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
-from loki.logging import info, DEBUG
+from loki.logging import info, debug, DEBUG
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
@@ -34,16 +34,25 @@ def parse_ofp_file(filename):
     Note: The parsing is cached on disk in ``<filename>.cache``.
     """
     filepath = Path(filename)
-    info("[Frontend.OFP] Parsing %s" % filepath.name)
+    info("[Loki::OFP] Parsing %s" % filepath)
     return open_fortran_parser.parse(filepath, raise_on_error=True)
 
 
 @timeit(log_level=DEBUG)
-def parse_ofp_source(source, xmods=None):  # pylint: disable=unused-argument
+def parse_ofp_source(source, filepath=None):
     """
     Read and parse a source string using the Open Fortran Parser (OFP).
     """
-    filepath = gettempdir()/filehash(source, prefix='ofp-', suffix='.f90')
+    # Use basename of filepath if given
+    if filepath is None:
+        filepath = Path(filehash(source, prefix='ofp-', suffix='.f90'))
+    else:
+        filepath = filepath.with_suffix('.ofp{}'.format(filepath.suffix))
+
+    # Always store intermediate flies in tmp dir
+    filepath = gettempdir()/filepath.name
+
+    debug('[Loki::OFP] Writing temporary source {}'.format(str(filepath)))
     with filepath.open('w') as f:
         f.write(source)
 
@@ -59,7 +68,7 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=No
     _ir = OFP2IR(definitions=definitions, raw_source=raw_source, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
-    for r_name, rule in blacklist[OFP].items():
+    for r_name, rule in sanitize_registry[OFP].items():
         _info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
         _ir = rule.postprocess(_ir, _info)
 
@@ -565,8 +574,8 @@ class OFP2IR(GenericVisitor):
 
             _type = self.scope.symbols.lookup(vname, recursive=True)
             if _type and isinstance(_type.dtype, ProcedureType):
-                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
-                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
