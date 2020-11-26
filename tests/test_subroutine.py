@@ -5,7 +5,8 @@ import numpy as np
 from loki import (
     SourceFile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, Intrinsic, PreprocessorDirective, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Assignment, Declaration, Loop
+    SymbolType, StringLiteral, fgen, fexprgen, Assignment, Declaration, Loop,
+    is_loki_pragma, get_pragma_parameters
 )
 from conftest import jit_compile, clean_test, clean_preprocessing
 
@@ -1254,7 +1255,7 @@ END INTERFACE
 def test_subroutine_pragma_inlining(frontend):
     """
     A short test that verifies pragmas that are the first statement
-    in a routines body are correctly identified and inlined.
+    in a routine's body are correctly identified and inlined.
     """
     fcode = """
 subroutine test_subroutine_pragma_inlining (in, out, n)
@@ -1273,4 +1274,47 @@ end subroutine test_subroutine_pragma_inlining
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].pragma is not None
-    assert loops[0].pragma.keyword == 'loki' and loops[0].pragma.content == 'some pragma'
+    assert isinstance(loops[0].pragma, tuple) and len(loops[0].pragma) == 1
+    assert loops[0].pragma[0].keyword == 'loki' and loops[0].pragma[0].content == 'some pragma'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_subroutine_pragma_inlining_multiple(frontend):
+    """
+    A short test that verifies that multiple pragmas are inlined
+    and kept in the right order.
+    """
+    fcode = """
+subroutine test_subroutine_pragma_inlining_multiple (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+  !$blub other pragma
+  !$loki some pragma(5)
+  !$loki more
+  do i=1,n
+    out(i) = in(i)
+  end do
+end subroutine test_subroutine_pragma_inlining_multiple
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].pragma is not None
+    assert isinstance(loops[0].pragma, tuple) and len(loops[0].pragma) == 3
+    assert [p.keyword for p in loops[0].pragma] == ['blub', 'loki', 'loki']
+    assert loops[0].pragma[0].content == 'other pragma'
+    assert loops[0].pragma[1].content == 'some pragma(5)'
+    assert loops[0].pragma[2].content == 'more'
+
+    # A few checks for the pragma utility functions
+    assert is_loki_pragma(loops[0].pragma)
+    assert is_loki_pragma(loops[0].pragma, starts_with='some')
+    assert is_loki_pragma(loops[0].pragma, starts_with='more')
+    assert not is_loki_pragma(loops[0].pragma, starts_with='other')
+    assert get_pragma_parameters(loops[0].pragma) == {'some': None, 'pragma': '5', 'more': None}
+    assert get_pragma_parameters(loops[0].pragma, starts_with='some') == {'pragma': '5'}
+    assert get_pragma_parameters(loops[0].pragma, only_loki_pragmas=False) == \
+            {'some': None, 'pragma': '5', 'more': None, 'other': None}

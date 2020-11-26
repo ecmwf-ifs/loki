@@ -726,6 +726,8 @@ end subroutine transpile_multibody_conditionals
     out1, out2 = function(10)
     assert out1 == 5 and out2 == 5
 
+    clean_test(filepath)
+
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
@@ -745,6 +747,8 @@ end subroutine transpile_multibody_conditionals
     out1, out2 = fc_function(10)
     assert out1 == 5 and out2 == 5
     clean_test(filepath)
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

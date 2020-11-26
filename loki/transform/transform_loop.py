@@ -17,7 +17,7 @@ from loki.tools import (
     is_loki_pragma, get_pragma_parameters, flatten, as_tuple, CaseInsensitiveDict)
 from loki.visitors import FindNodes, Transformer
 
-__all__ = ['loop_fusion', 'loop_fission', 'Polyhedron']
+__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron']
 
 
 class Polyhedron:
@@ -192,6 +192,96 @@ class Polyhedron:
         return cls(A, b, variables)
 
 
+def get_nested_loops(loop, depth):
+    """
+    Helper routine to extract all loops in a loop nest.
+    """
+    loops = [loop]
+    for _ in range(1, depth):
+        loops_in_body = [node for node in loop.body if isinstance(node, Loop)]
+        assert len(loops_in_body) == 1
+        loop = loops_in_body[0]
+        loops += [loop]
+    return as_tuple(loops)
+
+
+def get_loop_components(loops):
+    """
+    Helper routine to extract loop variables, ranges and bodies of list of loops.
+    """
+    loop_variables, loop_ranges, loop_bodies = zip(*[(loop.variable, loop.bounds, loop.body) for loop in loops])
+    return as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies)
+
+
+def loop_interchange(routine, project_bounds=False):
+    """
+    Search for loops annotated with the `loki loop-interchange` pragma and attempt
+    to reorder them.
+
+    Note that this effectively just exchanges variable and bounds for each of the loops,
+    leaving the rest (including bodies, pragmas, etc.) intact.
+    """
+    if project_bounds:
+        # For that we need Fourier-Motzkin Elimination in the Polyhedron first
+        raise NotImplementedError
+
+    loop_map = {}
+    for loop_nest in FindNodes(Loop).visit(routine.body):
+        if not is_loki_pragma(loop_nest.pragma, starts_with='loop-interchange'):
+            continue
+
+        # Get variable order from pragma
+        var_order = get_pragma_parameters(loop_nest.pragma).get('loop-interchange', None)
+        if var_order:
+            var_order = [var.strip().lower() for var in var_order.split(',')]
+            depth = len(var_order)
+        else:
+            depth = 2
+
+        # Extract loop nest and determine iteration space
+        loops = get_nested_loops(loop_nest, depth)
+        loop_variables, loop_ranges, _ = get_loop_components(loops)
+        if project_bounds:
+            iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
+
+        if var_order is None:
+            var_order = [str(var).lower() for var in reversed(loop_variables)]
+
+        # Find the loop order from the variable order
+        loop_variable_names = [var.name.lower() for var in loop_variables]
+        loop_order = [loop_variable_names.index(var) for var in var_order]
+
+        # Rebuild loops starting with innermost
+        inner_loop_map = None
+        for loop, loop_idx in zip(reversed(loops), reversed(loop_order)):
+            if project_bounds:
+                # TODO: project iteration spaces
+                lower_bound = iteration_space.lower_bounds(loop_idx)
+                upper_bound = iteration_space.upper_bounds(loop_idx)
+                bounds = sym.LoopRange((lower_bound, upper_bound))
+            else:
+                bounds = loop_ranges[loop_idx]
+
+            outer_loop = loop.clone(variable=loop_variables[loop_idx], bounds=bounds)
+            if inner_loop_map is not None:
+                outer_loop = Transformer(inner_loop_map).visit(outer_loop)
+            inner_loop_map = {loop: outer_loop}
+
+        # Annotate loop-interchange in a comment
+        old_vars = ', '.join(loop_variable_names)
+        new_vars = ', '.join(var_order)
+        comment = Comment('! Loki loop-interchange ({} <--> {})'.format(old_vars, new_vars))
+
+        # Strip loop-interchange pragma and register new loop nest in map
+        pragmas = tuple(p for p in as_tuple(loops[0].pragma)
+                        if not is_loki_pragma(p, starts_with='loop-interchange'))
+        loop_map[loop_nest] = (comment, outer_loop.clone(pragma=pragmas))
+
+    # Apply loop-interchange mapping
+    if loop_map:
+        routine.body = Transformer(loop_map).visit(routine.body)
+
+
 def loop_fusion(routine):
     """
     Search for loops annotated with the `loki loop-fusion` pragma and attempt
@@ -222,23 +312,6 @@ def loop_fusion(routine):
 
         return as_tuple(ranges)
 
-    def _get_nested_loops(loop, depth):
-        """
-        Extract nested loop variables, ranges and bodies of nested loops.
-        """
-        variables, ranges, bodies = [], [], []
-        variables += [loop.variable]
-        ranges += [loop.bounds]
-        bodies += [loop.body]
-        for _ in range(1, depth):
-            loops_in_body = [node for node in loop.body if isinstance(node, Loop)]
-            assert len(loops_in_body) == 1
-            loop = loops_in_body[0]
-            variables += [loop.variable]
-            ranges += [loop.bounds]
-            bodies += [loop.body]
-        return as_tuple(variables), as_tuple(ranges), as_tuple(bodies)
-
     # Merge loops in each group and put them in the position of the group's first loop
     loop_map = {}
     for group, loop_list in fusion_groups.items():
@@ -263,7 +336,8 @@ def loop_fusion(routine):
 
         # Next, extract loop ranges for all loops in group and convert to iteration space
         # polyhedrons for easier alignment
-        loop_variables, loop_ranges, loop_bodies = zip(*[_get_nested_loops(loop, collapse) for loop in loop_list])
+        loop_variables, loop_ranges, loop_bodies = zip(*[get_loop_components(get_nested_loops(loop, collapse))
+                                                         for loop in loop_list])
         iteration_spaces = [Polyhedron.from_loop_ranges(variables, ranges)
                             for variables, ranges in zip(loop_variables, loop_ranges)]
 
@@ -323,6 +397,7 @@ def loop_fusion(routine):
         fusion_bodies = []
         fusion_variables = loop_variables[0]
         for variables, ranges, bodies, p in zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces):
+            # TODO: This throws away anything that is not in the inner-most loop body.
             body = bodies[-1]
 
             # Replace loop variables if necessary

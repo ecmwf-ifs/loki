@@ -8,7 +8,7 @@ from loki.ir import (Assignment, Comment, CommentBlock, Declaration, Pragma, Loo
 from loki.frontend.source import Source
 from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
-from loki.tools import as_tuple, is_loki_pragma
+from loki.tools import as_tuple, is_loki_pragma, get_pragma_parameters
 from loki.logging import warning
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
@@ -150,17 +150,21 @@ def inline_pragmas(ir):
     Note: Pragmas in derived types are already associated with the
     declaration due to way we parse derived types.
     """
-    pairs = PatternFinder(pattern=(Pragma, Declaration)).visit(ir)
+    patterns = [(Pragma, Declaration),
+                (Pragma, Loop), (Pragma, Pragma, Loop), (Pragma, Pragma, Pragma, Loop)]
+    matches = []
+    for pattern in patterns:
+        matches += PatternFinder(pattern=pattern).visit(ir)
     # TODO: Generally pragma inlining does not repsect type restriction
     # (eg. omp do pragas to loops) or "post_pragmas". This needs a deeper
     # rethink, so diabling the problematic corner case for now.
-    # pairs += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
-    pairs += PatternFinder(pattern=(Pragma, Loop)).visit(ir)
+    # matches += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
     mapper = {}
-    for pair in pairs:
-        # Merge pragma with declaration and delete
-        mapper[pair[0]] = None  # Mark for deletion
-        mapper[pair[1]] = pair[1]._rebuild(pragma=pair[0])
+    for seq in matches:
+        # Merge pragmas with IR node and delete
+        pragmas = as_tuple(seq[:-1])
+        mapper.update({pragma: None for pragma in pragmas})
+        mapper[seq[-1]] = seq[-1]._rebuild(pragma=pragmas)
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
@@ -200,9 +204,8 @@ def process_dimension_pragmas(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
             for v in decl.variables:
                 # Found dimension override for variable
-                dims = decl.pragma.content.split('dimension(')[-1]
-                dims = dims.split(')')[0].split(',')
-                dims = [d.strip() for d in dims]
+                dims = get_pragma_parameters(decl.pragma)['dimension']
+                dims = [d.strip() for d in dims.split(',')]
                 shape = []
                 for d in dims:
                     if d.isnumeric():

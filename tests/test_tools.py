@@ -90,10 +90,13 @@ def test_is_loki_pragma(keyword, content, starts_with, ref):
     Test correct identification of Loki pragmas.
     """
     pragma = Pragma(keyword, content)
+    pragma_list = (pragma,)
     if starts_with is not None:
         assert is_loki_pragma(pragma, starts_with=starts_with) == ref
+        assert is_loki_pragma(pragma_list, starts_with=starts_with) == ref
     else:
         assert is_loki_pragma(pragma) == ref
+        assert is_loki_pragma(pragma_list) == ref
 
 
 @pytest.mark.parametrize('content, starts_with, ref', [
@@ -104,7 +107,7 @@ def test_is_loki_pragma(keyword, content, starts_with, ref):
     ('dataflow', 'dataflow', {}),
     ('dataflow group(1)', None, {'dataflow': None, 'group': '1'}),
     ('dataflow group(1)', 'dataflow', {'group': '1'}),
-    ('dataflow group(1)', 'foo', {'dataflow': None, 'group': '1'}),
+    ('dataflow group(1)', 'foo', {}),
     ('dataflow group(1) group(2)', 'dataflow', {'group': '2'}),
     ('foo bar(^£!$%*[]:@+-_=~#/?.,<>;) baz foobar(abc_123")', 'foo',
      {'bar':'^£!$%*[]:@+-_=~#/?.,<>;', 'baz': None, 'foobar': 'abc_123"'}),
@@ -114,7 +117,10 @@ def test_get_pragma_parameters(content, starts_with, ref):
     Test correct extraction of Loki pragma parameters.
     """
     pragma = Pragma('loki', content)
+    pragma_list = (pragma,)
     if starts_with is None:
         assert get_pragma_parameters(pragma) == ref
+        assert get_pragma_parameters(pragma_list) == ref
     else:
         assert get_pragma_parameters(pragma, starts_with=starts_with) == ref
+        assert get_pragma_parameters(pragma_list, starts_with=starts_with) == ref

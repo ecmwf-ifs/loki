@@ -463,27 +463,52 @@ def is_loki_pragma(pragma, starts_with=None):
     """
     Checks for a pragma annotation and, if it exists, for the `loki` keyword.
     Optionally, the pragma content is tested for a specific start.
+
+    :param pragma: the pragma or list of pragmas to check.
+    :type pragma: :class:``ir.Pragma`` or ``list``/``tuple`` of ``ir.Pragma`` or ``None``
+    :param str starts_with: the keyword the pragma content should start with.
     """
-    if pragma is None:
+    pragma = as_tuple(pragma)
+    if not pragma:
         return False
-    if not pragma.keyword == 'loki':
+    loki_pragmas = [p for p in pragma if p.keyword.lower() == 'loki']
+    if not loki_pragmas:
         return False
-    if starts_with is not None and not (pragma.content and pragma.content.startswith(starts_with)):
+    if starts_with is not None and not any(p.content and p.content.startswith(starts_with) for p in loki_pragmas):
         return False
     return True
 
 
-_get_pragma_parameters_re = re.compile(r'(?P<command>\w+)(?:\((?P<arg>.+?)\))?')
+_get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)\))?')
 
-def get_pragma_parameters(pragma, starts_with=None):
+def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
     Parse the pragma content for parameters in the form `<command>[(<arg>)]` and
     return them as a map {<command>: <arg> or None}`.
 
-    Optionally, skip the given keyword at the beginning if it is found.
+    Optionally, look only at the pragma with the given keyword at the beginning.
+
+    Note that if multiple pragma are given as a tuple/list, arguments with the same
+    name will overwrite previous definitions.
+
+    :param pragma: the pragma or list of pragmas to check.
+    :type pragma: :class:``ir.Pragma`` or ``list``/``tuple`` of ``ir.Pragma`` or ``None``
+    :param str starts_with: the keyword the pragma content should start with.
+    :param bool only_loki_pragmas: restrict parameter extraction to ``loki`` pragmas only.
+
+    :return: Mapping of parameters ``{<command>: <arg> or <None>}``.
+    :rtype: ``dict``
     """
-    content = pragma.content or ''
-    if starts_with is not None and content.startswith(starts_with):
-        content = content[len(starts_with):]
-    return {match.group('command'): match.group('arg')
-            for match in re.finditer(_get_pragma_parameters_re, content)}
+    pragma = as_tuple(pragma)
+    parameters = {}
+    for p in pragma:
+        if only_loki_pragmas and p.keyword.lower() != 'loki':
+            continue
+        content = p.content or ''
+        if starts_with is not None:
+            if not content.startswith(starts_with):
+                continue
+            content = content[len(starts_with):]
+        parameters.update({match.group('command'): match.group('arg')
+                           for match in re.finditer(_get_pragma_parameters_re, content)})
+    return parameters
