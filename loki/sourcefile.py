@@ -106,7 +106,7 @@ class Sourcefile:
         # Always CPP-preprocess source files for OMNI, but optionally
         # use a different set of include paths if specified that way.
         # (It's a hack, I know, but OMNI sucks, so what can I do...?)
-        if omni_includes is not None:
+        if omni_includes is not None and len(omni_includes) > 0:
             includes = omni_includes
         source = preprocess_cpp(raw_source, filepath=filepath,
                                 includes=includes, defines=defines)

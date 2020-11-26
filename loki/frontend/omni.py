@@ -183,8 +183,12 @@ class OMNI2IR(GenericVisitor):
         return ir.Import(module=name, symbols=symbols, c_import=False)
 
     def visit_FinterfaceDecl(self, o, source=None):
-        header = Path(o.attrib['file']).name
-        return ir.Import(module=header, c_import=True)
+        # TODO: We can only deal with interface blocks partially
+        # in the frontend, as we cannot yet create `Subroutine` objects
+        # cleanly here. So for now we skip this, but we should start
+        # moving the `Subroutine` constructors into the frontend.
+        spec = [self.visit(c) for c in o if c.tag != 'FfunctionDecl']
+        return ir.Interface(spec=spec, body=(), source=source)
 
     def visit_varDecl(self, o, source=None):
         name = o.find('name')
