@@ -150,21 +150,24 @@ def inline_pragmas(ir):
     Note: Pragmas in derived types are already associated with the
     declaration due to way we parse derived types.
     """
-    patterns = [(Pragma, Declaration),
-                (Pragma, Loop), (Pragma, Pragma, Loop), (Pragma, Pragma, Pragma, Loop)]
-    matches = []
-    for pattern in patterns:
-        matches += PatternFinder(pattern=pattern).visit(ir)
+    # Look for pragma sequences and make them accessible via the last pragma in sequence
+    pragma_groups = {seq[-1]: seq for seq in SequenceFinder(node_type=Pragma).visit(ir)}
+
+    # (Pragma, <target_node>) patterns to look for
+    patterns = [(Pragma, Declaration), (Pragma, Loop)]
+
     # TODO: Generally pragma inlining does not repsect type restriction
     # (eg. omp do pragas to loops) or "post_pragmas". This needs a deeper
     # rethink, so diabling the problematic corner case for now.
-    # matches += PatternFinder(pattern=(Pragma, CallStatement)).visit(ir)
+    # patterns += [(Pragma, CallStatement)]
+
     mapper = {}
-    for seq in matches:
-        # Merge pragmas with IR node and delete
-        pragmas = as_tuple(seq[:-1])
-        mapper.update({pragma: None for pragma in pragmas})
-        mapper[seq[-1]] = seq[-1]._rebuild(pragma=pragmas)
+    for pattern in patterns:
+        for seq in PatternFinder(pattern=pattern).visit(ir):
+            # Merge pragmas with IR node and delete
+            pragmas = as_tuple(pragma_groups.get(seq[0], seq[0]))
+            mapper.update({pragma: None for pragma in pragmas})
+            mapper[seq[-1]] = seq[-1]._rebuild(pragma=pragmas)
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
