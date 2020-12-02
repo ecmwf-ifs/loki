@@ -103,12 +103,6 @@ class SingleColumnCoalescedTransformation(Transformation):
                 loop_map[loop] = loop.body
         routine.body = Transformer(loop_map).visit(routine.body)
 
-        # Promote the index variable to an argument (prepend)
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
-        if v_index not in routine.arguments:
-            routine.arguments += as_tuple(v_index)
-
-
         # Demote all private local variables
         self.demote_private_locals(routine)
 
@@ -123,8 +117,13 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                     loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
+        # Add vector-level loops at the highest level in the kernel
+        self.kernel_add_vector_loops(routine)
+
+        if self.directive == 'openacc':
             # Mark routine as `!$acc routine seq` to make it device-callable
-            routine.body.prepend(Pragma(keyword='acc', content='routine seq'))
+            routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
+
 
     def process_driver(self, routine, targets=None):
         """
@@ -139,50 +138,21 @@ class SingleColumnCoalescedTransformation(Transformation):
             Names of all kernel routines that are to be considered "active"
             in this call tree and should thus be processed accordingly.
         """
-        targets = as_tuple(str(t).lower() for t in targets)
 
-        # Find the iteration index variable for the horizontal
-        # dimension and add to local variables
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
-        routine.variables += as_tuple(v_index)
-
-        call_map = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name in targets:
-                if call.context is None or not call.context.active:
-                    raise RuntimeError(
-                        "[Loki-SCC] Need call context for processing call to {}".format(call.name)
-                    )
-
-                # Append iteration variable to the subroutine call via keyword args
-                kwarguments = dict(call.kwarguments)
-                kwarguments[v_index] = v_index
-                new_call = call.clone(kwarguments=as_tuple(kwarguments.items()))
-
-                # Find the local variables corresponding to the kernels dimension
-                arg_map = CaseInsensitiveDict([(p.name, a) for p, a in call.context.arg_iter(call)])
-                v_start = arg_map[self.horizontal.bounds[0]]
-                v_end = arg_map[self.horizontal.bounds[1]]
-
-                # Create a loop over the specified iteration dimemsion
-                bounds = LoopRange((v_start, v_end))
-                parallel_loop = Loop(variable=v_index, bounds=bounds, body=[new_call])
-
-                # Replace the call with a parallel loop over the iteration dimemsion
-                call_map[call] = parallel_loop
-        routine.body = Transformer(call_map).visit(routine.body)
+        # TODO: For now, now change on the driver side is needed.
+        pass
 
     def demote_private_locals(self, routine):
         """
         Demotes all local variables that can be privatized at the `acc loop vector`
         level.
 
-        We assumet that array variables that do not include the
-        vertical dimensions can be privatized without requiring shared
-        GPU memory. Array variables that include the vertical
-        dimensions, which has an unknown sequential iteration and data
-        space at compiler time, cannot be privatized at the vector
-        loop level and should therefore not be demoted here.
+        Array variablesthat whose dimensions include only the vector dimension
+        or known (short) constant dimensions (eg. local vector or matrix arrays)
+        can be privatized without requiring shared GPU memory. Array variables
+        with unknown (at compile time) dimensions (eg. the vertical dimension)
+        cannot be privatized at the vector loop level and should therefore not
+        be demoted here.
 
         Parameters
         ----------
@@ -224,3 +194,40 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+    def kernel_add_vector_loops(self, routine):
+        """
+        Insert the "vector" loop in GPU format around the entire body
+        of the kernel routine. If directives are specified this also
+        derived the set of private local arrays and marks them in the
+        "vector"-level loop.
+
+        Note that this assumes that the body has no nested
+        vector-level kernel calls. For nested cases, we need to apply
+        this to all non-nested code chunks in a kernel routine
+        instead. **THIS IS NOT YET IMPLEMENTED!**
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        """
+
+        # Find local arrays that need explicitly privatization
+        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+        private_arrays = [v for v in routine.variables if not v.name in argument_map]
+        private_arrays = [v for v in private_arrays if isinstance(v, Array)]
+        private_arrays = [v for v in private_arrays if not any(self.vertical.size in d for d in v.shape)]
+
+        # Construct pragma and wrap entire body in vector loop
+        private_arrs = ', '.join(v.name for v in private_arrays)
+        pragma = None
+        if self.directive == 'openacc':
+            pragma = Pragma(keyword='acc', content='loop vector private({})'.format(private_arrs))
+
+        v_start = routine.variable_map[self.horizontal.bounds[0]]
+        v_end = routine.variable_map[self.horizontal.bounds[1]]
+        bounds = LoopRange((v_start, v_end))
+        index = get_integer_variable(routine, self.horizontal.index)
+        vector_loop = Loop(variable=index, bounds=bounds, body=[routine.body.body], pragma=pragma)
+        routine.body.body = (vector_loop,)

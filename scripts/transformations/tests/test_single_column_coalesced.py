@@ -17,13 +17,14 @@ from transformations import SingleColumnCoalescedTransformation
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('start', 'end'))
 
+
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
     return Dimension(name='vertical', size='nz', index='jk')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_single_column_coalesced_simple(frontend, horizontal):
+def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     """
     Test removal of vector loops in kernel and re-insertion of the
     horizontal loop in the "driver".
@@ -71,14 +72,21 @@ def test_single_column_coalesced_simple(frontend, horizontal):
     driver = Subroutine.from_source(fcode_driver, frontend=frontend)
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
-    scc_transform = SingleColumnCoalescedTransformation(horizontal=horizontal)
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical
+    )
     scc_transform.apply(driver, role='driver', targets=['compute_column'])
     scc_transform.apply(kernel, role='kernel')
 
-    # Ensure we only have one vertical loop left
-    assert len(FindNodes(Loop).visit(kernel.body)) == 1
-    assert FindNodes(Loop).visit(kernel.body)[0].variable == 'jk'
-    assert FindNodes(Loop).visit(kernel.body)[0].bounds == '2:nz'
+    # Ensure we have two nested loops in the kernel
+    # (the hoisted horizontal and the native vertical)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 2
+    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
+    assert kernel_loops[0].variable == 'jl'
+    assert kernel_loops[0].bounds == 'start:end'
+    assert kernel_loops[1].variable == 'jk'
+    assert kernel_loops[1].bounds == '2:nz'
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
@@ -86,20 +94,16 @@ def test_single_column_coalesced_simple(frontend, horizontal):
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
     assert fgen(assigns[3]).lower() == 'q(jl, nz) = q(jl, nz)*c'
 
-    # Ensure two nested loops found in driver
+    # Ensure only one loop in the driver
     driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 2
-    assert driver_loops[1] in driver_loops[0].body
+    assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
-    assert driver_loops[1].variable == 'jl'
-    assert driver_loops[1].bounds == 'start:end'
 
-    # Ensure we have a kernel call in the new loop nest
-    kernel_calls = FindNodes(CallStatement).visit(driver_loops[1])
+    # Ensure we have a kernel call in the driver loop
+    kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
     assert kernel_calls[0].name == 'compute_column'
-    assert ('jl', 'jl') in kernel_calls[0].kwarguments
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
