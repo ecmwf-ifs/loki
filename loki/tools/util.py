@@ -141,7 +141,7 @@ def execute(command, silent=True, **kwargs):
         return run(command, check=True, cwd=cwd, **kwargs)
     except CalledProcessError as e:
         error('Execution failed with:')
-        error(e.output.decode("utf-8"))
+        error(str(e.output))
         raise e
 
 
