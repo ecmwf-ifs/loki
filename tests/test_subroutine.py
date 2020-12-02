@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+# (We are not against extensive testing)
 from pathlib import Path
 import pytest
 import numpy as np
@@ -7,7 +9,8 @@ from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolType, StringLiteral, fgen, fexprgen, Declaration, Loop,
-    is_loki_pragma, get_pragma_parameters
+    is_loki_pragma, get_pragma_parameters, Pragma, detach_pragmas,
+    inline_pragmas, pprint
 )
 
 
@@ -1267,3 +1270,62 @@ end subroutine test_subroutine_pragma_inlining_multiple
     assert get_pragma_parameters(loops[0].pragma, starts_with='some') == {'pragma': '5'}
     assert get_pragma_parameters(loops[0].pragma, only_loki_pragmas=False) == \
             {'some': None, 'pragma': '5', 'more': None, 'other': None}
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_subroutine_pragma_detach(frontend):
+    """
+    A short test that verifies that multiple pragmas are inlined
+    and kept in the right order.
+    """
+    fcode = """
+subroutine test_subroutine_pragma_detach (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i, j
+
+!$blub other pragma
+!$loki some pragma(5)
+!$loki more
+  do i=1,n
+    out(i) = in(i)
+
+!$loki inner pragma
+    do j=1,n
+      out(i) = out(i) + 1.0
+    end do
+
+  end do
+end subroutine test_subroutine_pragma_detach
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    orig_loops = FindNodes(Loop).visit(routine.body)
+    assert len(orig_loops) == 2
+    assert all(loop.pragma is not None for loop in orig_loops)
+    assert not FindNodes(Pragma).visit(routine.body)
+
+    # Serialize pragmas
+    ir = detach_pragmas(routine.body)
+
+    loops = FindNodes(Loop).visit(ir)
+    assert len(loops) == 2
+    assert all(loop.pragma is None for loop in loops)
+    pragmas = FindNodes(Pragma).visit(ir)
+    assert len(pragmas) == 4
+
+    # Inline pragmas again
+    ir = inline_pragmas(ir)
+
+    assert pprint(ir) == pprint(routine.body)
+    loops = FindNodes(Loop).visit(ir)
+    assert len(loops) == 2
+    assert all(loop.pragma is not None for loop in loops)
+    assert not FindNodes(Pragma).visit(ir)
+
+    for loop, orig_loop in zip(loops, orig_loops):
+        pragma = [p.keyword + ' ' + p.content for p in loop.pragma]
+        orig_pragma = [p.keyword + ' ' + p.content for p in orig_loop.pragma]
+        assert '\n'.join(pragma) == '\n'.join(orig_pragma)

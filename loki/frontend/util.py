@@ -4,7 +4,10 @@ from pathlib import Path
 import codecs
 
 from loki.visitors import Visitor, NestedTransformer, FindNodes
-from loki.ir import (Assignment, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic)
+from loki.ir import (
+    Assignment, Comment, CommentBlock, Declaration, Pragma, Loop, Intrinsic,
+    WhileLoop, CallStatement
+)
 from loki.frontend.source import Source
 from loki.types import BasicType, SymbolType
 from loki.expression import Literal, Variable
@@ -12,7 +15,7 @@ from loki.tools import as_tuple, is_loki_pragma, get_pragma_parameters
 from loki.logging import warning
 
 __all__ = ['Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments',
-           'inline_pragmas', 'process_dimension_pragmas', 'read_file']
+           'inline_pragmas', 'detach_pragmas', 'process_dimension_pragmas', 'read_file']
 
 
 class Frontend(IntEnum):
@@ -154,7 +157,7 @@ def inline_pragmas(ir):
     pragma_groups = {seq[-1]: seq for seq in SequenceFinder(node_type=Pragma).visit(ir)}
 
     # (Pragma, <target_node>) patterns to look for
-    patterns = [(Pragma, Declaration), (Pragma, Loop)]
+    patterns = [(Pragma, Declaration), (Pragma, Loop), (Pragma, WhileLoop)]
 
     # TODO: Generally pragma inlining does not repsect type restriction
     # (eg. omp do pragas to loops) or "post_pragmas". This needs a deeper
@@ -168,6 +171,30 @@ def inline_pragmas(ir):
             pragmas = as_tuple(pragma_groups.get(seq[0], seq[0]))
             mapper.update({pragma: None for pragma in pragmas})
             mapper[seq[-1]] = seq[-1]._rebuild(pragma=pragmas)
+    return NestedTransformer(mapper, invalidate_source=False).visit(ir)
+
+
+def detach_pragmas(ir):
+    """
+    Revert the inlining of pragmas, e.g. as done by ``inline_pragmas``.
+
+    Take any ``<IR node>.pragma`` and ``<IR node>.pragma_post`` properties and insert
+    them as stand alone :class:``Pragma`` nodes before/after the respective node.
+
+    Currently, this is done for :class:``Loop``, :class:``WhileLoop``, :class:``Declaration``,
+    and :class:``CallStatement`` nodes.
+    """
+    mapper = {}
+    for node in FindNodes((Loop, WhileLoop, Declaration, CallStatement)).visit(ir):
+        if hasattr(node, 'pragma_post'):
+            if node.pragma or node.pragma_post:
+                pragma = as_tuple(node.pragma)
+                pragma_post = as_tuple(node.pragma_post) if hasattr(node, 'pragma_post') else ()
+                seq = pragma + (node.clone(pragma=None, pragma_post=None),) + pragma_post
+                mapper[node] = seq
+        elif node.pragma:
+            pragma = as_tuple(node.pragma)
+            mapper[node] = pragma + (node.clone(pragma=None),)
     return NestedTransformer(mapper, invalidate_source=False).visit(ir)
 
 
