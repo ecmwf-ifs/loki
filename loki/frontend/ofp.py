@@ -8,8 +8,7 @@ import open_fortran_parser
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, inline_labels,
-    process_dimension_pragmas, import_external_symbols, OFP
+    inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -17,7 +16,10 @@ import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
 from loki.expression import ExpressionDimensionsMapper
-from loki.tools import as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict
+from loki.tools import (
+    as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
+    inline_pragmas, process_dimension_pragmas
+)
 from loki.logging import info, debug, DEBUG
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 

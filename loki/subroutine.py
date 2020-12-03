@@ -1,7 +1,7 @@
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend import Frontend, Source, extract_source, inline_pragmas
+from loki.frontend import Frontend, Source, extract_source
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
@@ -12,7 +12,7 @@ from loki.ir import (
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple, flatten, is_loki_pragma, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten, is_loki_pragma, inline_pragmas, CaseInsensitiveDict
 from loki.types import Scope, ProcedureType
 
 

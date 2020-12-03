@@ -14,8 +14,7 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas,
-    process_dimension_pragmas, read_file, import_external_symbols, FP
+    inline_comments, cluster_comments, read_file, import_external_symbols, FP
 )
 import loki.ir as ir
 import loki.expression.symbols as sym
@@ -23,7 +22,10 @@ from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
-from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import (
+    timeit, as_tuple, flatten, CaseInsensitiveDict, inline_pragmas,
+    process_dimension_pragmas
+)
 from loki.types import BasicType, DerivedType, SymbolType, Scope
 
 
