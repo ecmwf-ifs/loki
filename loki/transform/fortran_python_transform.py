@@ -9,6 +9,7 @@ from loki.transform.transform_utilities import (
 )
 from loki.backend import pygen, dacegen
 from loki.visitors import Transformer
+from loki.tools import pragmas_attached
 from loki import ir, Subroutine, Sourcefile
 
 
@@ -24,7 +25,9 @@ class FortranPythonTransformation(Transformation):
         kernel = self.generate_kernel(routine, **kwargs)
         self.py_path = (path/kernel.name.lower()).with_suffix('.py')
         self.mod_name = kernel.name.lower()
-        source = dacegen(kernel) if kwargs.get('with_dace', False) is True else pygen(kernel)
+        # Need to attach Loop pragmas to honour dataflow pragmas for loops
+        with pragmas_attached(kernel, ir.Loop):
+            source = dacegen(kernel) if kwargs.get('with_dace', False) is True else pygen(kernel)
         Sourcefile.to_file(source=source, path=self.py_path)
 
     @classmethod

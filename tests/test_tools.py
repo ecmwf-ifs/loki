@@ -151,6 +151,14 @@ subroutine test_tools_pragma_inlining (in, out, n)
 end subroutine test_tools_pragma_inlining
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check that pragmas are not inlined
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].pragma is None
+
+    # Now inline pragmas and see if everything matches
+    routine.body = inline_pragmas(routine.body)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].pragma is not None
@@ -180,6 +188,14 @@ subroutine test_tools_pragma_inlining_multiple (in, out, n)
 end subroutine test_tools_pragma_inlining_multiple
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check that pragmas are not inlined
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].pragma is None
+
+    # Now inline pragmas and see if everything matches
+    routine.body = inline_pragmas(routine.body)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].pragma is not None
@@ -230,13 +246,22 @@ end subroutine test_tools_pragma_detach
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    orig_loops = FindNodes(Loop).visit(routine.body)
+    # Originally, pragmas shouldn't be inlined
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.pragma is None for loop in loops)
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 4
+
+    # Inline pragmas
+    ir = inline_pragmas(routine.body)
+    orig_loops = FindNodes(Loop).visit(ir)
     assert len(orig_loops) == 2
     assert all(loop.pragma is not None for loop in orig_loops)
-    assert not FindNodes(Pragma).visit(routine.body)
+    assert not FindNodes(Pragma).visit(ir)
 
     # Serialize pragmas
-    ir = detach_pragmas(routine.body)
+    ir = detach_pragmas(ir)
 
     loops = FindNodes(Loop).visit(ir)
     assert len(loops) == 2

@@ -14,8 +14,7 @@ from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, debug, DEBUG
 from loki.config import config
 from loki.tools import (
-    as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict,
-    inline_pragmas
+    as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 )
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
@@ -88,7 +87,6 @@ def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
     _ir = cluster_comments(_ir)
-    _ir = inline_pragmas(_ir)
     _ir = inline_labels(_ir)
 
     return _ir
