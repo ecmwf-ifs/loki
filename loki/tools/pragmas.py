@@ -198,7 +198,7 @@ class PragmaAttacher(Visitor):
                         updated += pragmas
                     pragmas = []
                 updated += [i]
-        return as_tuple(updated)
+        return as_tuple(updated + pragmas)
 
     visit_list = visit_tuple
 
@@ -255,10 +255,10 @@ class PragmaDetacher(Visitor):
 
 
 @contextmanager
-def pragmas_attached(routine, node_type, attach_pragma_post=False):
+def pragmas_attached(module_or_routine, node_type, attach_pragma_post=False):
     """
     Create a context in which pragmas preceding nodes of given type(s) inside
-    the routine's IR are attached to these nodes.
+    the module's or routine's IR are attached to these nodes.
 
     This can be done for all IR nodes that have a ``pragma`` property
     (:class:``Declaration``, :class:``Loop``, :class:``WhileLoop`,
@@ -276,6 +276,9 @@ def pragmas_attached(routine, node_type, attach_pragma_post=False):
     NB: When leaving the context all pragmas for nodes of the given type
     are detached, irrespective of whether they had already been attached or not
     when entering the context.
+
+    NB: Pragma attachment is only done for the object itself (i.e. its spec and
+    body), not for any contained subroutines.
 
     This is implemented using :class:``PragmaAttacher`` and
     :class:``PragmaDetacher``, respectively. Therefore, the IR is not rebuilt
@@ -295,11 +298,23 @@ def pragmas_attached(routine, node_type, attach_pragma_post=False):
         # Do something with that loop
         loop_body = loop_of_interest.body
         # Note that loop_body.pragma == None!
+
+    :param module_or_routine: the :class:``Module`` or :class:``Subroutine`` in
+        which pragmas are to be inlined.
+    :param node_type: the (list of) :class:``ir.Node`` types pragmas should be
+        attached to.
+    :param bool attach_pragma_post: process also ``pragma_post`` attachments.
     """
-    routine.spec = PragmaAttacher(node_type, attach_pragma_post=attach_pragma_post).visit(routine.spec)
-    routine.body = PragmaAttacher(node_type, attach_pragma_post=attach_pragma_post).visit(routine.body)
+    module_or_routine.spec = \
+            PragmaAttacher(node_type, attach_pragma_post=attach_pragma_post).visit(module_or_routine.spec)
+    if hasattr(module_or_routine, 'body'):
+        module_or_routine.body = \
+                PragmaAttacher(node_type, attach_pragma_post=attach_pragma_post).visit(module_or_routine.body)
     try:
-        yield routine
+        yield module_or_routine
     finally:
-        routine.spec = PragmaDetacher(node_type, detach_pragma_post=attach_pragma_post).visit(routine.spec)
-        routine.body = PragmaDetacher(node_type, detach_pragma_post=attach_pragma_post).visit(routine.body)
+        module_or_routine.spec = \
+                PragmaDetacher(node_type, detach_pragma_post=attach_pragma_post).visit(module_or_routine.spec)
+        if hasattr(module_or_routine, 'body'):
+            module_or_routine.body = \
+                    PragmaDetacher(node_type, detach_pragma_post=attach_pragma_post).visit(module_or_routine.body)
