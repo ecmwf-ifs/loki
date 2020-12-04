@@ -8,7 +8,7 @@ from loki.frontend import OFP, OMNI, FP
 from loki.ir import Pragma, Loop
 from loki.tools import (
     JoinableStringList, truncate_string, is_loki_pragma, get_pragma_parameters,
-    inline_pragmas, detach_pragmas
+    inline_pragmas, detach_pragmas, pragmas_attached
 )
 
 
@@ -257,3 +257,96 @@ end subroutine test_tools_pragma_detach
         pragma = [p.keyword + ' ' + p.content for p in loop.pragma]
         orig_pragma = [p.keyword + ' ' + p.content for p in orig_loop.pragma]
         assert '\n'.join(pragma) == '\n'.join(orig_pragma)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragmas_attached_loop(frontend):
+    """
+    A short test that verifies that the context manager to attach
+    pragmas works as expected.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_loop(in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i, j
+
+!$blub other pragma
+!$loki some pragma(5)
+!$loki more
+  do i=1,n
+    out(i) = in(i)
+
+!$loki inner pragma
+    do j=1,n
+      out(i) = out(i) + 1.0
+    end do
+
+  end do
+end subroutine test_tools_pragmas_attached_loop
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.spec = detach_pragmas(routine.spec)
+    routine.body = detach_pragmas(routine.body)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.pragma is None for loop in loops)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 4
+
+    with pragmas_attached(routine, Loop):
+        # Verify that pragmas are attached
+        attached_loops = FindNodes(Loop).visit(routine.body)
+        assert len(attached_loops) == 2
+        assert all(loop.pragma is not None for loop in attached_loops)
+        assert not FindNodes(Pragma).visit(routine.body)
+
+        # Make sure that existing references to nodes still work
+        # (and have been changed, too)
+        assert all(loop.pragma is not None for loop in loops)
+
+    # Check that the original state is restored
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert all(loop.pragma is None for loop in loops)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 4
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragmas_attached_example(frontend):
+    """
+    A short test that verifies that the example from the docstring works.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_example (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+
+  do i=1,n
+    out(i) = 0.0
+  end do
+
+!$loki foobar
+  do i=1,n
+    out(i) = in(i)
+  end do
+end subroutine test_tools_pragmas_attached_example
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.spec = detach_pragmas(routine.spec)
+    routine.body = detach_pragmas(routine.body)
+
+    loop_of_interest = None
+    with pragmas_attached(routine, Loop):
+        for loop in FindNodes(Loop).visit(routine.body):
+            if is_loki_pragma(loop.pragma, starts_with='foobar'):
+                loop_of_interest = loop
+                break
+
+    assert loop_of_interest is not None
+    assert loop_of_interest.pragma is None
