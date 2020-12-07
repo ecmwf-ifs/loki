@@ -3,9 +3,9 @@ Unit tests for utility functions and classes in loki.tools.
 """
 
 import pytest
-from loki import Subroutine, pprint, FindNodes
+from loki import Module, Subroutine, pprint, FindNodes
 from loki.frontend import OFP, OMNI, FP
-from loki.ir import Pragma, Loop
+from loki.ir import Pragma, Loop, Declaration
 from loki.tools import (
     JoinableStringList, truncate_string, is_loki_pragma, get_pragma_parameters,
     inline_pragmas, detach_pragmas, pragmas_attached
@@ -424,3 +424,30 @@ end subroutine test_tools_pragmas_attached_post
 
     assert loop.pragma is None and loop.pragma_post is None
     assert len(FindNodes(Pragma).visit(routine.body)) == 2
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragmas_attached_module(frontend):
+    """
+    Verify pragmas_attached works for Module objects.
+    """
+    fcode = """
+module test_tools_pragmas_attached_module
+  integer, allocatable :: a(:)
+!$loki dimension(10, 20)
+  integer, allocatable :: b(:,:)
+end module test_tools_pragmas_attached_module
+    """
+    module = Module.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(Pragma).visit(module.spec)) == 1
+    decl = FindNodes(Declaration).visit(module.spec)[1]
+    assert len(decl.variables) == 1 and decl.variables[0].name.lower() == 'b'
+    assert decl.pragma is None
+
+    with pragmas_attached(module, Declaration):
+        assert not FindNodes(Pragma).visit(module.spec)
+        assert isinstance(decl.pragma, tuple) and is_loki_pragma(decl.pragma, starts_with='dimension')
+
+    assert decl.pragma is None
+    assert len(FindNodes(Pragma).visit(module.spec)) == 1
