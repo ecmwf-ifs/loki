@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 from loki.frontend.source import Source
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_pragmas, inline_labels, import_external_symbols
+    inline_comments, cluster_comments, inline_labels, import_external_symbols
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -13,7 +13,10 @@ import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat
 from loki.logging import info, debug, DEBUG
 from loki.config import config
-from loki.tools import as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
+from loki.tools import (
+    as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict,
+    inline_pragmas
+)
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
 
