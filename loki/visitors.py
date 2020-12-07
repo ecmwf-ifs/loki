@@ -1,11 +1,13 @@
 import inspect
-from itertools import zip_longest
+from itertools import zip_longest, groupby
 
 from loki.ir import Node
 from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
-__all__ = ['pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
-           'Stringifier', 'MaskedTransformer']
+__all__ = [
+    'pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
+    'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder'
+]
 
 
 class GenericVisitor:
@@ -365,6 +367,77 @@ class FindNodes(Visitor):
         for i in o.children:
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
+
+
+class SequenceFinder(Visitor):
+    """
+    Utility visitor that finds repeated nodes of the same type in
+    lists/tuples within a given tree.
+    """
+
+    def __init__(self, node_type):
+        super().__init__()
+        self.node_type = node_type
+
+    @classmethod
+    def default_retval(cls):
+        return []
+
+    def visit_tuple(self, o, **kwargs):
+        groups = []
+        for c in o:
+            # First recurse...
+            subgroups = self.visit(c)
+            if subgroups is not None and len(subgroups) > 0:
+                groups += subgroups
+        for t, group in groupby(o, type):
+            # ... then add new groups
+            g = tuple(group)
+            if t is self.node_type and len(g) > 1:
+                groups.append(g)
+        return groups
+
+    visit_list = visit_tuple
+
+
+class PatternFinder(Visitor):
+    """
+    Utility visitor that finds a pattern of nodes given as tuple/list
+    of types within a given tree.
+    """
+
+    def __init__(self, pattern):
+        super().__init__()
+        self.pattern = pattern
+
+    @classmethod
+    def default_retval(cls):
+        return []
+
+    @staticmethod
+    def match_indices(pattern, sequence):
+        """ Return indices of matched patterns in sequence. """
+        matches = []
+        for i, elem in enumerate(sequence):
+            if elem == pattern[0]:
+                if tuple(sequence[i:i+len(pattern)]) == tuple(pattern):
+                    matches.append(i)
+        return matches
+
+    def visit_tuple(self, o, **kwargs):
+        matches = []
+        for c in o:
+            # First recurse...
+            submatches = self.visit(c)
+            if submatches is not None and len(submatches) > 0:
+                matches += submatches
+        types = list(map(type, o))
+        idx = self.match_indices(self.pattern, types)
+        for i in idx:
+            matches.append(o[i:i+len(self.pattern)])
+        return matches
+
+    visit_list = visit_tuple
 
 
 class Stringifier(Visitor):

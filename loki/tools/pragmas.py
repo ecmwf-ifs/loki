@@ -5,8 +5,7 @@ from loki.expression import symbols as sym
 from loki.ir import CallStatement, Declaration, Loop, WhileLoop, Pragma
 from loki.tools.util import as_tuple
 from loki.types import BasicType, SymbolType
-from loki.visitors import FindNodes, NestedTransformer, Visitor
-from loki.frontend.util import PatternFinder, SequenceFinder
+from loki.visitors import FindNodes, NestedTransformer, Visitor, PatternFinder, SequenceFinder
 
 
 __all__ = [
