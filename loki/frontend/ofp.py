@@ -18,8 +18,8 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
-    inline_pragmas, process_dimension_pragmas, detach_pragmas
 )
+from loki.pragma_utils import inline_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 

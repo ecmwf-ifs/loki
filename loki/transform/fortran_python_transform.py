@@ -9,7 +9,7 @@ from loki.transform.transform_utilities import (
 )
 from loki.backend import pygen, dacegen
 from loki.visitors import Transformer
-from loki.tools import pragmas_attached
+from loki.pragma_utils import pragmas_attached
 from loki import ir, Subroutine, Sourcefile
 
 

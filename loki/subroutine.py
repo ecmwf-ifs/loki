@@ -11,11 +11,9 @@ from loki.ir import (
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
+from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
-from loki.tools import (
-    as_tuple, flatten, is_loki_pragma, CaseInsensitiveDict, pragmas_attached,
-    process_dimension_pragmas
-)
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import Scope, ProcedureType
 
 

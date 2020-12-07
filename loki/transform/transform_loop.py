@@ -14,10 +14,8 @@ from loki.expression import (
 from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
-from loki.tools import (
-    is_loki_pragma, get_pragma_parameters, flatten, as_tuple, CaseInsensitiveDict,
-    pragmas_attached
-)
+from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
+from loki.tools import flatten, as_tuple, CaseInsensitiveDict
 from loki.visitors import FindNodes, Transformer, MaskedTransformer
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']

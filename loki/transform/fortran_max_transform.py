@@ -12,14 +12,12 @@ from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
-    SubstituteExpressionsMapper, retrieve_expressions
+    SubstituteExpressionsMapper, retrieve_expressions, symbols as sym
 )
 import loki.ir as ir
-from loki.expression import symbols as sym
-from loki.module import Module
-from loki.subroutine import Subroutine
-from loki.sourcefile import Sourcefile
-from loki.tools import as_tuple, flatten, is_loki_pragma, pragmas_attached
+from loki import Module, Subroutine, Sourcefile
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
+from loki.tools import as_tuple, flatten
 from loki.types import SymbolType, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 

@@ -7,7 +7,7 @@ from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope
 from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, section_hoist
 from loki.expression import symbols as sym
-from loki.tools import is_loki_pragma, pragmas_attached
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
 
 
 @pytest.fixture(scope='module', name='here')

@@ -10,7 +10,8 @@ from loki.ir import TypeDef, Section, Declaration
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
 from loki.types import Scope, ProcedureType
-from loki.tools import as_tuple, pragmas_attached, process_dimension_pragmas
+from loki.tools import as_tuple
+from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 
 
 __all__ = ['Module']

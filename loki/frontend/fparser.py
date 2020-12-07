@@ -22,10 +22,8 @@ from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
-from loki.tools import (
-    timeit, as_tuple, flatten, CaseInsensitiveDict, inline_pragmas,
-    process_dimension_pragmas, detach_pragmas
-)
+from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
+from loki.pragma_utils import inline_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, SymbolType, Scope
 
 
