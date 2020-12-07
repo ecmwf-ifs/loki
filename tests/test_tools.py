@@ -313,8 +313,6 @@ subroutine test_tools_pragmas_attached_loop(in, out, n)
 end subroutine test_tools_pragmas_attached_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine.spec = detach_pragmas(routine.spec)
-    routine.body = detach_pragmas(routine.body)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
@@ -367,8 +365,6 @@ subroutine test_tools_pragmas_attached_example (in, out, n)
 end subroutine test_tools_pragmas_attached_example
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine.spec = detach_pragmas(routine.spec)
-    routine.body = detach_pragmas(routine.body)
 
     loop_of_interest = None
     with pragmas_attached(routine, Loop):
@@ -379,3 +375,52 @@ end subroutine test_tools_pragmas_attached_example
 
     assert loop_of_interest is not None
     assert loop_of_interest.pragma is None
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragmas_attached_post(frontend):
+    """
+    Verify the inlining of pragma_post.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_post(a, jtend, iend, jend)
+  ! Code snippet example adapted from CLAW manual
+  integer, intent(out) :: a(jend, iend, jtend)
+  integer, intent(in) :: jtend, iend, jend
+  integer :: jt, i, j
+
+!$acc parallel loop gang vector collapse(2)
+  DO jt=1,jtend
+    DO i=1,iend
+      DO j=1,jend
+        a(j, i, jt) = j + i + jt
+      END DO
+    END DO
+  END DO
+!$acc end parallel
+end subroutine test_tools_pragmas_attached_post
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 2
+    loop = FindNodes(Loop).visit(routine.body)
+    assert len(loop) == 3
+    loop = loop[0]
+    assert loop.pragma is None and loop.pragma_post is None
+
+    with pragmas_attached(routine, Loop):
+        assert isinstance(loop.pragma, tuple) and len(loop.pragma) == 1
+        assert loop.pragma[0].keyword.lower() == 'acc'
+        assert loop.pragma_post is None
+        assert len(FindNodes(Pragma).visit(routine.body)) == 1
+
+    assert loop.pragma is None and loop.pragma_post is None
+
+    with pragmas_attached(routine, Loop, attach_pragma_post=True):
+        assert isinstance(loop.pragma, tuple) and len(loop.pragma) == 1
+        assert loop.pragma[0].keyword.lower() == 'acc'
+        assert isinstance(loop.pragma_post, tuple) and len(loop.pragma_post) == 1
+        assert loop.pragma_post[0].keyword.lower() == 'acc'
+        assert not FindNodes(Pragma).visit(routine.body)
+
+    assert loop.pragma is None and loop.pragma_post is None
+    assert len(FindNodes(Pragma).visit(routine.body)) == 2

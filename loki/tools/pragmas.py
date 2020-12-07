@@ -198,6 +198,11 @@ class PragmaAttacher(Visitor):
                         updated += pragmas
                     pragmas = []
                 updated += [i]
+        if self.attach_pragma_post and pragmas:
+            # Take care of leftover pragmas
+            if updated and isinstance(updated[-1], self.node_type):
+                updated[-1]._update(pragma_post=as_tuple(pragmas))
+                pragmas = []
         return as_tuple(updated + pragmas)
 
     visit_list = visit_tuple
