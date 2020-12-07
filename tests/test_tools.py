@@ -313,6 +313,10 @@ end subroutine test_tools_pragmas_attached_loop
     assert all(loop.pragma is None for loop in loops)
     assert len(FindNodes(Pragma).visit(routine.body)) == 4
 
+    # Make sure that reference from inside the context still work
+    # (and have their pragmas detached)
+    assert all(loop.pragma is None for loop in attached_loops)
+
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_tools_pragmas_attached_example(frontend):

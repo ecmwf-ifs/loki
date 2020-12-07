@@ -204,10 +204,13 @@ class PragmaAttacher(Visitor):
 
     def visit_Node(self, o, **kwargs):
         children = tuple(self.visit(i, **kwargs) for i in o.children)
+        # Modify the node in-place instead of rebuilding it to leave existing references
+        # to IR nodes intact
         o._update(*children)
         return o
 
     def visit_object(self, o, **kwargs):
+        # Any other objects (e.g., expression trees) are to be left untouched
         return o
 
 
@@ -235,11 +238,16 @@ class PragmaDetacher(Visitor):
         for i in o:
             i = self.visit(i, **kwargs)
             if isinstance(i, self.node_type) and getattr(i, 'pragma', None):
+                # Pragmas need to go before the node
                 updated += as_tuple(i.pragma)
+                # Modify the node in-place to leave existing references intact
                 i._update(pragma=None)
+            # Insert node into the tuple
             updated += (i,)
-            if isinstance(i, self.node_type) and getattr(i, 'pragma_post', None):
+            if self.detach_pragma_post and isinstance(i, self.node_type) and getattr(i, 'pragma_post', None):
+                # pragma_post need to go after the node
                 updated += as_tuple(i.pragma_post)
+                # Modify the node in-place to leave existing references intact
                 i._update(pragma_post=None)
         return updated
 
@@ -247,10 +255,13 @@ class PragmaDetacher(Visitor):
 
     def visit_Node(self, o, **kwargs):
         children = tuple(self.visit(i, **kwargs) for i in o.children)
+        # Modify the node in-place instead of rebuilding it to leave existing references
+        # to IR nodes intact
         o._update(*children)
         return o
 
     def visit_object(self, o, **kwargs):
+        # Any other objects (e.g., expression trees) are to be left untouched
         return o
 
 
