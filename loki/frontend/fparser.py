@@ -23,7 +23,7 @@ from loki.expression.operations import (
 from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
-from loki.pragma_utils import inline_pragmas, process_dimension_pragmas, detach_pragmas
+from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, SymbolType, Scope
 
 
@@ -698,9 +698,9 @@ class FParser2IR(GenericVisitor):
         # Infer any additional shape information from `!$loki dimension` pragmas
         # Note that this needs to be done before we create `dtype` below, to allow
         # propagation of type info through multiple typedefs in the same module.
-        body = inline_pragmas(body)
+        body = attach_pragmas(body, ir.Declaration)
         body = process_dimension_pragmas(body)
-        body = detach_pragmas(body)
+        body = detach_pragmas(body, ir.Declaration)
         typedef = ir.TypeDef(name=name, body=body, scope=typedef_scope,
                              source=source, label=kwargs.get('label'))
 

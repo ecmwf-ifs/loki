@@ -4,7 +4,7 @@ from loki import Module, Subroutine, pprint, FindNodes
 from loki.frontend import OFP, OMNI, FP
 from loki.ir import Pragma, Loop, Declaration
 from loki.pragma_utils import (
-    is_loki_pragma, get_pragma_parameters, inline_pragmas, detach_pragmas, pragmas_attached
+    is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas, pragmas_attached
 )
 
 
@@ -90,7 +90,7 @@ end subroutine test_tools_pragma_inlining
     assert loops[0].pragma is None
 
     # Now inline pragmas and see if everything matches
-    routine.body = inline_pragmas(routine.body)
+    routine.body = attach_pragmas(routine.body, Loop)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].pragma is not None
@@ -127,7 +127,7 @@ end subroutine test_tools_pragma_inlining_multiple
     assert loops[0].pragma is None
 
     # Now inline pragmas and see if everything matches
-    routine.body = inline_pragmas(routine.body)
+    routine.body = attach_pragmas(routine.body, Loop)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].pragma is not None
@@ -186,14 +186,14 @@ end subroutine test_tools_pragma_detach
     assert len(pragmas) == 4
 
     # Inline pragmas
-    ir = inline_pragmas(routine.body)
+    ir = attach_pragmas(routine.body, Loop)
     orig_loops = FindNodes(Loop).visit(ir)
     assert len(orig_loops) == 2
     assert all(loop.pragma is not None for loop in orig_loops)
     assert not FindNodes(Pragma).visit(ir)
 
     # Serialize pragmas
-    ir = detach_pragmas(ir)
+    ir = detach_pragmas(ir, Loop)
 
     loops = FindNodes(Loop).visit(ir)
     assert len(loops) == 2
@@ -202,7 +202,7 @@ end subroutine test_tools_pragma_detach
     assert len(pragmas) == 4
 
     # Inline pragmas again
-    ir = inline_pragmas(ir)
+    ir = attach_pragmas(ir, Loop)
 
     assert pprint(ir) == pprint(routine.body)
     loops = FindNodes(Loop).visit(ir)

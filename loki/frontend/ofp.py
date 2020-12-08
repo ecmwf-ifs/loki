@@ -19,7 +19,7 @@ from loki.expression import ExpressionDimensionsMapper
 from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
-from loki.pragma_utils import inline_pragmas, process_dimension_pragmas, detach_pragmas
+from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG
 from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
 
@@ -358,9 +358,9 @@ class OFP2IR(GenericVisitor):
                         raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
 
                 # Infer any additional shape information from `!$loki dimension` pragmas
-                body = inline_pragmas(body)
+                body = attach_pragmas(body, ir.Declaration)
                 body = process_dimension_pragmas(body)
-                body = detach_pragmas(body)
+                body = detach_pragmas(body, ir.Declaration)
                 typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=typedef_scope,
                                      label=label, source=source)
 
