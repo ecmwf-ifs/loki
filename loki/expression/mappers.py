@@ -161,7 +161,10 @@ class ExpressionRetriever(WalkMapper):
         if self.query(expr):
             self.exprs.append(expr)
 
-    map_scalar = WalkMapper.map_variable
+    def map_scalar(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.post_visit(expr, *args, **kwargs)
 
     def map_array(self, expr, *args, **kwargs):
         if not self.visit(expr):
@@ -177,18 +180,25 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
     map_logic_literal = WalkMapper.map_constant
-    map_float_literal = WalkMapper.map_constant
-    map_int_literal = WalkMapper.map_constant
     map_string_literal = WalkMapper.map_constant
     map_intrinsic_literal = WalkMapper.map_constant
+
+    def map_float_literal(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        self.post_visit(expr, *args, **kwargs)
+
+    map_int_literal = map_float_literal
+
     map_inline_call = WalkMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
-        for p in expr.parameters:
-            self.rec(p, *args, **kwargs)
-        if isinstance(expr.kind, pmbl.Expression):
+        self.rec(expr.function, *args, **kwargs)
+        for child in expr.parameters:
+            self.rec(child, *args, **kwargs)
+        if expr.kind is not None:
             self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -205,7 +215,7 @@ class ExpressionRetriever(WalkMapper):
         if not self.visit(expr):
             return
         for elem in expr.elements:
-            self.visit(elem)
+            self.rec(elem, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_procedure_symbol = WalkMapper.map_function_symbol
@@ -294,13 +304,25 @@ class ExpressionCallbackMapper(CombineMapper):
         return self.callback(expr, *args, **kwargs)
 
     map_logic_literal = map_constant
-    map_int_literal = map_constant
-    map_float_literal = map_constant
     map_string_literal = map_constant
     map_intrinsic_literal = map_constant
-    map_scalar = map_constant
-    map_array = map_constant
+
+    def map_int_literal(self, expr, *args, **kwargs):
+        rec_results = (self.callback(expr, *args, **kwargs), )
+        if expr.kind is not None:
+            rec_results += (self.rec(expr.kind, *args, **kwargs), )
+        return self.combine(rec_results)
+
+    map_float_literal = map_int_literal
+
     map_variable = map_constant
+    map_scalar = map_constant
+
+    def map_array(self, expr, *args, **kwargs):
+        rec_results = (self.callback(expr, *args, **kwargs), )
+        if expr.dimensions:
+            rec_results += (self.rec(expr.dimensions, *args, **kwargs), )
+        return self.combine(rec_results)
 
     def map_array_subscript(self, expr, *args, **kwargs):
         dimensions = self.rec(expr.index_tuple, *args, **kwargs)
@@ -309,12 +331,11 @@ class ExpressionCallbackMapper(CombineMapper):
     map_inline_call = CombineMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if expr.kind and isinstance(expr.kind, pmbl.Expression):
-            kind = (self.rec(expr.kind, *args, **kwargs),)
-        else:
-            kind = tuple()
-        return self.combine((self.rec(expr.function, *args, **kwargs),
-                             self.rec(expr.parameters[0])) + kind)
+        rec_results = (self.rec(expr.function, *args, **kwargs), )
+        rec_results += (self.rec(expr.parameters[0], *args, **kwargs), )
+        if expr.kind is not None:
+            rec_results += (self.rec(expr.kind, *args, **kwargs), )
+        return self.combine(rec_results)
 
     def map_range(self, expr, *args, **kwargs):
         return self.combine(tuple(self.rec(c, *args, **kwargs)
@@ -356,23 +377,29 @@ class LokiIdentityMapper(IdentityMapper):
     rec = __call__
 
     map_logic_literal = IdentityMapper.map_constant
-    map_float_literal = IdentityMapper.map_constant
-    map_int_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
     map_intrinsic_literal = IdentityMapper.map_constant
 
+    def map_int_literal(self, expr, *args, **kwargs):
+        kind = None
+        if expr.kind is not None:
+            kind = self.rec(expr.kind, *args, **kwargs)
+        return expr.__class__(expr.value, kind=kind)
+
+    map_float_literal = map_int_literal
+
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=parent,
+        return expr.__class__(name=expr.name, scope=expr.scope, type=expr.type, parent=parent,
                               source=expr.source)
 
     def map_array(self, expr, *args, **kwargs):
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
         if expr.dimensions:
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        return expr.__class__(expr.name, expr.scope, type=expr.type, parent=parent,
+        return expr.__class__(name=expr.name, scope=expr.scope, type=expr.type, parent=parent,
                               dimensions=dimensions, source=expr.source)
 
     def map_array_subscript(self, expr, *args, **kwargs):
@@ -381,10 +408,9 @@ class LokiIdentityMapper(IdentityMapper):
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        if isinstance(expr.kind, pmbl.Expression):
+        kind = None
+        if expr.kind is not None:
             kind = self.rec(expr.kind, *args, **kwargs)
-        else:
-            kind = expr.kind
         return expr.__class__(self.rec(expr.function, *args, **kwargs),
                               tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
                               kind=kind)

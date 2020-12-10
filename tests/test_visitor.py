@@ -303,7 +303,7 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     exprs = FindExpressions().visit(routine.body)
-    assert len(exprs) == 25 if frontend == OMNI else 21  # OMNI substitutes jprb in the Cast
+    assert len(exprs) == 26 if frontend == OMNI else 21  # OMNI substitutes jprb in the Cast
 
     # Test ability to find root if searching for root
     comps = [e for e in exprs if isinstance(e, Comparison)]
@@ -367,7 +367,7 @@ end subroutine find_variables_associates
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     variables = FindVariables(unique=False).visit(routine.body)
-    assert len(variables) == 27
+    assert len(variables) == 27 if frontend == OMNI else 28  # OMNI substitutes jprb in the cast
     assert len([v for v in variables if v.name == 'v']) == 1
     assert len([v for v in variables if v.name == 'm']) == 2
 

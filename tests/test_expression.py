@@ -13,7 +13,7 @@ from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType,
-    parse_fparser_expression
+    parse_fparser_expression, Sum
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -117,13 +117,14 @@ def test_literals(here, frontend):
     fcode = """
 subroutine literals(v1, v2, v3, v4, v5, v6)
   integer, parameter :: jprb = selected_real_kind(13,300)
-  real(kind=jprb), intent(out) :: v1, v2, v3, v4, v5, v6
+  real(kind=jprb), intent(out) :: v1, v2, v3
+  real(kind=selected_real_kind(13,300)), intent(out) :: v4, v5, v6
 
   v1 = 66
   v2 = 66.0
   v3 = 2.3
   v4 = 2.4_jprb
-  v5 = real(7, kind=jprb)
+  v5 = real(6, kind=jprb) + real(1, kind=selected_real_kind(13,300))
   v6 = real(3.5,jprb)
   v6 = int(3.5)
 end subroutine literals
@@ -145,10 +146,12 @@ end subroutine literals
     assert isinstance(stmts[2].rhs, FloatLiteral)
     assert isinstance(stmts[3].rhs, FloatLiteral)
     assert stmts[3].rhs.kind in ['jprb']
-    assert isinstance(stmts[4].rhs, Cast)
-    assert str(stmts[4].rhs.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert isinstance(stmts[4].rhs, Sum)
+    for expr in stmts[4].rhs.children:
+        assert isinstance(expr, Cast)
+        assert str(expr.kind).lower() in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[5].rhs, Cast)
-    assert str(stmts[5].rhs.kind) in ['selected_real_kind(13, 300)', 'jprb']
+    assert str(stmts[5].rhs.kind).lower() in ['selected_real_kind(13, 300)', 'jprb']
     assert isinstance(stmts[6].rhs, Cast)
 
 

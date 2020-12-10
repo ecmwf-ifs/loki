@@ -1,6 +1,6 @@
 import weakref
+from sys import intern
 import pymbolic.primitives as pmbl
-from six.moves import intern
 
 from loki.tools import as_tuple
 from loki.types import BasicType, DerivedType, SymbolType, Scope
@@ -61,6 +61,7 @@ class StrCompareMixin:
             return sexpr == other
 
         return super().__eq__(other)
+
 
 class TypedSymbol:
     """
@@ -690,6 +691,7 @@ class Cast(ExprMetadataMixin, pmbl.Call):
     """
 
     def __init__(self, name, expression, kind=None, **kwargs):
+        assert kind is None or isinstance(kind, pmbl.Expression)
         self.kind = kind
         super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
 
