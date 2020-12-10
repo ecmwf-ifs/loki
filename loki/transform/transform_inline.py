@@ -81,8 +81,7 @@ def inline_constant_parameters(routine, external_only=True):
     statements, with empty import statements being removed alltogether.
     """
     # Find all variable instances in spec and body
-    variables = [v for v in FindVariables().visit(routine.spec)]
-    variables += [v for v in FindVariables().visit(routine.body)]
+    variables = FindVariables().visit(routine.ir)
 
     # Filter out variables declared locally
     if external_only:
@@ -104,6 +103,11 @@ def inline_constant_parameters(routine, external_only=True):
     routine.spec = Transformer(imprtmap).visit(routine.spec)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+    # Replace kind parameters in variable types
+    for variable in routine.variables:
+        if variable.type.kind is not None and variable.type.kind in vmap:
+            variable.type = variable.type.clone(kind=vmap[variable.type.kind])
 
 
 def inline_elemental_functions(routine):
