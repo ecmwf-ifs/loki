@@ -557,13 +557,14 @@ class OFP2IR(GenericVisitor):
                                  'SELECTED_INT_KIND', 'SELECTED_REAL_KIND', 'ALLOCATED',
                                  'PRESENT', 'SIGN', 'EPSILON']:
                 fct_symbol = sym.ProcedureSymbol(vname, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
             if vname.upper() in ['REAL', 'INT']:
                 kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
                 return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
             if indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
                 fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=scope, source=source)
+                assert not kwargs
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             if parent is not None:
@@ -573,7 +574,7 @@ class OFP2IR(GenericVisitor):
             _type = scope.symbols.lookup(vname, recursive=True)
             if _type and isinstance(_type.dtype, ProcedureType):
                 fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
@@ -581,7 +582,7 @@ class OFP2IR(GenericVisitor):
                 if scope.types.lookup(vname):
                     fct_type = SymbolType(scope.types.lookup(vname))
                     fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=scope, source=source)
-                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
@@ -602,9 +603,9 @@ class OFP2IR(GenericVisitor):
         _children = deque(self.visit(c) for c in o)
         _children = deque(c for c in _children if c is not None)
 
-        # Hack: find kwargs for Casts
-        cast_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
-                     for i in o.findall('subscripts/argument')}
+        # Hack: find kwargs for Casts and InlineCalls
+        kw_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
+                   for i in o.findall('subscripts/argument')}
 
         # Now we nest variables, dimensions and sub-variables by
         # walking through our queue of nested symbols
@@ -617,7 +618,7 @@ class OFP2IR(GenericVisitor):
                 indices = None
 
             item = _children.popleft()
-            variable = generate_variable(vname=item, indices=indices, kwargs=cast_args,
+            variable = generate_variable(vname=item, indices=indices, kwargs=kw_args,
                                          parent=variable, source=source,
                                          scope=kwargs.get('scope', self.scope))
         return variable
