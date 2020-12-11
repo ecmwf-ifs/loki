@@ -209,8 +209,9 @@ contains
   subroutine transform_inline_constant_parameters_replace_kind(v1)
     use replace_kind_parameters_mod, only: jprb
     real(kind=jprb), intent(out) :: v1
+    real(kind=jprb) :: a = 3._JPRB
 
-    v1 = 1._jprb + real(2, kind=jprb) + 3.
+    v1 = 1._jprb + real(2, kind=jprb) + a
   end subroutine transform_inline_constant_parameters_replace_kind
 end module transform_inline_constant_parameters_replace_kind_mod
 """

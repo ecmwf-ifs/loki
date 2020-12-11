@@ -333,14 +333,22 @@ def replace_selected_kind(routine):
     routine.spec = SubstituteExpressions(map_call).visit(routine.spec)
     routine.body = SubstituteExpressions(map_call).visit(routine.body)
 
-    # Replace calls hidden in variable kinds and inits
+    # Replace calls and literals hidden in variable kinds and inits
     for variable in routine.variables:
         if variable.type.kind is not None and mapper.is_selected_kind_call(variable.type.kind):
             kind = mapper.map_call(variable.type.kind, routine.scope)
             variable.type = variable.type.clone(kind=kind)
-        if variable.type.initial is not None and mapper.is_selected_kind_call(variable.type.initial):
-            initial = mapper.map_call(variable.type.initial, routine.scope)
-            variable.type = variable.type.clone(initial=initial)
+        if variable.type.initial is not None:
+            if mapper.is_selected_kind_call(variable.type.initial):
+                initial = mapper.map_call(variable.type.initial, routine.scope)
+                variable.type = variable.type.clone(initial=initial)
+            else:
+                init_calls = [literal.kind for literal in FindLiterals().visit(variable.type.initial)
+                              if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
+                if init_calls:
+                    init_map = {call: mapper.map_call(call, routine.scope) for call in init_calls}
+                    initial = SubstituteExpressions(init_map).visit(variable.type.initial)
+                    variable.type = variable.type.clone(initial=initial)
 
     # Make sure iso_fortran_env symbols are imported
     if mapper.used_names:
