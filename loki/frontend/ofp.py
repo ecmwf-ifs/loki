@@ -603,7 +603,7 @@ class OFP2IR(GenericVisitor):
         _children = deque(c for c in _children if c is not None)
 
         # Hack: find kwargs for Casts
-        cast_args = {i.attrib['name']: self.visit(i.find('name'), **kwargs)
+        cast_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
                      for i in o.findall('subscripts/argument')}
 
         # Now we nest variables, dimensions and sub-variables by

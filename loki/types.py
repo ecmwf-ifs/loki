@@ -30,7 +30,6 @@ variables are required, these can be accessed via `symbol.type.dtype.typedef.var
 import weakref
 from enum import IntEnum
 from collections import OrderedDict
-from sys import intern
 from loki.tools import flatten, as_tuple
 
 

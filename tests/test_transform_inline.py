@@ -3,7 +3,7 @@ import pytest
 
 from conftest import jit_compile_lib
 from loki import Builder, Module, Subroutine, OFP, OMNI, FP, FindNodes, Import
-from loki.transform import inline_elemental_functions, inline_constant_parameters
+from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
 
 
 @pytest.fixture(scope='module', name='here')
@@ -186,5 +186,62 @@ end module transform_inline_constant_parameters_kind_mod
 
     v1 = obj.transform_inline_constant_parameters_kind_mod_.transform_inline_constant_parameters_kind()
     assert v1 == 5.
+
+    (here/'{}.f90'.format(module.name)).unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_inline_constant_parameters_replace_kind(here, builder, frontend):
+    """
+    Test correct inlining of constant parameters for kind symbols.
+    """
+    fcode_module = """
+module replace_kind_parameters_mod
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13, 300)
+end module replace_kind_parameters_mod
+"""
+
+    fcode = """
+module transform_inline_constant_parameters_replace_kind_mod
+  implicit none
+contains
+  subroutine transform_inline_constant_parameters_replace_kind(v1)
+    use replace_kind_parameters_mod, only: jprb
+    real(kind=jprb), intent(out) :: v1
+
+    v1 = 1._jprb + real(2, kind=jprb) + 3.
+  end subroutine transform_inline_constant_parameters_replace_kind
+end module transform_inline_constant_parameters_replace_kind_mod
+"""
+    # Generate reference code, compile run and verify
+    param_module = Module.from_source(fcode_module, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend)
+    refname = 'ref_%s_%s' % (module.name, frontend)
+    reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
+    func = getattr(getattr(reference, module.name), module.subroutines[0].name)
+
+    v1 = func()
+    assert v1 == 6.
+    (here/'{}.f90'.format(module.name)).unlink()
+    (here/'{}.f90'.format(param_module.name)).unlink()
+
+    # Now transform with supplied elementals but without module
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
+    imports = FindNodes(Import).visit(module.subroutines[0].spec)
+    assert len(imports) == 1 and imports[0].module.lower() == param_module.name.lower()
+    for routine in module.subroutines:
+        inline_constant_parameters(routine, external_only=True)
+        replace_selected_kind(routine)
+    imports = FindNodes(Import).visit(module.subroutines[0].spec)
+    assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
+
+    # Hack: rename module to use a different filename in the build
+    module.name = '%s_' % module.name
+    obj = jit_compile_lib([module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+
+    func = getattr(getattr(obj, module.name), module.subroutines[0].name)
+    v1 = func()
+    assert v1 == 6.
 
     (here/'{}.f90'.format(module.name)).unlink()

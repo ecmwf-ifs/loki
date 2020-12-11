@@ -4,10 +4,16 @@ from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
-from loki.expression.symbols import Array, Scalar, InlineCall, TypedSymbol
+from loki.expression.symbols import (
+    Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
+    StringLiteral, IntrinsicLiteral
+)
 
-__all__ = ['FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls', 'FindExpressionRoot',
-           'SubstituteExpressions', 'ExpressionFinder']
+__all__ = [
+    'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
+    'FindLiterals', 'FindExpressionRoot', 'SubstituteExpressions',
+    'ExpressionFinder'
+]
 
 
 class ExpressionFinder(Visitor):
@@ -146,6 +152,19 @@ class FindInlineCalls(ExpressionFinder):
     """
     retrieval_function = staticmethod(
         lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, InlineCall)))
+
+
+class FindLiterals(ExpressionFinder):
+    """
+    A visitor to collect all literals (which includes :class:`loki.FloatLiteral`,
+    :class:`loki.IntLiteral`, :class:`loki.LogicLiteral`, :class:`loki.StringLiteral`,
+    and :class:`loki.IntrinsicLiteral`) used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retrieval_function = staticmethod(
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (
+            FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral))))
 
 
 class FindExpressionRoot(ExpressionFinder):
