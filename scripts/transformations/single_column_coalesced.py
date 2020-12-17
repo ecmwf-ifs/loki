@@ -2,7 +2,8 @@ from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
-    CaseInsensitiveDict, as_tuple, pragmas_attached
+    CaseInsensitiveDict, as_tuple, pragmas_attached,
+    JoinableStringList, FindScopes
 )
 
 
@@ -47,17 +48,26 @@ class SingleColumnCoalescedTransformation(Transformation):
     vertical : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the vertical dimension, as needed to decide array privatization.
+    block_dim : :any:`Dimension`
+        Optional ``Dimension`` object to define the blocking dimension
+        to use for hoisted column arrays if hoisting is enabled.
     directive : string or None
         Directives flavour to use for parallelism annotations; either
         ``'openacc'`` or ``None``.
+    hoist_column_arrays : bool
+        Flag to trigger the more aggressive "column array hoisting"
+        optimization.
     """
 
-    def __init__(self, horizontal, vertical=None, directive=None):
+    def __init__(self, horizontal, vertical=None, block_dim=None, directive=None,
+                 hoist_column_arrays=True):
         self.horizontal = horizontal
         self.vertical = vertical
+        self.block_dim = block_dim
 
         assert directive in [None, 'openacc']
         self.directive = directive
+        self.hoist_column_arrays = hoist_column_arrays
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -84,9 +94,26 @@ class SingleColumnCoalescedTransformation(Transformation):
         if role == 'kernel':
             self.process_kernel(routine)
 
+    def get_column_locals(self, routine):
+        """
+        List of array variables that include a `vertical` dimension and
+        thus need to be stored in shared memory.
+        """
+        variables = list(routine.variables)
+
+        # Filter out purely local array variables
+        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+        variables = [v for v in variables if not v.name in argument_map]
+        variables = [v for v in variables if isinstance(v, Array)]
+
+        variables = [v for v in variables if v.shape is not None]
+        variables = [v for v in variables if any(self.vertical.size in d for d in v.shape)]
+
+        return variables
+
     def process_kernel(self, routine):
         """
-        Remove all vector loops that match the stored ``dimension``
+        Remove all vector loops that match the stored ``horizontal``
         and promote the index variable to an argument, leaving fully
         dimensioned array arguments intact.
 
@@ -95,6 +122,8 @@ class SingleColumnCoalescedTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
+        # Find the iteration index variable for the specified horizontal
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
 
         # Remove all vector loops over the specified dimension
         loop_map = {}
@@ -105,6 +134,18 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Demote all private local variables
         self.demote_private_locals(routine)
+
+        if self.hoist_column_arrays:
+            # Promote all local arrays with column dimension to arguments
+            # TODO: Should really delete and re-insert in spec, to prevent
+            # issues with shared declarations.
+            column_locals = self.get_column_locals(routine)
+            promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
+            routine.arguments += as_tuple(promoted)
+
+            # Add loop index variable
+            if v_index not in routine.arguments:
+                routine.arguments += as_tuple(v_index)
 
         if self.directive == 'openacc':
 
@@ -117,37 +158,144 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                     loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
-        # Add vector-level loops at the highest level in the kernel
-        self.kernel_add_vector_loops(routine)
+
+        if not self.hoist_column_arrays:
+            # If we're not hoisting column arrays, the kernel remains mapped
+            # to the OpenACC "vector" level. For this, we insert an all-encompassing
+            # vector loop around the kernel and privatize all remaining local arrays
+            # (after domting the horizontal). This encompasses all arrays that are
+            # do not have vertical dimension.
+
+            # Add vector-level loops at the highest level in the kernel
+            self.kernel_add_vector_loops(routine)
 
         if self.directive == 'openacc':
-            # Mark routine as `!$acc routine seq` to make it device-callable
-            routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
-
+            if not self.hoist_column_arrays:
+                # Mark routine as `!$acc routine seq` to make it device-callable
+                routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
+            else:
+                # Mark routine as `!$acc routine seq` to make it device-callable
+                routine.body.prepend(Pragma(keyword='acc', content='routine seq'))
 
     def process_driver(self, routine, targets=None):
         """
-        Remove insert the parallel iteration loop around calls to
-        kernel routines and insert the parallelisation boilerplate.
+        Process the "driver" routine by inserting the other level parallel loops,
+        and optionally hoisting temporary column routines.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
-        targets : list of strings
-            Names of all kernel routines that are to be considered "active"
-            in this call tree and should thus be processed accordingly.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
         """
+        with pragmas_attached(routine, Loop, attach_pragma_post=True):
 
-        # TODO: For now, now change on the driver side is needed.
-        pass
+            for call in FindNodes(CallStatement).visit(routine.body):
+                if not call.name in targets:
+                    continue
+
+                # Find the driver loop by checking the call's heritage
+                ancestors = flatten(FindScopes(call).visit(routine.body))
+                loops = [a for a in ancestors if isinstance(a, Loop)]
+                if not loops:
+                    # Skip if there are no driver loops
+                    continue
+                loop = loops[0]
+
+                # Mark driver loop as "gang parallel".
+                if loop.pragma is None:
+                    loop._update(pragma=Pragma(keyword='acc', content='parallel loop gang'))
+                    loop._update(pragma_post=Pragma(keyword='acc', content='end parallel loop'))
+
+                # Apply hoisting of temporary "column arrays"
+                if self.hoist_column_arrays:
+                    self.hoist_temporary_column_arrays(routine, call)
+
+    def hoist_temporary_column_arrays(self, routine, call):
+        """
+        Hoist temporary column arrays to the driver level. This includes allocating
+        them as local arrays on the host and on the device via ``!$acc enter create``/
+        ``!$acc exit delete`` directives.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+        if call.context is None or not call.context.active:
+            raise RuntimeError(
+                '[Loki] SingleColumnCoalescedTransform: Target kernel is not attached '
+                'to call in driver routine.'
+            )
+
+        if not self.block_dim:
+            raise RuntimeError(
+                '[Loki] SingleColumnCoalescedTransform: No blocking dimension found '
+                'for column hoisting.'
+            )
+
+        kernel = call.context.routine
+        call_map = {}
+
+        column_locals = self.get_column_locals(kernel)
+        arg_map = dict(call.context.arg_iter(call))
+        arg_mapper = SubstituteExpressions(arg_map)
+
+        # Create a driver-level buffer variable for all promoted column arrays
+        # TODO: Note that this does not recurse into the kernels yet!
+        dtype = SymbolAttributes(BasicType.INTEGER)
+        block_var = Variable(name=self.block_dim.size, type=dtype, scope=routine)
+        arg_dims = [v.shape + (block_var,) for v in column_locals]
+        # Translate shape variables back to caller's namespace
+        routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
+                                      for v, dims in zip(column_locals, arg_dims))
+
+        # Add explicit OpenACC statements for creating device variables
+        def _pragma_string(items):
+            return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
+
+        vnames = _pragma_string(v.name for v in column_locals)
+        pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
+        pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
+        routine.body.prepend(pragma)
+        routine.body.append(pragma_post)
+
+        # Add a block-indexed slice of each column variable to the call
+        idx = Variable(name=self.block_dim.index, type=dtype, scope=routine)
+        new_args = [v.clone(
+            dimensions=as_tuple([RangeIndex((None, None)) for _ in v.shape]) + (idx,)
+        ) for v in column_locals]
+        new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
+
+        # Find the iteration index variable for the specified horizontal
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
+        if v_index.name not in routine.variable_map:
+            routine.variables += as_tuple(v_index)
+
+        # Append new loop variable to call signature
+        new_call._update(kwarguments=new_call.kwarguments + ((self.horizontal.index, v_index),))
+
+        # Now create a vector loop around the kerne invocation
+        pragma = Pragma(keyword='acc', content='loop vector')
+        v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
+        v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
+        bounds = LoopRange((v_start, v_end))
+        vector_loop = Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
+        call_map[call] = vector_loop
+
+        routine.body = Transformer(call_map).visit(routine.body)
 
     def demote_private_locals(self, routine):
         """
         Demotes all local variables that can be privatized at the `acc loop vector`
         level.
 
-        Array variablesthat whose dimensions include only the vector dimension
+        Array variables whose dimensions include only the vector dimension
         or known (short) constant dimensions (eg. local vector or matrix arrays)
         can be privatized without requiring shared GPU memory. Array variables
         with unknown (at compile time) dimensions (eg. the vertical dimension)

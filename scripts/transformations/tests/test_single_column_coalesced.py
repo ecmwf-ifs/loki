@@ -73,7 +73,8 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
     scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical
+        horizontal=horizontal, vertical=vertical,
+        hoist_column_arrays=False
     )
     scc_transform.apply(driver, role='driver', targets=['compute_column'])
     scc_transform.apply(kernel, role='kernel')
@@ -163,7 +164,8 @@ def test_single_column_coalesced_demote(frontend, horizontal, vertical):
     driver.enrich_calls(kernel)  # Attach kernel source to driver call
 
     scc_transform = SingleColumnCoalescedTransformation(
-        horizontal=horizontal, vertical=vertical
+        horizontal=horizontal, vertical=vertical,
+        hoist_column_arrays=False
     )
     scc_transform.apply(driver, role='driver', targets=['compute_column'])
     scc_transform.apply(kernel, role='kernel')
