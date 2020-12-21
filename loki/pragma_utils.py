@@ -135,7 +135,11 @@ class PragmaAttacher(Visitor):
                     if isinstance(i, self.node_type):
                         # Found a node of given type: attach pragmas
                         i._update(pragma=as_tuple(pragmas))
-                    elif self.attach_pragma_post and updated and isinstance(updated[-1], self.node_type):
+                    elif (
+                          self.attach_pragma_post and updated and
+                          isinstance(updated[-1], self.node_type) and
+                          hasattr(updated[-1], 'pragma_post')
+                    ):
                         # Encountered a different node but have some pragmas: attach to last
                         # node as pragma_post if type matches
                         updated[-1]._update(pragma_post=as_tuple(pragmas))
