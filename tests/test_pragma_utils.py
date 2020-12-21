@@ -339,7 +339,7 @@ end subroutine test_tools_pragmas_attached_post
     loop = loop[0]
     assert loop.pragma is None and loop.pragma_post is None
 
-    with pragmas_attached(routine, Loop):
+    with pragmas_attached(routine, Loop, attach_pragma_post=False):
         assert isinstance(loop.pragma, tuple) and len(loop.pragma) == 1
         assert loop.pragma[0].keyword.lower() == 'acc'
         assert loop.pragma_post is None
@@ -347,7 +347,8 @@ end subroutine test_tools_pragmas_attached_post
 
     assert loop.pragma is None and loop.pragma_post is None
 
-    with pragmas_attached(routine, Loop, attach_pragma_post=True):
+    # default behaviour: attach_pragma_post=True
+    with pragmas_attached(routine, Loop):
         assert isinstance(loop.pragma, tuple) and len(loop.pragma) == 1
         assert loop.pragma[0].keyword.lower() == 'acc'
         assert isinstance(loop.pragma_post, tuple) and len(loop.pragma_post) == 1

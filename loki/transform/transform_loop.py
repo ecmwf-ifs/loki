@@ -211,7 +211,7 @@ def get_loop_components(loops):
     Helper routine to extract loop variables, ranges and bodies of list of loops.
     """
     loop_variables, loop_ranges, loop_bodies = zip(*[(loop.variable, loop.bounds, loop.body) for loop in loops])
-    return as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies)
+    return (as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies))
 
 
 def loop_interchange(routine, project_bounds=False):
@@ -242,7 +242,7 @@ def loop_interchange(routine, project_bounds=False):
 
             # Extract loop nest and determine iteration space
             loops = get_nested_loops(loop_nest, depth)
-            loop_variables, loop_ranges, _ = get_loop_components(loops)
+            loop_variables, loop_ranges, *_ = get_loop_components(loops)
             if project_bounds:
                 iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
 
@@ -313,135 +313,135 @@ def loop_fusion(routine):
             if is_loki_pragma(loop.pragma, starts_with='loop-fusion'):
                 parameters = get_pragma_parameters(loop.pragma, starts_with='loop-fusion')
                 group = parameters.get('group', 'default')
-                fusion_groups[group] += [loop]
+                fusion_groups[group] += [(loop, parameters)]
 
-        if not fusion_groups:
-            return
+    if not fusion_groups:
+        return
 
-        # Merge loops in each group and put them in the position of the group's first loop
-        for group, loop_list in fusion_groups.items():
-            parameters = [get_pragma_parameters(loop.pragma, starts_with='loop-fusion') for loop in loop_list]
+    # Merge loops in each group and put them in the position of the group's first loop
+    for group, loop_parameter_lists in fusion_groups.items():
+        loop_list, parameters = zip(*loop_parameter_lists)
 
-            # First, determine the collapse depth and extract user-annotated loop ranges from pragmas
-            collapse = [param.get('collapse', None) for param in parameters]
-            if collapse != [collapse[0]] * len(collapse):
-                raise RuntimeError('Conflicting collapse values in group "{}"'.format(group))
-            collapse = int(collapse[0]) if collapse[0] is not None else 1
+        # First, determine the collapse depth and extract user-annotated loop ranges from pragmas
+        collapse = [param.get('collapse', None) for param in parameters]
+        if collapse != [collapse[0]] * len(collapse):
+            raise RuntimeError('Conflicting collapse values in group "{}"'.format(group))
+        collapse = int(collapse[0]) if collapse[0] is not None else 1
 
-            pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine.scope) for param in parameters]
+        pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine.scope) for param in parameters]
 
-            # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
-            range_set = {r for r in pragma_ranges if r is not None}
-            if len(range_set) not in (0, 1):
-                raise RuntimeError('Pragma-specified loop ranges in group "{}" do not match'.format(group))
+        # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
+        range_set = {r for r in pragma_ranges if r is not None}
+        if len(range_set) not in (0, 1):
+            raise RuntimeError('Pragma-specified loop ranges in group "{}" do not match'.format(group))
 
-            fusion_ranges = None
-            if range_set:
-                fusion_ranges = range_set.pop()
+        fusion_ranges = None
+        if range_set:
+            fusion_ranges = range_set.pop()
 
-            # Next, extract loop ranges for all loops in group and convert to iteration space
-            # polyhedrons for easier alignment
-            loop_variables, loop_ranges, loop_bodies = zip(*[get_loop_components(get_nested_loops(loop, collapse))
-                                                             for loop in loop_list])
-            iteration_spaces = [Polyhedron.from_loop_ranges(variables, ranges)
-                                for variables, ranges in zip(loop_variables, loop_ranges)]
+        # Next, extract loop ranges for all loops in group and convert to iteration space
+        # polyhedrons for easier alignment
+        loop_variables, loop_ranges, loop_bodies = \
+                zip(*[get_loop_components(get_nested_loops(loop, collapse)) for loop in loop_list])
+        iteration_spaces = [Polyhedron.from_loop_ranges(variables, ranges)
+                            for variables, ranges in zip(loop_variables, loop_ranges)]
 
-            # Find the fused iteration space (if not given by a pragma)
-            if fusion_ranges is None:
-                fusion_ranges = []
-                for level in range(collapse):
-                    lower_bounds, upper_bounds = [], []
-                    for p in iteration_spaces:
-                        for bound in p.lower_bounds(level):
-                            # Decide if we learn something new from this bound, which could be because:
-                            # (1) we don't have any bounds, yet
-                            # (2) bound is smaller than existing lower bounds (i.e. diff < 0)
-                            # (3) bound is not constant and none of the existing bounds are lower (i.e. diff >= 0)
-                            diff = [simplify(bound - b) for b in lower_bounds]
-                            is_any_negative = any(is_constant(d) and symbolic_op(d, op.lt, 0) for d in diff)
-                            is_any_not_negative = any(is_constant(d) and symbolic_op(d, op.ge, 0) for d in diff)
-                            is_new_bound = (not lower_bounds or is_any_negative or
-                                            (not is_constant(bound) and not is_any_not_negative))
-                            if is_new_bound:
-                                # Remove any lower bounds made redundant by bound:
-                                lower_bounds = [b for b, d in zip(lower_bounds, diff)
-                                                if not (is_constant(d) and symbolic_op(d, op.lt, 0))]
-                                lower_bounds += [bound]
+        # Find the fused iteration space (if not given by a pragma)
+        if fusion_ranges is None:
+            fusion_ranges = []
+            for level in range(collapse):
+                lower_bounds, upper_bounds = [], []
+                for p in iteration_spaces:
+                    for bound in p.lower_bounds(level):
+                        # Decide if we learn something new from this bound, which could be because:
+                        # (1) we don't have any bounds, yet
+                        # (2) bound is smaller than existing lower bounds (i.e. diff < 0)
+                        # (3) bound is not constant and none of the existing bounds are lower (i.e. diff >= 0)
+                        diff = [simplify(bound - b) for b in lower_bounds]
+                        is_any_negative = any(is_constant(d) and symbolic_op(d, op.lt, 0) for d in diff)
+                        is_any_not_negative = any(is_constant(d) and symbolic_op(d, op.ge, 0) for d in diff)
+                        is_new_bound = (not lower_bounds or is_any_negative or
+                                        (not is_constant(bound) and not is_any_not_negative))
+                        if is_new_bound:
+                            # Remove any lower bounds made redundant by bound:
+                            lower_bounds = [b for b, d in zip(lower_bounds, diff)
+                                            if not (is_constant(d) and symbolic_op(d, op.lt, 0))]
+                            lower_bounds += [bound]
 
-                        for bound in p.upper_bounds(level):
-                            # Decide if we learn something new from this bound, which could be because:
-                            # (1) we don't have any bounds, yet
-                            # (2) bound is larger than existing upper bounds (i.e. diff > 0)
-                            # (3) bound is not constant and none of the existing bounds are larger (i.e. diff <= 0)
-                            diff = [simplify(bound - b) for b in upper_bounds]
-                            is_any_positive = any(is_constant(d) and symbolic_op(d, op.gt, 0) for d in diff)
-                            is_any_not_positive = any(is_constant(d) and symbolic_op(d, op.le, 0) for d in diff)
-                            is_new_bound = (not upper_bounds or is_any_positive or
-                                            (not is_constant(bound) and not is_any_not_positive))
-                            if is_new_bound:
-                                # Remove any lower bounds made redundant by bound:
-                                upper_bounds = [b for b, d in zip(upper_bounds, diff)
-                                                if not (is_constant(d) and symbolic_op(d, op.gt, 0))]
-                                upper_bounds += [bound]
+                    for bound in p.upper_bounds(level):
+                        # Decide if we learn something new from this bound, which could be because:
+                        # (1) we don't have any bounds, yet
+                        # (2) bound is larger than existing upper bounds (i.e. diff > 0)
+                        # (3) bound is not constant and none of the existing bounds are larger (i.e. diff <= 0)
+                        diff = [simplify(bound - b) for b in upper_bounds]
+                        is_any_positive = any(is_constant(d) and symbolic_op(d, op.gt, 0) for d in diff)
+                        is_any_not_positive = any(is_constant(d) and symbolic_op(d, op.le, 0) for d in diff)
+                        is_new_bound = (not upper_bounds or is_any_positive or
+                                        (not is_constant(bound) and not is_any_not_positive))
+                        if is_new_bound:
+                            # Remove any lower bounds made redundant by bound:
+                            upper_bounds = [b for b, d in zip(upper_bounds, diff)
+                                            if not (is_constant(d) and symbolic_op(d, op.gt, 0))]
+                            upper_bounds += [bound]
 
-                    if len(lower_bounds) == 1:
-                        lower_bounds = lower_bounds[0]
-                    else:
-                        fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
-                        lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
+                if len(lower_bounds) == 1:
+                    lower_bounds = lower_bounds[0]
+                else:
+                    fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
+                    lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
-                    if len(upper_bounds) == 1:
-                        upper_bounds = upper_bounds[0]
-                    else:
-                        fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
-                        upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
+                if len(upper_bounds) == 1:
+                    upper_bounds = upper_bounds[0]
+                else:
+                    fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
+                    upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
-                    fusion_ranges += [sym.LoopRange((lower_bounds, upper_bounds))]
+                fusion_ranges += [sym.LoopRange((lower_bounds, upper_bounds))]
 
-            # Align loop ranges and collect bodies
-            fusion_bodies = []
-            fusion_variables = loop_variables[0]
-            for idx, (variables, ranges, bodies, p) in enumerate(
-                    zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces)):
-                # TODO: This throws away anything that is not in the inner-most loop body.
-                body = flatten([Comment('! Loki loop-fusion - body {} begin'.format(idx)),
-                                bodies[-1],
-                                Comment('! Loki loop-fusion - body {} end'.format(idx))])
+        # Align loop ranges and collect bodies
+        fusion_bodies = []
+        fusion_variables = loop_variables[0]
+        for idx, (variables, ranges, bodies, p) in enumerate(
+                zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces)):
+            # TODO: This throws away anything that is not in the inner-most loop body.
+            body = flatten([Comment('! Loki loop-fusion - body {} begin'.format(idx)),
+                            bodies[-1],
+                            Comment('! Loki loop-fusion - body {} end'.format(idx))])
 
-                # Replace loop variables if necessary
-                var_map = {}
-                for loop_variable, fusion_variable in zip(variables, fusion_variables):
-                    if loop_variable != fusion_variable:
-                        var_map.update({var: fusion_variable for var in FindVariables().visit(body)
-                                        if var.name.lower() == loop_variable.name})
-                if var_map:
-                    body = SubstituteExpressions(var_map).visit(body)
+            # Replace loop variables if necessary
+            var_map = {}
+            for loop_variable, fusion_variable in zip(variables, fusion_variables):
+                if loop_variable != fusion_variable:
+                    var_map.update({var: fusion_variable for var in FindVariables().visit(body)
+                                    if var.name.lower() == loop_variable.name})
+            if var_map:
+                body = SubstituteExpressions(var_map).visit(body)
 
-                # Wrap in conditional if loop bounds are different
-                conditions = []
-                for loop_range, fusion_range, variable in zip(ranges, fusion_ranges, fusion_variables):
-                    if symbolic_op(loop_range.start, op.ne, fusion_range.start):
-                        conditions += [sym.Comparison(variable, '>=', loop_range.start)]
-                    if symbolic_op(loop_range.stop, op.ne, fusion_range.stop):
-                        conditions += [sym.Comparison(variable, '<=', loop_range.stop)]
-                if conditions:
-                    if len(conditions) == 1:
-                        conditions = conditions[0]
-                    else:
-                        conditions = sym.LogicalAnd(as_tuple(conditions))
-                    body = Conditional(conditions=[conditions], bodies=[body], else_body=())
+            # Wrap in conditional if loop bounds are different
+            conditions = []
+            for loop_range, fusion_range, variable in zip(ranges, fusion_ranges, fusion_variables):
+                if symbolic_op(loop_range.start, op.ne, fusion_range.start):
+                    conditions += [sym.Comparison(variable, '>=', loop_range.start)]
+                if symbolic_op(loop_range.stop, op.ne, fusion_range.stop):
+                    conditions += [sym.Comparison(variable, '<=', loop_range.stop)]
+            if conditions:
+                if len(conditions) == 1:
+                    conditions = conditions[0]
+                else:
+                    conditions = sym.LogicalAnd(as_tuple(conditions))
+                body = Conditional(conditions=[conditions], bodies=[body], else_body=())
 
-                fusion_bodies += [body]
+            fusion_bodies += [body]
 
-            # Create the nested fused loop and replace original loops
-            fusion_loop = flatten(fusion_bodies)
-            for fusion_variable, fusion_range in zip(reversed(fusion_variables), reversed(fusion_ranges)):
-                fusion_loop = Loop(variable=fusion_variable, body=as_tuple(fusion_loop), bounds=fusion_range)
+        # Create the nested fused loop and replace original loops
+        fusion_loop = flatten(fusion_bodies)
+        for fusion_variable, fusion_range in zip(reversed(fusion_variables), reversed(fusion_ranges)):
+            fusion_loop = Loop(variable=fusion_variable, body=as_tuple(fusion_loop), bounds=fusion_range)
 
-            comment = Comment('! Loki loop-fusion group({})'.format(group))
-            loop_map[loop_list[0]] = (comment, fusion_loop)
-            comment = Comment('! Loki loop-fusion group({}) - loop hoisted'.format(group))
-            loop_map.update({loop: comment for loop in loop_list[1:]})
+        comment = Comment('! Loki loop-fusion group({})'.format(group))
+        loop_map[loop_list[0]] = (comment, fusion_loop)
+        comment = Comment('! Loki loop-fusion group({}) - loop hoisted'.format(group))
+        loop_map.update({loop: comment for loop in loop_list[1:]})
 
     # Apply transformation
     routine.body = Transformer(loop_map).visit(routine.body)
