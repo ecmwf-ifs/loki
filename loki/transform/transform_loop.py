@@ -9,12 +9,13 @@ from pymbolic.primitives import Variable
 
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
-    accumulate_polynomial_terms, simplify, is_constant, symbolic_op)
+    accumulate_polynomial_terms, simplify, is_constant, symbolic_op
+)
 from loki.frontend.fparser import parse_fparser_expression
-from loki.ir import Loop, WhileLoop, Conditional, Comment, Pragma, CallStatement
+from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
-from loki.tools import (
-    is_loki_pragma, get_pragma_parameters, flatten, as_tuple, CaseInsensitiveDict)
+from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
+from loki.tools import flatten, as_tuple, CaseInsensitiveDict
 from loki.visitors import FindNodes, Transformer, MaskedTransformer
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']
@@ -210,7 +211,7 @@ def get_loop_components(loops):
     Helper routine to extract loop variables, ranges and bodies of list of loops.
     """
     loop_variables, loop_ranges, loop_bodies = zip(*[(loop.variable, loop.bounds, loop.body) for loop in loops])
-    return as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies)
+    return (as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies))
 
 
 def loop_interchange(routine, project_bounds=False):
@@ -225,62 +226,78 @@ def loop_interchange(routine, project_bounds=False):
         # For that we need Fourier-Motzkin Elimination in the Polyhedron first
         raise NotImplementedError
 
-    loop_map = {}
-    for loop_nest in FindNodes(Loop).visit(routine.body):
-        if not is_loki_pragma(loop_nest.pragma, starts_with='loop-interchange'):
-            continue
+    with pragmas_attached(routine, Loop):
+        loop_map = {}
+        for loop_nest in FindNodes(Loop).visit(routine.body):
+            if not is_loki_pragma(loop_nest.pragma, starts_with='loop-interchange'):
+                continue
 
-        # Get variable order from pragma
-        var_order = get_pragma_parameters(loop_nest.pragma).get('loop-interchange', None)
-        if var_order:
-            var_order = [var.strip().lower() for var in var_order.split(',')]
-            depth = len(var_order)
-        else:
-            depth = 2
-
-        # Extract loop nest and determine iteration space
-        loops = get_nested_loops(loop_nest, depth)
-        loop_variables, loop_ranges, _ = get_loop_components(loops)
-        if project_bounds:
-            iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
-
-        if var_order is None:
-            var_order = [str(var).lower() for var in reversed(loop_variables)]
-
-        # Find the loop order from the variable order
-        loop_variable_names = [var.name.lower() for var in loop_variables]
-        loop_order = [loop_variable_names.index(var) for var in var_order]
-
-        # Rebuild loops starting with innermost
-        inner_loop_map = None
-        for loop, loop_idx in zip(reversed(loops), reversed(loop_order)):
-            if project_bounds:
-                # TODO: project iteration spaces
-                lower_bound = iteration_space.lower_bounds(loop_idx)
-                upper_bound = iteration_space.upper_bounds(loop_idx)
-                bounds = sym.LoopRange((lower_bound, upper_bound))
+            # Get variable order from pragma
+            var_order = get_pragma_parameters(loop_nest.pragma).get('loop-interchange', None)
+            if var_order:
+                var_order = [var.strip().lower() for var in var_order.split(',')]
+                depth = len(var_order)
             else:
-                bounds = loop_ranges[loop_idx]
+                depth = 2
 
-            outer_loop = loop.clone(variable=loop_variables[loop_idx], bounds=bounds)
-            if inner_loop_map is not None:
-                outer_loop = Transformer(inner_loop_map).visit(outer_loop)
-            inner_loop_map = {loop: outer_loop}
+            # Extract loop nest and determine iteration space
+            loops = get_nested_loops(loop_nest, depth)
+            loop_variables, loop_ranges, *_ = get_loop_components(loops)
+            if project_bounds:
+                iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
 
-        # Annotate loop-interchange in a comment
-        old_vars = ', '.join(loop_variable_names)
-        new_vars = ', '.join(var_order)
-        comment = Comment('! Loki loop-interchange ({} <--> {})'.format(old_vars, new_vars))
+            if var_order is None:
+                var_order = [str(var).lower() for var in reversed(loop_variables)]
 
-        # Strip loop-interchange pragma and register new loop nest in map
-        pragmas = tuple(p for p in as_tuple(loops[0].pragma)
-                        if not is_loki_pragma(p, starts_with='loop-interchange'))
-        loop_map[loop_nest] = (comment, outer_loop.clone(pragma=pragmas))
+            # Find the loop order from the variable order
+            loop_variable_names = [var.name.lower() for var in loop_variables]
+            loop_order = [loop_variable_names.index(var) for var in var_order]
 
-    # Apply loop-interchange mapping
-    if loop_map:
-        routine.body = Transformer(loop_map).visit(routine.body)
-        info('%s: interchanged %d loop nest(s)', routine.name, len(loop_map))
+            # Rebuild loops starting with innermost
+            inner_loop_map = None
+            for loop, loop_idx in zip(reversed(loops), reversed(loop_order)):
+                if project_bounds:
+                    # TODO: project iteration spaces
+                    lower_bound = iteration_space.lower_bounds(loop_idx)
+                    upper_bound = iteration_space.upper_bounds(loop_idx)
+                    bounds = sym.LoopRange((lower_bound, upper_bound))
+                else:
+                    bounds = loop_ranges[loop_idx]
+
+                outer_loop = loop.clone(variable=loop_variables[loop_idx], bounds=bounds)
+                if inner_loop_map is not None:
+                    outer_loop = Transformer(inner_loop_map).visit(outer_loop)
+                inner_loop_map = {loop: outer_loop}
+
+            # Annotate loop-interchange in a comment
+            old_vars = ', '.join(loop_variable_names)
+            new_vars = ', '.join(var_order)
+            comment = Comment('! Loki loop-interchange ({} <--> {})'.format(old_vars, new_vars))
+
+            # Strip loop-interchange pragma and register new loop nest in map
+            pragmas = tuple(p for p in as_tuple(loops[0].pragma)
+                            if not is_loki_pragma(p, starts_with='loop-interchange'))
+            loop_map[loop_nest] = (comment, outer_loop.clone(pragma=pragmas))
+
+        # Apply loop-interchange mapping
+        if loop_map:
+            routine.body = Transformer(loop_map).visit(routine.body)
+            info('%s: interchanged %d loop nest(s)', routine.name, len(loop_map))
+
+
+def pragma_ranges_to_loop_ranges(parameters, scope):
+    """
+    Convert loop ranges given in the pragma parameters from string to a tuple of `LoopRange`
+    objects.
+    """
+    if 'range' not in parameters:
+        return None
+    ranges = []
+    for item in parameters['range'].split(','):
+        bounds = [parse_fparser_expression(bound, scope=scope) for bound in item.split(':')]
+        ranges += [sym.LoopRange(as_tuple(bounds))]
+
+    return as_tuple(ranges)
 
 
 def loop_fusion(routine):
@@ -288,35 +305,22 @@ def loop_fusion(routine):
     Search for loops annotated with the `loki loop-fusion` pragma and attempt
     to fuse them into a single loop.
     """
-    # Extract all annotated loops and sort them into fusion groups
     fusion_groups = defaultdict(list)
-    for loop in FindNodes(Loop).visit(routine.body):
-        if is_loki_pragma(loop.pragma, starts_with='loop-fusion'):
-            parameters = get_pragma_parameters(loop.pragma, starts_with='loop-fusion')
-            group = parameters.get('group', 'default')
-            fusion_groups[group] += [loop]
+    loop_map = {}
+    with pragmas_attached(routine, Loop):
+        # Extract all annotated loops and sort them into fusion groups
+        for loop in FindNodes(Loop).visit(routine.body):
+            if is_loki_pragma(loop.pragma, starts_with='loop-fusion'):
+                parameters = get_pragma_parameters(loop.pragma, starts_with='loop-fusion')
+                group = parameters.get('group', 'default')
+                fusion_groups[group] += [(loop, parameters)]
 
     if not fusion_groups:
         return
 
-    def _pragma_ranges_to_loop_ranges(parameters):
-        """
-        Convert loop ranges given in the pragma parameters from string to a tuple of `LoopRange`
-        objects.
-        """
-        if 'range' not in parameters:
-            return None
-        ranges = []
-        for item in parameters['range'].split(','):
-            bounds = [parse_fparser_expression(bound, scope=routine.scope) for bound in item.split(':')]
-            ranges += [sym.LoopRange(as_tuple(bounds))]
-
-        return as_tuple(ranges)
-
     # Merge loops in each group and put them in the position of the group's first loop
-    loop_map = {}
-    for group, loop_list in fusion_groups.items():
-        parameters = [get_pragma_parameters(loop.pragma, starts_with='loop-fusion') for loop in loop_list]
+    for group, loop_parameter_lists in fusion_groups.items():
+        loop_list, parameters = zip(*loop_parameter_lists)
 
         # First, determine the collapse depth and extract user-annotated loop ranges from pragmas
         collapse = [param.get('collapse', None) for param in parameters]
@@ -324,7 +328,7 @@ def loop_fusion(routine):
             raise RuntimeError('Conflicting collapse values in group "{}"'.format(group))
         collapse = int(collapse[0]) if collapse[0] is not None else 1
 
-        pragma_ranges = [_pragma_ranges_to_loop_ranges(param) for param in parameters]
+        pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine.scope) for param in parameters]
 
         # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
         range_set = {r for r in pragma_ranges if r is not None}
@@ -337,8 +341,8 @@ def loop_fusion(routine):
 
         # Next, extract loop ranges for all loops in group and convert to iteration space
         # polyhedrons for easier alignment
-        loop_variables, loop_ranges, loop_bodies = zip(*[get_loop_components(get_nested_loops(loop, collapse))
-                                                         for loop in loop_list])
+        loop_variables, loop_ranges, loop_bodies = \
+                zip(*[get_loop_components(get_nested_loops(loop, collapse)) for loop in loop_list])
         iteration_spaces = [Polyhedron.from_loop_ranges(variables, ranges)
                             for variables, ranges in zip(loop_variables, loop_ranges)]
 
@@ -461,13 +465,8 @@ def loop_fission(routine):
 
         # Look for all loop-fission pragmas inside this routine's body
         # Note that we need to store (node, pragma) pairs as pragmas can also be attached to nodes
-        pragmas = {}
-        for ch in loop.body:
-            if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission'):
-                pragmas[ch] = ch
-            elif (hasattr(ch, 'pragma') and ch.pragma is not None and
-                  is_loki_pragma(ch.pragma, starts_with='loop-fission')):
-                pragmas[ch] = ch.pragma
+        pragmas = [ch for ch in loop.body
+                   if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission')]
 
         if not pragmas:
             continue
@@ -478,10 +477,7 @@ def loop_fission(routine):
         for ch in loop.body:
             if ch in pragmas:
                 bodies += [current_body]
-                if isinstance(ch, Pragma):
-                    current_body = []
-                else:
-                    current_body = [ch.clone(pragma=None)]
+                current_body = []
             else:
                 current_body += [ch]
         if current_body:
@@ -489,7 +485,7 @@ def loop_fission(routine):
 
         # Promote variables given in promotion list
         loop_length = simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
-        promote_vars = {var.strip().lower() for pragma in pragmas.values()
+        promote_vars = {var.strip().lower() for pragma in pragmas
                         for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
         for var_name in promote_vars:
             var = variable_map[var_name]
@@ -534,94 +530,59 @@ def loop_fission(routine):
         info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
 
 
-def pragma_replacement_mapper(pragma, node, replacement=None):
-    """
-    Utility function that produces a mapper that can be used with a :class:`Transformer` to
-    replace a pragma.
-
-    :param :class:`ir.Pragma` pragma: the pragma to be replaced.
-    :param :class:`ir.Node` node: the pragma node or a node in which the pragma is inlined.
-    :param replacement: the replacement for the pragma. Can be `None` to simply remove it.
-    """
-    if isinstance(node, Pragma):
-        # Given node is the pragma
-        assert node == pragma
-        return {node: replacement}
-
-    # Pragma is inlined in the given node
-    assert hasattr(node, 'pragma') and pragma in node.pragma
-    pragmas = [p for p in node.pragma if p != pragma]
-
-    if replacement is not None:
-        return {node: as_tuple(flatten([replacement, node.clone(pragma=pragmas)]))}
-    return {node: node.clone(pragma=pragmas)}
-
-
 def section_hoist(routine):
     """
     Hoist one or multiple code sections and insert them at a specified target location.
     """
     hoist_groups = defaultdict(list)
 
-    # We need to look for Pragma nodes as well as inlined pragmas to find all section-hoist directives
-    node_types = (Loop, WhileLoop, CallStatement)
-    for node in FindNodes((Pragma,) + node_types).visit(routine.body):
-        if isinstance(node, Pragma):
-            pragmas = as_tuple(node)
-        else:
-            pragmas = as_tuple(node.pragma)
-
-        for pragma in pragmas:
-            if is_loki_pragma(pragma, starts_with='section-hoist'):
-                parameters = get_pragma_parameters(pragma, starts_with='section-hoist')
-                group = parameters.get('group', 'default')
-                hoist_groups[group] += [(pragma, node)]
+    # Find all section-hoist directives
+    for pragma in FindNodes(Pragma).visit(routine.body):
+        if is_loki_pragma(pragma, starts_with='section-hoist'):
+            parameters = get_pragma_parameters(pragma, starts_with='section-hoist')
+            group = parameters.get('group', 'default')
+            hoist_groups[group] += [pragma]
 
     hoist_map = {}
     starts, stops = [], []
-    for group, pragma_node_pairs in hoist_groups.items():
-
+    for group, pragmas in hoist_groups.items():
         # Extract sections
-        section_starts = [(pragma, node) for pragma, node in pragma_node_pairs
-                          if 'begin' in get_pragma_parameters(pragma)]
-        section_ends = [(pragma, node) for pragma, node in pragma_node_pairs
-                        if 'end' in get_pragma_parameters(pragma)]
-        assert len(section_starts) == len(section_ends)
+        section_starts = [pragma for pragma in pragmas if 'begin' in get_pragma_parameters(pragma)]
+        section_stops = [pragma for pragma in pragmas if 'end' in get_pragma_parameters(pragma)]
+        assert len(section_starts) == len(section_stops)
 
         hoist_body = ()
-        for (start_pragma, start_node), (end_pragma, end_node) in zip(section_starts, section_ends):
-            reach = get_pragma_parameters(start_pragma).get('reach', None)
+        for start, stop in zip(section_starts, section_stops):
+            reach = get_pragma_parameters(start).get('reach', None)
             if reach is not None:
                 raise NotImplementedError
 
             # Extract the section to hoist
-            mapper = pragma_replacement_mapper(start_pragma, start_node)
-            section = MaskedTransformer(start=start_node, stop=end_node, mapper=mapper).visit(routine.body)
+            section = MaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(routine.body)
 
             # Append it to the group's body, wrapped in comments
-            start_comment = Comment('! Loki section-hoist group({}) - begin section'.format(group))
+            begin_comment = Comment('! Loki section-hoist group({}) - begin section'.format(group))
             end_comment = Comment('! Loki section-hoist group({}) - end section'.format(group))
-            hoist_body += as_tuple(flatten([start_comment, section, end_comment]))
+            hoist_body += as_tuple(flatten([begin_comment, section, end_comment]))
 
             # Register start and end nodes for transformer mask
-            starts += [end_node]
-            stops += [start_node]
+            starts += [stop]
+            stops += [start]
 
             # Replace end pragma by comment
             comment = Comment('! Loki section-hoist group({}) - section hoisted'.format(group))
-            hoist_map.update(pragma_replacement_mapper(end_pragma, end_node, comment))
+            hoist_map[stop] = comment
 
         # Find the target for this hoisting group
-        target = [(pragma, node) for pragma, node in pragma_node_pairs
-                  if 'target' in get_pragma_parameters(pragma)]
+        target = [pragma for pragma in pragmas if 'target' in get_pragma_parameters(pragma)]
         if not target:
             raise RuntimeError('No target found for section-hoist group {}'.format(group))
         if len(target) > 1:
             raise RuntimeError('Multiple targets given for section-hoist group {}'.format(group))
-        target_pragma, target_node = target[0]
+        target = target[0]
 
         # Insert target <-> hoisted sections into map
-        hoist_map.update(pragma_replacement_mapper(target_pragma, target_node, hoist_body))
+        hoist_map[target] = hoist_body
 
     if hoist_map:
         routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)

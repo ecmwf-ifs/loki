@@ -12,14 +12,12 @@ from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
-    SubstituteExpressionsMapper, retrieve_expressions
+    SubstituteExpressionsMapper, retrieve_expressions, symbols as sym
 )
 import loki.ir as ir
-from loki.expression import symbols as sym
-from loki.module import Module
-from loki.subroutine import Subroutine
-from loki.sourcefile import Sourcefile
-from loki.tools import as_tuple, flatten, is_loki_pragma
+from loki import Module, Subroutine, Sourcefile
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
+from loki.tools import as_tuple, flatten
 from loki.types import SymbolType, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
@@ -188,17 +186,18 @@ class FortranMaxTransformation(Transformation):
         loop_map = {}
         var_map = {}
         dataflow_indices = []
-        for loop in FindNodes(ir.Loop).visit(max_kernel.body):
-            if is_loki_pragma(loop.pragma, starts_with='dataflow'):
-                loop_map[loop] = loop.body
-                # We have to add 1 since FORTRAN counts from 1
-                call_fct = sym.ProcedureSymbol('control.count.simpleCounter', scope=max_kernel.scope)
-                vinit = sym.Sum((sym.InlineCall(call_fct, parameters=(sym.Literal(32),)), sym.Literal(1)))
-                # TODO: Add support for wrap point
-                #                      parameters=(Literal(32), loop.bounds[1]))
-                var_map[loop.variable] = loop.variable.clone(
-                    type=loop.variable.type.clone(dfevar=True, initial=vinit))
-                dataflow_indices += [str(loop.variable)]
+        with pragmas_attached(max_kernel, ir.Loop):
+            for loop in FindNodes(ir.Loop).visit(max_kernel.body):
+                if is_loki_pragma(loop.pragma, starts_with='dataflow'):
+                    loop_map[loop] = loop.body
+                    # We have to add 1 since FORTRAN counts from 1
+                    call_fct = sym.ProcedureSymbol('control.count.simpleCounter', scope=max_kernel.scope)
+                    vinit = sym.Sum((sym.InlineCall(call_fct, parameters=(sym.Literal(32),)), sym.Literal(1)))
+                    # TODO: Add support for wrap point
+                    #                      parameters=(Literal(32), loop.bounds[1]))
+                    var_map[loop.variable] = loop.variable.clone(
+                        type=loop.variable.type.clone(dfevar=True, initial=vinit))
+                    dataflow_indices += [str(loop.variable)]
         max_kernel.spec = SubstituteExpressions(var_map).visit(max_kernel.spec)
         max_kernel.body = Transformer(loop_map).visit(max_kernel.body)
 

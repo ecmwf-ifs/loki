@@ -442,6 +442,7 @@ END MODULE some_mod
 <Module:: some_mod>
 #<Section::>
 ##<Declaration:: n>
+##<Pragma:: loki dimension(klon)>
 ##<Declaration:: arr(:)>
 #<Subroutine:: some_routine>
 ##<Comment:: ! This is a b...>
@@ -500,19 +501,19 @@ END MODULE some_mod
     if frontend == OMNI:
         ref_lines = ref.splitlines()
         # Replace ElseIf branch by nested if
-        ref_lines = ref_lines[:16] + ['####<Else>', '#####<Conditional::>'] + ref_lines[16:]  # Insert Conditional
-        ref_lines[18] = ref_lines[18].replace('Else', '')  # ElseIf -> If
-        ref_lines[18:23] = ['##' + line for line in ref_lines[18:23]]  # -> Indent
+        ref_lines = ref_lines[:17] + ['####<Else>', '#####<Conditional::>'] + ref_lines[17:]  # Insert Conditional
+        ref_lines[19] = ref_lines[19].replace('Else', '')  # ElseIf -> If
+        ref_lines[19:24] = ['##' + line for line in ref_lines[19:24]]  # -> Indent
         # Some string inconsistencies
-        ref_lines[14] = ref_lines[14].replace('1E-8', '1e-8')
-        ref_lines[24] = ref_lines[24].replace('1:n', '1:n:1')
-        ref_lines[34] = ref_lines[34].replace('SQRT', 'sqrt')
-        ref_lines[47] = ref_lines[47].replace('PRINT', 'print')
-        ref_lines[51] = ref_lines[51].replace('PRINT', 'print')
+        ref_lines[15] = ref_lines[15].replace('1E-8', '1e-8')
+        ref_lines[25] = ref_lines[25].replace('1:n', '1:n:1')
+        ref_lines[35] = ref_lines[35].replace('SQRT', 'sqrt')
+        ref_lines[48] = ref_lines[48].replace('PRINT', 'print')
+        ref_lines[52] = ref_lines[52].replace('PRINT', 'print')
         ref = '\n'.join(ref_lines)
-        cont_index = 26
+        cont_index = 27
     else:
-        cont_index = 24
+        cont_index = 25
 
     module = Module.from_source(fcode, frontend=frontend)
 

@@ -1,7 +1,7 @@
 from loki.expression import symbols as sym, retrieve_expressions
 from loki.backend import PyCodegen
 from loki.types import BasicType
-from loki.tools import is_loki_pragma
+from loki.pragma_utils import is_loki_pragma
 
 __all__ = ['dacegen', 'DaceCodegen']
 

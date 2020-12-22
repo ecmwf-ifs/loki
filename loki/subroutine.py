@@ -11,8 +11,9 @@ from loki.ir import (
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
+from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
-from loki.tools import as_tuple, flatten, is_loki_pragma, inline_pragmas, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import Scope, ProcedureType
 
 
@@ -61,6 +62,9 @@ class Subroutine:
         # Register this procedure in the parent scope
         if self.scope.parent:
             self.scope.parent.types[self.name] = ProcedureType(procedure=self)
+
+        with pragmas_attached(self, Declaration):
+            self.spec = process_dimension_pragmas(self.spec)
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
@@ -298,9 +302,6 @@ class Subroutine:
             comment_map[node] = None
         spec = Transformer(comment_map, invalidate_source=False).visit(spec)
 
-        # Now we need to re-run the pragma detection for pragmas at the beginning of the body
-        body = inline_pragmas(body)
-
         # Parse "member" subroutines recursively
         members = None
         contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
@@ -397,13 +398,14 @@ class Subroutine:
         """
         routine_map = {r.name.upper(): r for r in as_tuple(routines)}
 
-        for call in FindNodes(CallStatement).visit(self.body):
-            if call.name.upper() in routine_map:
-                # Calls marked as 'reference' are inactive and thus skipped
-                active = not is_loki_pragma(call.pragma, starts_with='reference')
-                context = CallContext(routine=routine_map[call.name.upper()],
-                                      active=active)
-                call._update(context=context)
+        with pragmas_attached(self, CallStatement):
+            for call in FindNodes(CallStatement).visit(self.body):
+                if call.name.upper() in routine_map:
+                    # Calls marked as 'reference' are inactive and thus skipped
+                    active = not is_loki_pragma(call.pragma, starts_with='reference')
+                    context = CallContext(routine=routine_map[call.name.upper()],
+                                          active=active)
+                    call._update(context=context)
 
         # TODO: Could extend this to module and header imports to
         # facilitate user-directed inlining.

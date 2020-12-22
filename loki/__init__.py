@@ -19,6 +19,7 @@ from loki.build import *  # noqa  # pylint: disable=redefined-builtin
 from loki.debug import *  # noqa
 from loki.scheduler import *  # noqa
 from loki.lint import *  # noqa
+from loki.pragma_utils import *  # noqa
 
 try:
     __version__ = get_distribution(__name__).version

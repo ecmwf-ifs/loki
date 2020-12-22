@@ -7,7 +7,7 @@ from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope
 from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, section_hoist
 from loki.expression import symbols as sym
-from loki.tools import is_loki_pragma
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
 
 
 @pytest.fixture(scope='module', name='here')
@@ -201,9 +201,10 @@ end subroutine transform_loop_interchange
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
     assert [str(loop.variable) for loop in loops] == ['k', 'i', 'j', 'k', 'i', 'j']
-    assert is_loki_pragma(loops[0].pragma, starts_with='some-pragma')
-    assert is_loki_pragma(loops[1].pragma, starts_with='more-pragma')
-    assert is_loki_pragma(loops[2].pragma, starts_with='other-pragma')
+    with pragmas_attached(routine, Loop):
+        assert is_loki_pragma(loops[0].pragma, starts_with='some-pragma')
+        assert is_loki_pragma(loops[1].pragma, starts_with='more-pragma')
+        assert is_loki_pragma(loops[2].pragma, starts_with='other-pragma')
 
     a = np.zeros(shape=(m, n, nclv), dtype=np.int32, order='F')
     function(a=a, m=m, n=n, nclv=nclv)
@@ -221,9 +222,10 @@ end subroutine transform_loop_interchange
     assert [str(loop.variable) for loop in loops] == ['j', 'i', 'k', 'k', 'i', 'j']
 
     # Make sure other pragmas remain in place
-    assert is_loki_pragma(loops[0].pragma, starts_with='some-pragma')
-    assert is_loki_pragma(loops[1].pragma, starts_with='more-pragma')
-    assert is_loki_pragma(loops[2].pragma, starts_with='other-pragma')
+    with pragmas_attached(routine, Loop):
+        assert is_loki_pragma(loops[0].pragma, starts_with='some-pragma')
+        assert is_loki_pragma(loops[1].pragma, starts_with='more-pragma')
+        assert is_loki_pragma(loops[2].pragma, starts_with='other-pragma')
 
     a = np.zeros(shape=(m, n, nclv), dtype=np.int32, order='F')
     interchanged_function(a=a, m=m, n=n, nclv=nclv)

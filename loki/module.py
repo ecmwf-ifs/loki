@@ -6,11 +6,12 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
-from loki.ir import TypeDef, Section
+from loki.ir import TypeDef, Section, Declaration
 from loki.visitors import FindNodes
 from loki.subroutine import Subroutine
 from loki.types import Scope, ProcedureType
 from loki.tools import as_tuple
+from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 
 
 __all__ = ['Module']
@@ -41,6 +42,9 @@ class Module:
 
         self._ast = ast
         self._source = source
+
+        with pragmas_attached(self, Declaration):
+            self.spec = process_dimension_pragmas(self.spec)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=Frontend.FP):
@@ -88,9 +92,9 @@ class Module:
             # We need to pre-populate the ProcedureType type table to
             # correctly class inline function calls within the module
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
-            for ast in routine_asts:
-                fname = ast.attrib['name']
-                scope.types[fname] = ProcedureType(fname, is_function=ast.tag == 'function')
+            for routine_ast in routine_asts:
+                fname = routine_ast.attrib['name']
+                scope.types[fname] = ProcedureType(fname, is_function=routine_ast.tag == 'function')
 
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent_scope=scope, pp_info=pp_info)
