@@ -472,7 +472,10 @@ class OMNI2IR(GenericVisitor):
         return sym.RangeIndex((lower, upper, step), source=source)
 
     def visit_FrealConstant(self, o, source=None):
-        return sym.Literal(value=o.text, type=BasicType.REAL, kind=o.attrib.get('kind', None), source=source)
+        if 'kind' in o.attrib:
+            _type = self.visit(self.type_map[o.attrib.get('type')])
+            return sym.Literal(value=o.text, type=BasicType.REAL, kind=_type.kind, source=source)
+        return sym.Literal(value=o.text, type=BasicType.REAL, source=source)
 
     def visit_FlogicalConstant(self, o, source=None):
         return sym.Literal(value=o.text, type=BasicType.LOGICAL, source=source)
@@ -481,6 +484,9 @@ class OMNI2IR(GenericVisitor):
         return sym.Literal(value='"%s"' % o.text, type=BasicType.CHARACTER, source=source)
 
     def visit_FintConstant(self, o, source=None):
+        if 'kind' in o.attrib:
+            _type = self.visit(self.type_map[o.attrib.get('type')])
+            return sym.Literal(value=int(o.text), type=BasicType.INTEGER, kind=_type.kind, source=source)
         return sym.Literal(value=int(o.text), type=BasicType.INTEGER, source=source)
 
     def visit_FcomplexConstant(self, o, source=None):

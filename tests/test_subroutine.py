@@ -382,8 +382,8 @@ end subroutine routine_variables_add_remove
     )
 
     # Create a new set of variables and add to local routine variables
-    x = routine.variables[1]  # That's the symbol for variable 'x'
-    real_type = SymbolType('real', kind='jprb')
+    x = routine.variable_map['x']  # That's the symbol for variable 'x'
+    real_type = SymbolType('real', kind=routine.variable_map['jprb'])
     int_type = SymbolType('integer')
     a = Scalar(name='a', type=real_type, scope=routine.scope)
     b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)

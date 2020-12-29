@@ -3,18 +3,23 @@ Collection of utility routines to deal with general language conversion.
 
 
 """
+import platform
+
 from loki import Subroutine, Module
 from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls,
+    symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
     SubstituteExpressions, SubstituteExpressionsMapper, FindTypedSymbols
 )
 from loki.ir import Associate, Import, TypeDef
 from loki.visitors import Transformer, FindNodes
-from loki.tools import CaseInsensitiveDict
+from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolType, BasicType, DerivedType, ProcedureType
 
 
-__all__ = ['convert_to_lower_case', 'replace_intrinsics', 'resolve_associates', 'sanitise_imports']
+__all__ = [
+    'convert_to_lower_case', 'replace_intrinsics', 'resolve_associates',
+    'sanitise_imports', 'replace_selected_kind'
+]
 
 
 def convert_to_lower_case(routine):
@@ -27,8 +32,7 @@ def convert_to_lower_case(routine):
     """
 
     # Force all variables in a subroutine body to lower-caps
-    variables = [v for v in FindVariables().visit(routine.spec)]
-    variables += [v for v in FindVariables().visit(routine.body)]
+    variables = FindVariables().visit(routine.ir)
     vmap = {v: v.clone(name=v.name.lower()) for v in variables
             if isinstance(v, (sym.Scalar, sym.Array)) and not v.name.islower()}
 
@@ -185,3 +189,180 @@ def sanitise_imports(module_or_routine):
         for routine in module_or_routine.subroutines:
             used_symbols |= find_and_eliminate_unused_imports(routine)
         eliminate_unused_imports(module_or_routine, used_symbols)
+
+
+class IsoFortranEnvMapper:
+    """
+    Mapper to convert other Fortran kind specifications to their definitions
+    from ``iso_fortran_env``.
+    """
+
+    selected_kind_calls = ('selected_int_kind', 'selected_real_kind')
+
+    def __init__(self, arch=None):
+        if arch is None:
+            arch = platform.machine()
+        self.arch = arch.lower()
+        self.used_names = CaseInsensitiveDict()
+
+    @classmethod
+    def is_selected_kind_call(cls, call):
+        """
+        Return ``True`` if the given call is a transformational function to
+        select the kind of an integer or real type.
+        """
+        return isinstance(call, sym.InlineCall) and call.name.lower() in cls.selected_kind_calls
+
+    @staticmethod
+    def _selected_int_kind(r):
+        """
+        Return number of bytes required by the smallest signed integer type that
+        is able to represent all integers n in the range -10**r < n < 10**r.
+
+        This emulates the behaviour of Fortran's ``SELECTED_INT_KIND(R)``.
+
+        Source: numpy.f2py.crackfortran
+        https://github.com/numpy/numpy/blob/9e26d1d2be7a961a16f8fa9ff7820c33b25415e2/numpy/f2py/crackfortran.py#L2431-L2444
+
+        :returns int: the number of bytes or -1 if no such type exists.
+        """
+        m = 10 ** r
+        if m <= 2 ** 8:
+            return 1
+        if m <= 2 ** 16:
+            return 2
+        if m <= 2 ** 32:
+            return 4
+        if m <= 2 ** 63:
+            return 8
+        if m <= 2 ** 128:
+            return 16
+        return -1
+
+    def map_selected_int_kind(self, scope, r):
+        """
+        Return the kind of the smallest signed integer type defined in
+        ``iso_fortran_env`` that is able to represent all integers n
+        in the range -10**r < n < 10**r.
+        """
+        byte_kind_map = {b: 'INT{}'.format(8 * b) for b in [1, 2, 4, 8]}
+        kind = self._selected_int_kind(r)
+        if kind in byte_kind_map:
+            kind_name = byte_kind_map[kind]
+            self.used_names[kind_name] = sym.Variable(name=kind_name, scope=scope)
+            return self.used_names[kind_name]
+        return sym.IntLiteral(-1)
+
+    def _selected_real_kind(self, p, r=0, radix=0):  # pylint: disable=unused-argument
+        """
+        Return number of bytes required by the smallest real type that fulfils
+        the given requirements:
+
+        - decimal precision at least ``p``;
+        - decimal exponent range at least ``r``;
+        - radix ``r``.
+
+        This resembles the behaviour of Fortran's ``SELECTED_REAL_KIND([P, R, RADIX])``.
+        NB: This honors only ``p`` at the moment!
+
+        Source: numpy.f2py.crackfortran
+        https://github.com/numpy/numpy/blob/9e26d1d2be7a961a16f8fa9ff7820c33b25415e2/numpy/f2py/crackfortran.py#L2447-L2463
+
+        :returns int: the number of bytes or -1 if no such type exists.
+        """
+        if p < 7:
+            return 4
+        if p < 16:
+            return 8
+        if self.arch.startswith(('aarch64', 'power', 'ppc', 'riscv', 's390x', 'sparc')):
+            if p <= 20:
+                return 16
+        else:
+            if p < 19:
+                return 10
+            if p <= 20:
+                return 16
+        return -1
+
+    def map_selected_real_kind(self, scope, p, r=0, radix=0):
+        """
+        Return the kind of the smallest real type defined in
+        ``iso_fortran_env`` that is able to fulfil the given requirements
+        for decimal precision (``p``), decimal exponent range (``r``) and
+        radix (``r``).
+        """
+        byte_kind_map = {b: 'REAL{}'.format(8 * b) for b in [4, 8, 16]}
+        kind = self._selected_real_kind(p, r, radix)
+        if kind in byte_kind_map:
+            kind_name = byte_kind_map[kind]
+            self.used_names[kind_name] = sym.Variable(name=kind_name, scope=scope)
+            return self.used_names[kind_name]
+        return sym.IntLiteral(-1)
+
+    def map_call(self, call, scope):
+        if not self.is_selected_kind_call(call):
+            return call
+
+        func = getattr(self, 'map_{}'.format(call.name.lower()))
+        args = [int(arg) for arg in call.parameters]
+        kwargs = {key: int(val) for key, val in call.kw_parameters.items()}
+
+        return func(scope, *args, **kwargs)
+
+
+def replace_selected_kind(routine):
+    """
+    Find all uses of ``selected_real_kind`` or ``selected_int_kind`` and
+    replace them by their ``iso_fortran_env`` counterparts.
+
+    This inserts imports for all used constants from ``iso_fortran_env``.
+    """
+    mapper = IsoFortranEnvMapper()
+
+    # Find all selected_x_kind calls in spec and body
+    calls = [call for call in FindInlineCalls().visit(routine.ir)
+             if mapper.is_selected_kind_call(call)]
+
+    # Need to pick out kinds in Literals explicitly
+    calls += [literal.kind for literal in FindLiterals().visit(routine.ir)
+              if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
+
+    map_call = {call: mapper.map_call(call, routine.scope) for call in calls}
+
+    # Flush mapping through spec and body
+    routine.spec = SubstituteExpressions(map_call).visit(routine.spec)
+    routine.body = SubstituteExpressions(map_call).visit(routine.body)
+
+    # Replace calls and literals hidden in variable kinds and inits
+    for variable in routine.variables:
+        if variable.type.kind is not None and mapper.is_selected_kind_call(variable.type.kind):
+            kind = mapper.map_call(variable.type.kind, routine.scope)
+            variable.type = variable.type.clone(kind=kind)
+        if variable.type.initial is not None:
+            if mapper.is_selected_kind_call(variable.type.initial):
+                initial = mapper.map_call(variable.type.initial, routine.scope)
+                variable.type = variable.type.clone(initial=initial)
+            else:
+                init_calls = [literal.kind for literal in FindLiterals().visit(variable.type.initial)
+                              if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
+                if init_calls:
+                    init_map = {call: mapper.map_call(call, routine.scope) for call in init_calls}
+                    initial = SubstituteExpressions(init_map).visit(variable.type.initial)
+                    variable.type = variable.type.clone(initial=initial)
+
+    # Make sure iso_fortran_env symbols are imported
+    if mapper.used_names:
+        for imprt in FindNodes(Import).visit(routine.spec):
+            if imprt.module.lower() == 'iso_fortran_env':
+                # Update the existing iso_fortran_env import
+                imprt_symbols = {str(s).lower() for s in imprt.symbols}
+                missing_symbols = set(mapper.used_names.keys()) - imprt_symbols
+                symbols = as_tuple(imprt.symbols) + tuple(mapper.used_names[s] for s in missing_symbols)
+
+                # Flush the change through the spec
+                routine.spec = Transformer({imprt: Import(imprt.module, symbols=symbols)}).visit(routine.spec)
+                break
+        else:
+            # No iso_fortran_env import present, need to insert a new one
+            imprt = Import('iso_fortran_env', symbols=as_tuple(mapper.used_names.values()))
+            routine.spec.prepend(imprt)

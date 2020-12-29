@@ -25,8 +25,8 @@ from loki.expression import (
     SubstituteExpressions, ProcedureSymbol
 )
 from loki.visitors import Transformer, FindNodes
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import BasicType, SymbolType, DerivedType, TypeTable, Scope
+from loki.tools import as_tuple
+from loki.types import BasicType, SymbolType, DerivedType, Scope
 
 
 __all__ = ['FortranCTransformation']
@@ -99,35 +99,35 @@ class FortranCTransformation(Transformation):
             variables = derived.dtype.typedef.variables
         declarations = []
         for v in variables:
-            ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type))
+            ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type, scope))
             vnew = v.clone(name=v.basename.lower(), scope=scope, type=ctype)
             declarations += (Declaration(variables=(vnew,)),)
         return TypeDef(name=typename.lower(), bind_c=True, body=declarations, scope=scope)
 
     @staticmethod
-    def iso_c_intrinsic_kind(_type):
+    def iso_c_intrinsic_kind(_type, scope):
         if _type.dtype == BasicType.INTEGER:
-            return 'c_int'
+            return Variable(name='c_int', scope=scope)
         if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
-                return 'c_float'
+                return Variable(name='c_float', scope=scope)
             if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
-                return 'c_double'
+                return Variable(name='c_double', scope=scope)
         return None
 
     @staticmethod
-    def c_intrinsic_kind(_type):
+    def c_intrinsic_kind(_type, scope):
         if _type.dtype == BasicType.LOGICAL:
-            return 'int'
+            return Variable(name='int', scope=scope)
         if _type.dtype == BasicType.INTEGER:
-            return 'int'
+            return Variable(name='int', scope=scope)
         if _type.dtype == BasicType.REAL:
             kind = str(_type.kind)
             if kind.lower() in ('real32', 'c_float'):
-                return 'float'
+                return Variable(name='float', scope=scope)
             if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
-                return 'double'
+                return Variable(name='double', scope=scope)
         return None
 
     @classmethod
@@ -207,7 +207,7 @@ class FortranCTransformation(Transformation):
                 getter_scope = Scope(parent=module_scope)
 
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
-                isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type))
+                isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter_scope))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
@@ -232,7 +232,7 @@ class FortranCTransformation(Transformation):
                     # Pass by reference for array types
                     value = isinstance(arg, Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
                     ctype = SymbolType(arg.type.dtype, value=value,
-                                       kind=cls.iso_c_intrinsic_kind(arg.type))
+                                       kind=cls.iso_c_intrinsic_kind(arg.type, intf_fct.scope))
                     dimensions = arg.dimensions if isinstance(arg, Array) else None
                     var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                                    scope=intf_fct.scope)
@@ -274,7 +274,7 @@ class FortranCTransformation(Transformation):
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
                 ctype = SymbolType(arg.type.dtype, value=value,
-                                   kind=cls.iso_c_intrinsic_kind(arg.type))
+                                   kind=cls.iso_c_intrinsic_kind(arg.type, intf_routine.scope))
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                            scope=intf_routine.scope)
@@ -290,6 +290,8 @@ class FortranCTransformation(Transformation):
         Re-generate the C header as a module with all pertinent nodes,
         but not Fortran-specific intrinsics (eg. implicit none or save).
         """
+        scope = Scope()
+
         # Generate stubs for getter functions
         spec = []
         for decl in FindNodes(Declaration).visit(module.spec):
@@ -299,7 +301,7 @@ class FortranCTransformation(Transformation):
             if isinstance(v.type.dtype, DerivedType):
                 continue
             tmpl_function = '%s %s__get__%s();' % (
-                self.c_intrinsic_kind(v.type), module.name.lower(), v.name.lower())
+                self.c_intrinsic_kind(v.type, scope), module.name.lower(), v.name.lower())
             spec += [Intrinsic(text=tmpl_function)]
 
         # Re-create type definitions with range indices (``:``) replaced by pointers
@@ -325,14 +327,15 @@ class FortranCTransformation(Transformation):
             if fct.is_function:
                 fct_type = 'void'
                 if fct.name in fct.variables:
-                    fct_type = self.c_intrinsic_kind(fct.variable_map[fct.name.lower()].type)
+                    fct_type = self.c_intrinsic_kind(fct.variable_map[fct.name.lower()].type, scope)
 
-                args = ['{} {}'.format(self.c_intrinsic_kind(a.type), a.name.lower()) for a in fct.arguments]
+                args = ['{} {}'.format(self.c_intrinsic_kind(a.type, scope), a.name.lower())
+                        for a in fct.arguments]
                 fct_decl = '{} {}({});'.format(fct_type, fct.name.lower(), ', '.join(args))
                 spec.append(Intrinsic(text=fct_decl))
 
         # Re-generate header module without subroutines
-        return Module(name='%s_c' % module.name, spec=spec)
+        return Module(name='%s_c' % module.name, spec=spec, scope=scope)
 
     def generate_c_kernel(self, routine, **kwargs):
         """

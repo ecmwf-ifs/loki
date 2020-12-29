@@ -365,3 +365,9 @@ class Scope:
         Ensure we only ever store a weakref to the defining object.
         """
         self._defined_by = weakref.ref(value)
+
+    def __repr__(self):
+        # pylint: disable=no-member
+        if self.defined_by is not None and self.defined_by.name:
+            return 'Scope::{}'.format(self.defined_by.name)
+        return 'Scope::'

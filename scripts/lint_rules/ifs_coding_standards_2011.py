@@ -8,8 +8,8 @@ import re
 
 from loki import (
     FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
-    flatten, as_tuple, strip_inline_comments,
-    Sourcefile, Module, Subroutine, BasicType)
+    flatten, as_tuple, strip_inline_comments, Module, Subroutine, BasicType
+)
 from loki.lint import GenericRule, RuleType
 import loki.ir as ir
 from loki.expression import symbols as sym
@@ -354,8 +354,8 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         on all literals.
         '''
         # Custom retriever that yields the literal types specified in config and stops
-        # recursion on loop ranges and array subscripts (to avoid warnings about integer
-        # constants in these cases
+        # recursion on loop ranges and array subscripts
+        # (to avoid warnings about integer constants in these cases)
         excl_types = (sym.ArraySubscript, sym.Range)
         q_lit = lambda expr: retrieve_expressions(
             expr, lambda e: isinstance(e, types), recurse_cond=lambda e: not isinstance(e, excl_types))
@@ -366,7 +366,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                 if not literal.kind:
                     rule_report.add('"{}" without explicit KIND declared.'.format(literal), literal)
                 elif allowed_type_kinds.get(literal.__class__) and \
-                        literal.kind.upper() not in allowed_type_kinds[literal.__class__]:
+                        str(literal.kind).upper() not in allowed_type_kinds[literal.__class__]:
                     rule_report.add(
                         '"{}" is not an allowed KIND value for "{}".'.format(literal.kind, literal),
                         literal)

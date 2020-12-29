@@ -151,11 +151,11 @@ class OFP2IR(GenericVisitor):
 
     visit_list = visit_tuple
 
-    def visit_Element(self, o, label=None, source=None):
+    def visit_Element(self, o, label=None, source=None, **kwargs):
         """
         Universal default for XML element types
         """
-        children = tuple(self.visit(c) for c in o)
+        children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -372,12 +372,9 @@ class OFP2IR(GenericVisitor):
             # We are dealing with a single declaration, so we retrieve
             # all the declaration-level information first.
             typename = o.find('type').attrib['name']
-            kind = o.find('type/kind/name')
+            kind = o.find('type/kind')
             if kind is not None:
-                if kind.attrib['id'].isnumeric():
-                    kind = sym.Literal(value=kind.attrib['id'])
-                else:
-                    kind = sym.Variable(name=kind.attrib['id'], scope=self.scope)
+                kind = self.visit(kind)
             intent = o.find('intent').attrib['type'] if o.find('intent') else None
             allocatable = o.find('attribute-allocatable') is not None
             pointer = o.find('attribute-pointer') is not None
@@ -550,41 +547,42 @@ class OFP2IR(GenericVisitor):
 
     # Expression parsing below; maye move to its own parser..?
 
-    def visit_name(self, o, label=None, source=None):
+    def visit_name(self, o, label=None, source=None, **kwargs):
 
-        def generate_variable(vname, indices, kwargs, parent, source):
+        def generate_variable(vname, indices, kwargs, parent, source, scope):
             if vname.upper() == 'RESHAPE':
                 # return reshape(indices[0], shape=indices[1])
                 raise NotImplementedError()
             if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
-                                 'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT',
-                                 'SIGN', 'EPSILON']:
-                fct_symbol = sym.ProcedureSymbol(vname, scope=self.scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                                 'SELECTED_INT_KIND', 'SELECTED_REAL_KIND', 'ALLOCATED',
+                                 'PRESENT', 'SIGN', 'EPSILON']:
+                fct_symbol = sym.ProcedureSymbol(vname, scope=scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
             if vname.upper() in ['REAL', 'INT']:
                 kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
                 return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
             if indices is not None and len(indices) == 0:
                 # HACK: We (most likely) found a call out to a C routine
-                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=self.scope, source=source)
+                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=scope, source=source)
+                assert not kwargs
                 return sym.InlineCall(fct_symbol, parameters=indices, source=source)
 
             if parent is not None:
                 basename = vname
                 vname = '%s%%%s' % (parent.name, vname)
 
-            _type = self.scope.symbols.lookup(vname, recursive=True)
+            _type = scope.symbols.lookup(vname, recursive=True)
             if _type and isinstance(_type.dtype, ProcedureType):
-                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=self.scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
+                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
             if not _type or _type.dtype == BasicType.DEFERRED:
-                if self.scope.types.lookup(vname):
-                    fct_type = SymbolType(self.scope.types.lookup(vname))
-                    fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=self.scope, source=source)
-                    return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+                if scope.types.lookup(vname):
+                    fct_type = SymbolType(scope.types.lookup(vname))
+                    fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=scope, source=source)
+                    return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
@@ -597,7 +595,7 @@ class OFP2IR(GenericVisitor):
                 indices = sym.ArraySubscript(indices, source=source)
 
             var = sym.Variable(name=vname, dimensions=indices, parent=parent,
-                               type=_type, scope=self.scope, source=source)
+                               type=_type, scope=scope, source=source)
             return var
 
         # Creating compound variables is a bit tricky, so let's first
@@ -605,9 +603,9 @@ class OFP2IR(GenericVisitor):
         _children = deque(self.visit(c) for c in o)
         _children = deque(c for c in _children if c is not None)
 
-        # Hack: find kwargs for Casts
-        kwargs = {i.attrib['name']: i.find('name').attrib['id']
-                  for i in o.findall('subscripts/argument')}
+        # Hack: find kwargs for Casts and InlineCalls
+        kw_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
+                   for i in o.findall('subscripts/argument')}
 
         # Now we nest variables, dimensions and sub-variables by
         # walking through our queue of nested symbols
@@ -620,8 +618,9 @@ class OFP2IR(GenericVisitor):
                 indices = None
 
             item = _children.popleft()
-            variable = generate_variable(vname=item, indices=indices, kwargs=kwargs,
-                                         parent=variable, source=source)
+            variable = generate_variable(vname=item, indices=indices, kwargs=kw_args,
+                                         parent=variable, source=source,
+                                         scope=kwargs.get('scope', self.scope))
         return variable
 
     def visit_generic_name_list_part(self, o, source=None, **kwargs):
@@ -667,7 +666,11 @@ class OFP2IR(GenericVisitor):
             kwargs['type'] = _type
         kind_param = o.find('kind-param')
         if kind_param is not None:
-            kwargs['kind'] = kind_param.attrib['kind']
+            kind = kind_param.attrib['kind']
+            if kind.isnumeric():
+                kwargs['kind'] = sym.Literal(value=int(kind))
+            else:
+                kwargs['kind'] = sym.Variable(name=kind, scope=self.scope)
         return sym.Literal(value, **kwargs)
 
     def visit_subscripts(self, o, label=None, source=None):
@@ -788,12 +791,9 @@ class OFP2IR(GenericVisitor):
                      for a in attr.findall('attribute/component-attr-spec')]
         typename = t.attrib['name']
         t_source = extract_source(t.attrib, self._raw_source)
-        kind = t.find('kind/name')
+        kind = t.find('kind')
         if kind is not None:
-            if kind.attrib['id'].isnumeric():
-                kind = sym.Literal(value=kind.attrib['id'])
-            else:
-                kind = sym.Variable(name=kind.attrib['id'], scope=self.scope)
+            kind = self.visit(kind, scope=scope)
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
             stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,

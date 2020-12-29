@@ -1,8 +1,12 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, Sourcefile, CallStatement, Import, FindNodes
-from loki.transform import Transformation, DependencyTransformation
+from conftest import jit_compile, clean_test
+from loki import (
+    OFP, OMNI, FP, Sourcefile, Subroutine, CallStatement, Import,
+    FindNodes, FindInlineCalls, fgen
+)
+from loki.transform import Transformation, DependencyTransformation, replace_selected_kind
 
 
 @pytest.fixture(scope='module', name='here')
@@ -343,3 +347,73 @@ END SUBROUTINE kernel
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_replace_selected_kind(here,frontend):
+    """
+    Test correct replacement of all `selected_x_kind` calls by
+    iso_fortran_env constant.
+    """
+    fcode = """
+subroutine transform_replace_selected_kind(i, a)
+  use iso_fortran_env, only: int8
+  implicit none
+  integer, parameter :: jprm = selected_real_kind(6,37)
+  integer(kind=selected_int_kind(9)), intent(out) :: i
+  real(kind=selected_real_kind(13,300)), intent(out) :: a
+  integer(kind=int8) :: j = 1
+  integer(kind=selected_int_kind(1)) :: k = 9
+  real(kind=selected_real_kind(7)) :: b = 5._jprm
+  real(kind=selected_real_kind(r=2, p=4)) :: c = 1.
+
+  i = j + k
+  a = b + c + real(4, kind=selected_real_kind(6, r=37))
+end subroutine transform_replace_selected_kind
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    imports = FindNodes(Import).visit(routine.spec)
+    assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
+    assert len(imports[0].symbols) == 1 and imports[0].symbols[0].name.lower() == 'int8'
+
+    # Test the original implementation
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    i, a = function()
+    assert i == 10
+    assert a == 10.
+
+    # Apply transformation and check imports
+    replace_selected_kind(routine)
+    assert not [call for call in FindInlineCalls().visit(routine.ir)
+                if call.name.lower().startswith('selected')]
+
+    imports = FindNodes(Import).visit(routine.spec)
+    assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
+
+    source = fgen(routine).lower()
+    assert not 'selected_real_kind' in source
+    assert not 'selected_int_kind' in source
+
+    if frontend == OMNI:
+        # F£$%^% OMNI replaces randomly SOME selected_real_kind calls by
+        # (wrong!) integer kinds
+        symbols = {'int8', 'real32', 'real64'}
+    else:
+        symbols = {'int8', 'int32', 'real32', 'real64'}
+
+    assert len(imports[0].symbols) == len(symbols)
+    assert {s.name.lower() for s in imports[0].symbols} == symbols
+
+    # Test the transformed implementation
+    iso_filepath = here/('%s_replaced_%s.f90' % (routine.name, frontend))
+    iso_function = jit_compile(routine, filepath=iso_filepath, objname=routine.name)
+
+    i, a = iso_function()
+    assert i == 10
+    assert a == 10.
+
+    clean_test(filepath)
+    clean_test(iso_filepath)

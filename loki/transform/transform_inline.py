@@ -4,7 +4,8 @@ Collection of utility routines to perform code-level force-inlining.
 
 """
 from loki.expression import (
-    FindVariables, FindInlineCalls, SubstituteExpressions, LokiIdentityMapper
+    FindVariables, FindInlineCalls, FindLiterals,
+    SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment
 from loki.types import BasicType
@@ -81,20 +82,37 @@ def inline_constant_parameters(routine, external_only=True):
     statements, with empty import statements being removed alltogether.
     """
     # Find all variable instances in spec and body
-    variables = [v for v in FindVariables().visit(routine.spec)]
-    variables += [v for v in FindVariables().visit(routine.body)]
+    variables = FindVariables().visit(routine.ir)
 
     # Filter out variables declared locally
     if external_only:
         variables = [v for v in variables if v not in routine.variables]
 
+    def is_inline_parameter(v):
+        return hasattr(v, 'type') and v.type.parameter and v.type.initial
+
     # Create mapping for variables and imports
-    vmap = {v: v.type.initial for v in variables
-            if v.type.parameter and v.type.initial}
+    vmap = {v: v.type.initial for v in variables if is_inline_parameter(v)}
+
+    # Replace kind parameters in variable types
+    for variable in routine.variables:
+        if is_inline_parameter(variable.type.kind):
+            variable.type = variable.type.clone(kind=variable.type.kind.type.initial)
+        if variable.type.initial is not None:
+            # Substitute kind specifier in literals in initializers (I know...)
+            init_map = {literal.kind: literal.kind.type.initial
+                        for literal in FindLiterals().visit(variable.type.initial)
+                        if is_inline_parameter(literal.kind)}
+            if init_map:
+                initial = SubstituteExpressions(init_map).visit(variable.type.initial)
+                variable.type = variable.type.clone(initial=initial)
+
+    # Update imports
     imprtmap = {}
+    substituted_names = {v.name.lower() for v in vmap}
     for imprt in FindNodes(Import).visit(routine.spec):
         if imprt.symbols:
-            symbols = tuple(s for s in imprt.symbols if s not in vmap)
+            symbols = tuple(s for s in imprt.symbols if s.name.lower() not in substituted_names)
             if not symbols:
                 imprtmap[imprt] = Comment('! Loki: parameters from {} inlined'.format(imprt.module))
             elif len(symbols) < len(imprt.symbols):
