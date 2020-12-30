@@ -8,7 +8,7 @@ from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.logging import info, warning, error
+from loki.logging import info, warning, error, debug
 
 
 __all__ = ['Item', 'Scheduler']
@@ -107,7 +107,7 @@ class Item:
         self.config = config or {}
         self.build_args = build_args or {}
 
-        if path.exists():
+        if path and path.exists():
             try:
                 # Read and parse source file and extract subroutine
                 self.source = Sourcefile.from_file(path, preprocess=True, **self.build_args)
@@ -279,15 +279,18 @@ class Scheduler:
         if routine in self.obj_map:
             return self.obj_map[routine].source_path
 
-        raise RuntimeError("Source path not found for routine: %s" % routine)
+        raise FileNotFoundError("Source path not found for routine: %s" % routine)
 
     def create_item(self, source):
         """
         Create an `Item` by looking up the path and setting all inferred properties.
 
+        If the item cannot be created due to unknown source files, and the default
+        configuration does not force ``strict`` behaviour, ``None`` is returned.
+
         Note that this takes a `SchedulerConfig` object for default options and an
         item-specific dict with override options, as well as given attributes that
-        might be forced on this item from its paretn (like "is_ignored").
+        might be forced on this item from its parent.
         """
         if source in self.item_map:
             return self.item_map[source]
@@ -298,8 +301,17 @@ class Scheduler:
             item_conf.update(self.config.routines[source])
 
         name = item_conf.pop('name', source)
-        return Item(name=name, config=item_conf, path=self.find_path(source),
-                    build_args=self.build_args)
+        try:
+            path = self.find_path(source)
+        except FileNotFoundError as fnferr:
+            warning('Scheduler could not create item: {}'.format(source))
+            if self.config.default['strict']:
+                raise fnferr
+            else:
+                return None
+
+        debug('[Loki] Scheduler creating item: {} => {}'.format(name, path))
+        return Item(name=name, config=item_conf, path=path, build_args=self.build_args)
 
     def populate(self, routines):
         """
@@ -311,16 +323,20 @@ class Scheduler:
         queue = deque()
         for routine in as_tuple(routines):
             item = self.create_item(routine)
-            queue.append(item)
+            if item:
+                queue.append(item)
 
-            self.item_map[routine] = item
-            self.item_graph.add_node(item)
+                self.item_map[routine] = item
+                self.item_graph.add_node(item)
 
         while len(queue) > 0:
             item = queue.popleft()
 
             for c in item.children:
                 child = self.create_item(c)
+
+                if child is None:
+                    continue
 
                 # Skip "disabled" items immediately
                 if child in self.config.disable:
@@ -352,7 +368,14 @@ class Scheduler:
 
             # Enrich item with meta-info from outside of the callgraph
             for routine in item.enrich:
-                path = self.find_path(routine)
+                try:
+                    path = self.find_path(routine)
+                except FileNotFoundError as err:
+                    warning('Scheduler could not find file for enrichment:\n{}'.format(path))
+                    if self.config.default['strict']:
+                        raise err
+                    else:
+                        continue
                 source = Sourcefile.from_file(path, preprocess=True, **self.build_args)
                 item.routine.enrich_calls(source.all_subroutines)
 
