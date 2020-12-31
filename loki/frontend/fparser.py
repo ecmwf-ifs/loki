@@ -825,6 +825,8 @@ class FParser2IR(GenericVisitor):
 
     def visit_Call_Stmt(self, o, **kwargs):
         name = o.items[0].tostr()
+        # FParser inserts annoying spaces, so remove them!
+        name = name.replace(' ', '')
         args = self.visit(o.items[1], **kwargs) if o.items[1] else None
         if args:
             kw_args = tuple(arg for arg in args if isinstance(arg, tuple))

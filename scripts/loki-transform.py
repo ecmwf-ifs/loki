@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Module, Transformation, Transformer, FindNodes, Loop,
-    Pragma, Frontend, flatten
+    Sourcefile, Module, Transformation, Transformer, Scheduler,
+    FindNodes, Loop, Pragma, Frontend, flatten
 )
 
 # Get generalized transformations provided by Loki
@@ -22,6 +22,32 @@ sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
 from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
+
+
+"""
+Scheduler configuration for the CLOUDSC ESCAPE dwarf.
+
+This defines the "roles" of the two main source files
+("driver" and "kernel") and adds exemptions for the
+bulk-processing scheduler to ignore the timing utlitiies.
+"""
+cloudsc_config = {
+    'default': {
+        'mode': 'idem',
+        'role': 'kernel',
+        'expand': True,
+        'strict': True,
+    },
+    'routine': [
+        {
+            'name': 'cloudsc_driver',
+            'role': 'driver',
+            'expand': True,
+            'block': ['timer%start', 'timer%end', 'timer%thread_start', 'timer%thread_end',
+                      'timer%thread_log', 'timer%thread_log', 'timer%print_performance']
+        }
+    ]
+}
 
 
 def remove_omp_do(routine):
@@ -66,34 +92,26 @@ def cli():
               help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
+@click.option('--config', default=None, type=click.Path(),
+              help='Path to custom scheduler configuration file')
 def idempotence(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-                flatten_args, openmp, frontend):
+                flatten_args, openmp, frontend, config):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
-    driver_name = 'CLOUDSC_DRIVER'
-    kernel_name = 'CLOUDSC'
+    if config is None:
+        config = cloudsc_config
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
     definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
-    kernels = [Sourcefile.from_file(src, definitions=definitions, frontend=frontend,
-                                    preprocess=cpp, includes=include, defines=define,
-                                    omni_includes=omni_include, xmods=xmod)
-               for src in source]
-    driver = Sourcefile.from_file(driver, xmods=xmod, frontend=frontend)
-
-    # Get a separate list of routine objects ad names for transformations
-    kernel_routines = flatten(kernel.all_subroutines for kernel in kernels)
-    kernel_targets = [routine.name.upper() for routine in kernel_routines]
-
-    # Ensure that the kernel calls have all meta-information
-    driver[driver_name].enrich_calls(routines=kernel_routines)
-    for kernel in kernels:
-        for routine in kernel.all_subroutines:
-            routine.enrich_calls(routines=kernel_routines)
+    # Create a scheduler to bulk-apply source transformations
+    paths = [Path(s).resolve().parent for s in source]
+    paths += [Path(h).resolve().parent for h in header]
+    scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
+    scheduler.populate(routines=[r['name'] for r in config['routine']])
 
     class IdemTransformation(Transformation):
         """
@@ -118,26 +136,19 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
-        # Caller must go first, as it needs info from routine
-        driver.apply(DerivedTypeArgumentsTransformation(), role='driver')
-        for kernel in kernels:
-            kernel.apply(DerivedTypeArgumentsTransformation(), role='kernel')
+        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
     # Now we instantiate our pipeline and apply the "idempotence" changes
-    driver.apply(IdemTransformation())
-    for kernel in kernels:
-        kernel.apply(IdemTransformation())
+    scheduler.process(transformation=IdemTransformation())
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
-    for kernel in kernels:
-        kernel.apply(dependency, role='kernel', targets=kernel_targets)
-        kernel.write(path=Path(out_path)/kernel.path.with_suffix('.idem.F90').name)
+    scheduler.process(transformation=dependency)
 
-    # Re-generate the driver that mimicks the original source file,
-    # but imports and calls our re-generated kernel.
-    driver.apply(dependency, role='driver', targets=kernel_name)
-    driver.write(path=Path(out_path)/driver.path.with_suffix('.idem.F90').name)
+    # Write out all modified source files into the build directory
+    for item in scheduler.items:
+        sourcefile = item.source
+        sourcefile.write(path=Path(out_path)/sourcefile.path.with_suffix('.idem.F90').name)
 
 
 @cli.command()
