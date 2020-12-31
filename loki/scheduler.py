@@ -389,7 +389,7 @@ class Scheduler:
         for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel
-            transformation.apply(item.routine, role=item.role)
+            transformation.apply(item.source, role=item.role, mode=item.mode)
 
     def callgraph(self, path):
         """
