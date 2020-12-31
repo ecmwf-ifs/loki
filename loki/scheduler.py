@@ -194,11 +194,44 @@ class Item:
     @property
     def children(self):
         """
-        Set of all child routines that this work item calls.
+        Set of all child routines that this work item has in the call tree.
+
+        Note that this is not the set of active children that a traversal
+        will apply a transformation over, but rather the set of nodes that
+        defines the next level of the internal call tree.
         """
         members = [m.name.lower() for m in as_tuple(self.routine.members)]
-        calls = tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
-        return tuple(call for call in calls if call not in members)
+        blocked = as_tuple(str(b).lower() for b in self.block)
+
+        # Base definition of child is a procedure call (for now)
+        children = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+
+        # Filter out local and blocked children
+        children = [c for c in children if c not in members]
+        children = [c for c in children if c not in blocked]
+        return as_tuple(children)
+
+    @property
+    def targets(self):
+        """
+        Set of "active" child routines that are part of the transformation
+        traversal.
+
+        This defines all child routines of an item that will be traversed
+        when applying ``Transformation``s as well, after tree pruning rules
+        are applied.
+        """
+        blocked = as_tuple(str(b).lower() for b in self.block)
+        ignored = as_tuple(str(b).lower() for b in self.ignore)
+
+        # Base definition of child is a procedure call
+        targets = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+
+        # Filter out blocked and ignored children
+        targets = [t for t in targets if t not in blocked]
+        targets = [t for t in targets if t not in ignored]
+        return as_tuple(targets)
+
 
 
 class Scheduler:
@@ -389,7 +422,7 @@ class Scheduler:
         for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel
-            transformation.apply(item.source, role=item.role, mode=item.mode)
+            transformation.apply(item.source, role=item.role, mode=item.mode, targets=item.targets)
 
     def callgraph(self, path):
         """
