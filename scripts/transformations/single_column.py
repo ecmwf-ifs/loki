@@ -9,6 +9,7 @@ from loki import (
     SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
     Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
     SymbolType, BasicType, JoinableStringList, CaseInsensitiveDict, fgen, as_tuple,
+    warning
 )
 
 __all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
@@ -245,9 +246,13 @@ class CLAWTransformation(ExtractSCATransformation):
             self.item_depth[routine.name.lower()] = 0
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.context is not None and call.context.active:
-                if call.name.lower() in targets:
+            if call.name.lower() in targets:
+                if call.context:
                     self.item_depth[call.name.lower()] = self.item_depth[routine.name.lower()] + 1
+                else:
+                    warning('[Loki] CLAWTransform: Routine {} not attached to call context in {}'.format(
+                        routine.name, call.name.lower()
+                    ))
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
@@ -299,7 +304,8 @@ class CLAWTransformation(ExtractSCATransformation):
             routine.spec.append(claw_decls)
 
             # Add the `!$claw sca` and `!$claw sca routine` pragmas
-            if self.item_depth[routine.name.lower()] == 1:
+            rname = routine.name.lower()
+            if rname in self.item_depth and self.item_depth[rname] == 1:
                 routine.spec.append([Pragma(keyword='claw', content='sca')])
             else:
                 routine.spec.append([Pragma(keyword='claw', content='sca routine')])
