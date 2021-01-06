@@ -482,7 +482,7 @@ class FortranCodegen(Stringifier):
             ...body...
           END ASSOCIATE
         """
-        assocs = ['{1}=>{0}'.format(*self.visit_all(a, **kwargs)) for a in o.associations.items()]
+        assocs = ['{1}=>{0}'.format(*self.visit_all(a, **kwargs)) for a in o.associations]
         header = self.format_line('ASSOCIATE (', self.join_items(assocs), ')')
         footer = self.format_line('END ASSOCIATE')
         body = self.visit(o.body, **kwargs)
