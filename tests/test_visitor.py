@@ -692,6 +692,80 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformer_rebuild(frontend):
+    """
+    Test basic transformer functionality with and without node rebuilding.
+    """
+    fcode = """
+subroutine routine_simple (x, y, scalar, vector, matrix)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: scalar
+  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
+  integer :: i, j
+
+  do i=1, x
+    vector(i) = vector(i) + scalar
+    do j=1, y
+      if (j > i) then
+        matrix(i, j) = real(i * j, kind=jprb) + 1.
+      else
+        matrix(i, j) = i * vector(j)
+      end if
+    end do
+  end do
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Replace the innermost statement in the body of the conditional
+    def get_innermost_statement(ir):
+        for stmt in FindNodes(Assignment).visit(ir):
+            if 'matrix' in str(stmt.lhs) and isinstance(stmt.rhs, Sum):
+                return stmt
+        return None
+
+    stmt = get_innermost_statement(routine.ir)
+    new_expr = Sum((*stmt.rhs.children[:-1], FloatLiteral(2.)))
+    new_stmt = Assignment(stmt.lhs, new_expr)
+    mapper = {stmt: new_stmt}
+
+    loops = FindNodes(Loop).visit(routine.body)
+    conds = FindNodes(Conditional).visit(routine.body)
+
+    # Check that all loops and conditionals around statements are rebuilt
+    body_rebuild = Transformer(mapper, inplace=False).visit(routine.body)
+    stmts_rebuild = [str(s) for s in FindNodes(Assignment).visit(body_rebuild)]
+    loops_rebuild = FindNodes(Loop).visit(body_rebuild)
+    conds_rebuild = FindNodes(Conditional).visit(body_rebuild)
+    assert str(stmt) not in stmts_rebuild
+    assert str(new_stmt) in stmts_rebuild
+    assert not any(l in loops for l in loops_rebuild)
+    assert not any(c in conds for c in conds_rebuild)
+
+    # Check that no loops or conditionals around statements are rebuilt
+    body_no_rebuild = Transformer(mapper, inplace=True).visit(routine.body)
+    stmts_no_rebuild = [str(s) for s in FindNodes(Assignment).visit(body_no_rebuild)]
+    loops_no_rebuild = FindNodes(Loop).visit(body_no_rebuild)
+    conds_no_rebuild = FindNodes(Conditional).visit(body_no_rebuild)
+    assert str(stmt) not in stmts_no_rebuild
+    assert str(new_stmt) in stmts_no_rebuild
+    assert all(l in loops for l in loops_no_rebuild)
+    assert all(c in conds for c in conds_no_rebuild)
+
+    # Check that no loops or conditionals around statements are rebuilt,
+    # even if source_invalidation is deactivated
+    body_no_rebuild = Transformer(mapper, invalidate_source=False, inplace=True).visit(routine.body)
+    stmts_no_rebuild = [str(s) for s in FindNodes(Assignment).visit(body_no_rebuild)]
+    loops_no_rebuild = FindNodes(Loop).visit(body_no_rebuild)
+    conds_no_rebuild = FindNodes(Conditional).visit(body_no_rebuild)
+    assert str(stmt) not in stmts_no_rebuild
+    assert str(new_stmt) in stmts_no_rebuild
+    assert all(l in loops for l in loops_no_rebuild)
+    assert all(c in conds for c in conds_no_rebuild)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_masked_transformer(frontend):
     """
     A very basic sanity test for the MaskedTransformer class.
