@@ -15,6 +15,7 @@ from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
+from loki.transform.transform_array_indexing import promote_variables
 from loki.tools import flatten, as_tuple, CaseInsensitiveDict
 from loki.visitors import FindNodes, Transformer, MaskedTransformer
 
@@ -454,7 +455,6 @@ def loop_fission(routine):
     Search for `loki loop-fission` pragmas inside loops and attempt to split them into
     multiple loops.
     """
-    variable_map = routine.variable_map
     loop_map = {}
     promotion_vars_dims = CaseInsensitiveDict()
 
@@ -487,29 +487,14 @@ def loop_fission(routine):
         loop_length = simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
         promote_vars = {var.strip().lower() for pragma in pragmas
                         for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
+
         for var_name in promote_vars:
-            var = variable_map[var_name]
+            # Check if we have already marked this variable for promotion: let's make sure the added
+            # dimension is large enough for this loop
+            if var_name not in promotion_vars_dims or symbolic_op(promotion_vars_dims[var_name], op.lt, loop_length):
+                promotion_vars_dims[var_name] = loop_length
 
-            # Promoted variable shape
-            if var_name in promotion_vars_dims:
-                # We have already marked this variable for promotion: let's make sure the added
-                # dimension is large enough for this loop
-                shape = promotion_vars_dims[var_name]
-                if symbolic_op(shape[-1], op.lt, loop_length):
-                    shape = shape[:-1] + (loop_length,)
-            else:
-                shape = getattr(var, 'shape', ()) + (loop_length,)
-            promotion_vars_dims[var_name] = shape
-
-            # Insert loop variable as last subscript dimension
-            var_maps = []
-            for body in bodies:
-                var_uses = [v for v in FindVariables().visit(body) if v.name.lower() == var_name]
-                var_dimensions = [getattr(v, 'dimensions', sym.ArraySubscript(())).index + (loop.variable,)
-                                  for v in var_uses]
-                var_maps += [{v: v.clone(dimensions=dim) for v, dim in zip(var_uses, var_dimensions)}]
-            bodies = [SubstituteExpressions(var_map).visit(body) if var_map else body
-                      for var_map, body in zip(var_maps, bodies)]
+        bodies = [promote_variables(body, promote_vars, pos=-1, index=loop.variable) for body in bodies]
 
         # Finally, create the new loops
         comment = Comment('! Loki loop-fission')
@@ -522,11 +507,11 @@ def loop_fission(routine):
         info('%s: split %d loop(s) into %d loops.', routine.name, len(loop_map),
              sum(len(loop_list) for loop_list in loop_map.values()))
     if promotion_vars_dims:
-        var_map = {}
-        for var_name, shape in promotion_vars_dims.items():
-            var = variable_map[var_name]
-            var_map[var] = var.clone(type=var.type.clone(shape=shape), dimensions=shape)
-        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+        promotion_vars_by_size = defaultdict(list)
+        for var_name, size in promotion_vars_dims.items():
+            promotion_vars_by_size[size] += [var_name,]
+        for size, var_list in promotion_vars_by_size.items():
+            promote_variables(routine, var_list, pos=-1, size=size)
         info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
 
 
