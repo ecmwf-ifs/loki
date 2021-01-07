@@ -88,6 +88,13 @@ class Node:
     def __repr__(self):
         return 'Node::'
 
+    def view(self):
+        """
+        Pretty-print the node hierachy under this node
+        """
+        from loki.visitors import pprint  # pylint: disable=import-outside-toplevel
+        return pprint(self)
+
 
 class Intrinsic(Node):
     """
