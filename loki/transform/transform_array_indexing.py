@@ -15,7 +15,8 @@ from loki.tools import as_tuple
 
 __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
-    'resolve_vector_notation', 'normalize_range_indexing'
+    'resolve_vector_notation', 'normalize_range_indexing',
+    'promote_variables'
 ]
 
 
@@ -141,3 +142,44 @@ def normalize_range_indexing(routine):
             new_type = v.type.clone(shape=as_tuple(new_shape))
             vmap[v] = v.clone(dimensions=sym.ArraySubscript(as_tuple(new_dims)), type=new_type)
     routine.variables = [vmap.get(v, v) for v in routine.variables]
+
+
+def promote_variables(routine, variable_names, pos, index, size=None):
+    """
+    Promote the given variables by inserting a new array dimension of given size.
+
+    :param :class:``Subroutine`` routine:
+            the subroutine to be modified.
+    :param list variable_names:
+            the list of (case-insensitive) variable names to be promoted.
+    :param int pos:
+            the position of the new array dimension using Python indexing
+            convention (i.e., negative values count from end).
+    :param :class:``pymbolic.Expression`` index:
+            the index expression to insert for the new dimension on every use.
+    :param :class:``pymbolic.Expression`` size:
+            (optional) the size of the new array dimension. If specified the
+            given size is inserted into the variable shape and, as a
+            consequence, variable declarations are updated accordingly.
+
+    """
+    variable_names = {name.lower() for name in variable_names}
+
+    # Insert new index dimension
+    var_list = [var for var in FindVariables().visit(routine.body)
+                if var.name.lower() in variable_names]
+    var_dimensions = [getattr(var, 'dimensions', sym.ArraySubscript(())).index
+                      for var in var_list]
+    var_dimensions = [d[:pos] + (index,) + d[pos:] for d in var_dimensions]
+    var_map = {v: v.clone(dimensions=dim) for v, dim in zip(var_list, var_dimensions)}
+    routine.body = SubstituteExpressions(var_map).visit(routine.body)
+
+    # Apply shape promotion
+    if size is not None:
+        var_list = [var for var in FindVariables().visit(routine.spec)
+                    if var.name.lower() in variable_names]
+        var_shapes = [getattr(var, 'shape', ()) for var in var_list]
+        var_shapes = [d[:pos] + (size,) + d[pos:] for d in var_shapes]
+        var_map = {v: v.clone(type=v.type.clone(shape=shape), dimensions=shape)
+                   for v, shape in zip(var_list, var_shapes)}
+        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)

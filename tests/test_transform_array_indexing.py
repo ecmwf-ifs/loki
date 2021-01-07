@@ -1,0 +1,146 @@
+from pathlib import Path
+import pytest
+import numpy as np
+
+from conftest import jit_compile, clean_test
+from loki import OFP, OMNI, FP, Subroutine
+from loki.expression import symbols as sym
+from loki.transform import promote_variables, normalize_range_indexing
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_promote_variable_scalar(here, frontend):
+    """
+    Apply variable promotion for a single scalar variable.
+    """
+    fcode = """
+subroutine transform_promote_variable_scalar(ret)
+  implicit none
+  integer, intent(out) :: ret
+  integer :: tmp, jk
+
+  ret = 0
+  do jk=1,10
+    tmp = jk
+    ret = ret + tmp
+  end do
+end subroutine transform_promote_variable_scalar
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Test the original implementation
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    ret = function()
+    assert ret == 55
+
+    # Apply and test the transformation
+    assert isinstance(routine.variable_map['tmp'], sym.Scalar)
+    promote_variables(routine, ['TMP'], pos=0, index=routine.variable_map['JK'], size=sym.Literal(10))
+    assert isinstance(routine.variable_map['tmp'], sym.Array)
+    assert routine.variable_map['tmp'].shape == (sym.Literal(10),)
+
+    promoted_filepath = here/('%s_promoted_%s.f90' % (routine.name, frontend))
+    promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
+    ret = promoted_function()
+    assert ret == 55
+
+    clean_test(filepath)
+    clean_test(promoted_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_promote_variables(here, frontend):
+    """
+    Apply variable promotion for scalar and array variables.
+    """
+    fcode = """
+subroutine transform_promote_variables(scalar, vector, n)
+  implicit none
+  integer, intent(in) :: n
+  integer, intent(inout) :: scalar, vector(n)
+  integer :: tmp_scalar, tmp_vector(n), tmp_matrix(n,n)
+  integer :: jl, jk
+
+  do jl=1,n
+    ! a bit of a hack to create initialized meaningful output
+    tmp_vector(:) = 0
+  end do
+
+  do jl=1,n
+    tmp_scalar = jl
+    tmp_vector(jl) = jl
+
+    do jk=1,n
+      tmp_matrix(jk, jl) = jl + jk
+    end do
+  end do
+
+  scalar = 0
+  do jl=1,n
+    scalar = scalar + tmp_scalar
+    vector = tmp_matrix(:,jl) + tmp_vector(:)
+  end do
+end subroutine transform_promote_variables
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(routine) # Fix OMNI nonsense
+
+    # Test the original implementation
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    n = 10
+    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    function(scalar, vector, n)
+    assert scalar == n*n
+    assert np.all(vector == np.array(list(range(1, 2*n+1, 2)), order='F', dtype=np.int32) + n + 1)
+
+    # Verify dimensions before promotion
+    assert isinstance(routine.variable_map['tmp_scalar'], sym.Scalar)
+    assert isinstance(routine.variable_map['tmp_vector'], sym.Array)
+    assert routine.variable_map['tmp_vector'].shape == (routine.variable_map['n'],)
+    assert isinstance(routine.variable_map['tmp_matrix'], sym.Array)
+    assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], routine.variable_map['n'])
+
+    # Promote scalar and vector and verify dimensions
+    promote_variables(routine, ['tmp_scalar', 'tmp_vector'], pos=-1, index=routine.variable_map['JL'],
+                      size=routine.variable_map['n'])
+
+    assert isinstance(routine.variable_map['tmp_scalar'], sym.Array)
+    assert routine.variable_map['tmp_scalar'].shape == (routine.variable_map['n'],)
+    assert isinstance(routine.variable_map['tmp_vector'], sym.Array)
+    assert routine.variable_map['tmp_vector'].shape == (routine.variable_map['n'], routine.variable_map['n'])
+    assert isinstance(routine.variable_map['tmp_matrix'], sym.Array)
+    assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], routine.variable_map['n'])
+
+    # Promote matrix and verify dimensions
+    promote_variables(routine, ['tmp_matrix'], pos=1, index=routine.variable_map['JL'],
+                      size=routine.variable_map['n'])
+
+    assert isinstance(routine.variable_map['tmp_scalar'], sym.Array)
+    assert routine.variable_map['tmp_scalar'].shape == (routine.variable_map['n'],)
+    assert isinstance(routine.variable_map['tmp_vector'], sym.Array)
+    assert routine.variable_map['tmp_vector'].shape == (routine.variable_map['n'], routine.variable_map['n'])
+    assert isinstance(routine.variable_map['tmp_matrix'], sym.Array)
+    assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], ) * 3
+
+    # Test promoted routine
+    promoted_filepath = here/('%s_promoted_%s.f90' % (routine.name, frontend))
+    promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
+
+    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    promoted_function(scalar, vector, n)
+    assert scalar == n*(n+1)//2
+    assert np.all(vector[:-1] == np.array(list(range(n + 1, 2*n)), order='F', dtype=np.int32))
+    assert vector[-1] == 3*n
+
+    clean_test(filepath)
+    clean_test(promoted_filepath)
