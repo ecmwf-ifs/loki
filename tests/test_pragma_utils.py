@@ -448,3 +448,74 @@ end subroutine test_tools_pragmas_attached_region
     assert loops_after == loops
     assert all(loop.pragma is None for loop in loops_after)
     assert len(FindNodes(Pragma).visit(routine.body)) == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragma_regions_attached_nested(frontend):
+    """
+    Verify ``pragma_regions_attached`` creates and removes `PragmaRegion` objects.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_region (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+
+  out(0) = -1.0
+
+!$loki whatever
+
+  out(0) = -2.0
+
+  !$loki do_something
+  do i=1,n
+    out(i) = 0.0
+  end do
+
+  do i=1,n
+    out(i) = 1.0
+  end do
+
+!$foo bar
+  do i=1,n
+    out(i) = in(i)
+  end do
+!$end foo bar
+
+!$loki end whatever
+
+end subroutine test_tools_pragmas_attached_region
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 3
+    assert all(loop.pragma is None for loop in loops)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+
+    with pragma_regions_attached(routine):
+        assert len(FindNodes(Pragma).visit(routine.body)) == 1
+        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 2
+
+        # Check that we are finding the right loops for each region
+        regions = FindNodes(PragmaRegion).visit(routine.body)
+        assert regions[0].pragma.keyword == 'loki'
+        assert len(FindNodes(Loop).visit(regions[0])) == 3
+        assert regions[1].pragma.keyword == 'foo'
+        assert len(FindNodes(Loop).visit(regions[1])) == 1
+
+        # Check that all loops in outer region are unchanged
+        region_loops = FindNodes(Loop).visit(regions[0])
+        assert all(l in loops for l in region_loops)
+
+    # Verify that loops from context are still valid
+    assert all(l in loops for l in region_loops)
+
+    # Ensure that everything is back to where it was
+    loops_after = FindNodes(Loop).visit(routine.body)
+    assert len(loops_after) == 3
+    assert loops_after == loops
+    assert all(loop.pragma is None for loop in loops_after)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 5
