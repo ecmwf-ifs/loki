@@ -2,15 +2,17 @@ import re
 from contextlib import contextmanager
 
 from loki.expression import symbols as sym
-from loki.ir import Declaration, Pragma
-from loki.tools.util import as_tuple
+from loki.ir import Declaration, Pragma, PragmaRegion
+from loki.tools.util import as_tuple, flatten
 from loki.types import BasicType, SymbolType
-from loki.visitors import FindNodes, Visitor
+from loki.visitors import FindNodes, Visitor, Transformer, MaskedTransformer
 
 
 __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
-    'attach_pragmas', 'detach_pragmas', 'pragmas_attached'
+    'attach_pragmas', 'detach_pragmas', 'extract_pragma_region',
+    'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
+    'pragma_regions_attached'
 ]
 
 
@@ -338,3 +340,140 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
         if hasattr(module_or_routine, 'body'):
             module_or_routine.body = detach_pragmas(module_or_routine.body, node_type,
                                                     detach_pragma_post=attach_pragma_post)
+
+
+def get_matching_region_pragmas(pragmas):
+    """
+    Given a list of ``Pragma`` objects return a list of matching pairs
+    that define a pragma region.
+
+    Matching pragma pairs can be either of the form ``!$<keyword>``
+    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
+    <keyword>``.
+    """
+    matches = []
+    for i, p in enumerate(pragmas):
+        if is_loki_pragma(p):
+            kword = p.content.split(' ')[0]
+            kw_getter = lambda x: as_tuple(x.content.split(' ')[:2])
+        else:
+            kword = p.keyword
+            kw_getter = lambda x: (x.keyword, x.content.split(' ')[0])
+        m = [p for p in pragmas[i:] if kw_getter(p) == ('end', kword)]
+        if m:
+            matches.append((p, m[0]))
+    return matches
+
+
+def extract_pragma_region(ir, start, end):
+    """
+    Create a ``PragmaRegion`` object defined by two ``Pragma`` node
+    objects ``start`` and ``end``.
+
+    The resulting ``PragmaRegion`` object will be inserted into the
+    ``ir`` tree without rebuilding any IR nodes via ``Transformer(...,
+    inplace=True)``.
+    """
+    assert isinstance(start, Pragma)
+    assert isinstance(end, Pragma)
+
+    # Pick out the marked code block for the PragmaRegion
+    block = MaskedTransformer(start=start, stop=end, inplace=True).visit(ir)
+    block = as_tuple(flatten(block))[1:]  # Drop the initial pragma node
+    region = PragmaRegion(body=block, pragma=start, pragma_post=end)
+
+    # Remove the content of the code region and replace
+    # starting pragma with new PragmaRegion node.
+    mapper = {}
+    for node in block:
+        mapper[node] = None
+    mapper[start] = region
+    mapper[end] = None
+
+    return Transformer(mapper, inplace=True).visit(ir)
+
+
+def attach_pragma_regions(ir):
+    """
+    Create ``PragmaRegion`` node objects for all matching pairs of
+    region pragmas.
+
+    Matching pragma pairs can be either of the form ``!$<keyword>``
+    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
+    <keyword>``.
+
+    The defining ``Pragma`` nodes are accessible via the ``pragma``
+    and ``pragma_post`` attributes of the region object. Insertion
+    is performed in-place, without rebuilding any IR nodes.
+    """
+    pragmas = FindNodes(Pragma).visit(ir)
+    for start, end in get_matching_region_pragmas(pragmas):
+        ir = extract_pragma_region(ir, start=start, end=end)
+    return ir
+
+def detach_pragma_regions(ir):
+    """
+    Remove any ``PragmaRegion`` node objects and replace with with a
+    tuple of ``(r.pragma, r.body, r.pragma_post)``, where ``r`` is the
+    ``PragmaRegion`` node object.
+
+    All replacements are performed in-place, without rebuilding any IR
+    nodes.
+    """
+    mapper = {region: (region.pragma, region.body, region.pragma_post)
+              for region in FindNodes(PragmaRegion).visit(ir)}
+    return Transformer(mapper, inplace=True).visit(ir)
+
+
+@contextmanager
+def pragma_regions_attached(module_or_routine):
+    """
+    Create a context in which ``PragmaRegion`` node objects are
+    inserted into the IR to define code regions marked by matching
+    pairs of pragmas.
+
+    Matching pragma pairs can be either of the form ``!$<keyword>``
+    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
+    <keyword>``.
+
+    In the resulting context ``FindNodes(PragmaRegion).visit(ir)`` can
+    be used to select code regions marked by pragma pairs as node
+    objects.
+
+    The defining ``Pragma`` nodes are accessible via the ``pragma``
+    and ``pragma_post`` attributes of the region object. Importantly,
+    Pragmas are not discovered by :class:``FindNodes`` while attached
+    to IR nodes.
+
+    When leaving the context all ``PragmaRegion`` objects are replaced
+    with a tuple of ``(r.pragma, r.body, r.pragma_post)``, where ``r``
+    is the ``PragmaRegion`` node object.
+
+    Throughout the setup and teardown of the context IR nodes are only
+    updated, never rebuild, meaning node mappings from inside the
+    context are valid outside of it.
+
+    Example:
+
+    .. code-block:: python
+
+        with pragma_regions_attached(routine):
+            for region in FindNodes(PragmaRegion).visit(routine.body):
+                if is_loki_pragma(region.pragma, starts_with='foobar'):
+                    <transform code in region.body>
+
+    :param module_or_routine: the :class:``Module`` or :class:``Subroutine`` in
+        which ``PragmaRegion`` objects are to be inserted.
+    """
+    if hasattr(module_or_routine, 'spec'):
+        module_or_routine.spec = attach_pragma_regions(module_or_routine.spec)
+    if hasattr(module_or_routine, 'body'):
+        module_or_routine.body = attach_pragma_regions(module_or_routine.body)
+
+    try:
+        yield module_or_routine
+    finally:
+        if hasattr(module_or_routine, 'spec'):
+            module_or_routine.spec = detach_pragma_regions(module_or_routine.spec)
+        if hasattr(module_or_routine, 'body'):
+            module_or_routine.body = detach_pragma_regions(module_or_routine.body)
