@@ -655,6 +655,7 @@ class Stringifier(Visitor):
 
     visit_Loop = visit_Section
     visit_WhileLoop = visit_Section
+    visit_PragmaRegion = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
         """

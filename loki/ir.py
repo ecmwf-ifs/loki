@@ -10,11 +10,11 @@ from loki.types import Scope
 
 __all__ = [
     'Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement',
-    'CallContext', 'Comment', 'CommentBlock', 'Pragma', 'Declaration',
-    'TypeDef', 'Section', 'Associate', 'Import', 'Allocation',
-    'Deallocation', 'Nullify', 'MaskedStatement', 'MultiConditional',
-    'Interface', 'Intrinsic', 'PreprocessorDirective',
-    'ConditionalAssignment'
+    'CallContext', 'Comment', 'CommentBlock', 'Pragma',
+    'PragmaRegion', 'Declaration', 'TypeDef', 'Section', 'Associate',
+    'Import', 'Allocation', 'Deallocation', 'Nullify',
+    'MaskedStatement', 'MultiConditional', 'Interface', 'Intrinsic',
+    'PreprocessorDirective', 'ConditionalAssignment'
 ]
 
 
@@ -150,6 +150,33 @@ class Pragma(Node):
 
     def __repr__(self):
         return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
+
+class PragmaRegion(Node):
+    """
+    Internal representation of a block of code defined by two matching pragmas
+    """
+
+    _traversable = ['body']
+
+    def __init__(self, body=None, pragma=None, pragma_post=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.body = as_tuple(body)
+        self.pragma = pragma
+        self.pragma_post = pragma_post
+
+    def append(self, node):
+        self._update(body=self.body + as_tuple(node))
+
+    def insert(self, pos, node):
+        '''Insert at given position'''
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+
+    def prepend(self, node):
+        self._update(body=as_tuple(node) + self.body)
+
+    def __repr__(self):
+        return 'PragmaRegion::'
 
 
 class PreprocessorDirective(Node):
