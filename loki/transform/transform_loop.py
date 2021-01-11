@@ -16,8 +16,8 @@ from loki.ir import Loop, Conditional, Comment, Pragma
 from loki.logging import info
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
 from loki.transform.transform_array_indexing import promote_variables
-from loki.tools import flatten, as_tuple, CaseInsensitiveDict
-from loki.visitors import FindNodes, Transformer, MaskedTransformer
+from loki.tools import flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort
+from loki.visitors import FindNodes, Transformer, MaskedTransformer, is_parent_of
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']
 
@@ -450,68 +450,125 @@ def loop_fusion(routine):
          sum(len(loop_list) for loop_list in fusion_groups.values()), len(fusion_groups))
 
 
+class FissionTransformer(Transformer):
+    """
+    Bespoke transformer that splits loops or loop nests at
+    ``!$loki loop-fission`` pragmas.
+
+    For that, the subtree that makes up the loop body is traversed twice,
+    capturing everything before the pragma in the first and everything after
+    the pragma in the second traversal. Any intermediate nodes that define
+    sections (e.g. conditionals) are reproduced in each subtree traversal.
+
+    :pragma dict fission_loops:
+        dictionary that lists for each loop to split the number of
+        contained ``loop-fission`` pragmas, which equals the number of
+        additional traversals.
+    """
+
+    def __init__(self, fission_loops, **kwargs):
+        super().__init__(**kwargs)
+        self.fission_loops = fission_loops
+
+    def visit_tuple(self, o, **kwargs):
+        if (kwargs.get('fission_subtree', False) and
+                any(isinstance(i, Pragma) and is_loki_pragma(i, starts_with='loop-fission') for i in o)):
+            visited = []
+            for i in o:
+                if isinstance(i, Pragma) and is_loki_pragma(i, starts_with='loop-fission'):
+                    kwargs['pragma_count'] += 1
+                elif kwargs['pragma_count'] == kwargs['subtree_count']:
+                    visited += [self.visit(i, **kwargs)]
+            return tuple(i for i in visited if i is not None)
+
+        return super().visit_tuple(o, **kwargs)
+
+    visit_list = visit_tuple
+
+    def visit_Loop(self, o, **kwargs):
+        if o not in self.fission_loops:
+            visited = tuple(self.visit(i, **kwargs) for i in o.children)
+            return self._rebuild(o, visited)
+
+        # Recurse for all children except the body
+        body_index = o._traversable.index('body')
+        visited = tuple(self.visit(c, **kwargs) for i, c in enumerate(o.children) if i != body_index)
+
+        rebuilt = []
+        for i in range(self.fission_loops[o] + 1):
+            body = self.visit(o.body, fission_subtree=True, pragma_count=0, subtree_count=i, **kwargs)
+            children = visited[:body_index] + (body,) + visited[body_index:]
+            rebuilt += [self._rebuild(o, children)]
+        return as_tuple(rebuilt)
+
+
 def loop_fission(routine):
     """
-    Search for `loki loop-fission` pragmas inside loops and attempt to split them into
-    multiple loops.
+    Search for ``!$loki loop-fission`` pragmas inside loops and to split them
+    into multiple loops.
+
+    The pragma syntax is
+    ``!$loki loop-fission [collapse(n)] [promote(var-name, var-name, ...)]``
+    where ``collapse(n)`` gives the loop nest depth to be split (defaults to n=1)
+    and ``promote`` specifies a list of variable names to be promoted by the
+    split iteration space dimensions.
     """
-    loop_map = {}
     promotion_vars_dims = CaseInsensitiveDict()
 
-    # Run over all loops and look for pragmas in each loop's body instead of searching for pragmas
-    # directly as we would otherwise need a second pass to find the loop that pragma refers to.
-    # Moreover, this makes it easier to apply multiple fission steps for a loop at the same time.
+    pragma_loops = defaultdict(list)  # List of enclosing loops per fission pragmas
+    loop_pragmas = defaultdict(list)  # List of pragmas splitting a loop
+    promotion_vars_dims = {}  # Variables to promote with new dimension
+    promotion_vars_index = {}  # Variable subscripts to promote with new indices
+
+    # First, find the loops enclosing each pragma
     for loop in FindNodes(Loop).visit(routine.body):
+        for pragma in FindNodes(Pragma).visit(loop.body):
+            if is_loki_pragma(pragma, starts_with='loop-fission'):
+                pragma_loops[pragma] += [loop]
 
-        # Look for all loop-fission pragmas inside this routine's body
-        # Note that we need to store (node, pragma) pairs as pragmas can also be attached to nodes
-        pragmas = [ch for ch in loop.body
-                   if isinstance(ch, Pragma) and is_loki_pragma(ch, starts_with='loop-fission')]
+    if not pragma_loops:
+        return
 
-        if not pragmas:
-            continue
+    # Now, sort the loops enclosing each pragma from outside to inside and keep only
+    # the ones relevant for fission for each pragma
+    for pragma in pragma_loops:
+        loops = binary_insertion_sort(pragma_loops[pragma], lt=is_parent_of)
+        collapse = int(get_pragma_parameters(pragma).get('collapse', 1))
+        pragma_loops[pragma] = loops[-collapse:]
 
-        # Create the bodies for the split loops
-        bodies = []
-        current_body = []
-        for ch in loop.body:
-            if ch in pragmas:
-                bodies += [current_body]
-                current_body = []
-            else:
-                current_body += [ch]
-        if current_body:
-            bodies += [current_body]
+        # Attach the pragma to the list of pragmas to be processed for the
+        # outermost loop
+        loop_pragmas[loops[-collapse]] += [pragma]
 
         # Promote variables given in promotion list
-        loop_length = simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
-        promote_vars = {var.strip().lower() for pragma in pragmas
+        loop_lengths = [simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
+                        for loop in reversed(pragma_loops[pragma])]
+        loop_index = [loop.variable for loop in reversed(pragma_loops[pragma])]
+        promote_vars = {var.strip().lower()
                         for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
 
         for var_name in promote_vars:
             # Check if we have already marked this variable for promotion: let's make sure the added
-            # dimension is large enough for this loop
-            if var_name not in promotion_vars_dims or symbolic_op(promotion_vars_dims[var_name], op.lt, loop_length):
-                promotion_vars_dims[var_name] = loop_length
+            # dimensions are large enough for this loop (nest)
+            if var_name not in promotion_vars_dims:
+                promotion_vars_dims[var_name] = loop_lengths
+                promotion_vars_index[var_name] = loop_index
+            else:
+                if len(promotion_vars_dims[var_name]) != len(loop_lengths):
+                    raise RuntimeError('Conflicting promotion dimensions for "{}"'.format(var_name))
+                for i, (loop_length, index) in enumerate(zip(loop_lengths, loop_index)):
+                    if index != promotion_vars_index[var_name][i]:
+                        raise RuntimeError('Loop variable "{}" does not match previous index "{}" for "{}"'.format(
+                            str(index), str(promotion_vars_index[var_name][i]), var_name))
+                    if symbolic_op(promotion_vars_dims[var_name][i], op.lt, loop_length):
+                        promotion_vars_dims[var_name][i] = loop_length
 
-        bodies = [promote_variables(body, promote_vars, pos=-1, index=loop.variable) for body in bodies]
+    fission_loops = {loop: len(pragmas) for loop, pragmas in loop_pragmas.items()}
+    routine.body = FissionTransformer(fission_loops).visit(routine.body)
 
-        # Finally, create the new loops
-        comment = Comment('! Loki loop-fission')
-        loop_map[loop] = [(comment, Loop(variable=loop.variable, bounds=loop.bounds, body=body))
-                          for body in bodies]
-
-    # Apply loop maps and shape promotion
-    if loop_map:
-        routine.body = Transformer(loop_map).visit(routine.body)
-        info('%s: split %d loop(s) into %d loops.', routine.name, len(loop_map),
-             sum(len(loop_list) for loop_list in loop_map.values()))
     if promotion_vars_dims:
-        promotion_vars_by_size = defaultdict(list)
         for var_name, size in promotion_vars_dims.items():
-            promotion_vars_by_size[size] += [var_name,]
-        for size, var_list in promotion_vars_by_size.items():
-            promote_variables(routine, var_list, pos=-1, size=size)
+            promote_variables(routine, [var_name], -1, index=promotion_vars_index[var_name][-1], size=size[-1])
         info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
 
 
