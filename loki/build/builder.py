@@ -6,7 +6,7 @@ from operator import attrgetter
 import networkx as nx
 
 from loki.logging import default_logger
-from loki.build.tools import as_tuple, delete
+from loki.tools import as_tuple, delete
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.header import Header

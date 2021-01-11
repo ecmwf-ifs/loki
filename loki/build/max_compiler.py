@@ -2,9 +2,8 @@ from os import environ
 from pathlib import Path
 
 from loki.logging import info
-from loki.tools import execute
+from loki.tools import execute, as_tuple, delete, flatten
 from loki.build.compiler import clean
-from loki.build.tools import as_tuple, delete, flatten
 
 
 __all__ = ['clean_max', 'compile_all', 'compile_c', 'compile_maxj', 'generate_max',

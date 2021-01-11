@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation, execute
-from loki.build import Builder, Obj, Lib, delete
+from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation, execute, delete
+from loki.build import Builder, Obj, Lib
 from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
 
