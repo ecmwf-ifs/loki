@@ -6,7 +6,9 @@ from loki import (
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer,
+    is_parent_of, is_child_of
+)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -905,3 +907,67 @@ end subroutine masked_transformer
     body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 3
     assert not FindNodes(Associate).visit(body)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_is_parent_of(frontend):
+    """
+    Test the ``is_parent_of`` utility.
+    """
+    fcode = """
+subroutine test_is_parent_of
+  implicit none
+  integer :: a, j, n=10
+
+  a = 0
+  do j=1,n
+    if (j > 3) then
+      a = a + 1
+    end if
+  end do
+end subroutine test_is_parent_of
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    conditional = FindNodes(Conditional).visit(routine.body)[0]
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    assert is_parent_of(loop, conditional)
+    assert not is_parent_of(conditional, loop)
+
+    for node in [loop, conditional]:
+        assert {is_parent_of(node, a) for a in assignments} == {True, False}
+        assert all(not is_parent_of(a, node) for a in assignments)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_is_child_of(frontend):
+    """
+    Test the ``is_child_of`` utility.
+    """
+    fcode = """
+subroutine test_is_child_of
+  implicit none
+  integer :: a, j, n=10
+
+  a = 0
+  do j=1,n
+    if (j > 3) then
+      a = a + 1
+    end if
+  end do
+end subroutine test_is_child_of
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    conditional = FindNodes(Conditional).visit(routine.body)[0]
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    assert not is_child_of(loop, conditional)
+    assert is_child_of(conditional, loop)
+
+    for node in [loop, conditional]:
+        assert {is_child_of(a, node) for a in assignments} == {True, False}
+        assert all(not is_child_of(node, a) for a in assignments)

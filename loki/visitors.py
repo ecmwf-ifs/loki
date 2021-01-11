@@ -6,7 +6,8 @@ from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
 __all__ = [
     'pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
-    'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder'
+    'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder', 'is_parent_of',
+    'is_child_of'
 ]
 
 
@@ -382,6 +383,26 @@ class FindNodes(Visitor):
         for i in o.children:
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
+
+
+def is_child_of(node, other):
+    """
+    Return ``True`` if ``node`` is contained in the IR below ``other``,
+    otherwise return ``False``.
+
+    Note that this can be expensive for large subtrees.
+    """
+    return len(FindNodes(node, mode='scope', greedy=True).visit(other)) > 0
+
+
+def is_parent_of(node, other):
+    """
+    Return ``True`` if ``other`` is contained in the IR below ``node``,
+    otherwise return ``False``.
+
+    Note that this can be expensive for large subtrees.
+    """
+    return len(FindNodes(other, mode='scope', greedy=True).visit(node)) > 0
 
 
 class SequenceFinder(Visitor):
