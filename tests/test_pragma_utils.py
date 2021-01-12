@@ -1,10 +1,11 @@
 import pytest
 
-from loki import Module, Subroutine, pprint, FindNodes
+from loki import Module, Subroutine, pprint, FindNodes, flatten
 from loki.frontend import OFP, OMNI, FP
-from loki.ir import Pragma, Loop, Declaration
+from loki.ir import Pragma, Loop, Declaration, PragmaRegion
 from loki.pragma_utils import (
-    is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas, pragmas_attached
+    is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
+    pragmas_attached, pragma_regions_attached
 )
 
 
@@ -384,3 +385,139 @@ end module test_tools_pragmas_attached_module
 
     assert decl.pragma is None
     assert len(FindNodes(Pragma).visit(module.spec)) == 1
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragma_regions_attached(frontend):
+    """
+    Verify ``pragma_regions_attached`` creates and removes `PragmaRegion` objects.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_region (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+
+  out(0) = -1.0
+
+!$loki whatever
+
+  out(0) = -2.0
+
+  !$loki do_something
+  do i=1,n
+    out(i) = 0.0
+  end do
+!$loki end whatever
+
+  do i=1,n
+    out(i) = 1.0
+  end do
+
+!$foo bar
+  do i=1,n
+    out(i) = in(i)
+  end do
+!$foo end bar
+end subroutine test_tools_pragmas_attached_region
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 3
+    assert all(loop.pragma is None for loop in loops)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+
+    with pragma_regions_attached(routine):
+        assert len(FindNodes(Pragma).visit(routine.body)) == 1
+        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 2
+        # Find loops inside regions
+        regions = FindNodes(PragmaRegion).visit(routine.body)
+        region_loops = flatten(FindNodes(Loop).visit(r) for r in regions)
+        assert len(region_loops) == 2
+        assert all(l in loops for l in region_loops)
+
+    # Verify that loops from context are still valid
+    assert all(l in loops for l in region_loops)
+
+    # Ensure that everything is back to where it was
+    loops_after = FindNodes(Loop).visit(routine.body)
+    assert len(loops_after) == 3
+    assert loops_after == loops
+    assert all(loop.pragma is None for loop in loops_after)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_tools_pragma_regions_attached_nested(frontend):
+    """
+    Verify ``pragma_regions_attached`` creates and removes `PragmaRegion` objects.
+    """
+    fcode = """
+subroutine test_tools_pragmas_attached_region (in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  integer, intent(in) :: n
+  integer :: i
+
+  out(0) = -1.0
+
+!$loki data foo
+
+  out(0) = -2.0
+
+  !$loki data nofoo
+  do i=1,n
+    !$loki do_nothing
+    out(i) = 0.0
+  end do
+  !$loki end data
+
+  do i=1,n
+    out(i) = 1.0
+  end do
+
+  !$loki data tofu
+  do i=1,n
+    out(i) = in(i)
+  end do
+  !$loki end data
+
+!$loki end data
+
+end subroutine test_tools_pragmas_attached_region
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 3
+    assert all(loop.pragma is None for loop in loops)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7
+
+    with pragma_regions_attached(routine):
+        assert len(FindNodes(Pragma).visit(routine.body)) == 1
+        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 3
+
+        # Check that we are finding the right loops for each region
+        regions = FindNodes(PragmaRegion).visit(routine.body)
+        assert len(FindNodes(PragmaRegion).visit(regions[0].body)) == 2
+        assert len(FindNodes(Loop).visit(regions[0])) == 3
+        assert len(FindNodes(Loop).visit(regions[1])) == 1
+        assert len(FindNodes(Loop).visit(regions[2])) == 1
+
+        # Check that all loops in outer region are unchanged
+        region_loops = FindNodes(Loop).visit(regions[0])
+        assert all(l in loops for l in region_loops)
+
+    # Verify that loops from context are still valid
+    assert all(l in loops for l in region_loops)
+
+    # Ensure that everything is back to where it was
+    loops_after = FindNodes(Loop).visit(routine.body)
+    assert len(loops_after) == 3
+    assert loops_after == loops
+    assert all(loop.pragma is None for loop in loops_after)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7

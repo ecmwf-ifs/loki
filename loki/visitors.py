@@ -154,24 +154,32 @@ class Transformer(Visitor):
     :param bool invalidate_source: if set to True and if ``M[n]`` has `source=None`,
         this triggers invalidating the source property for all nodes enclosing ``n``.
         Note that the source property is not explicitly invalidated for ``M[n]``.
+    :param bool inplace: If set, all updated are performed on existing ``Node``
+                         objects, keeping the original tree intact.
     """
 
-    def __init__(self, mapper=None, invalidate_source=True):
+    def __init__(self, mapper=None, invalidate_source=True, inplace=False):
         super().__init__()
         self.mapper = mapper.copy() if mapper is not None else {}
         self.invalidate_source = invalidate_source
         self.rebuilt = {}
+        self.inplace = inplace
 
-    @staticmethod
-    def _rebuild_without_source(o, children):
+    def _rebuild_without_source(self, o, children):
         """
         Rebuild the given node without the source property.
         """
+        args_frozen = o.args_frozen
         if 'source' in o.args_frozen:
-            args_frozen = o.args_frozen
             args_frozen['source'] = None
-            return o._rebuild(*children, **args_frozen)
-        return o._rebuild(*children, **o.args_frozen)
+
+        if self.inplace:
+            # Updated nodes in place, if requested
+            o._update(*children, **args_frozen)
+            return o
+
+        # Rebuild updated nodes by default
+        return o._rebuild(*children, **args_frozen)
 
     def _rebuild(self, o, children):
         """
@@ -184,6 +192,13 @@ class Transformer(Visitor):
             child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
             if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
                 return self._rebuild_without_source(o, children)
+
+        if self.inplace:
+            # Updated nodes in place, if requested
+            o._update(*children)
+            return o
+
+        # Rebuild updated nodes by default
         return o._rebuild(*children, **o.args_frozen)
 
     def visit_object(self, o, **kwargs):
@@ -640,6 +655,7 @@ class Stringifier(Visitor):
 
     visit_Loop = visit_Section
     visit_WhileLoop = visit_Section
+    visit_PragmaRegion = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
         """

@@ -10,11 +10,11 @@ from loki.types import Scope
 
 __all__ = [
     'Node', 'Loop', 'Assignment', 'Conditional', 'CallStatement',
-    'CallContext', 'Comment', 'CommentBlock', 'Pragma', 'Declaration',
-    'TypeDef', 'Section', 'Associate', 'Import', 'Allocation',
-    'Deallocation', 'Nullify', 'MaskedStatement', 'MultiConditional',
-    'Interface', 'Intrinsic', 'PreprocessorDirective',
-    'ConditionalAssignment'
+    'CallContext', 'Comment', 'CommentBlock', 'Pragma',
+    'PragmaRegion', 'Declaration', 'TypeDef', 'Section', 'Associate',
+    'Import', 'Allocation', 'Deallocation', 'Nullify',
+    'MaskedStatement', 'MultiConditional', 'Interface', 'Intrinsic',
+    'PreprocessorDirective', 'ConditionalAssignment'
 ]
 
 
@@ -39,6 +39,13 @@ class Node:
     def __init__(self, source=None, label=None):
         self._source = source
         self._label = label
+
+    @property
+    def children(self):
+        """
+        The traversable children of the node.
+        """
+        return tuple(getattr(self, i) for i in self._traversable)
 
     def _rebuild(self, *args, **kwargs):
         handle = self._args.copy()  # Original constructor arguments
@@ -70,10 +77,6 @@ class Node:
         return {k: v for k, v in self.args.items() if k not in self._traversable}
 
     @property
-    def children(self):
-        return ()
-
-    @property
     def source(self):
         return self._source
 
@@ -84,6 +87,13 @@ class Node:
 
     def __repr__(self):
         return 'Node::'
+
+    def view(self):
+        """
+        Pretty-print the node hierachy under this node
+        """
+        from loki.visitors import pprint  # pylint: disable=import-outside-toplevel
+        return pprint(self)
 
 
 class Intrinsic(Node):
@@ -141,6 +151,33 @@ class Pragma(Node):
     def __repr__(self):
         return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
 
+class PragmaRegion(Node):
+    """
+    Internal representation of a block of code defined by two matching pragmas
+    """
+
+    _traversable = ['body']
+
+    def __init__(self, body=None, pragma=None, pragma_post=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.body = as_tuple(body)
+        self.pragma = pragma
+        self.pragma_post = pragma_post
+
+    def append(self, node):
+        self._update(body=self.body + as_tuple(node))
+
+    def insert(self, pos, node):
+        '''Insert at given position'''
+        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])
+
+    def prepend(self, node):
+        self._update(body=as_tuple(node) + self.body)
+
+    def __repr__(self):
+        return 'PragmaRegion::'
+
 
 class PreprocessorDirective(Node):
     """
@@ -183,11 +220,6 @@ class Loop(Node):
         self.name = name
         self.has_end_do = has_end_do if has_end_do is not None else True
 
-    @property
-    def children(self):
-        # Note: Needs to be one tuple per `traversable`
-        return tuple((self.variable,) + (self.bounds,) + (self.body,))
-
     def __repr__(self):
         label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
         if label:
@@ -222,11 +254,6 @@ class WhileLoop(Node):
         self.name = name
         self.has_end_do = has_end_do if has_end_do is not None else True
 
-    @property
-    def children(self):
-        # Note: Needs to be one tuple per `traversable`
-        return tuple((self.condition,) + (self.body,))
-
     def __repr__(self):
         label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
         if label:
@@ -254,10 +281,6 @@ class Conditional(Node):
         self.inline = inline
         self.name = name
 
-    @property
-    def children(self):
-        return tuple((self.conditions, ) + (self.bodies, ) + (self.else_body, ))
-
     def __repr__(self):
         if self.name:
             return 'Conditional:: {}'.format(self.name)
@@ -278,10 +301,6 @@ class ConditionalAssignment(Node):
         self.condition = condition
         self.rhs = rhs
         self.else_rhs = else_rhs
-
-    @property
-    def children(self):
-        return tuple((self.condition,) + (self.lhs,) + (self.rhs,) + (self.else_rhs,))
 
     def __repr__(self):
         return 'CondAssign:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
@@ -309,10 +328,6 @@ class MultiConditional(Node):
         self.else_body = as_tuple(else_body)
         self.name = name
 
-    @property
-    def children(self):
-        return tuple((self.expr,) + (self.values,) + (self.bodies,) + (self.else_body,))
-
     def __repr__(self):
         label = ' {}'.format(self.name) if self.name else ''
         return 'MultiConditional::{} {}'.format(label, str(self.expr))
@@ -336,10 +351,6 @@ class Assignment(Node):
         self.ptr = ptr  # Marks pointer assignment '=>'
         self.comment = comment
 
-    @property
-    def children(self):
-        return tuple((self.lhs,) + (self.rhs,))
-
     def __repr__(self):
         return 'Assignment:: {} = {}'.format(str(self.lhs), str(self.rhs))
 
@@ -362,10 +373,6 @@ class MaskedStatement(Node):
         self.body = as_tuple(body)
         self.default = as_tuple(default)  # The ELSEWHERE stmt
 
-    @property
-    def children(self):
-        return tuple((self.condition,) + (self.body,) + (self.default,))
-
     def __repr__(self):
         return 'MaskedStatement:: {}'.format(str(self.condition))
 
@@ -381,11 +388,6 @@ class Section(Node):
         super().__init__(**kwargs)
 
         self.body = as_tuple(body)
-
-    @property
-    def children(self):
-        # Note: Needs to be one tuple per `traversable`
-        return tuple([self.body])
 
     def append(self, node):
         self._update(body=self.body + as_tuple(node))
@@ -412,19 +414,23 @@ class Associate(Section):
     def __init__(self, body=None, associations=None, **kwargs):
         super().__init__(body=body, **kwargs)
 
-        if isinstance(associations, tuple):
-            associations = OrderedDict(associations)
-        assert isinstance(associations, (dict, OrderedDict)) or associations is None
-        self.associations = associations
+        if not isinstance(associations, tuple):
+            assert isinstance(associations, (dict, OrderedDict)) or associations is None
+            self.associations = as_tuple(associations.items())
+        else:
+            self.associations = associations
 
     @property
-    def children(self):
-        return tuple((self.body,) + (tuple(self.associations.items()),))
+    def association_map(self):
+        """
+        An ``OrderedDict`` of associated expressions.
+        """
+        return OrderedDict(self.associations)
 
     def __repr__(self):
         if self.associations:
             associations = ', '.join('{}={}'.format(str(var), str(expr))
-                                     for var, expr in self.associations.items())
+                                     for var, expr in self.associations)
             return 'Associate:: {}'.format(associations)
         return 'Associate::'
 
@@ -451,10 +457,6 @@ class Declaration(Node):
         self.comment = comment
         self.pragma = pragma
 
-    @property
-    def children(self):
-        return tuple((self.variables,) + (self.dimensions or [],))
-
     def __repr__(self):
         variables = ', '.join(str(var) for var in self.variables)
         return 'Declaration:: {}'.format(variables)
@@ -477,10 +479,6 @@ class DataDeclaration(Node):
 
         self.variable = variable
         self.values = as_tuple(values)
-
-    @property
-    def children(self):
-        return tuple((self.variable,) + (self.values,))
 
     def __repr__(self):
         return 'DataDeclaration:: {}'.format(str(self.variable))
@@ -508,10 +506,6 @@ class Import(Node):
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return '{}Import:: {} => {}'.format(_c, self.module, self.symbols)
 
-    @property
-    def children(self):
-        return tuple((self.symbols,))
-
 
 class Interface(Node):
     """
@@ -527,10 +521,6 @@ class Interface(Node):
 
         self.spec = spec
         self.body = as_tuple(body)
-
-    @property
-    def children(self):
-        return tuple((self.body,))
 
     def __repr__(self):
         return 'Interface::'
@@ -551,10 +541,6 @@ class Allocation(Node):
         self.variables = as_tuple(variables)
         self.data_source = data_source  # Argh, Fortran...!
 
-    @property
-    def children(self):
-        return tuple([self.variables])
-
     def __repr__(self):
         return 'Allocation:: {}'.format(', '.join(str(var) for var in self.variables))
 
@@ -572,10 +558,6 @@ class Deallocation(Node):
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
         self.variables = as_tuple(variables)
 
-    @property
-    def children(self):
-        return tuple([self.variables])
-
     def __repr__(self):
         return 'Deallocation:: {}'.format(', '.join(str(var) for var in self.variables))
 
@@ -592,10 +574,6 @@ class Nullify(Node):
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
         self.variables = as_tuple(variables)
-
-    @property
-    def children(self):
-        return tuple([self.variables])
 
     def __repr__(self):
         return 'Nullify:: {}'.format(', '.join(str(var) for var in self.variables))
@@ -624,10 +602,6 @@ class CallStatement(Node):
         self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
         self.context = context
         self.pragma = pragma
-
-    @property
-    def children(self):
-        return tuple((self.arguments,) + (self.kwarguments,))
 
     def __repr__(self):
         return 'Call:: {}'.format(self.name)
@@ -677,6 +651,11 @@ class TypeDef(Node):
         self.bind_c = bind_c
         self._scope = Scope() if scope is None else scope
         self.scope.defined_by = self
+
+    @property
+    def children(self):
+        # We do not traverse into the TypeDef.body at present
+        return ()
 
     @property
     def scope(self):

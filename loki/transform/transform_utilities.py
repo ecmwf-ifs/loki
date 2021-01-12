@@ -90,7 +90,7 @@ def resolve_associates(routine):
     assoc_map = {}
     vmap = {}
     for assoc in FindNodes(Associate).visit(routine.body):
-        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations.items()})
+        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in assoc.associations})
         for v in FindVariables(unique=False).visit(routine.body):
             if v.name in invert_assoc:
                 vmap[v] = invert_assoc[v.name]
