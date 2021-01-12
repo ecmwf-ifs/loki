@@ -420,7 +420,7 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
   do i=1,n
     out(i) = in(i)
   end do
-!$end foo bar
+!$foo end bar
 end subroutine test_tools_pragmas_attached_region
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -465,7 +465,7 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
 
   out(0) = -1.0
 
-!$loki whatever
+!$loki data foo
 
   out(0) = -2.0
 
@@ -478,13 +478,13 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
     out(i) = 1.0
   end do
 
-!$foo bar
+!$acc data copyin(in(:))
   do i=1,n
     out(i) = in(i)
   end do
-!$end foo bar
+!$acc end data
 
-!$loki end whatever
+!$loki end data
 
 end subroutine test_tools_pragmas_attached_region
     """
@@ -501,9 +501,9 @@ end subroutine test_tools_pragmas_attached_region
 
         # Check that we are finding the right loops for each region
         regions = FindNodes(PragmaRegion).visit(routine.body)
-        assert regions[0].pragma.keyword == 'loki'
+        assert regions[0].pragma.keyword.lower() == 'loki'
         assert len(FindNodes(Loop).visit(regions[0])) == 3
-        assert regions[1].pragma.keyword == 'foo'
+        assert regions[1].pragma.keyword.lower() == 'acc'
         assert len(FindNodes(Loop).visit(regions[1])) == 1
 
         # Check that all loops in outer region are unchanged

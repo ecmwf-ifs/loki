@@ -347,21 +347,26 @@ def get_matching_region_pragmas(pragmas):
     Given a list of ``Pragma`` objects return a list of matching pairs
     that define a pragma region.
 
-    Matching pragma pairs can be either of the form ``!$<keyword>``
-    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
-    <keyword>``.
+    Matching pragma pairs are assumed to be of the form
+    ``!$<keyword> <marker>`` and ``!$<keyword> end <marker>``.
     """
+
+    def _matches_starting_pragma(start, p):
+        if 'end' not in p.content.lower():
+            return False
+        if not start.keyword == p.keyword:
+            return False
+        stok = start.content.lower().split(' ')
+        ptok = p.content.lower().split(' ')
+        idx = ptok.index('end')
+        return ptok[idx+1] == stok[idx]
+
     matches = []
-    for i, p in enumerate(pragmas):
-        if is_loki_pragma(p):
-            kword = p.content.split(' ')[0]
-            kw_getter = lambda x: as_tuple(x.content.split(' ')[:2])
-        else:
-            kword = p.keyword
-            kw_getter = lambda x: (x.keyword, x.content.split(' ')[0])
-        m = [p for p in pragmas[i:] if kw_getter(p) == ('end', kword)]
+    for i, pragma in enumerate(pragmas):
+        m = [p for p in reversed(pragmas[i:]) if _matches_starting_pragma(pragma, p)]
         if m:
-            matches.append((p, m[0]))
+            matches.append((pragma, m[0]))
+
     return matches
 
 
@@ -398,9 +403,8 @@ def attach_pragma_regions(ir):
     Create ``PragmaRegion`` node objects for all matching pairs of
     region pragmas.
 
-    Matching pragma pairs can be either of the form ``!$<keyword>``
-    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
-    <keyword>``.
+    Matching pragma pairs are assumed to be of the form
+    ``!$<keyword> <marker>`` and ``!$<keyword> end <marker>``.
 
     The defining ``Pragma`` nodes are accessible via the ``pragma``
     and ``pragma_post`` attributes of the region object. Insertion
@@ -432,9 +436,8 @@ def pragma_regions_attached(module_or_routine):
     inserted into the IR to define code regions marked by matching
     pairs of pragmas.
 
-    Matching pragma pairs can be either of the form ``!$<keyword>``
-    and ``!$end <keyword>`` or ``!$loki <keyword>`` and ``!$loki end
-    <keyword>``.
+    Matching pragma pairs are assumed to be of the form
+    ``!$<keyword> <marker>`` and ``!$<keyword> end <marker>``.
 
     In the resulting context ``FindNodes(PragmaRegion).visit(ir)`` can
     be used to select code regions marked by pragma pairs as node
