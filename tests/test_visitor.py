@@ -7,7 +7,7 @@ from loki import (
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
     ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer,
-    is_parent_of, is_child_of
+    NestedMaskedTransformer, is_parent_of, is_child_of, fgen
 )
 
 
@@ -907,6 +907,85 @@ end subroutine masked_transformer
     body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 3
     assert not FindNodes(Associate).visit(body)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_nested_masked_transformer(frontend):
+    """
+    Test the masked transformer in conjunction with nesting
+    """
+    fcode = """
+subroutine nested_masked_transformer
+  implicit none
+  integer :: a=0, b, c, d
+  integer :: i, j
+
+  do i=1,10
+    a = a + i
+    if (a < 5) then
+      b = 0
+    else if (a == 5) then
+      c = 0
+    else
+      do j=1,5
+        d = a
+      end do
+    end if
+  end do
+end subroutine nested_masked_transformer
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+    loops = FindNodes(Loop).visit(routine.body)
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(assignments) == 4
+    assert len(loops) == 2
+    assert len(conditionals) == 2 if frontend == OMNI else 1
+
+    # Drops the outermost loop
+    start = [a for a in assignments if a.lhs == 'a']
+    body = MaskedTransformer(start=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+
+    # Should produce the original version
+    body = NestedMaskedTransformer(start=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+    assert fgen(routine.body).strip() == fgen(body).strip()
+
+    # Should drop the first assignment
+    body = NestedMaskedTransformer(start=conditionals[0]).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+
+    # Should leave no more than a single assignment
+    start = [a for a in assignments if a.lhs == 'c']
+    body = MaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert fgen(start).strip() == fgen(body)
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else-if branch
+    body = NestedMaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == 1
+
+    # Should leave no more than a single assignment
+    start = [a for a in assignments if a.lhs == 'd']
+    body = MaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert fgen(start).strip() == fgen(body)
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else branch
+    body = NestedMaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 0
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

@@ -7,7 +7,7 @@ from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 __all__ = [
     'pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
     'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder', 'is_parent_of',
-    'is_child_of'
+    'is_child_of', 'NestedMaskedTransformer'
 ]
 
 
@@ -306,15 +306,7 @@ class MaskedTransformer(Transformer):
 
     def visit_Node(self, o, **kwargs):
         if o in self.mapper:
-            handle = self.mapper[o]
-            if handle is None:
-                # None -> drop /o/
-                return None
-
-            # For one-to-many mappings making sure this is not replaced again
-            # as it has been inserted by visit_tuple already
-            if not is_iterable(handle) or o not in handle:
-                return handle._rebuild(**handle.args)
+            return super().visit_Node(o, **kwargs)
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         if kwargs['active']:
@@ -332,6 +324,84 @@ class MaskedTransformer(Transformer):
         return tuple(i for i in visited if i is not None) or None
 
     visit_list = visit_tuple
+
+
+class NestedMaskedTransformer(MaskedTransformer):
+    """
+    Like :class:``MaskedTransformer`` but retains encapsulating code
+    blocks (such as loops, conditionals, etc.).
+    """
+
+    # Handler for leaf nodes
+
+    def visit_object(self, o, **kwargs):
+        # need to keep them active to retain "inactive" sections
+        return o
+
+    def visit_Node(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit_Node(o, **kwargs)
+
+        if not kwargs['active']:
+            return None
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
+
+    # Handler for block nodes
+
+    def visit_Section(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit(o, **kwargs)
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+
+        # check if body exists, otherwise delete this node
+        body_index = o._traversable.index('body')
+        if not rebuilt[body_index]:
+            return None
+        return self._rebuild(o, rebuilt)
+
+    visit_Loop = visit_Section
+    visit_WhileLoop = visit_Section
+    visit_Associate = visit_Section
+
+    def visit_Conditional(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit(o, **kwargs)
+
+        # need to make (condition, body) pairs to track vanishing bodies
+        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
+                    for c, b in zip(o.conditions, o.bodies)]
+        branches = [(c, b) for c, b in branches if b is not None]
+        else_body = self.visit(o.else_body, **kwargs)
+
+        # retain whatever else body is if all other branches are gone
+        if not branches:
+            return else_body
+
+        # rebuild conditional with remaining branches
+        conditions, bodies = zip(*branches)
+        return self._rebuild(o, tuple((conditions,) + (bodies,) + (else_body,)))
+
+    def visit_MultiConditional(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit(o, **kwargs)
+
+        # need to make (value, body) pairs to track vanishing bodies
+        expr = self.visit(o.expr, **kwargs)
+        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
+                    for c, b in zip(o.values, o.bodies)]
+        branches = [(c, b) for c, b in branches if b is not None]
+        else_body = self.visit(o.else_body, **kwargs)
+
+        # retain whatever else body is if all other branches are gone
+        if not branches:
+            return else_body
+
+        # rebuild conditional with remaining branches
+        values, bodies = zip(*branches)
+        return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)))
 
 
 class FindNodes(Visitor):
