@@ -469,20 +469,22 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
 
   out(0) = -2.0
 
-  !$loki do_something
+  !$loki data nofoo
   do i=1,n
+    !$loki do_nothing
     out(i) = 0.0
   end do
+  !$loki end data
 
   do i=1,n
     out(i) = 1.0
   end do
 
-!$acc data copyin(in(:))
+  !$loki data tofu
   do i=1,n
     out(i) = in(i)
   end do
-!$acc end data
+  !$loki end data
 
 !$loki end data
 
@@ -493,18 +495,18 @@ end subroutine test_tools_pragmas_attached_region
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
     assert all(loop.pragma is None for loop in loops)
-    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7
 
     with pragma_regions_attached(routine):
         assert len(FindNodes(Pragma).visit(routine.body)) == 1
-        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 2
+        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 3
 
         # Check that we are finding the right loops for each region
         regions = FindNodes(PragmaRegion).visit(routine.body)
-        assert regions[0].pragma.keyword.lower() == 'loki'
+        assert len(FindNodes(PragmaRegion).visit(regions[0].body)) == 2
         assert len(FindNodes(Loop).visit(regions[0])) == 3
-        assert regions[1].pragma.keyword.lower() == 'acc'
         assert len(FindNodes(Loop).visit(regions[1])) == 1
+        assert len(FindNodes(Loop).visit(regions[2])) == 1
 
         # Check that all loops in outer region are unchanged
         region_loops = FindNodes(Loop).visit(regions[0])
@@ -518,4 +520,4 @@ end subroutine test_tools_pragmas_attached_region
     assert len(loops_after) == 3
     assert loops_after == loops
     assert all(loop.pragma is None for loop in loops_after)
-    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7

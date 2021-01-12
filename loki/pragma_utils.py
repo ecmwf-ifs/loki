@@ -352,6 +352,7 @@ def get_matching_region_pragmas(pragmas):
     """
 
     def _matches_starting_pragma(start, p):
+        """ Definition of which pragmas match """
         if 'end' not in p.content.lower():
             return False
         if not start.keyword == p.keyword:
@@ -362,10 +363,18 @@ def get_matching_region_pragmas(pragmas):
         return ptok[idx+1] == stok[idx]
 
     matches = []
-    for i, pragma in enumerate(pragmas):
-        m = [p for p in reversed(pragmas[i:]) if _matches_starting_pragma(pragma, p)]
-        if m:
-            matches.append((pragma, m[0]))
+    stack = []
+    for i, p in enumerate(pragmas):
+        if 'end' not in p.content.lower():
+            # If we encounter one that does have a match, stack it
+            if any(_matches_starting_pragma(p, p2) for p2 in pragmas[i:]):
+                stack.append(p)
+
+        elif 'end' in p.content.lower() and stack:
+            # If we and end that matches our last stacked, keep it!
+            if _matches_starting_pragma(stack[-1], p):
+                p1 = stack.pop()
+                matches.append((p1, p))
 
     return matches
 
