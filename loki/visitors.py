@@ -284,19 +284,47 @@ class MaskedTransformer(Transformer):
         the produced tree until a node from the `start` list is encountered.
     :param bool active: if set to `True` nodes are included in the produced tree
         from the beginning.
+    :param bool minimum_set: if set to ``True``, nodes will be included in the
+        produced tree only after all nodes in ``start`` have been encountered,
+        and no more nodes will be added as soon as any of the nodes in ``stop``
+        has been encountered.
     """
 
-    def __init__(self, start=None, stop=None, active=False, **kwargs):
+    def __init__(self, start=None, stop=None, active=False, minimum_set=False, **kwargs):
         super().__init__(**kwargs)
 
         self.start = set(as_tuple(start))
         self.stop = set(as_tuple(stop))
         self.active = active
+        self.minimum_set = minimum_set
+
+    def update_kwargs(self, o, **kwargs):
+        kwargs.setdefault('active', self.active)
+        if self.minimum_set:
+            if o in self.start:
+                self.start.remove(o)
+                kwargs['active'] = kwargs['active'] or not self.start
+            if o in self.stop:
+                kwargs['active'] = False
+                self.start.clear()
+        else:
+            kwargs['active'] = (kwargs['active'] and o not in self.stop) or o in self.start
+        return kwargs
 
     def visit(self, o, *args, **kwargs):
         # Vertical active status update
-        active = kwargs.get('active', self.active)
-        kwargs['active'] = (active and o not in self.stop) or o in self.start
+        kwargs = self.update_kwargs(o, **kwargs)
+#        if self.minimum_set:
+#            kwargs.setdefault('active', self.active)
+#            if o in self.start:
+#                self.start.remove(o)
+#                kwargs['active'] = kwargs['active'] or not self.start
+#            if o in self.stop:
+#                kwargs['active'] = False
+#                self.start.clear()
+#        else:
+#            active = kwargs.get('active', self.active)
+#            kwargs['active'] = (active and o not in self.stop) or o in self.start
         return super().visit(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):
@@ -315,12 +343,20 @@ class MaskedTransformer(Transformer):
 
     def visit_tuple(self, o, **kwargs):
         o = self._inject_tuple_mapping(o)
-        active = kwargs.pop('active')
+        #active = kwargs.pop('active')
         visited = []
         for i in o:
+            #if self.minimum_set and i in self.stop:
+            #    self.start.clear()
+            #    break
             # Lateral active status update
-            active = (active and i not in self.stop) or i in self.start
-            visited += [self.visit(i, active=active, **kwargs)]
+            #active = (active and i not in self.stop) or i in self.start
+            #visited += [self.visit(i, active=active, **kwargs)]
+            if self.minimum_set and i in self.stop:
+                self.start.clear()
+                break
+            kwargs = self.update_kwargs(i, **kwargs)
+            visited += [self.visit(i, **kwargs)]
         return tuple(i for i in visited if i is not None) or None
 
     visit_list = visit_tuple
@@ -352,7 +388,7 @@ class NestedMaskedTransformer(MaskedTransformer):
 
     def visit_Section(self, o, **kwargs):
         if o in self.mapper:
-            return super().visit(o, **kwargs)
+            return super().visit_Node(o, **kwargs)
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
 

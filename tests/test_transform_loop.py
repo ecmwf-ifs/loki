@@ -1020,6 +1020,64 @@ end subroutine transform_loop_fission_nested
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_loop_fission_collapse(here, frontend):
+    fcode = """
+subroutine transform_loop_fission_collapse(a, n)
+  integer, intent(out) :: a(n, n+1)
+  integer, intent(in) :: n
+  integer :: j, k, tmp, tmp2
+
+  tmp = 0
+  do j=1,n+1
+    tmp = j
+    tmp2 = 0
+!$loki loop-fission promote(tmp)
+    do k=1,n
+      tmp2 = tmp + k
+!$loki loop-fission collapse(2) promote(tmp2)
+      a(k, j) = tmp2
+!$loki loop-fission
+      a(k, j) = a(k, j) - 1
+!$loki loop-fission collapse(2)
+      a(k, j) = -1 + a(k, j)
+    end do
+  end do
+end subroutine transform_loop_fission_collapse
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 11
+    a = np.zeros(shape=(n, n+1), order='F', dtype=np.int32)
+    function(a=a, n=n)
+    assert np.all(a == np.array([[j+k for j in range(n+1)] for k in range(n)], dtype=np.int32))
+
+    # Apply transformation
+    assert len(FindNodes(Loop).visit(routine.body)) == 2
+    loop_fission(routine)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 8
+    for loop in loops:
+        assert loop.bounds.start == '1'
+        assert loop.bounds.stop == {'j': 'n + 1', 'k': 'n'}[str(loop.variable).lower()]
+
+    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
+
+    # Test transformation
+    n = 11
+    a = np.zeros(shape=(n, n+1), order='F', dtype=np.int32)
+    fissioned_function(a=a, n=n)
+    assert np.all(a == np.array([[j+k for j in range(n+1)] for k in range(n)], dtype=np.int32))
+
+    #clean_test(filepath)
+    #clean_test(fissioned_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_transform_loop_fission_multiple(here, frontend):
     fcode = """
 subroutine transform_loop_fission_multiple(a, b, c, n)
