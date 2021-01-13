@@ -475,27 +475,38 @@ class FissionTransformer(NestedMaskedTransformer):
 
     def visit_Loop(self, o, **kwargs):
         if o not in self.loop_pragmas:
+            # loops that are not marked for fission can be handled as
+            # in the regular NestedMaskedTransformer
             return super().visit_Loop(o, **kwargs)
+
+        if not (self.active or self.start):
+            # this happens if we encounter a loop marked for fission while
+            # already traversing the subtree of an enclosing fission loop.
+            # no more macros are marked to make this subtree active, thus
+            # we can bail out here
+            return None
 
         # Recurse for all children except the body
         body_index = o._traversable.index('body')
         visited = tuple(self.visit(c, **kwargs) for i, c in enumerate(o.children) if i != body_index)
 
-        _start, _stop = kwargs['start'], kwargs['stop']
+        # Save current state so we can restore for each subtree
+        _start, _stop, _active = self.start, self.stop, self.active
 
         def rebuild_fission_branch(start_node, stop_node, **kwargs):
             if start_node is None:
                 # This subtree is either active already or we have a fission pragma
                 # with collapse in _start from an enclosing loop
-                kwargs['start'] = _start.copy()
+                self.active = _active
+                self.start = _start.copy()
             else:
                 # We build a subtree after a fission pragma. Make sure that all
-                # pragmas are encountered
-                kwargs['active'] = False
-                kwargs['start'] = _start.copy() | {start_node}
+                # pragmas have been encountered before processing the subtree
+                self.active = False
+                self.start = _start.copy() | {start_node}
                 self.mapper[start_node] = None
             # we stop when encountering this or any previously defined stop nodes
-            kwargs['stop'] = _stop.copy() | set(as_tuple(stop_node))
+            self.stop = _stop.copy() | set(as_tuple(stop_node))
             body = self.visit(o.body, **kwargs)
             if start_node is not None:
                 self.mapper.pop(start_node)
@@ -508,6 +519,10 @@ class FissionTransformer(NestedMaskedTransformer):
         for start, stop in zip(self.loop_pragmas[o][:-1], self.loop_pragmas[o][1:]):
             rebuilt += [rebuild_fission_branch(start, stop, **kwargs)]
         rebuilt += [rebuild_fission_branch(self.loop_pragmas[o][-1], None, **kwargs)]
+
+        # Restore original state (except for the active status because this has potentially
+        # been changed when traversing the loop body)
+        self.start, self.stop = _start, _stop
 
         return as_tuple(i for i in rebuilt if i is not None)
 

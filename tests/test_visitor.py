@@ -1007,12 +1007,13 @@ end subroutine nested_masked_transformer
 
     # Should leave no more than a single assignment
     start = [a for a in assignments if a.lhs == 'c']
-    body = MaskedTransformer(start=start, stop=start).visit(routine.body)
-    assert fgen(start).strip() == fgen(body)
+    stop = [l for l in loops if l.variable == 'j']
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert fgen(start).strip() == fgen(body).strip()
 
     # Should leave a single assignment with the hierarchy of nested sections
     # in the else-if branch
-    body = NestedMaskedTransformer(start=start, stop=start).visit(routine.body)
+    body = NestedMaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 1
     assert len(FindNodes(Loop).visit(body)) == 1
     assert len(FindNodes(Conditional).visit(body)) == 1
@@ -1020,7 +1021,7 @@ end subroutine nested_masked_transformer
     # Should leave no more than a single assignment
     start = [a for a in assignments if a.lhs == 'd']
     body = MaskedTransformer(start=start, stop=start).visit(routine.body)
-    assert fgen(start).strip() == fgen(body)
+    assert fgen(start).strip() == fgen(body).strip()
 
     # Should leave a single assignment with the hierarchy of nested sections
     # in the else branch
@@ -1032,7 +1033,7 @@ end subroutine nested_masked_transformer
     # Should produce the original body
     start = [a for a in assignments if a.lhs == 'a' or a.lhs == 'd']
     body = NestedMaskedTransformer(start=start).visit(routine.body)
-    assert fgen(routine.body).strip() == fgen(body)
+    assert fgen(routine.body).strip() == fgen(body).strip()
 
     # Should leave a single assignment with the hierarchy of nested sections
     # in the else branch
@@ -1045,6 +1046,20 @@ end subroutine nested_masked_transformer
     stop = [a for a in assignments if a.lhs == 'a']
     body = NestedMaskedTransformer(start=start, stop=stop, greedy_stop=True).visit(routine.body)
     assert not body
+
+    # Should drop the else-if branch
+    start = [a for a in assignments if a.lhs == 'b' or a.lhs == 'd']
+    stop = [a for a in assignments if a.lhs == 'c']
+    body = NestedMaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 2
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 1
+
+    # Should drop everything buth the if branch
+    body = NestedMaskedTransformer(start=start, stop=stop, greedy_stop=True).visit(routine.body)
+    assert [a.lhs == 'b' for a in FindNodes(Assignment).visit(body)] == [True]
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == 1
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

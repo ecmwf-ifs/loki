@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope
+from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope, Assignment
 from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, section_hoist
 from loki.expression import symbols as sym
@@ -1041,6 +1041,7 @@ subroutine transform_loop_fission_collapse(a, n)
 !$loki loop-fission collapse(2)
       a(k, j) = -1 + a(k, j)
     end do
+    tmp = 0
   end do
 end subroutine transform_loop_fission_collapse
 """
@@ -1056,6 +1057,7 @@ end subroutine transform_loop_fission_collapse
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
+    assert len(FindNodes(Assignment).visit(routine.body)) == 8
     loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
@@ -1063,6 +1065,7 @@ end subroutine transform_loop_fission_collapse
     for loop in loops:
         assert loop.bounds.start == '1'
         assert loop.bounds.stop == {'j': 'n + 1', 'k': 'n'}[str(loop.variable).lower()]
+    assert len(FindNodes(Assignment).visit(routine.body)) == 8
 
     fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
@@ -1073,8 +1076,8 @@ end subroutine transform_loop_fission_collapse
     fissioned_function(a=a, n=n)
     assert np.all(a == np.array([[j+k for j in range(n+1)] for k in range(n)], dtype=np.int32))
 
-    #clean_test(filepath)
-    #clean_test(fissioned_filepath)
+    clean_test(filepath)
+    clean_test(fissioned_filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

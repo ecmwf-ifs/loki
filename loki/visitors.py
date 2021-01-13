@@ -306,33 +306,28 @@ class MaskedTransformer(Transformer):
         self.require_all_start = require_all_start
         self.greedy_stop = greedy_stop
 
-    def update_kwargs(self, o, **kwargs):
-        kwargs.setdefault('active', self.active)
-        kwargs.setdefault('start', self.start.copy())
-        kwargs.setdefault('stop', self.stop.copy())
-        if self.require_all_start:
-            if o in kwargs['start']:
-                # remove encountered node from set of start nodes and only if it is
-                # empty we set active=True
-                kwargs['start'].remove(o)
-                kwargs['active'] = kwargs['active'] or not kwargs['start']
-            else:
-                kwargs['active'] = kwargs['active'] and o not in kwargs['stop']
-        else:
-            kwargs['active'] = (kwargs['active'] and o not in kwargs['stop']) or o in kwargs['start']
-        if self.greedy_stop and o in kwargs['stop']:
-            # to make sure that we don't include any following nodes start is cleared
-            kwargs['active'] = False
-            kwargs['start'].clear()
-        return kwargs
-
     def visit(self, o, *args, **kwargs):
         # Vertical active status update
-        kwargs = self.update_kwargs(o, **kwargs)
+        if self.require_all_start:
+            if o in self.start:
+                # to record encountered nodes we remove them from the set of
+                # start nodes and only if it is then empty we set active=True
+                self.start.remove(o)
+                self.active = self.active or not self.start
+            else:
+                self.active = self.active and o not in self.stop
+        else:
+            self.active = (self.active and o not in self.stop) or o in self.start
+        if self.greedy_stop and o in self.stop:
+            # to make sure that we don't include any following nodes we clear start
+            self.start.clear()
+            self.active = False
         return super().visit(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):
-        if kwargs['active']:
+        if kwargs['parent_active']:
+            # this is not an IR node but usually an expression tree or similar
+            # we need to retain this only if the "parent" IR node is active
             return o
         return None
 
@@ -340,23 +335,12 @@ class MaskedTransformer(Transformer):
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
 
+        # pass to children if this node is active
+        kwargs['parent_active'] = self.active
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
-        if kwargs['active']:
+        if kwargs['parent_active']:
             return self._rebuild(o, rebuilt)
         return tuple(i for i in rebuilt if i is not None) or None
-
-    def visit_tuple(self, o, **kwargs):
-        o = self._inject_tuple_mapping(o)
-        visited = []
-        for i in o:
-            if self.greedy_stop and i in kwargs['stop']:
-                kwargs['start'].clear()
-                break
-            kwargs = self.update_kwargs(i, **kwargs)
-            visited += [self.visit(i, **kwargs)]
-        return tuple(i for i in visited if i is not None) or None
-
-    visit_list = visit_tuple
 
 
 class NestedMaskedTransformer(MaskedTransformer):
@@ -368,14 +352,16 @@ class NestedMaskedTransformer(MaskedTransformer):
     # Handler for leaf nodes
 
     def visit_object(self, o, **kwargs):
-        # need to keep them active to retain "inactive" sections
+        # need to keep them active here because inactive parents may still be
+        # retained if other children turn on active status
         return o
 
     def visit_Node(self, o, **kwargs):
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
-
-        if not kwargs['active']:
+        if not self.active:
+            # because any section/scope nodes are treated separately we can
+            # simply drop inactive nodes
             return None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
@@ -391,7 +377,7 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         # check if body exists, otherwise delete this node
         body_index = o._traversable.index('body')
-        if not rebuilt[body_index]:
+        if not flatten(rebuilt[body_index]):
             return None
         return self._rebuild(o, rebuilt)
 
@@ -406,10 +392,10 @@ class NestedMaskedTransformer(MaskedTransformer):
         # need to make (condition, body) pairs to track vanishing bodies
         branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
                     for c, b in zip(o.conditions, o.bodies)]
-        branches = [(c, b) for c, b in branches if b is not None]
+        branches = [(c, b) for c, b in branches if flatten(b)]
         else_body = self.visit(o.else_body, **kwargs)
 
-        # retain whatever else body is if all other branches are gone
+        # retain whatever is in the else body if all other branches are gone
         if not branches:
             return else_body
 
@@ -425,10 +411,10 @@ class NestedMaskedTransformer(MaskedTransformer):
         expr = self.visit(o.expr, **kwargs)
         branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
                     for c, b in zip(o.values, o.bodies)]
-        branches = [(c, b) for c, b in branches if b is not None]
+        branches = [(c, b) for c, b in branches if flatten(b)]
         else_body = self.visit(o.else_body, **kwargs)
 
-        # retain whatever else body is if all other branches are gone
+        # retain whatever is in the else body if all other branches are gone
         if not branches:
             return else_body
 
