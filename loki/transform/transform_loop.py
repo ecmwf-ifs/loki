@@ -470,7 +470,7 @@ class FissionTransformer(NestedMaskedTransformer):
     """
 
     def __init__(self, loop_pragmas, active=True, **kwargs):
-        super().__init__(active=active, minimum_set=True, **kwargs)
+        super().__init__(active=active, require_all_start=True, greedy_stop=True, **kwargs)
         self.loop_pragmas = loop_pragmas
 
     def visit_Loop(self, o, **kwargs):
@@ -481,26 +481,24 @@ class FissionTransformer(NestedMaskedTransformer):
         body_index = o._traversable.index('body')
         visited = tuple(self.visit(c, **kwargs) for i, c in enumerate(o.children) if i != body_index)
 
-        _start, _stop = self.start, self.stop
+        _start, _stop = kwargs['start'], kwargs['stop']
 
-        def rebuild_fission_branch(start, stop, **kwargs):
-            if start is None:
+        def rebuild_fission_branch(start_node, stop_node, **kwargs):
+            if start_node is None:
                 # This subtree is either active already or we have a fission pragma
                 # with collapse in _start from an enclosing loop
-                self.start = _start.copy()
+                kwargs['start'] = _start.copy()
             else:
                 # We build a subtree after a fission pragma. Make sure that all
                 # pragmas are encountered
                 kwargs['active'] = False
-                self.start = _start.copy() | {start}
-                self.mapper[start] = None
+                kwargs['start'] = _start.copy() | {start_node}
+                self.mapper[start_node] = None
             # we stop when encountering this or any previously defined stop nodes
-            self.stop = _stop.copy() | set(as_tuple(stop))
+            kwargs['stop'] = _stop.copy() | set(as_tuple(stop_node))
             body = self.visit(o.body, **kwargs)
-            if start is not None:
-                self.mapper.pop(start)
-            self.start = _start
-            self.stop = _stop
+            if start_node is not None:
+                self.mapper.pop(start_node)
             if not body:
                 return None
             return self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])

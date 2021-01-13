@@ -844,6 +844,48 @@ end subroutine masked_transformer
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_masked_transformer_minimum_set(frontend):
+    """
+    A very basic sanity test for the MaskedTransformer class with
+    require_all_start or greedy_stop properties.
+    """
+    fcode = """
+subroutine masked_transformer_minimum_set(a)
+  integer, intent(inout) :: a
+
+  a = a + 1
+  a = a + 2
+  a = a + 3
+  a = a + 4
+  a = a + 5
+  a = a + 6
+  a = a + 7
+  a = a + 8
+  a = a + 9
+  a = a + 10
+end subroutine masked_transformer_minimum_set
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    # Requires all nodes and thus retains only the last
+    body = MaskedTransformer(start=assignments, require_all_start=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[-1])
+
+    # Retains only the second node
+    body = MaskedTransformer(start=assignments[:2], stop=assignments[2], require_all_start=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[1])
+
+    # Retains only first node
+    body = MaskedTransformer(start=assignments, stop=assignments[1], greedy_stop=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[0])
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_masked_transformer_associates(frontend):
     """
     Test the masked transformer in conjunction with associate blocks
@@ -986,6 +1028,23 @@ end subroutine nested_masked_transformer
     assert len(FindNodes(Assignment).visit(body)) == 1
     assert len(FindNodes(Loop).visit(body)) == 2
     assert len(FindNodes(Conditional).visit(body)) == 0
+
+    # Should produce the original body
+    start = [a for a in assignments if a.lhs == 'a' or a.lhs == 'd']
+    body = NestedMaskedTransformer(start=start).visit(routine.body)
+    assert fgen(routine.body).strip() == fgen(body)
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else branch
+    body = NestedMaskedTransformer(start=start, require_all_start=True).visit(routine.body)
+    assert [a.lhs == 'd' for a in FindNodes(Assignment).visit(body)] == [True]
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 0
+
+    # Drops everything
+    stop = [a for a in assignments if a.lhs == 'a']
+    body = NestedMaskedTransformer(start=start, stop=stop, greedy_stop=True).visit(routine.body)
+    assert not body
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
