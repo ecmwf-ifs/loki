@@ -594,8 +594,12 @@ def loop_fission(routine):
     info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
 
     if promotion_vars_dims:
+        # Group promotion variables by index and size to reduce number of traversals for promotion
+        index_size_var_map = defaultdict(list)
         for var_name, size in promotion_vars_dims.items():
-            promote_variables(routine, [var_name], -1, index=promotion_vars_index[var_name], size=size)
+            index_size_var_map[(as_tuple(promotion_vars_index[var_name]), as_tuple(size))] += [var_name]
+        for (index, size), var_names in index_size_var_map.items():
+            promote_variables(routine, var_names, -1, index=index, size=size)
         info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
 
 
