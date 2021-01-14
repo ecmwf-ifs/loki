@@ -126,6 +126,7 @@ def test_scheduler_graph_simple(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_partial(here, config):
@@ -178,6 +179,7 @@ def test_scheduler_graph_partial(here, config):
     assert 'KERNELA' not in vgraph.nodes
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_config_file(here):
@@ -215,6 +217,7 @@ def test_scheduler_graph_config_file(here):
     assert len(vgraph.edges) == 2
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_blocked(here, config):
@@ -263,6 +266,7 @@ def test_scheduler_graph_blocked(here, config):
     assert len(vgraph.edges) == 4
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_definitions(here, config):
@@ -370,6 +374,7 @@ def test_scheduler_graph_multiple_combined(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_multiple_separate(here, config):
@@ -424,6 +429,7 @@ def test_scheduler_graph_multiple_separate(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependenciesA)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
     # Test second scheduler instance that holds the receiver items
     configB = config.copy()
@@ -457,6 +463,7 @@ def test_scheduler_graph_multiple_separate(here, config):
     assert ('EXT_DRIVER', 'EXT_KERNEL') in vgraphB.edges
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_module_dependency(here, config):
