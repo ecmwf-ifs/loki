@@ -185,9 +185,12 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         index = as_tuple(index)
         index_vars = [{var.name.lower() for var in FindVariables().visit(i)} for i in index]
 
-        node_map = {}
+        # Create a copy of the tree and apply promotion in-place
+        routine.body = Transformer().visit(routine.body)
+
         with defined_symbols_attached(routine):
-            for node, var_list in FindVariables(with_ir_node=True).visit(routine.body):
+            for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
+
                 var_list = [v for v in var_list if v.name.lower() in variable_names]
 
                 if not var_list:
@@ -211,11 +214,9 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
                     dimensions = sym.ArraySubscript(var_dim[:var_pos] + node_index + var_dim[var_pos:])
                     var_map[var] = var.clone(dimensions=dimensions)
 
-                # need to apply update immediately because identical variables in other nodes
-                # would change the mapping
-                node_map[node] = SubstituteExpressions(var_map).visit(node)
-
-        routine.body = Transformer(node_map).visit(routine.body)
+                # need to apply update immediately because identical variable use
+                # in other nodes might yield same hash but different substitution
+                SubstituteExpressions(var_map, inplace=True).visit(node)
 
     # Apply shape promotion
     if size is not None:

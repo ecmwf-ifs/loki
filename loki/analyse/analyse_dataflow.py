@@ -48,7 +48,7 @@ class DefinedSymbolsAttacher(Visitor):
     def visit_Associate(self, o, **kwargs):
         defined_symbols = kwargs.pop('defined_symbols', set())
         setattr(o, '_defined_symbols', defined_symbols)
-        associations = {a.name.lower() for a in o.associations}
+        associations = {a.name.lower() for a, _ in o.associations}
         return self.visit(o.children, defined_symbols=defined_symbols | associations, **kwargs)
 
     def visit_Import(self, o, **kwargs):  # pylint: disable=no-self-use

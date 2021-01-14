@@ -511,14 +511,16 @@ class FissionTransformer(NestedMaskedTransformer):
             if start_node is not None:
                 self.mapper.pop(start_node)
             if not body:
-                return None
-            return self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])
+                return [None]
+            # inject a comment to mark where the loop was split
+            comment = [] if start_node is None else [Comment('! Loki - {}'.format(start_node.content))]
+            return comment + [self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])]
 
         # Use masked transformer to build subtrees from/to pragma
-        rebuilt = [rebuild_fission_branch(None, self.loop_pragmas[o][0], **kwargs)]
+        rebuilt = rebuild_fission_branch(None, self.loop_pragmas[o][0], **kwargs)
         for start, stop in zip(self.loop_pragmas[o][:-1], self.loop_pragmas[o][1:]):
-            rebuilt += [rebuild_fission_branch(start, stop, **kwargs)]
-        rebuilt += [rebuild_fission_branch(self.loop_pragmas[o][-1], None, **kwargs)]
+            rebuilt += rebuild_fission_branch(start, stop, **kwargs)
+        rebuilt += rebuild_fission_branch(self.loop_pragmas[o][-1], None, **kwargs)
 
         # Restore original state (except for the active status because this has potentially
         # been changed when traversing the loop body)
@@ -589,6 +591,7 @@ def loop_fission(routine):
                         promotion_vars_dims[var_name][i] = loop_length
 
     routine.body = FissionTransformer(loop_pragmas).visit(routine.body)
+    info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
 
     if promotion_vars_dims:
         for var_name, size in promotion_vars_dims.items():
