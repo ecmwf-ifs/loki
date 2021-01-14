@@ -58,8 +58,7 @@ class DefinedSymbolsAttacher(Visitor):
 
     def visit_Declaration(self, o, **kwargs):  # pylint: disable=no-self-use
         setattr(o, '_defined_symbols', kwargs.get('defined_symbols', set()))
-        variables = {v.name.lower() for v in o.variables
-                     if (v.type.intent and v.type.intent.lower() in ('in', 'inout')) or v.type.initial is not None}
+        variables = {v.name.lower() for v in o.variables if v.type.initial is not None}
         return variables
 
 
@@ -94,13 +93,16 @@ def attach_defined_symbols(module_or_routine):
     This is in in-place update of nodes and thus existing references to IR
     nodes remain valid.
     """
+    defined_symbols = set()
+    if hasattr(module_or_routine, 'arguments'):
+        defined_symbols = {a.name.lower() for a in module_or_routine.arguments
+                           if a.type.intent and a.type.intent.lower() in ('in', 'inout')}
+
     if hasattr(module_or_routine, 'spec'):
-        spec_symbols = DefinedSymbolsAttacher().visit(module_or_routine.spec)
-    else:
-        spec_symbols = set()
+        defined_symbols |= DefinedSymbolsAttacher().visit(module_or_routine.spec, defined_symbols=defined_symbols)
 
     if hasattr(module_or_routine, 'body'):
-        DefinedSymbolsAttacher().visit(module_or_routine.body, defined_symbols=spec_symbols)
+        DefinedSymbolsAttacher().visit(module_or_routine.body, defined_symbols=defined_symbols)
 
 
 def detach_defined_symbols(module_or_routine):
