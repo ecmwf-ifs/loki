@@ -126,6 +126,7 @@ def test_scheduler_graph_simple(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_partial(here, config):
@@ -178,6 +179,7 @@ def test_scheduler_graph_partial(here, config):
     assert 'KERNELA' not in vgraph.nodes
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_config_file(here):
@@ -215,6 +217,7 @@ def test_scheduler_graph_config_file(here):
     assert len(vgraph.edges) == 2
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_blocked(here, config):
@@ -263,6 +266,7 @@ def test_scheduler_graph_blocked(here, config):
     assert len(vgraph.edges) == 4
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_definitions(here, config):
@@ -370,6 +374,7 @@ def test_scheduler_graph_multiple_combined(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependencies)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_graph_multiple_separate(here, config):
@@ -424,6 +429,7 @@ def test_scheduler_graph_multiple_separate(here, config):
     assert all((e[0].upper(), e[1].upper()) in vgraph.edges for e in expected_dependenciesA)
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
     # Test second scheduler instance that holds the receiver items
     configB = config.copy()
@@ -457,6 +463,7 @@ def test_scheduler_graph_multiple_separate(here, config):
     assert ('EXT_DRIVER', 'EXT_KERNEL') in vgraphB.edges
 
     cg_path.unlink()
+    cg_path.with_suffix('.pdf').unlink()
 
 
 def test_scheduler_module_dependency(here, config):
@@ -524,3 +531,37 @@ def test_scheduler_module_dependencies_unqualified(here, config):
     # Ensure that we got the right routines from the module
     assert scheduler.item_map['routine_one'].routine.name == 'routine_one'
     assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
+
+
+def test_scheduler_missing_files(here, config):
+    """
+    Ensure that ``strict=True`` triggers failure if source paths are
+    missing and that ``strict=Files`` goes through gracefully.
+
+    projA: driverC -> kernelC -> compute_l1<replicated> -> compute_l2
+                           |
+    projC:                 < cannot find path >
+    """
+    projA = here/'sources/projA'
+
+    config['default']['strict'] = True
+    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config)
+    with pytest.raises(FileNotFoundError):
+        scheduler.populate('driverC')
+
+    config['default']['strict'] = False
+    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config)
+    scheduler.populate('driverC')
+
+    expected_items = ['driverC', 'kernelC', 'compute_l1', 'compute_l2']
+    expected_dependencies = [
+        ('driverC', 'kernelC'),
+        ('kernelC', 'compute_l1'),
+        ('compute_l1', 'compute_l2'),
+    ]
+    assert all(n in scheduler.items for n in expected_items)
+    assert all(e in scheduler.dependencies for e in expected_dependencies)
+
+    # Ensure that the missing items are not in the graph
+    assert 'routine_one' not in scheduler.items
+    assert 'routine_two' not in scheduler.items
