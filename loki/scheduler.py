@@ -29,7 +29,7 @@ class SchedulerConfig:
     :param replicate: List or subroutine names that need to be replicated.
                       Note, this only sets a flag for external build systems
                       to align source injection mechanics.
-    :param disbale: List or subroutine names that are entirely disabled and
+    :param disable: List or subroutine names that are entirely disabled and
                     will not be added to either the callgraph that we traverse,
                     nor the visualisation. These are intended for utility routines
                     that pop up in many routines but can be ignored in terms of
@@ -171,9 +171,17 @@ class Item:
         return self.config.get('replicate', False)
 
     @property
+    def disable(self):
+        """
+        List of sources to completely exclude from expansion and the source tree.
+        """
+        return self.config.get('disable', tuple())
+
+    @property
     def block(self):
         """
-        List of sources to block from expansion
+        List of sources to block from processing, but add to the
+        source tree for visualisation.
         """
         return self.config.get('block', tuple())
 
@@ -201,14 +209,14 @@ class Item:
         defines the next level of the internal call tree.
         """
         members = [m.name.lower() for m in as_tuple(self.routine.members)]
-        blocked = as_tuple(str(b).lower() for b in self.block)
+        disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
         children = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
 
-        # Filter out local and blocked children
+        # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in members]
-        children = [c for c in children if c not in blocked]
+        children = [c for c in children if c not in disabled]
         return as_tuple(children)
 
     @property
@@ -221,6 +229,7 @@ class Item:
         when applying ``Transformation``s as well, after tree pruning rules
         are applied.
         """
+        disabled = as_tuple(str(b).lower() for b in self.disable)
         blocked = as_tuple(str(b).lower() for b in self.block)
         ignored = as_tuple(str(b).lower() for b in self.ignore)
 
@@ -228,6 +237,7 @@ class Item:
         targets = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
 
         # Filter out blocked and ignored children
+        targets = [c for c in targets if c not in disabled]
         targets = [t for t in targets if t not in blocked]
         targets = [t for t in targets if t not in ignored]
         return as_tuple(targets)
@@ -369,10 +379,6 @@ class Scheduler:
                 child = self.create_item(c)
 
                 if child is None:
-                    continue
-
-                # Skip "disabled" items immediately
-                if child in self.config.disable:
                     continue
 
                 # Skip blocked children as well

@@ -37,14 +37,17 @@ cloudsc_config = {
         'role': 'kernel',
         'expand': True,
         'strict': True,
+        # Ensure that we are never adding these to the tree, and thus
+        # do not attempt to look up the source files for these.
+        # TODO: Add type-bound procedure support and adjust scheduler to it
+        'disable': ['timer%start', 'timer%end', 'timer%thread_start', 'timer%thread_end',
+                    'timer%thread_log', 'timer%thread_log', 'timer%print_performance']
     },
     'routine': [
         {
             'name': 'cloudsc_driver',
             'role': 'driver',
             'expand': True,
-            'block': ['timer%start', 'timer%end', 'timer%thread_start', 'timer%thread_end',
-                      'timer%thread_log', 'timer%thread_log', 'timer%print_performance']
         }
     ]
 }
