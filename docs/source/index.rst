@@ -7,18 +7,13 @@ Welcome to Loki's documentation!
 ================================
 
 .. toctree::
-   :maxdepth: 4
-   :caption: Contents:
+   :maxdepth: 1
 
-   loki
-   loki-build
-   loki-lint
-   loki-transform
-
+   scripts
+   loki_api
 
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`
-* :ref:`search`

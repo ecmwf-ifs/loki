@@ -4,6 +4,8 @@
 # list see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+# pylint: disable=invalid-name,redefined-builtin
+
 # -- Path setup --------------------------------------------------------------
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -11,7 +13,9 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
+import re
 import sys
+
 sys.path.insert(0, os.path.abspath('../..'))
 sys.path.insert(0, os.path.abspath('../../scripts'))
 
@@ -19,11 +23,13 @@ sys.path.insert(0, os.path.abspath('../../scripts'))
 # -- Project information -----------------------------------------------------
 
 project = 'Loki'
-copyright = '2018- European Centre for Medium-range Weather Forecasts (ECMWF)'
+copyright = '2018- European Centre for Medium-Range Weather Forecasts (ECMWF)'
 author = 'Michael Lange, Balthasar Reuter'
 
-# The full version, including alpha/beta/rc tags
-release = '0.x'
+# The full version, including alpha/beta/rc tags.
+release = re.sub('^v', '', os.popen('git describe').read().strip())
+# The short X.Y version.
+version = release
 
 
 # -- General configuration ---------------------------------------------------
@@ -36,7 +42,6 @@ extensions = [
     'sphinx.ext.autodoc',  # use docstrings
     'sphinx.ext.napoleon',  # understand docstrings also in other formats
     'recommonmark',  # read markdown
-    'sphinxcontrib.confluencebuilder'  # create confluence output
 ]
 
 # The file extensions of source files. Sphinx considers the files with
@@ -61,24 +66,13 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme' #'alabaster'
+html_theme = 'sphinxawesome_theme'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
-
-# -- Extension configuration -------------------------------------------------
-
-confluence_publish = True
-confluence_space_name = '~nabr'
-confluence_parent_page = 'Loki'
-confluence_server_url = 'https://confluence.ecmwf.int/'
-#confluence_server_user = ''
-#confluence_server_pass = ''
-confluence_ask_user = True
-confluence_ask_password = True
 
 # -- Options for todo extension ----------------------------------------------
 

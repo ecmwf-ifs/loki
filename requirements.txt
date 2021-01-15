@@ -28,5 +28,4 @@ pytest-pylint
 # For docs
 sphinx
 recommonmark
-sphinxcontrib-confluencebuilder
-sphinx-rtd-theme
+sphinxawesome-theme

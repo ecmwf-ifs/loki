@@ -1,5 +1,6 @@
 *~
 *.pyc
+*.swp
 
 loki.egg-info/*
 .eggs/*
@@ -47,7 +48,8 @@ loki-activate
 
 # Docs
 docs/build
-docs/source/loki*
+docs/source/loki.*
+docs/source/loki-*
 docs/source/lint_rules.*
 docs/source/raps_deps.rst
 docs/source/transformations.*
