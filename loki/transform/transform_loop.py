@@ -701,8 +701,12 @@ def get_promotion_dimensions(pragma, loops, promotion_vars_dims, promotion_vars_
 
     Helper routine for ``loop_fission`` and ``section_hoist``.
     """
-    loop_lengths = [simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
-                    for loop in reversed(loops)]
+    # TODO: Would be nice to be able to promote this to the smalles possible dimension
+    #       (in a loop var=start,end this is (end-start+1) with subscript index (var-start+1))
+    #       but it requires being able to decide whether this yields a constant dimension,
+    #       thus we need to stick to the upper bound for the moment as this is constant
+    #       in our use cases.
+    loop_lengths = [simplify(loop.bounds.stop) for loop in reversed(loops)]
     loop_index = [loop.variable for loop in reversed(loops)]
     promote_vars = {var.strip().lower()
                     for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}

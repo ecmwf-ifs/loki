@@ -1844,7 +1844,11 @@ subroutine transform_section_hoist_promote(a, b, klon, klev)
     end do
   end do
 
-  do jk=1,klev
+  do jk=1,4
+    b(1, jk) = jk
+  end do
+
+  do jk=5,klev
 !$loki section-hoist collapse(1) promote(b_tmp)
     b_tmp = jk + 1
 !$loki end section-hoist
@@ -1873,8 +1877,8 @@ end subroutine transform_section_hoist_promote
     assert np.all(b == ref_b)
 
     loops = FindNodes(Loop).visit(routine.body)
-    assert len(loops) == 6
-    assert [str(loop.variable) for loop in loops] == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
+    assert len(loops) == 7
+    assert [str(loop.variable) for loop in loops] == ['jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
 
     assert isinstance(routine.variable_map['b_tmp'], sym.Scalar)
 
@@ -1882,12 +1886,12 @@ end subroutine transform_section_hoist_promote
     section_hoist(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
-    assert len(loops) == 7
-    assert [str(loop.variable) for loop in loops] == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jl']
+    assert len(loops) == 8
+    assert [str(loop.variable) for loop in loops] == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
 
     b_tmp = routine.variable_map['b_tmp']
     assert isinstance(b_tmp, sym.Array) and len(b_tmp.type.shape) == 1
-    assert b_tmp.type.shape[0] == 'klev'
+    assert str(b_tmp.type.shape[0]) == 'klev'
 
     hoisted_filepath = here/('%s_hoisted_%s.f90' % (routine.name, frontend))
     hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
