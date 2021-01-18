@@ -7,7 +7,7 @@ from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 __all__ = [
     'pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
     'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder', 'is_parent_of',
-    'is_child_of', 'NestedMaskedTransformer'
+    'is_child_of', 'NestedMaskedTransformer', 'FindScopes'
 ]
 
 
@@ -454,23 +454,21 @@ class FindNodes(Visitor):
         return ret or self.default_retval()
 
     def visit_tuple(self, o, **kwargs):
-        ret = kwargs.get('ret')
+        ret = kwargs.pop('ret', self.default_retval())
         for i in o:
-            ret = self.visit(i, ret=ret)
+            ret = self.visit(i, ret=ret, **kwargs)
         return ret or self.default_retval()
 
     visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
-        ret = kwargs.get('ret')
-        if ret is None:
-            ret = self.default_retval()
+        ret = kwargs.pop('ret', self.default_retval())
         if self.rule(self.match, o):
             ret.append(o)
             if self.greedy:
                 return ret
         for i in o.children:
-            ret = self.visit(i, ret=ret)
+            ret = self.visit(i, ret=ret, **kwargs)
         return ret or self.default_retval()
 
 
@@ -492,6 +490,28 @@ def is_parent_of(node, other):
     Note that this can be expensive for large subtrees.
     """
     return len(FindNodes(other, mode='scope', greedy=True).visit(node)) > 0
+
+
+class FindScopes(FindNodes):
+    """
+    Find all enclosing scopes for object ``match``.
+    """
+    def __init__(self, match, greedy=True):
+        super().__init__(match=match, greedy=greedy)
+        self.rule = lambda match, o: match is o
+
+    def visit_Node(self, o, **kwargs):
+        ret = kwargs.pop('ret', self.default_retval())
+        ancestors = kwargs.pop('ancestors', []) + [o]
+
+        if self.rule(self.match, o):
+            ret.append(ancestors)
+            if self.greedy:
+                return ret
+
+        for i in o.children:
+            ret = self.visit(i, ret=ret, ancestors=ancestors, **kwargs)
+        return ret or self.default_retval()
 
 
 class SequenceFinder(Visitor):

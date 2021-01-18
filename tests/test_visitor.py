@@ -7,7 +7,7 @@ from loki import (
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
     ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer,
-    NestedMaskedTransformer, is_parent_of, is_child_of, fgen
+    NestedMaskedTransformer, is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
 )
 
 
@@ -39,6 +39,50 @@ end subroutine routine_find_nodes_greedy
     assert len(outer_cond) == 1
     assert outer_cond[0] in conditionals
     assert str(outer_cond[0].conditions[0]) == 'n > m'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_find_scopes(frontend):
+    """
+    Test the FindScopes visitor.
+    """
+    fcode = """
+subroutine routine_find_nodes_greedy(n, m)
+  integer, intent(in) :: n, m
+
+  if (n > m) then
+    if (n == 3) then
+      print *,"Inner if"
+    endif
+    print *,"Outer if"
+  endif
+end subroutine routine_find_nodes_greedy
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 2
+    inner = [i for i in intrinsics if 'Inner' in i.text][0]
+    outer = [i for i in intrinsics if 'Outer' in i.text][0]
+
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(conditionals) == 2
+
+    scopes = FindScopes(inner).visit(routine.body)
+    assert len(scopes) == 1  # returns a list containing a list of nested nodes
+    assert len(scopes[0]) == 4  # should have found 3 scopes and the node itself
+    assert all(c in scopes[0] for c in conditionals)  # should have found all if
+    assert routine.body is scopes[0][0]  # body section should be outermost scope
+    assert str(scopes[0][1].conditions[0]) == 'n > m'  # outer if should come first
+    assert inner is scopes[0][-1]  # node itself should be last in list
+
+    scopes = FindScopes(outer).visit(routine.body)
+    assert len(scopes) == 1  # returns a list containing a list of nested nodes
+    assert len(scopes[0]) == 3  # should have found 2 scopes and the node itself
+    assert all(c in scopes[0] or str(c.conditions[0] == 'n == 3')
+               for c in conditionals)  # should have found only the outer if
+    assert routine.body is scopes[0][0]  # body section should be outermost scope
+    assert outer is scopes[0][-1]  # node itself should be last in list
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
