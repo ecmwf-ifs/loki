@@ -1590,9 +1590,9 @@ subroutine transform_section_hoist(a, b, c)
 
   a = 1
 
-!$loki section-hoist begin
+!$loki section-hoist
   b = a
-!$loki section-hoist end
+!$loki end section-hoist
 
   c = a + b
 end subroutine transform_section_hoist
@@ -1641,11 +1641,11 @@ subroutine transform_section_hoist_inlined_pragma(a, b, klon, klev)
     end do
   end do
 
-!$loki section-hoist begin
+!$loki section-hoist
   do jk=1,klev
     b(1, jk) = jk
   end do
-!$loki section-hoist end
+!$loki end section-hoist
 !Buffer comment
 
   do jk=1,klev
@@ -1711,18 +1711,18 @@ subroutine transform_section_hoist_multiple(a, b, c)
 
   a = a + 1
   a = a + 1
-!$loki section-hoist begin group(some-group)
+!$loki section-hoist group(some-group)
   a = a + 1
-!$loki section-hoist end group(some-group)
+!$loki end section-hoist
   a = a + 1
 
-!$loki section-hoist begin
+!$loki section-hoist
   b = a
-!$loki section-hoist end
+!$loki end section-hoist
 
-!$loki section-hoist begin group(some-group)
+!$loki section-hoist group(some-group)
   c = a + b
-!$loki section-hoist end group(some-group)
+!$loki end section-hoist
 end subroutine transform_section_hoist_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
