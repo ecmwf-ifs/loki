@@ -11,14 +11,15 @@ from loki.expression import (
     accumulate_polynomial_terms, simplify, is_constant, symbolic_op
 )
 from loki.frontend.fparser import parse_fparser_expression
-from loki.ir import Loop, Conditional, Comment, Pragma, PragmaRegion
+from loki.ir import Loop, Conditional, Comment, Pragma, PragmaRegion, CallStatement, Section, Import
 from loki.logging import info
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached, pragma_regions_attached
 from loki.transform.transform_array_indexing import promote_variables
 from loki.tools import flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort
 from loki.visitors import FindNodes, Transformer, MaskedTransformer, NestedMaskedTransformer, is_parent_of, FindScopes
+from loki import Subroutine, Scope
 
-__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']
+__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist', 'section_to_call']
 
 
 class Polyhedron:
@@ -883,3 +884,66 @@ def section_hoist(routine):
     num_targets = sum(1 for pragma in hoist_map if 'target' in get_pragma_parameters(pragma))
     info('%s: hoisted %d section(s) in %d group(s)', routine.name, len(hoist_map) - num_targets, num_targets)
     apply_promotion(routine, promotion_vars_dims, promotion_vars_index)
+
+
+def section_to_call(routine):
+    counter = 0
+    routines, starts, stops = [], [], []
+    mask_map = {}
+    with pragma_regions_attached(routine):
+        for region in FindNodes(PragmaRegion).visit(routine.body):
+            if not is_loki_pragma(region.pragma, starts_with='section-to-call'):
+                continue
+
+            # Name the external routine
+            parameters = get_pragma_parameters(region.pragma, starts_with='section-to-call')
+            name = parameters.get('name', '{}_section_to_call_{}'.format(routine.name, counter))
+            counter += 1
+
+            # Copy body for external routine
+            scope = Scope()
+            body_map = {v: v.clone(scope=scope) for v in FindVariables(unique=False).visit(region.body)}
+            body = Section(body=SubstituteExpressions(body_map).visit(region.body))
+
+            # Copy imports from spec for external routine
+            spec = Transformer().visit(FindNodes(Import).visit(routine.spec))
+            spec = Section(body=spec)
+
+            # Collect all variables used in the subroutine and determine purpose/intent
+            section_arg_intents = {v.strip().lower(): intent for intent in ['in', 'out', 'inout']
+                                   for v in parameters.get(intent, '').split(',') if v}
+            section_import_names = {var.name.lower() for imprt in FindNodes(Import).visit(spec)
+                                    for var in imprt.symbols}
+            section_variables = {v.name.lower(): v.clone(type=v.type.clone(intent=None), dimensions=None)
+                                 for v in FindVariables().visit(body)
+                                 if not v.name.lower() in section_import_names}
+            call_variables = {v.name.lower(): v for v in FindVariables().visit(region.body)}
+
+            section_arguments, call_arguments = [], []
+            for var in section_variables:
+                if isinstance(section_variables[var], sym.Array):
+                    # we need to set dimensions to shape here for correct declarations
+                    section_variables[var].dimensions = sym.ArraySubscript(section_variables[var].shape)
+                if var in section_arg_intents:
+                    section_variables[var].type.intent = section_arg_intents[var]
+                    section_arguments.append(section_variables[var].clone())
+                    call_arguments.append(call_variables[var].clone(dimensions=None))
+
+            # Create the external routine and insert it into the list
+            section_routine = Subroutine(name, spec=spec, body=body, scope=scope)
+            section_routine.variables = list(section_variables.values())
+            section_routine.arguments = list(section_arguments)
+            routines.append(section_routine)
+
+            # Register start and end nodes in transformer mask for original routine
+            starts += [region.pragma_post]
+            stops += [region.pragma]
+
+            # Replace end pragma by call in original routine
+            call = CallStatement(name=name, arguments=call_arguments)
+            mask_map[region.pragma_post] = call
+
+    routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=mask_map).visit(routine.body)
+    info('%s: converted %d section(s) to calls', routine.name, counter)
+
+    return routines

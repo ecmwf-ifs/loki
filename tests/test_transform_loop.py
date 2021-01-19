@@ -5,11 +5,11 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope, Assignment
+from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope, Assignment, Module, CallStatement
 from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import (
     loop_interchange, loop_fusion, loop_fission, Polyhedron, section_hoist,
-    normalize_range_indexing
+    normalize_range_indexing, section_to_call
 )
 from loki.expression import symbols as sym
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
@@ -1906,3 +1906,114 @@ end subroutine transform_section_hoist_promote
 
     clean_test(filepath)
     clean_test(hoisted_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_section_to_call(here, frontend):
+    """
+    A very simple section-to-call test case
+    """
+    fcode = """
+subroutine transform_section_to_call(a, b, c)
+  integer, intent(out) :: a, b, c
+
+  a = 5
+  a = 1
+
+!$loki section-to-call in(a) out(b)
+  b = a
+!$loki end section-to-call
+
+  c = a + b
+end subroutine transform_section_to_call
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    a, b, c = function()
+    assert a == 1 and b == 1 and c == 2
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+
+    # Apply transformation
+    routines = section_to_call(routine)
+    assert len(routines) == 1 and routines[0].name == '{}_section_to_call_0'.format(routine.name)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 3
+    assert len(FindNodes(Assignment).visit(routines[0].body)) == 1
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 1
+
+    # Test transformation
+    module = Module(name='{}_mod'.format(routine.name), spec=(), routines=[*routines, routine])
+    mod_filepath = here/('%s_converted_%s.f90' % (module.name, frontend))
+    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
+    mod_function = getattr(mod, routine.name)
+
+    a, b, c = mod_function()
+    assert a == 1 and b == 1 and c == 2
+
+    clean_test(filepath)
+    clean_test(mod_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_section_to_call_multiple(here, frontend):
+    """
+    Test hoisting with multiple groups and multiple sections per group
+    """
+    fcode = """
+subroutine transform_section_to_call_multiple(a, b, c)
+  integer, intent(out) :: a, b, c
+
+  a = 1
+  a = a + 1
+  a = a + 1
+!$loki section-to-call name(oiwjfklsf) inout(a)
+  a = a + 1
+!$loki end section-to-call
+  a = a + 1
+
+!$loki section-to-call in(a) out(b)
+  b = a
+!$loki end section-to-call
+
+!$loki section-to-call in(a,b) out(c)
+  c = a + b
+!$loki end section-to-call
+end subroutine transform_section_to_call_multiple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    a, b, c = function()
+    assert a == 5 and b == 5 and c == 10
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 7
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+
+    # Apply transformation
+    routines = section_to_call(routine)
+    assert len(routines) == 3
+    assert routines[0].name == 'oiwjfklsf'
+    assert all(routines[i].name == '{}_section_to_call_{}'.format(routine.name, i) for i in (1,2))
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+
+    # Test transformation
+    module = Module(name='{}_mod'.format(routine.name), spec=(), routines=[*routines, routine])
+    mod_filepath = here/('%s_converted_%s.f90' % (module.name, frontend))
+    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
+    mod_function = getattr(mod, routine.name)
+
+    a, b, c = mod_function()
+    assert a == 5 and b == 5 and c == 10
+
+    clean_test(filepath)
+    clean_test(mod_filepath)
