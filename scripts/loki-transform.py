@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
 from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
+from transformations import DataOffloadTransformation
 
 
 """
@@ -207,6 +208,12 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
+    use_claw_offload = False
+    if mode == 'claw':
+        offload_transform = DataOffloadTransformation()
+        scheduler.process(transformation=offload_transform)
+        use_claw_offload = not offload_transform.has_data_regions
+
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                            variable='JL', iteration=('KIDIA', 'KFDIA'))
@@ -215,7 +222,9 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     if mode == 'sca':
         sca_transform = ExtractSCATransformation(dimension=horizontal)
     elif mode == 'claw':
-        sca_transform = CLAWTransformation(dimension=horizontal)
+        sca_transform = CLAWTransformation(
+            dimension=horizontal, claw_data_offload=use_claw_offload
+        )
     scheduler.process(transformation=sca_transform)
 
     # Hacky way to strip OpenMP annotations from driver loop
