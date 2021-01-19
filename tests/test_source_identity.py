@@ -294,3 +294,45 @@ END SUBROUTINE SIMPLE_FGEN
     routine = Subroutine.from_source(fcode, frontend=frontend)
     source = fgen(routine, linewidth=90)
     assert source == fcode
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI does it for you BUT WITHOUT DELETING THE KEYWORD!!!')),
+    FP
+])
+def test_multiline_pragma(frontend):
+    """
+    Test that multi-line pragmas are combined correctly.
+    """
+    fcode = """
+subroutine multiline_pragma
+  implicit none
+  integer :: dummy
+!$foo some very long pragma &
+!$foo with a line break
+  dummy = 1
+!$bar some pragma         &
+!$bar with more than      &
+!$bar one line break
+!$bar followed by    &
+!$bar    another multiline pragma &
+!$bar    with same keyword
+  dummy = dummy + 1
+!$foobar and yet &
+!$foobar another multiline pragma
+end subroutine multiline_pragma
+    """.strip()
+
+    # Parse the code
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    pragma_content = {
+        'foo': ['some very long pragma with a line break'],
+        'bar': ['some pragma with more than one line break',
+                'followed by another multiline pragma with same keyword'],
+        'foobar': ['and yet another multiline pragma']
+    }
+
+    assert len(pragmas) == 4
+    assert all(pragma.content in pragma_content[pragma.keyword] for pragma in pragmas)

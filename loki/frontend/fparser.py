@@ -14,7 +14,8 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, read_file, import_external_symbols, FP
+    inline_comments, cluster_comments, read_file, import_external_symbols, FP,
+    combine_multiline_pragmas
 )
 import loki.ir as ir
 import loki.expression.symbols as sym
@@ -66,6 +67,7 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
     # Perform some minor sanitation tasks
     _ir = inline_comments(_ir)
     _ir = cluster_comments(_ir)
+    _ir = combine_multiline_pragmas(_ir)
 
     return _ir
 

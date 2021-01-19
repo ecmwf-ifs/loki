@@ -3,7 +3,7 @@ from pathlib import Path
 import codecs
 
 from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
-from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic
+from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic, Pragma
 from loki.frontend.source import Source
 from loki.expression import Variable
 from loki.tools import as_tuple
@@ -11,6 +11,7 @@ from loki.logging import warning
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'read_file',
+    'combine_multiline_pragmas'
 ]
 
 
@@ -138,3 +139,48 @@ def import_external_symbols(module, symbol_names, scope):
         symbols.append(symbol)
 
     return as_tuple(symbols)
+
+
+def combine_multiline_pragmas(ir):
+    """
+    Combine multiline pragmas into single pragma nodes
+    """
+    pragma_mapper = {}
+    pragma_groups = SequenceFinder(node_type=Pragma).visit(ir)
+    for pragma_list in pragma_groups:
+        collected_pragmas = []
+        for pragma in pragma_list:
+            if not collected_pragmas:
+                if pragma.content.rstrip().endswith('&'):
+                    # This is the beginning of a multiline pragma
+                    collected_pragmas = [pragma]
+            else:
+                # This is the continuation of a multiline pragma
+                collected_pragmas += [pragma]
+
+                if pragma.keyword != collected_pragmas[0].keyword:
+                    raise RuntimeError('Pragma keyword mismatch after line continuation: {} != {}'.format(
+                        collected_pragmas[0].keyword, pragma.keyword))
+
+                if not pragma.content.rstrip().endswith('&'):
+                    # This is the last line of a multiline pragma
+                    content = [p.content.strip()[:-1].rstrip() for p in collected_pragmas[:-1]]
+                    content = ' '.join(content) + ' ' + pragma.content.strip()
+
+                    if all(p.source is not None for p in collected_pragmas):
+                        if all(p.source.string is not None for p in collected_pragmas):
+                            string = '\n'.join(p.source.string for p in collected_pragmas)
+                        else:
+                            string = None
+                        lines = (collected_pragmas[0].source.lines[0], collected_pragmas[-1].source.lines[1])
+                        source = Source(lines=lines, string=string, file=pragma.source.file)
+                    else:
+                        source = None
+
+                    new_pragma = Pragma(keyword=pragma.keyword, content=content, source=source)
+                    pragma_mapper[collected_pragmas[0]] = new_pragma
+                    pragma_mapper.update({p: None for p in collected_pragmas[1:]})
+
+                    collected_pragmas = []
+
+    return NestedTransformer(pragma_mapper, invalidate_source=False).visit(ir)
