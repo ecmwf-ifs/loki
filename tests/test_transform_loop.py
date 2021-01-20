@@ -276,23 +276,22 @@ end subroutine transform_loop_interchange_project
     assert np.all(a == ref)
 
     # Apply transformation
-    with pytest.raises(NotImplementedError):
-        loop_interchange(routine, project_bounds=True)
+    loop_interchange(routine, project_bounds=True)
 
-    # interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
-    # interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
+    interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
-    # # Test transformation
-    # loops = FindNodes(Loop).visit(routine.body)
-    # assert len(loops) == 2
-    # assert [str(loop.variable) for loop in loops] == ['j', 'i']
+    # Test transformation
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert [str(loop.variable) for loop in loops] == ['j', 'i']
 
-    # a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
-    # interchanged_function(a=a, m=m, n=n)
-    # assert np.all(a == ref)
+    a = np.zeros(shape=(m, n), dtype=np.int32, order='F')
+    interchanged_function(a=a, m=m, n=n)
+    assert np.all(a == ref)
 
     clean_test(filepath)
-    # clean_test(interchanged_filepath)
+    clean_test(interchanged_filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

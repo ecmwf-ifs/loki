@@ -5,7 +5,6 @@ Collection of utility routines that provide loop transformations.
 from collections import defaultdict
 import operator as op
 import numpy as np
-from pymbolic.primitives import Variable
 
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
@@ -69,7 +68,7 @@ class Polyhedron:
             return sym.Product((-1, sym.IntLiteral(abs(value))))
         return sym.IntLiteral(value)
 
-    def lower_bounds(self, index_or_variable):
+    def lower_bounds(self, index_or_variable, ignore_variables=None):
         """
         Return all lower bounds imposed on a variable.
 
@@ -81,6 +80,9 @@ class Polyhedron:
         :param index_or_variable: the index, name, or expression symbol for which the
                     lower bounds are produced.
         :type index_or_variable: int or str or sym.Array or sym.Scalar
+        :param ignore_variables: optional list of variable names, indices or symbols
+                    for which constraints should be ignored if they depend on one of them.
+        :type ignore_variables: list or None
 
         :returns list: the bounds for that variable.
         """
@@ -89,9 +91,17 @@ class Polyhedron:
         else:
             j = self.variable_to_index(index_or_variable)
 
+        if ignore_variables:
+            ignore_variables = [i if isinstance(i, int) else self.variable_to_index(i)
+                                for i in ignore_variables]
+
         bounds = []
         for i in range(self.A.shape[0]):
             if self.A[i,j] < 0:
+                if ignore_variables and any(self.A[i, k] != 0 for k in ignore_variables):
+                    # Skip constraint that depends on any of the ignored variables
+                    continue
+
                 components = [self._to_literal(self.A[i,k]) * self.variables[k]
                               for k in range(self.A.shape[1]) if k != j and self.A[i,k] != 0]
                 if not components:
@@ -104,7 +114,7 @@ class Polyhedron:
                                                  self._to_literal(self.A[i,j])))]
         return bounds
 
-    def upper_bounds(self, index_or_variable):
+    def upper_bounds(self, index_or_variable, ignore_variables=None):
         """
         Return all upper bounds imposed on a variable.
 
@@ -116,6 +126,9 @@ class Polyhedron:
         :param index_or_variable: the index, name, or expression symbol for which the
                     upper bounds are produced.
         :type index_or_variable: int or str or sym.Array or sym.Scalar
+        :param ignore_variables: optional list of variable names, indices or symbols
+                    for which constraints should be ignored if they depend on one of them.
+        :type ignore_variables: list or None
 
         :returns list: the bounds for that variable.
         """
@@ -124,9 +137,17 @@ class Polyhedron:
         else:
             j = self.variable_to_index(index_or_variable)
 
+        if ignore_variables:
+            ignore_variables = [i if isinstance(i, int) else self.variable_to_index(i)
+                                for i in ignore_variables]
+
         bounds = []
         for i in range(self.A.shape[0]):
             if self.A[i,j] > 0:
+                if ignore_variables and any(self.A[i, k] != 0 for k in ignore_variables):
+                    # Skip constraint that depends on any of the ignored variables
+                    continue
+
                 components = [self._to_literal(self.A[i,k]) * self.variables[k]
                               for k in range(self.A.shape[1]) if k != j and self.A[i,k] != 0]
                 if not components:
@@ -138,6 +159,37 @@ class Polyhedron:
                 bounds += [simplify(sym.Quotient(self._to_literal(self.b[i]) - lhs,
                                                  self._to_literal(self.A[i,j])))]
         return bounds
+
+    @staticmethod
+    def generate_entries_for_lower_bound(bound, variables, index):
+        """
+        Helper routine to generate matrix and right-hand side entries for a
+        given lower bound.
+
+        NB: This can only deal with affine bounds, i.e. expressions that are
+            constant or can be reduced to a linear polynomial.
+
+        Upper bounds can be derived from this by multiplying left-hand side and
+        right-hand side with -1.
+
+        :param bound: the expression representing the lower bound.
+        :param list variables: the list of variable names.
+        :param int index: the index of the variable constrained by this bound.
+
+        :return: the pair ``(lhs, rhs)`` of the row in the matrix inequality.
+        :rtype: tuple(np.array, np.array)
+        """
+        if not (is_constant(bound) or isinstance(bound, (sym.TypedSymbol, sym.Sum, sym.Product))):
+            raise ValueError('Cannot derive inequality from bound {}'.format(str(bound)))
+        summands = accumulate_polynomial_terms(bound)
+        b = -summands.pop(1, 0)  # Constant term or 0
+        A = np.zeros([1, len(variables)], dtype=np.dtype(int))
+        A[0, index] = -1
+        for base, coef in summands.items():
+            if not len(base) == 1:
+                raise ValueError('Non-affine bound {}'.format(str(bound)))
+            A[0, variables.index(base[0].name.lower())] = coef
+        return A, b
 
     @classmethod
     def from_loop_ranges(cls, loop_variables, loop_ranges):
@@ -164,34 +216,133 @@ class Polyhedron:
             j = variables.index(loop_variable.name.lower())
 
             # Create inequality from lower bound
-            lower_bound = simplify(loop_range.start)
-            if not (is_constant(lower_bound) or
-                    isinstance(lower_bound, (Variable, sym.Sum, sym.Product))):
-                raise ValueError('Cannot derive inequality from bound {}'.format(str(lower_bound)))
-
-            summands = accumulate_polynomial_terms(lower_bound)
-            b[2*i] = -summands.pop(1, 0)
-            A[2*i, j] = -1
-            for base, coef in summands.items():
-                if not len(base) == 1:
-                    raise ValueError('Non-affine lower bound {}'.format(str(lower_bound)))
-                A[2*i, variables.index(base[0].name.lower())] = coef
+            lhs, rhs = cls.generate_entries_for_lower_bound(loop_range.start, variable_names, j)
+            A[2*i,:] = lhs
+            b[2*i] = rhs
 
             # Create inequality from upper bound
-            upper_bound = simplify(loop_range.stop)
-            if not (is_constant(upper_bound) or
-                    isinstance(upper_bound, (Variable, sym.Sum, sym.Product))):
-                raise ValueError('Cannot derive inequality from bound {}'.format(str(upper_bound)))
-
-            summands = accumulate_polynomial_terms(upper_bound)
-            b[2*i+1] = summands.pop(1, 0)
-            A[2*i+1, j] = 1
-            for base, coef in summands.items():
-                if not len(base) == 1:
-                    raise ValueError('Non-affine upper bound {}'.format(str(upper_bound)))
-                A[2*i+1, variable_names.index(base[0].name.lower())] = -coef
+            lhs, rhs = cls.generate_entries_for_lower_bound(loop_range.stop, variable_names, j)
+            A[2*i+1,:] = -lhs
+            b[2*i+1] = -rhs
 
         return cls(A, b, variables)
+
+
+def eliminate_variable(polyhedron, index_or_variable):
+    """
+    Eliminate a variable from the polyhedron.
+
+    Mathematically, this is a projection of the polyhedron onto the hyperplane
+    H:={x|x_j=0} with x_j the dimension corresponding to the eliminated variable.
+
+    This is an implementation of the Fourier-Motzkin elimination.
+
+    :param :class:``Polyhedron`` polyhedron: the polyhedron to be reduced in dimension.
+    :param index_or_variable: the index, name, or expression symbol that is to be
+                              eliminated.
+    :type index_or_variable: int or str or sym.Array or sym.Scalar
+
+    :return: the reduced polyhedron.
+    :rtype: :class:``Polyhedron``
+    """
+    if isinstance(index_or_variable, int):
+        j = index_or_variable
+    else:
+        j = polyhedron.variable_to_index(index_or_variable)
+
+    # Indices of lower bounds on x_j
+    L = [i for i in range(polyhedron.A.shape[0]) if polyhedron.A[i,j] < 0]
+    # Indices of upper bounds on x_j
+    U = [i for i in range(polyhedron.A.shape[0]) if polyhedron.A[i,j] > 0]
+    # Indices of constraints not involving x_j
+    Z = [i for i in range(polyhedron.A.shape[0]) if i not in L+U]
+    # Cartesian product of lower and upper bounds
+    R = [(l, u) for l in L for u in U]
+
+    # Project polyhedron onto hyperplane H:={x|x_j = 0}
+    A = np.zeros(polyhedron.A.shape, dtype=np.dtype(int))
+    b = np.zeros(polyhedron.b.shape, dtype=np.dtype(int))
+    next_constraint = 0
+    for idx in Z:
+        A[next_constraint,:] = polyhedron.A[idx,:]
+        b[next_constraint] = polyhedron.b[idx]
+        next_constraint += 1
+    for l, u in R:
+        A[next_constraint,:] = polyhedron.A[u,j] * polyhedron.A[l,:] - polyhedron.A[l,j] * polyhedron.A[u,:]
+        b[next_constraint] = polyhedron.A[u,j] * polyhedron.b[l] - polyhedron.A[l,j] * polyhedron.b[u]
+        next_constraint += 1
+
+    # TODO: normalize rows
+
+    # Trim matrix and right hand side, eliminate j-th column
+    A = np.delete(A[:next_constraint,:], j, axis=1)
+    b = b[:next_constraint]
+    variables = polyhedron.variables
+    if variables is not None:
+        variables = variables[:j] + variables[j+1:]
+    return Polyhedron(A, b, variables)
+
+
+def generate_loop_bounds(iteration_space, iteration_order):
+    """
+    Generate loop bounds according to a changed iteration order.
+
+    This creates a new polyhedron representing the iteration space for the
+    provided iteration order.
+
+    :param :class:``Polyhedron`` iteration_space: the iteration space that
+            should be reordered.
+    :param list iteration_order: the new iteration order as a list of
+            indices of iteration variables.
+
+    :return: the reordered iteration space.
+    :rtype: :class:``Polyhedron``
+    """
+    assert iteration_space.variables is not None
+    assert len(iteration_order) <= len(iteration_space.variables)
+
+    lower_bounds= [None] * len(iteration_order)
+    upper_bounds= [None] * len(iteration_order)
+    index_map = list(range(len(iteration_order)))
+    reduced_polyhedron = iteration_space
+
+    # Find projected loop bounds
+    constraint_count = 0
+    for var_idx in reversed(iteration_order):
+        # Get index of variable in reduced polyhedron
+        idx = index_map[var_idx]
+        assert idx is not None
+        # Store bounds for variable
+        lower_bounds[var_idx] = reduced_polyhedron.lower_bounds(idx)
+        upper_bounds[var_idx] = reduced_polyhedron.upper_bounds(idx)
+        constraint_count += len(lower_bounds[var_idx]) + len(upper_bounds[var_idx])
+        # Eliminate variable from polyhedron
+        reduced_polyhedron = eliminate_variable(reduced_polyhedron, idx)
+        # Update index map after variable elimination
+        index_map[var_idx] = None
+        index_map[var_idx+1:] = [i-1 for i in index_map[var_idx+1:]]
+
+    # Build new iteration space polyhedron
+    variables = [iteration_space.variables[i] for i in iteration_order]
+    variables += iteration_space.variables[len(iteration_order):]
+    A = np.zeros([constraint_count, len(variables)], dtype=np.dtype(int))
+    b = np.zeros([constraint_count], dtype=np.dtype(int))
+    next_constraint = 0
+    for new_idx, var_idx in enumerate(iteration_order):
+        # TODO: skip lower/upper bounds already fulfilled
+        for bound in lower_bounds[var_idx]:
+            lhs, rhs = Polyhedron.generate_entries_for_lower_bound(bound, variables, new_idx)
+            A[next_constraint,:] = lhs
+            b[next_constraint] = rhs
+            next_constraint += 1
+        for bound in upper_bounds[var_idx]:
+            lhs, rhs = Polyhedron.generate_entries_for_lower_bound(bound, variables, new_idx)
+            A[next_constraint,:] = -lhs
+            b[next_constraint] = -rhs
+            next_constraint += 1
+    A = A[:next_constraint,:]
+    b = b[:next_constraint]
+    return Polyhedron(A, b, variables)
 
 
 def get_nested_loops(loop, depth):
@@ -223,10 +374,6 @@ def loop_interchange(routine, project_bounds=False):
     Note that this effectively just exchanges variable and bounds for each of the loops,
     leaving the rest (including bodies, pragmas, etc.) intact.
     """
-    if project_bounds:
-        # For that we need Fourier-Motzkin Elimination in the Polyhedron first
-        raise NotImplementedError
-
     with pragmas_attached(routine, Loop):
         loop_map = {}
         for loop_nest in FindNodes(Loop).visit(routine.body):
@@ -241,27 +388,43 @@ def loop_interchange(routine, project_bounds=False):
             else:
                 depth = 2
 
-            # Extract loop nest and determine iteration space
+            # Extract loop nest
             loops = get_nested_loops(loop_nest, depth)
             loop_variables, loop_ranges, *_ = get_loop_components(loops)
-            if project_bounds:
-                iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
-
-            if var_order is None:
-                var_order = [str(var).lower() for var in reversed(loop_variables)]
 
             # Find the loop order from the variable order
+            if var_order is None:
+                var_order = [str(var).lower() for var in reversed(loop_variables)]
             loop_variable_names = [var.name.lower() for var in loop_variables]
             loop_order = [loop_variable_names.index(var) for var in var_order]
 
+            # Project iteration space
+            if project_bounds:
+                iteration_space = Polyhedron.from_loop_ranges(loop_variables, loop_ranges)
+                iteration_space = generate_loop_bounds(iteration_space, loop_order)
+
             # Rebuild loops starting with innermost
             inner_loop_map = None
-            for loop, loop_idx in zip(reversed(loops), reversed(loop_order)):
+            for idx, (loop, loop_idx) in enumerate(zip(reversed(loops), reversed(loop_order))):
                 if project_bounds:
-                    # TODO: project iteration spaces
-                    lower_bound = iteration_space.lower_bounds(loop_idx)
-                    upper_bound = iteration_space.upper_bounds(loop_idx)
-                    bounds = sym.LoopRange((lower_bound, upper_bound))
+                    new_idx = len(loop_order) - idx - 1
+                    ignore_variables = list(range(new_idx+1, len(loop_order)))
+                    lower_bounds = iteration_space.lower_bounds(new_idx, ignore_variables)
+                    upper_bounds = iteration_space.upper_bounds(new_idx, ignore_variables)
+
+                    if len(lower_bounds) == 1:
+                        lower_bounds = lower_bounds[0]
+                    else:
+                        fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
+                        lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
+
+                    if len(upper_bounds) == 1:
+                        upper_bounds = upper_bounds[0]
+                    else:
+                        fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
+                        upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(upper_bounds))
+
+                    bounds = sym.LoopRange((lower_bounds, upper_bounds))
                 else:
                     bounds = loop_ranges[loop_idx]
 
@@ -352,8 +515,10 @@ def loop_fusion(routine):
             fusion_ranges = []
             for level in range(collapse):
                 lower_bounds, upper_bounds = [], []
+                ignored_variables = list(range(level+1, collapse))
+
                 for p in iteration_spaces:
-                    for bound in p.lower_bounds(level):
+                    for bound in p.lower_bounds(level, ignored_variables):
                         # Decide if we learn something new from this bound, which could be because:
                         # (1) we don't have any bounds, yet
                         # (2) bound is smaller than existing lower bounds (i.e. diff < 0)
@@ -369,7 +534,7 @@ def loop_fusion(routine):
                                             if not (is_constant(d) and symbolic_op(d, op.lt, 0))]
                             lower_bounds += [bound]
 
-                    for bound in p.upper_bounds(level):
+                    for bound in p.upper_bounds(level, ignored_variables):
                         # Decide if we learn something new from this bound, which could be because:
                         # (1) we don't have any bounds, yet
                         # (2) bound is larger than existing upper bounds (i.e. diff > 0)
@@ -395,7 +560,7 @@ def loop_fusion(routine):
                     upper_bounds = upper_bounds[0]
                 else:
                     fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
-                    upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
+                    upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(upper_bounds))
 
                 fusion_ranges += [sym.LoopRange((lower_bounds, upper_bounds))]
 
