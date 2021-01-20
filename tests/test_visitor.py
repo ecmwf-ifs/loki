@@ -6,7 +6,9 @@ from loki import (
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer)
+    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer,
+    NestedMaskedTransformer, is_parent_of, is_child_of, fgen
+)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -842,6 +844,48 @@ end subroutine masked_transformer
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_masked_transformer_minimum_set(frontend):
+    """
+    A very basic sanity test for the MaskedTransformer class with
+    require_all_start or greedy_stop properties.
+    """
+    fcode = """
+subroutine masked_transformer_minimum_set(a)
+  integer, intent(inout) :: a
+
+  a = a + 1
+  a = a + 2
+  a = a + 3
+  a = a + 4
+  a = a + 5
+  a = a + 6
+  a = a + 7
+  a = a + 8
+  a = a + 9
+  a = a + 10
+end subroutine masked_transformer_minimum_set
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    # Requires all nodes and thus retains only the last
+    body = MaskedTransformer(start=assignments, require_all_start=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[-1])
+
+    # Retains only the second node
+    body = MaskedTransformer(start=assignments[:2], stop=assignments[2], require_all_start=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[1])
+
+    # Retains only first node
+    body = MaskedTransformer(start=assignments, stop=assignments[1], greedy_stop=True).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert fgen(body) == fgen(assignments[0])
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_masked_transformer_associates(frontend):
     """
     Test the masked transformer in conjunction with associate blocks
@@ -905,3 +949,178 @@ end subroutine masked_transformer
     body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 3
     assert not FindNodes(Associate).visit(body)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_nested_masked_transformer(frontend):
+    """
+    Test the masked transformer in conjunction with nesting
+    """
+    fcode = """
+subroutine nested_masked_transformer
+  implicit none
+  integer :: a=0, b, c, d
+  integer :: i, j
+
+  do i=1,10
+    a = a + i
+    if (a < 5) then
+      b = 0
+    else if (a == 5) then
+      c = 0
+    else
+      do j=1,5
+        d = a
+      end do
+    end if
+  end do
+end subroutine nested_masked_transformer
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assignments = FindNodes(Assignment).visit(routine.body)
+    loops = FindNodes(Loop).visit(routine.body)
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(assignments) == 4
+    assert len(loops) == 2
+    assert len(conditionals) == 2 if frontend == OMNI else 1
+
+    # Drops the outermost loop
+    start = [a for a in assignments if a.lhs == 'a']
+    body = MaskedTransformer(start=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+
+    # Should produce the original version
+    body = NestedMaskedTransformer(start=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 4
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+    assert fgen(routine.body).strip() == fgen(body).strip()
+
+    # Should drop the first assignment
+    body = NestedMaskedTransformer(start=conditionals[0]).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 3
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == len(conditionals)
+
+    # Should leave no more than a single assignment
+    start = [a for a in assignments if a.lhs == 'c']
+    stop = [l for l in loops if l.variable == 'j']
+    body = MaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert fgen(start).strip() == fgen(body).strip()
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else-if branch
+    body = NestedMaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == 1
+
+    # Should leave no more than a single assignment
+    start = [a for a in assignments if a.lhs == 'd']
+    body = MaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert fgen(start).strip() == fgen(body).strip()
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else branch
+    body = NestedMaskedTransformer(start=start, stop=start).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 1
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 0
+
+    # Should produce the original body
+    start = [a for a in assignments if a.lhs == 'a' or a.lhs == 'd']
+    body = NestedMaskedTransformer(start=start).visit(routine.body)
+    assert fgen(routine.body).strip() == fgen(body).strip()
+
+    # Should leave a single assignment with the hierarchy of nested sections
+    # in the else branch
+    body = NestedMaskedTransformer(start=start, require_all_start=True).visit(routine.body)
+    assert [a.lhs == 'd' for a in FindNodes(Assignment).visit(body)] == [True]
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 0
+
+    # Drops everything
+    stop = [a for a in assignments if a.lhs == 'a']
+    body = NestedMaskedTransformer(start=start, stop=stop, greedy_stop=True).visit(routine.body)
+    assert not body
+
+    # Should drop the else-if branch
+    start = [a for a in assignments if a.lhs == 'b' or a.lhs == 'd']
+    stop = [a for a in assignments if a.lhs == 'c']
+    body = NestedMaskedTransformer(start=start, stop=stop).visit(routine.body)
+    assert len(FindNodes(Assignment).visit(body)) == 2
+    assert len(FindNodes(Loop).visit(body)) == 2
+    assert len(FindNodes(Conditional).visit(body)) == 1
+
+    # Should drop everything buth the if branch
+    body = NestedMaskedTransformer(start=start, stop=stop, greedy_stop=True).visit(routine.body)
+    assert [a.lhs == 'b' for a in FindNodes(Assignment).visit(body)] == [True]
+    assert len(FindNodes(Loop).visit(body)) == 1
+    assert len(FindNodes(Conditional).visit(body)) == 1
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_is_parent_of(frontend):
+    """
+    Test the ``is_parent_of`` utility.
+    """
+    fcode = """
+subroutine test_is_parent_of
+  implicit none
+  integer :: a, j, n=10
+
+  a = 0
+  do j=1,n
+    if (j > 3) then
+      a = a + 1
+    end if
+  end do
+end subroutine test_is_parent_of
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    conditional = FindNodes(Conditional).visit(routine.body)[0]
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    assert is_parent_of(loop, conditional)
+    assert not is_parent_of(conditional, loop)
+
+    for node in [loop, conditional]:
+        assert {is_parent_of(node, a) for a in assignments} == {True, False}
+        assert all(not is_parent_of(a, node) for a in assignments)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_is_child_of(frontend):
+    """
+    Test the ``is_child_of`` utility.
+    """
+    fcode = """
+subroutine test_is_child_of
+  implicit none
+  integer :: a, j, n=10
+
+  a = 0
+  do j=1,n
+    if (j > 3) then
+      a = a + 1
+    end if
+  end do
+end subroutine test_is_child_of
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    loop = FindNodes(Loop).visit(routine.body)[0]
+    conditional = FindNodes(Conditional).visit(routine.body)[0]
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    assert not is_child_of(loop, conditional)
+    assert is_child_of(conditional, loop)
+
+    for node in [loop, conditional]:
+        assert {is_child_of(a, node) for a in assignments} == {True, False}
+        assert all(not is_child_of(node, a) for a in assignments)

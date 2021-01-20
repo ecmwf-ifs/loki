@@ -95,6 +95,12 @@ class Node:
         from loki.visitors import pprint  # pylint: disable=import-outside-toplevel
         return pprint(self)
 
+    @property
+    def defined_symbols(self):
+        if not hasattr(self, '_defined_symbols'):
+            raise RuntimeError('Need to run "defined_symbols" for the IR first.')
+        return self._defined_symbols
+
 
 class Intrinsic(Node):
     """

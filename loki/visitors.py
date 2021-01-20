@@ -6,7 +6,8 @@ from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
 __all__ = [
     'pprint', 'GenericVisitor', 'Visitor', 'Transformer', 'NestedTransformer', 'FindNodes',
-    'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder'
+    'Stringifier', 'MaskedTransformer', 'SequenceFinder', 'PatternFinder', 'is_parent_of',
+    'is_child_of', 'NestedMaskedTransformer'
 ]
 
 
@@ -283,54 +284,143 @@ class MaskedTransformer(Transformer):
         the produced tree until a node from the `start` list is encountered.
     :param bool active: if set to `True` nodes are included in the produced tree
         from the beginning.
+    :param bool require_all_start: if set to ``True``, nodes will be included
+        in the produced tree only after all nodes in ``start`` have been
+        encountered.
+    :param bool greedy_stop: No more nodes will be added to the produced tree
+        as soon as any of the nodes in ``stop`` has been encountered, not even
+        if another node in ``start`` matches.
+
+    NB: Enabling ``require_all_start`` and ``greedy_stop`` at the same time is
+        useful, e.g., when one requires the minimum number of nodes in-between
+        multiple start and end nodes without knowing in which order they appear.
     """
 
-    def __init__(self, start=None, stop=None, active=False, **kwargs):
+    def __init__(self, start=None, stop=None, active=False,
+                 require_all_start=False, greedy_stop=False, **kwargs):
         super().__init__(**kwargs)
 
         self.start = set(as_tuple(start))
         self.stop = set(as_tuple(stop))
         self.active = active
+        self.require_all_start = require_all_start
+        self.greedy_stop = greedy_stop
 
     def visit(self, o, *args, **kwargs):
         # Vertical active status update
-        active = kwargs.get('active', self.active)
-        kwargs['active'] = (active and o not in self.stop) or o in self.start
+        if self.require_all_start:
+            if o in self.start:
+                # to record encountered nodes we remove them from the set of
+                # start nodes and only if it is then empty we set active=True
+                self.start.remove(o)
+                self.active = self.active or not self.start
+            else:
+                self.active = self.active and o not in self.stop
+        else:
+            self.active = (self.active and o not in self.stop) or o in self.start
+        if self.greedy_stop and o in self.stop:
+            # to make sure that we don't include any following nodes we clear start
+            self.start.clear()
+            self.active = False
         return super().visit(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):
-        if kwargs['active']:
+        if kwargs['parent_active']:
+            # this is not an IR node but usually an expression tree or similar
+            # we need to retain this only if the "parent" IR node is active
             return o
         return None
 
     def visit_Node(self, o, **kwargs):
         if o in self.mapper:
-            handle = self.mapper[o]
-            if handle is None:
-                # None -> drop /o/
-                return None
+            return super().visit_Node(o, **kwargs)
 
-            # For one-to-many mappings making sure this is not replaced again
-            # as it has been inserted by visit_tuple already
-            if not is_iterable(handle) or o not in handle:
-                return handle._rebuild(**handle.args)
-
+        # pass to children if this node is active
+        kwargs['parent_active'] = self.active
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
-        if kwargs['active']:
+        if kwargs['parent_active']:
             return self._rebuild(o, rebuilt)
         return tuple(i for i in rebuilt if i is not None) or None
 
-    def visit_tuple(self, o, **kwargs):
-        o = self._inject_tuple_mapping(o)
-        active = kwargs.pop('active')
-        visited = []
-        for i in o:
-            # Lateral active status update
-            active = (active and i not in self.stop) or i in self.start
-            visited += [self.visit(i, active=active, **kwargs)]
-        return tuple(i for i in visited if i is not None) or None
 
-    visit_list = visit_tuple
+class NestedMaskedTransformer(MaskedTransformer):
+    """
+    Like :class:``MaskedTransformer`` but retains encapsulating code
+    blocks (such as loops, conditionals, etc.).
+    """
+
+    # Handler for leaf nodes
+
+    def visit_object(self, o, **kwargs):
+        # need to keep them active here because inactive parents may still be
+        # retained if other children turn on active status
+        return o
+
+    def visit_Node(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit_Node(o, **kwargs)
+        if not self.active:
+            # because any section/scope nodes are treated separately we can
+            # simply drop inactive nodes
+            return None
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._rebuild(o, rebuilt)
+
+    # Handler for block nodes
+
+    def visit_Section(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit_Node(o, **kwargs)
+
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+
+        # check if body exists, otherwise delete this node
+        body_index = o._traversable.index('body')
+        if not flatten(rebuilt[body_index]):
+            return None
+        return self._rebuild(o, rebuilt)
+
+    visit_Loop = visit_Section
+    visit_WhileLoop = visit_Section
+    visit_Associate = visit_Section
+
+    def visit_Conditional(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit(o, **kwargs)
+
+        # need to make (condition, body) pairs to track vanishing bodies
+        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
+                    for c, b in zip(o.conditions, o.bodies)]
+        branches = [(c, b) for c, b in branches if flatten(b)]
+        else_body = self.visit(o.else_body, **kwargs)
+
+        # retain whatever is in the else body if all other branches are gone
+        if not branches:
+            return else_body
+
+        # rebuild conditional with remaining branches
+        conditions, bodies = zip(*branches)
+        return self._rebuild(o, tuple((conditions,) + (bodies,) + (else_body,)))
+
+    def visit_MultiConditional(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit(o, **kwargs)
+
+        # need to make (value, body) pairs to track vanishing bodies
+        expr = self.visit(o.expr, **kwargs)
+        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
+                    for c, b in zip(o.values, o.bodies)]
+        branches = [(c, b) for c, b in branches if flatten(b)]
+        else_body = self.visit(o.else_body, **kwargs)
+
+        # retain whatever is in the else body if all other branches are gone
+        if not branches:
+            return else_body
+
+        # rebuild conditional with remaining branches
+        values, bodies = zip(*branches)
+        return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)))
 
 
 class FindNodes(Visitor):
@@ -382,6 +472,26 @@ class FindNodes(Visitor):
         for i in o.children:
             ret = self.visit(i, ret=ret)
         return ret or self.default_retval()
+
+
+def is_child_of(node, other):
+    """
+    Return ``True`` if ``node`` is contained in the IR below ``other``,
+    otherwise return ``False``.
+
+    Note that this can be expensive for large subtrees.
+    """
+    return len(FindNodes(node, mode='scope', greedy=True).visit(other)) > 0
+
+
+def is_parent_of(node, other):
+    """
+    Return ``True`` if ``other`` is contained in the IR below ``node``,
+    otherwise return ``False``.
+
+    Note that this can be expensive for large subtrees.
+    """
+    return len(FindNodes(other, mode='scope', greedy=True).visit(node)) > 0
 
 
 class SequenceFinder(Visitor):

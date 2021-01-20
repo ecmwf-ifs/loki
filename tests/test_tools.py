@@ -2,8 +2,9 @@
 Unit tests for utility functions and classes in loki.tools.
 """
 
+import operator as op
 import pytest
-from loki.tools import JoinableStringList, truncate_string
+from loki.tools import JoinableStringList, truncate_string, binary_insertion_sort
 
 
 @pytest.mark.parametrize('items, sep, width, cont, ref', [
@@ -68,3 +69,18 @@ def test_truncate_string(string, length, continuation, ref):
     Test string truncation for different string lengths.
     """
     assert truncate_string(string, length, continuation) == ref
+
+
+def test_binary_insertion_sort():
+    """
+    Test binary insertion sort for some random cases.
+    """
+    items = [37, 23, 0, 17, 12, 72, 31, 46, 100, 88, 54]
+
+    assert binary_insertion_sort(items) == sorted(items)
+    assert binary_insertion_sort(items, lt=op.gt) == sorted(items, reverse=True)
+
+    assert binary_insertion_sort(list(range(20))) == list(range(20))
+    assert binary_insertion_sort(list(reversed(range(20)))) == list(range(20))
+
+    assert binary_insertion_sort([1] * 5) == [1] * 5

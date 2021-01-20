@@ -186,8 +186,8 @@ class SubstituteExpressions(Transformer):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, expr_map, invalidate_source=True):
-        super().__init__(invalidate_source=invalidate_source)
+    def __init__(self, expr_map, invalidate_source=True, **kwargs):
+        super().__init__(invalidate_source=invalidate_source, **kwargs)
 
         self.expr_mapper = SubstituteExpressionsMapper(expr_map,
                                                        invalidate_source=invalidate_source)

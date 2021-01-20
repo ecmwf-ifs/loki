@@ -1,4 +1,5 @@
 import time
+import operator as op
 from functools import wraps
 from collections import OrderedDict
 from subprocess import run, PIPE, STDOUT, CalledProcessError
@@ -7,7 +8,8 @@ from loki.logging import log, debug, error, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'timeit',
-           'execute', 'CaseInsensitiveDict', 'strip_inline_comments']
+           'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
+           'binary_insertion_sort']
 
 
 def as_tuple(item, type=None, length=None):
@@ -222,3 +224,69 @@ def strip_inline_comments(source, comment_char='!', str_delim='"\''):
             open_str_delim = update_str_delim(open_str_delim, line[end:])
 
     return '\n'.join(clean_lines)
+
+
+def binary_search(items, val, start, end, lt=op.lt):
+    """
+    Search for the insertion position of a value in a given
+    range of items.
+
+    :param list items: the list of items to search.
+    :param val: the value for which to seek the position.
+    :param int start: first index for search range in ``items``.
+    :param int end: last index (inclusive) for search range in ``items``.
+    :param lt: the "less than" comparison operator to use. Default is the
+        standard ``<`` operator (``operator.lt``).
+
+    :return int: the insertion position for the value.
+
+    This implementation was adapted from
+    https://www.geeksforgeeks.org/binary-insertion-sort/.
+    """
+    # we need to distinugish whether we should insert before or after the
+    # left boundary. imagine [0] is the last step of the binary search and we
+    # need to decide where to insert -1
+    if start == end:
+        if lt(val, items[start]):
+            return start
+        return start + 1
+
+    # this occurs if we are moving beyond left's boundary meaning the
+    # left boundary is the least position to find a number greater than val
+    if start > end:
+        return start
+
+    pos = (start + end) // 2
+    if lt(items[pos], val):
+        return binary_search(items, val, pos+1, end, lt=lt)
+    if lt(val, items[pos]):
+        return binary_search(items, val, start, pos-1, lt=lt)
+    return pos
+
+
+def binary_insertion_sort(items, lt=op.lt):
+    """
+    Sort the given list of items using binary insertion sort.
+
+    In the best case (already sorted) this has linear running time O(n) and
+    on average and in the worst case (sorted in reverse order) a quadratic
+    running time O(n*n).
+
+    A binary search is used to find the insertion position, which reduces
+    the number of required comparison operations. Hence, this sorting function
+    is particularly useful when comparisons are expensive.
+
+    :param list items: the items to be sorted.
+    :param lt: the "less than" comparison operator to use. Default is the
+        standard ``<`` operator (``operator.lt``).
+
+    :return: the list of items sorted in ascending order.
+
+    This implementation was adapted from
+    https://www.geeksforgeeks.org/binary-insertion-sort/.
+    """
+    for i in range(1, len(items)):
+        val = items[i]
+        pos = binary_search(items, val, 0, i-1, lt=lt)
+        items = items[:pos] + [val] + items[pos:i] + items[i+1:]
+    return items
