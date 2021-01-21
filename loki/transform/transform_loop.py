@@ -11,12 +11,12 @@ from loki.expression import (
     accumulate_polynomial_terms, simplify, is_constant, symbolic_op
 )
 from loki.frontend.fparser import parse_fparser_expression
-from loki.ir import Loop, Conditional, Comment, Pragma
+from loki.ir import Loop, Conditional, Comment, Pragma, PragmaRegion
 from loki.logging import info
-from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
+from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached, pragma_regions_attached
 from loki.transform.transform_array_indexing import promote_variables
 from loki.tools import flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort
-from loki.visitors import FindNodes, Transformer, MaskedTransformer, NestedMaskedTransformer, is_parent_of
+from loki.visitors import FindNodes, Transformer, MaskedTransformer, NestedMaskedTransformer, is_parent_of, FindScopes
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron', 'section_hoist']
 
@@ -694,6 +694,59 @@ class FissionTransformer(NestedMaskedTransformer):
         return as_tuple(i for i in rebuilt if i is not None)
 
 
+def get_promotion_dimensions(pragma, loops, promotion_vars_dims, promotion_vars_index):
+    """
+    Determine for all variables marked for promotion the corresponding shape
+    and subscript expression.
+
+    Helper routine for ``loop_fission`` and ``section_hoist``.
+    """
+    # TODO: Would be nice to be able to promote this to the smalles possible dimension
+    #       (in a loop var=start,end this is (end-start+1) with subscript index (var-start+1))
+    #       but it requires being able to decide whether this yields a constant dimension,
+    #       thus we need to stick to the upper bound for the moment as this is constant
+    #       in our use cases.
+    loop_lengths = [simplify(loop.bounds.stop) for loop in reversed(loops)]
+    loop_index = [loop.variable for loop in reversed(loops)]
+    promote_vars = {var.strip().lower()
+                    for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
+
+    for var_name in promote_vars:
+        # Check if we have already marked this variable for promotion: let's make sure the added
+        # dimensions are large enough for this loop (nest)
+        if var_name not in promotion_vars_dims:
+            promotion_vars_dims[var_name] = loop_lengths
+            promotion_vars_index[var_name] = loop_index
+        else:
+            if len(promotion_vars_dims[var_name]) != len(loop_lengths):
+                raise RuntimeError('Conflicting promotion dimensions for "{}"'.format(var_name))
+            for i, (loop_length, index) in enumerate(zip(loop_lengths, loop_index)):
+                if index != promotion_vars_index[var_name][i]:
+                    raise RuntimeError('Loop variable "{}" does not match previous index "{}" for "{}"'.format(
+                        str(index), str(promotion_vars_index[var_name][i]), var_name))
+                if symbolic_op(promotion_vars_dims[var_name][i], op.lt, loop_length):
+                    promotion_vars_dims[var_name][i] = loop_length
+
+    return promotion_vars_dims, promotion_vars_index
+
+
+def apply_promotion(routine, promotion_vars_dims, promotion_vars_index):
+    """
+    Apply variable promotion with given new dimensions and subscript expressions.
+
+    Helper routine for ``loop_fission`` and ``section_hoist``.
+    """
+    if not promotion_vars_dims:
+        return
+    # Group promotion variables by index and size to reduce number of traversals for promotion
+    index_size_var_map = defaultdict(list)
+    for var_name, size in promotion_vars_dims.items():
+        index_size_var_map[(as_tuple(promotion_vars_index[var_name]), as_tuple(size))] += [var_name]
+    for (index, size), var_names in index_size_var_map.items():
+        promote_variables(routine, var_names, -1, index=index, size=size)
+    info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
+
+
 def loop_fission(routine):
     """
     Search for ``!$loki loop-fission`` pragmas inside loops and to split them
@@ -733,74 +786,86 @@ def loop_fission(routine):
         loop_pragmas[loops[-collapse]] += [pragma]
 
         # Promote variables given in promotion list
-        loop_lengths = [simplify(loop.bounds.stop - loop.bounds.start + sym.IntLiteral(1))
-                        for loop in reversed(pragma_loops[pragma])]
-        loop_index = [loop.variable for loop in reversed(pragma_loops[pragma])]
-        promote_vars = {var.strip().lower()
-                        for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var}
-
-        for var_name in promote_vars:
-            # Check if we have already marked this variable for promotion: let's make sure the added
-            # dimensions are large enough for this loop (nest)
-            if var_name not in promotion_vars_dims:
-                promotion_vars_dims[var_name] = loop_lengths
-                promotion_vars_index[var_name] = loop_index
-            else:
-                if len(promotion_vars_dims[var_name]) != len(loop_lengths):
-                    raise RuntimeError('Conflicting promotion dimensions for "{}"'.format(var_name))
-                for i, (loop_length, index) in enumerate(zip(loop_lengths, loop_index)):
-                    if index != promotion_vars_index[var_name][i]:
-                        raise RuntimeError('Loop variable "{}" does not match previous index "{}" for "{}"'.format(
-                            str(index), str(promotion_vars_index[var_name][i]), var_name))
-                    if symbolic_op(promotion_vars_dims[var_name][i], op.lt, loop_length):
-                        promotion_vars_dims[var_name][i] = loop_length
+        promotion_vars_dims, promotion_vars_index = get_promotion_dimensions(
+            pragma, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)
 
     routine.body = FissionTransformer(loop_pragmas).visit(routine.body)
     info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
-
-    if promotion_vars_dims:
-        # Group promotion variables by index and size to reduce number of traversals for promotion
-        index_size_var_map = defaultdict(list)
-        for var_name, size in promotion_vars_dims.items():
-            index_size_var_map[(as_tuple(promotion_vars_index[var_name]), as_tuple(size))] += [var_name]
-        for (index, size), var_names in index_size_var_map.items():
-            promote_variables(routine, var_names, -1, index=index, size=size)
-        info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
+    apply_promotion(routine, promotion_vars_dims, promotion_vars_index)
 
 
 def section_hoist(routine):
     """
-    Hoist one or multiple code sections and insert them at a specified target location.
-    """
-    hoist_groups = defaultdict(list)
+    Hoist one or multiple code sections annotated by pragma ranges and insert
+    them at a specified target location.
 
-    # Find all section-hoist directives
+    The pragma syntax for annotating the sections to hoist is
+    ``!$loki section-hoist [group(group-name)] [collapse(n) [promote(var-name, var-name, ...)]]``
+    and ``!$loki end section-hoist``.
+    The optional ``group(group-name)`` can be provided when multiple sections
+    are to be hoisted and inserted at different positions. Multiple pragma
+    ranges can be specified for the same group, all of which are then moved to
+    the target location in the same order as the pragma ranges.
+    The optional ``collapse(n)`` parameter specifies that ``n`` enclosing scopes
+    (such as loops, conditionals, etc.) should be re-created at the target location.
+    Optionally, this can be combined with variable promotion using ``promote(...)``.
+    """
+    hoist_targets = defaultdict(list)
+    hoist_sections = defaultdict(list)
+
+    # Find all section-hoist pragma regions
+    with pragma_regions_attached(routine):
+        for region in FindNodes(PragmaRegion).visit(routine.body):
+            if is_loki_pragma(region.pragma, starts_with='section-hoist'):
+                parameters = get_pragma_parameters(region.pragma, starts_with='section-hoist')
+                group = parameters.get('group', 'default')
+                hoist_sections[group] += [(region.pragma, region.pragma_post)]
+
+    # Find all section-hoist targets
     for pragma in FindNodes(Pragma).visit(routine.body):
         if is_loki_pragma(pragma, starts_with='section-hoist'):
             parameters = get_pragma_parameters(pragma, starts_with='section-hoist')
-            group = parameters.get('group', 'default')
-            hoist_groups[group] += [pragma]
+            if 'target' in parameters:
+                group = parameters.get('group', 'default')
+                hoist_targets[group] += [pragma]
 
+    if not hoist_sections:
+        return
+
+    # Group-by-group extract the sections and build the node replacement map
     hoist_map = {}
+    promotion_vars_dims = {}  # Variables to promote with new dimension
+    promotion_vars_index = {}  # Variable subscripts to promote with new indices
     starts, stops = [], []
-    for group, pragmas in hoist_groups.items():
-        # Extract sections
-        section_starts = [pragma for pragma in pragmas if 'begin' in get_pragma_parameters(pragma)]
-        section_stops = [pragma for pragma in pragmas if 'end' in get_pragma_parameters(pragma)]
-        assert len(section_starts) == len(section_stops)
+    for group, sections in hoist_sections.items():
+        if not group in hoist_targets or not hoist_targets[group]:
+            raise RuntimeError('No section-hoist target for group {} defined.'.format(group))
+        if len(hoist_targets[group]) > 1:
+            raise RuntimeError('Multiple section-hoist targets given for group {}'.format(group))
 
         hoist_body = ()
-        for start, stop in zip(section_starts, section_stops):
-            reach = get_pragma_parameters(start).get('reach', None)
-            if reach is not None:
-                raise NotImplementedError
+        for start, stop in sections:
+            parameters = get_pragma_parameters(start, starts_with='section-hoist')
 
             # Extract the section to hoist
-            section = MaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(routine.body)
+            collapse = int(parameters.get('collapse', 0))
+            if collapse > 0:
+                scopes = FindScopes(start).visit(routine.body)[0]
+                if len(scopes) <= collapse:
+                    RuntimeError('Not enough enclosing scopes for collapse({})'.format(collapse))
+                scopes = scopes[-(collapse+1):]
+                section = NestedMaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(scopes[0])
+
+                # Promote variables given in promotion list
+                loops = [scope for scope in scopes if isinstance(scope, Loop)]
+                promotion_vars_dims, promotion_vars_index = get_promotion_dimensions(
+                    start, loops, promotion_vars_dims, promotion_vars_index)
+            else:
+                section = MaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(routine.body)
 
             # Append it to the group's body, wrapped in comments
-            begin_comment = Comment('! Loki section-hoist group({}) - begin section'.format(group))
-            end_comment = Comment('! Loki section-hoist group({}) - end section'.format(group))
+            begin_comment = Comment('! Loki {}'.format(start.content))
+            end_comment = Comment('! Loki {}'.format(stop.content))
             hoist_body += as_tuple(flatten([begin_comment, section, end_comment]))
 
             # Register start and end nodes for transformer mask
@@ -811,19 +876,10 @@ def section_hoist(routine):
             comment = Comment('! Loki section-hoist group({}) - section hoisted'.format(group))
             hoist_map[stop] = comment
 
-        # Find the target for this hoisting group
-        target = [pragma for pragma in pragmas if 'target' in get_pragma_parameters(pragma)]
-        if not target:
-            raise RuntimeError('No target found for section-hoist group {}'.format(group))
-        if len(target) > 1:
-            raise RuntimeError('Multiple targets given for section-hoist group {}'.format(group))
-        target = target[0]
-
         # Insert target <-> hoisted sections into map
-        hoist_map[target] = hoist_body
+        hoist_map[hoist_targets[group][0]] = hoist_body
 
-    if hoist_map:
-        routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)
-
-        num_sections = sum((len(group) - 1) // 2 for group in hoist_groups.values())
-        info('%s: hoisted %d section(s) in %d group(s)', routine.name, num_sections, len(hoist_groups))
+    routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=hoist_map).visit(routine.body)
+    num_targets = sum(1 for pragma in hoist_map if 'target' in get_pragma_parameters(pragma))
+    info('%s: hoisted %d section(s) in %d group(s)', routine.name, len(hoist_map) - num_targets, num_targets)
+    apply_promotion(routine, promotion_vars_dims, promotion_vars_index)
