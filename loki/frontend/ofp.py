@@ -8,7 +8,8 @@ import open_fortran_parser
 from loki.frontend.source import extract_source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP
+    inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP,
+    combine_multiline_pragmas
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -78,6 +79,7 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=No
     _ir = inline_comments(_ir)
     _ir = cluster_comments(_ir)
     _ir = inline_labels(_ir)
+    _ir = combine_multiline_pragmas(_ir)
 
     return _ir
 
