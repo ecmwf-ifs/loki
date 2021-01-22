@@ -22,6 +22,7 @@ class DataOffloadTransformation(Transformation):
         # We need to record if we actually added any, so
         # that down-stream processing can use that info
         self.has_data_regions = False
+        self.remove_openmp = kwargs.get('remove_openmp', False)
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs.get('role')
@@ -32,7 +33,26 @@ class DataOffloadTransformation(Transformation):
             targets = tuple(t.lower() for t in targets)
 
         if role == 'driver':
+            self.remove_openmp_pragmas(routine, targets)
             self.insert_data_offload_pragmas(routine, targets)
+
+    def _is_active_loki_data_region(self, region, targets):
+        """
+        Utility to decide if a ``PragmaRegion`` is of type ``!$loki data``
+        and has active target routines.
+        """
+        if region.pragma.keyword.lower() != 'loki':
+            return False
+        if 'data' not in region.pragma.content.lower():
+            return False
+
+        # Find all targeted kernel calls
+        calls = FindNodes(CallStatement).visit(region)
+        calls = [c for c in calls if c.name.lower() in targets]
+        if len(calls) == 0:
+            return False
+
+        return True
 
     def insert_data_offload_pragmas(self, routine, targets):
         """
@@ -41,6 +61,10 @@ class DataOffloadTransformation(Transformation):
         pragma_map = {}
         with pragma_regions_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
+                # Only work on active `!$loki data` regions
+                if not self._is_active_loki_data_region(region, targets):
+                    continue
+
                 # Find all targeted kernel calls
                 calls = FindNodes(CallStatement).visit(region)
                 calls = [c for c in calls if c.name.lower() in targets]
@@ -51,7 +75,10 @@ class DataOffloadTransformation(Transformation):
 
                 for call in calls:
                     if not call.context:
-                        _unattached_call_warning('CLAWTransform', routine, call)
+                        warning('[Loki] Data offload: Routine {} not attached to call context in {}'.format(
+                            routine.name, call.name.lower()
+                        ))
+
                         continue
 
                     inargs = []
@@ -81,5 +108,28 @@ class DataOffloadTransformation(Transformation):
                 # Record that we actually created a new region
                 if not self.has_data_regions:
                     self.has_data_regions = True
+
+        routine.body = Transformer(pragma_map).visit(routine.body)
+
+    def remove_openmp_pragmas(self, routine, targets):
+        """
+        Remove any existing OpenMP pragmas in the offload regions that
+        will have been intended for OpenMP threading rather than
+        offload.
+        """
+        pragma_map = {}
+        with pragma_regions_attached(routine):
+            for region in FindNodes(PragmaRegion).visit(routine.body):
+                # Only work on active `!$loki data` regions
+                if not self._is_active_loki_data_region(region, targets):
+                    continue
+
+                for p in FindNodes(Pragma).visit(routine.body):
+                    if p.keyword.lower() == 'omp':
+                        pragma_map[p] = None
+                for r in FindNodes(PragmaRegion).visit(region):
+                    if r.pragma.keyword.lower() == 'omp':
+                        pragma_map[r.pragma] = None
+                        pragma_map[r.pragma_post] = None
 
         routine.body = Transformer(pragma_map).visit(routine.body)
