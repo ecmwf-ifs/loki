@@ -210,6 +210,9 @@ class Module:
 
         return None
 
+    def __iter__(self):
+        return iter(self.routines)
+
     def apply(self, op, **kwargs):
         """
         Apply a given transformation to the source file object.
