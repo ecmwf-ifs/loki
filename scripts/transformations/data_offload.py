@@ -6,7 +6,8 @@ offload region semantics (eg. OpenMP-5) in the future.
 """
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
-    CallStatement, Pragma, Array, as_tuple, Transformer, JoinableStringList
+    CallStatement, Pragma, Array, as_tuple, Transformer, JoinableStringList,
+    warning
 )
 
 
@@ -73,6 +74,10 @@ class DataOffloadTransformation(Transformation):
                     raise RuntimeError('[Loki] Data-offload: Cannot deal with multiple '
                                        'target calls in loki offload region.')
 
+                inargs = []
+                inoutargs = []
+                outargs = []
+
                 for call in calls:
                     if not call.context:
                         warning('[Loki] Data offload: Routine {} not attached to call context in {}'.format(
@@ -81,9 +86,6 @@ class DataOffloadTransformation(Transformation):
 
                         continue
 
-                    inargs = []
-                    inoutargs = []
-                    outargs = []
                     for param, arg in call.context.arg_iter(call):
                         if isinstance(param, Array) and param.type.intent.lower() == 'in':
                             inargs += [arg.name.lower()]
@@ -97,9 +99,9 @@ class DataOffloadTransformation(Transformation):
                     return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                copyin = '!$acc & copyin( ' + _pragma_string(inargs) + ')'
-                copy = '!$acc & copy( ' + _pragma_string(inoutargs) + ')'
-                copyout = '!$acc & copyout( ' + _pragma_string(outargs) + ')'
+                copyin = '!$acc & copyin(' + _pragma_string(inargs) + ')'
+                copy = '!$acc & copy(' + _pragma_string(inoutargs) + ')'
+                copyout = '!$acc & copyout(' + _pragma_string(outargs) + ')'
                 pragma = Pragma(keyword='acc', content='data &\n{} &\n{} &\n{}'.format(copyin, copy, copyout))
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
