@@ -244,7 +244,7 @@ class Sourcefile:
         return None
 
     def __iter__(self):
-        return iter(self.subroutines)
+        raise TypeError('Sourcefiles alone cannot be traversed! Try traversing "Sourcefile.subroutines".')
 
     def apply(self, op, **kwargs):
         """

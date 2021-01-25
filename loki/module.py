@@ -211,7 +211,7 @@ class Module:
         return None
 
     def __iter__(self):
-        return iter(self.routines)
+        raise TypeError('Modules alone cannot be traversed! Try traversing "Module.subroutines".')
 
     def apply(self, op, **kwargs):
         """
