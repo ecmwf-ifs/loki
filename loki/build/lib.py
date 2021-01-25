@@ -4,7 +4,7 @@ from tqdm import tqdm
 import networkx as nx
 
 from loki.logging import warning
-from loki.build.tools import as_tuple, find_paths
+from loki.tools import as_tuple, find_paths
 from loki.build.compiler import _default_compiler
 from loki.build.obj import Obj
 from loki.build.workqueue import workqueue, wait_and_check

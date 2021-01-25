@@ -1,4 +1,4 @@
-from loki.build.tools import flatten
+from loki.tools import flatten
 
 __all__ = ['Binary']
 

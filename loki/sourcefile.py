@@ -243,6 +243,16 @@ class Sourcefile:
 
         return None
 
+    def __iter__(self):
+        raise TypeError('Sourcefiles alone cannot be traversed! Try traversing "Sourcefile.subroutines".')
+
+    def __bool__(self):
+        """
+        Ensure existing objects register as True in boolean checks, despite
+        raising exceptions in `__iter__`.
+        """
+        return True
+
     def apply(self, op, **kwargs):
         """
         Apply a given transformation to the source file object.

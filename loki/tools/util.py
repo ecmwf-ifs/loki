@@ -3,13 +3,14 @@ import operator as op
 from functools import wraps
 from collections import OrderedDict
 from subprocess import run, PIPE, STDOUT, CalledProcessError
+from fastcache import clru_cache
 
 from loki.logging import log, debug, error, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'timeit',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
-           'binary_insertion_sort']
+           'binary_insertion_sort', 'cached_func']
 
 
 def as_tuple(item, type=None, length=None):
@@ -75,6 +76,20 @@ def flatten(l, is_leaf=None):
         else:
             newlist.append(el)
     return newlist
+
+
+def filter_ordered(elements, key=None):
+    """
+    Filter elements in a list while preserving order.
+
+    Partly extracted from: https://github.com/opesci/devito.
+
+    :param key: Optional conversion key used during equality comparison.
+    """
+    seen = set()
+    if key is None:
+        key = lambda x: x
+    return [e for e in elements if not (key(e) in seen or seen.add(key(e)))]
 
 
 def chunks(l, n):
@@ -290,3 +305,10 @@ def binary_insertion_sort(items, lt=op.lt):
         pos = binary_search(items, val, 0, i-1, lt=lt)
         items = items[:pos] + [val] + items[pos:i] + items[i+1:]
     return items
+
+
+def cached_func(func):
+    """
+    Decorator that memoizes (caches) the result of a function
+    """
+    return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)

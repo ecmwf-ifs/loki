@@ -3,7 +3,7 @@ from pathlib import Path
 from cached_property import cached_property
 
 from loki.logging import debug
-from loki.build.tools import cached_func
+from loki.tools import cached_func
 
 
 __all__ = ['Header']

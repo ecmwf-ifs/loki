@@ -3,8 +3,7 @@ from importlib import import_module
 import sys
 
 from loki.logging import info
-from loki.tools import execute
-from loki.build.tools import as_tuple, flatten, delete
+from loki.tools import execute, as_tuple, flatten, delete
 
 
 __all__ = ['clean', 'compile', 'compile_and_load',

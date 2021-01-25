@@ -3,8 +3,7 @@ from pathlib import Path
 from cached_property import cached_property
 
 from loki.logging import debug
-from loki.tools import execute
-from loki.build.tools import cached_func, as_tuple, flatten
+from loki.tools import execute, as_tuple, flatten, cached_func
 from loki.build.compiler import _default_compiler
 from loki.build.header import Header
 
