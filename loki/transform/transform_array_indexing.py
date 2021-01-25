@@ -1,23 +1,27 @@
 """
 Collection of utility routines to deal with common array indexing conversions.
 
-
 """
+from collections import defaultdict
 from itertools import count
+import operator as op
 
-from loki.expression import symbols as sym, FindVariables, SubstituteExpressions
-from loki.visitors import FindNodes
-from loki.ir import Assignment, Loop, Declaration
-from loki.types import SymbolType, BasicType
-from loki.visitors import Transformer
-from loki.tools import as_tuple
+from loki import info
 from loki.analyse import defined_symbols_attached
+from loki.expression import (
+    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
+)
+from loki.ir import Assignment, Loop, Declaration
+from loki.tools import as_tuple
+from loki.types import SymbolType, BasicType
+from loki.visitors import FindNodes, Transformer
 
 
 __all__ = [
     'shift_to_zero_indexing', 'invert_array_indices',
     'resolve_vector_notation', 'normalize_range_indexing',
-    'promote_variables'
+    'promote_variables', 'promote_nonmatching_variables',
+    'promotion_dimensions_from_loop_nest'
 ]
 
 
@@ -149,10 +153,8 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     """
     Promote the given variables by inserting new array dimensions of given size.
 
-    :param routine:
+    :param :class:``Subroutine`` routine:
             the subroutine to be modified.
-    :type routine:
-            :class:``Subroutine`` or :class:``ir.Node``
     :param list variable_names:
             the list of (case-insensitive) variable names to be promoted.
     :param int pos:
@@ -235,3 +237,82 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         var_map = {v: v.clone(type=v.type.clone(shape=shape), dimensions=shape)
                    for v, shape in zip(var_list, var_shapes)}
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+
+
+def promotion_dimensions_from_loop_nest(var_names, loops, promotion_vars_dims, promotion_vars_index):
+    """
+    Determine promotion dimensions corresponding to the iteration space of a loop nest.
+
+    :param list var_names:
+        the names of the variables to consider for promotion.
+    :param list loops:
+        the list of nested loops, sorted from outermost to innermost.
+    :param dict promotion_vars_dims:
+        the mapping of variable names to promotion dimensions. When determining
+        promotion dimensions for the variables in ``var_names`` this dict is
+        checked for already existing promotion dimensions and, if not matching,
+        the maximum of both is taken for each dimension.
+    :param dict promotion_vars_index:
+        the mapping of variable names to subscript expressions. These expressions
+        are later inserted for every variable use. When the indexing expression
+        for the loop nest does not match the existing expression in this dict,
+        a ``RuntimeError`` is raised.
+
+    :return: the updated mappings ``(promotion_vars_dims, promotion_vars_index)``.
+
+    """
+    # TODO: Would be nice to be able to promote this to the smallest possible dimension
+    #       (in a loop var=start,end this is (end-start+1) with subscript index (var-start+1))
+    #       but it requires being able to decide whether this yields a constant dimension,
+    #       thus we need to stick to the upper bound for the moment as this is constant
+    #       in our use cases.
+    loop_lengths = [simplify(loop.bounds.stop) for loop in reversed(loops)]
+    loop_index = [loop.variable for loop in reversed(loops)]
+
+    for var_name in var_names:
+        # Check if we have already marked this variable for promotion: let's make sure the added
+        # dimensions are large enough for this loop (nest)
+        if var_name not in promotion_vars_dims:
+            promotion_vars_dims[var_name] = loop_lengths
+            promotion_vars_index[var_name] = loop_index
+        else:
+            if len(promotion_vars_dims[var_name]) != len(loop_lengths):
+                raise RuntimeError('Conflicting promotion dimensions for "{}"'.format(var_name))
+            for i, (loop_length, index) in enumerate(zip(loop_lengths, loop_index)):
+                if index != promotion_vars_index[var_name][i]:
+                    raise RuntimeError('Loop variable "{}" does not match previous index "{}" for "{}"'.format(
+                        str(index), str(promotion_vars_index[var_name][i]), var_name))
+                if symbolic_op(promotion_vars_dims[var_name][i], op.lt, loop_length):
+                    promotion_vars_dims[var_name][i] = loop_length
+
+    return promotion_vars_dims, promotion_vars_index
+
+
+def promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index, pos=-1):
+    """
+    Promote multiple variables with potentially non-matching promotion
+    dimensions or index expressions.
+
+    :param :class:``Subroutine`` routine:
+        the subroutine to be modified.
+    :param dict promotion_vars_dims:
+        the mapping of variable names to promotion dimensions. The variables'
+        shapes are expanded by these at position ``pos``.
+    :param dict promotion_vars_index:
+        the mapping of variable names to subscript expressions to be used whenever
+        reading/writing the variable.
+
+    This is a convenience routine for using ``promote_variables`` that groups variables by
+    indexing expression and promotion dimensions to reduce the number of calls to
+    ``promote_variables``.
+
+    """
+    if not promotion_vars_dims:
+        return
+    # Group promotion variables by index and size to reduce number of traversals for promotion
+    index_size_var_map = defaultdict(list)
+    for var_name, size in promotion_vars_dims.items():
+        index_size_var_map[(as_tuple(promotion_vars_index[var_name]), as_tuple(size))] += [var_name]
+    for (index, size), var_names in index_size_var_map.items():
+        promote_variables(routine, var_names, pos, index=index, size=size)
+    info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))
