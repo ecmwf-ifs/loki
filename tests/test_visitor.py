@@ -38,7 +38,7 @@ end subroutine routine_find_nodes_greedy
     outer_cond = FindNodes(Conditional, greedy=True).visit(routine.body)
     assert len(outer_cond) == 1
     assert outer_cond[0] in conditionals
-    assert str(outer_cond[0].conditions[0]) == 'n > m'
+    assert str(outer_cond[0].condition) == 'n > m'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -73,13 +73,13 @@ end subroutine routine_find_nodes_greedy
     assert len(scopes[0]) == 4  # should have found 3 scopes and the node itself
     assert all(c in scopes[0] for c in conditionals)  # should have found all if
     assert routine.body is scopes[0][0]  # body section should be outermost scope
-    assert str(scopes[0][1].conditions[0]) == 'n > m'  # outer if should come first
+    assert str(scopes[0][1].condition) == 'n > m'  # outer if should come first
     assert inner is scopes[0][-1]  # node itself should be last in list
 
     scopes = FindScopes(outer).visit(routine.body)
     assert len(scopes) == 1  # returns a list containing a list of nested nodes
     assert len(scopes[0]) == 3  # should have found 2 scopes and the node itself
-    assert all(c in scopes[0] or str(c.conditions[0] == 'n == 3')
+    assert all(c in scopes[0] or str(c.condition == 'n == 3')
                for c in conditionals)  # should have found only the outer if
     assert routine.body is scopes[0][0]  # body section should be outermost scope
     assert outer is scopes[0][-1]  # node itself should be last in list
@@ -364,7 +364,7 @@ end subroutine routine_simple
     cast_root = FindExpressionRoot(casts[0]).visit(routine.body)
     assert len(cast_root) == 1
     cond = FindNodes(Conditional).visit(routine.body).pop()
-    assert cast_root[0] is cond.bodies[0][0].rhs
+    assert cast_root[0] is cond.body[0].rhs
 
     # Test ability to find root if searching for a leaf expression
     literals = ExpressionFinder(
@@ -484,83 +484,78 @@ MODULE some_mod
   END SUBROUTINE other_routine
 END MODULE some_mod
     """.strip()
-    ref = """
-<Module:: some_mod>
-#<Section::>
-##<Declaration:: n>
-##<Pragma:: loki dimension(klon)>
-##<Declaration:: arr(:)>
-#<Subroutine:: some_routine>
-##<Comment:: ! This is a b...>
-##<Section::>
-###<Intrinsic:: IMPLICIT NONE>
-###<Declaration:: x>
-###<Declaration:: y>
-###<Declaration:: i>
-##<Section::>
-###<Comment:: ! And now to ...>
-###<Conditional::>
-####<If x < 1E-8 and x > -1E-8>
-#####<Assignment:: x = 0.>
-####<ElseIf x > 0.>
-#####<WhileLoop:: x > 1.>
-######<Assignment:: x = x / 2.>
-####<Else>
-#####<Assignment:: x = -x>
-###<Assignment:: y = 0>
-###<Loop:: i=1:n>
-####<Assignment:: y = y + x*x>
-###<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 
-... 1. + 1.>
-#<Function:: my_sqrt>
-##<Section::>
-###<Intrinsic:: IMPLICIT NONE>
-###<Declaration:: arg>
-###<Declaration:: my_sqrt>
-##<Section::>
-###<Assignment:: my_sqrt = SQRT(arg)>
-#<Subroutine:: other_routine>
-##<CommentBlock:: ! This is jus...>
-##<Section::>
-###<Intrinsic:: IMPLICIT NONE>
-###<Declaration:: m>
-###<Declaration:: var(:)>
-##<Section::>
-###<Pragma:: loki some pragma>
-###<MultiConditional:: m>
-####<Case (0)>
-#####<Assignment:: m = 1>
-####<Case (1:10)>
-#####<Intrinsic:: PRINT *, '1 t...>
-####<Case (-1, -2)>
-#####<Assignment:: m = 10>
-####<Default>
-#####<Intrinsic:: PRINT *, 'Def...>
-###<Associate:: arr(m)=x>
-####<Assignment:: x = x*2.>
-###<Allocation:: var>
-###<Call:: some_routine>
-###<Assignment:: arr(:) = arr(:) + var(:)>
-###<Deallocation:: var>
-    """.strip()
+    ref_lines = [
+        "<Module:: some_mod>",  # l. 1
+        "#<Section::>",
+        "##<Declaration:: n>",
+        "##<Pragma:: loki dimension(klon)>",
+        "##<Declaration:: arr(:)>",
+        "#<Subroutine:: some_routine>",
+        "##<Comment:: ! This is a b...>",
+        "##<Section::>",
+        "###<Intrinsic:: IMPLICIT NONE>",
+        "###<Declaration:: x>",  # l. 10
+        "###<Declaration:: y>",
+        "###<Declaration:: i>",
+        "##<Section::>",
+        "###<Comment:: ! And now to ...>",
+        "###<Conditional::>",
+        "####<If x < 1E-8 and x > -1E-8>",
+        "#####<Assignment:: x = 0.>",
+        "####<Else>",
+        "#####<Conditional::>",
+        "######<If x > 0.>",  # l. 20
+        "#######<WhileLoop:: x > 1.>",
+        "########<Assignment:: x = x / 2.>",
+        "######<Else>",
+        "#######<Assignment:: x = -x>",
+        "###<Assignment:: y = 0>",
+        "###<Loop:: i=1:n>",
+        "####<Assignment:: y = y + x*x>",
+        "###<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ",
+        "... 1. + 1.>",
+        "#<Function:: my_sqrt>", # l. 30
+        "##<Section::>",
+        "###<Intrinsic:: IMPLICIT NONE>",
+        "###<Declaration:: arg>",
+        "###<Declaration:: my_sqrt>",
+        "##<Section::>",
+        "###<Assignment:: my_sqrt = SQRT(arg)>",
+        "#<Subroutine:: other_routine>",
+        "##<CommentBlock:: ! This is jus...>",
+        "##<Section::>",
+        "###<Intrinsic:: IMPLICIT NONE>",  # l. 40
+        "###<Declaration:: m>",
+        "###<Declaration:: var(:)>",
+        "##<Section::>",
+        "###<Pragma:: loki some pragma>",
+        "###<MultiConditional:: m>",
+        "####<Case (0)>",
+        "#####<Assignment:: m = 1>",
+        "####<Case (1:10)>",
+        "#####<Intrinsic:: PRINT *, '1 t...>",
+        "####<Case (-1, -2)>",  # l. 50
+        "#####<Assignment:: m = 10>",
+        "####<Default>",
+        "#####<Intrinsic:: PRINT *, 'Def...>",
+        "###<Associate:: arr(m)=x>",
+        "####<Assignment:: x = x*2.>",
+        "###<Allocation:: var>",
+        "###<Call:: some_routine>",
+        "###<Assignment:: arr(:) = arr(:) + var(:)>",
+        "###<Deallocation:: var>",
+    ]
 
     if frontend == OMNI:
-        ref_lines = ref.splitlines()
-        # Replace ElseIf branch by nested if
-        ref_lines = ref_lines[:17] + ['####<Else>', '#####<Conditional::>'] + ref_lines[17:]  # Insert Conditional
-        ref_lines[19] = ref_lines[19].replace('Else', '')  # ElseIf -> If
-        ref_lines[19:24] = ['##' + line for line in ref_lines[19:24]]  # -> Indent
         # Some string inconsistencies
         ref_lines[15] = ref_lines[15].replace('1E-8', '1e-8')
         ref_lines[25] = ref_lines[25].replace('1:n', '1:n:1')
         ref_lines[35] = ref_lines[35].replace('SQRT', 'sqrt')
         ref_lines[48] = ref_lines[48].replace('PRINT', 'print')
         ref_lines[52] = ref_lines[52].replace('PRINT', 'print')
-        ref = '\n'.join(ref_lines)
-        cont_index = 27
-    else:
-        cont_index = 25
 
+    cont_index = 27  # line number where line continuation is happening
+    ref = '\n'.join(ref_lines)
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test custom indentation

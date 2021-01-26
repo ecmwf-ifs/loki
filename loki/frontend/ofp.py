@@ -5,7 +5,7 @@ import re
 
 import open_fortran_parser
 
-from loki.frontend.source import extract_source
+from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
     inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP,
@@ -203,16 +203,42 @@ class OFP2IR(GenericVisitor):
                        label=label, name=construct_name, has_end_do=has_end_do, source=source)
 
     def visit_if(self, o, label=None, source=None):
-        conditions = tuple(self.visit(h) for h in o.findall('header'))
-        bodies = tuple([self.visit(b)] for b in o.findall('body'))
+        # process all conditions and bodies
+        conditions = [self.visit(h) for h in o.findall('header')]
+        bodies = [as_tuple(self.visit(b)) for b in o.findall('body')]
         ncond = len(conditions)
-        else_body = bodies[-1] if len(bodies) > ncond else None
-        inline = o.find('if-then-stmt') is None
-        construct_name = None if inline else o.find('if-then-stmt').attrib['id'] or None
-        if not inline:
-            label = self.get_label(o.find('if-then-stmt'))
-        return ir.Conditional(conditions=conditions, bodies=bodies[:ncond], else_body=else_body,
-                              inline=inline, label=label, name=construct_name, source=source)
+        if len(bodies) > ncond:
+            else_body = bodies[-1]
+            bodies = bodies[:-1]
+        else:
+            else_body = None
+        assert ncond == len(bodies)
+        # shortcut for inline conditionals
+        if o.find('if-then-stmt') is None:
+            assert ncond == 1 and else_body is None
+            return ir.Conditional(condition=conditions[0], body=bodies[0], else_body=(),
+                                  inline=True, has_elseif=False, label=label, source=source)
+        # extract labels, names and source
+        lend, cend = int(o.attrib['line_end']), int(o.attrib['col_end'])
+        names, labels, sources = [], [], []
+        for stmt in reversed(o.findall('else-if-stmt')):
+            names += [None]
+            labels += [self.get_label(stmt)]
+            lstart, cstart = int(stmt.attrib['line_begin']), int(stmt.attrib['col_begin'])
+            sources += [extract_source_from_range((lstart, lend), (cstart, cend), self._raw_source, label=labels[-1])]
+        names += [o.find('if-then-stmt').attrib['id'] or None]
+        labels += [self.get_label(o.find('if-then-stmt'))]
+        sources += [source]
+        # build IR nodes from inside out, using else-if branches as else bodies
+        conditions.reverse()
+        bodies.reverse()
+        node = ir.Conditional(condition=conditions[0], body=bodies[0], else_body=else_body,
+                              inline=False, has_elseif=False, label=label, name=names[0], source=sources[0])
+        for idx in range(1, ncond):
+            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=(node,),
+                                  inline=False, has_elseif=True, label=labels[idx], name=names[idx],
+                                  source=sources[idx])
+        return node
 
     def visit_select(self, o, label=None, source=None):
         expr = self.visit(o.find('header'))

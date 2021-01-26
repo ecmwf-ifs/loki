@@ -130,15 +130,13 @@ end subroutine routine_raw_source_cond
 
     # Check the conditionals
     cond_name_found = 0
-    cond_lines = ((4, 10), (11, 11))
-    conditions = {4: (4, 6, 8), 11: (11,)}
+    cond_lines = ((4, 10), (6, 10), (11, 11))
     for node in FindNodes(ir.Conditional).visit(routine.ir):
         assert node.source is not None
         assert node.source.lines in cond_lines
         # Make sure that conditionals have source information
-        assert all(cond.source.lines[0] == cond.source.lines[1] and
-                   cond.source.lines[0] in conditions[node.source.lines[0]]
-                   for cond in node.conditions)
+        assert node.condition.source.lines[0] == node.condition.source.lines[0]
+        assert node.condition.source.lines[0] == node.source.lines[0]
         # Verify that source string is subset of the relevant lines in the original source
         assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node.name:

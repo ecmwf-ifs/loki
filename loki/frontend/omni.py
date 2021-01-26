@@ -358,11 +358,13 @@ class OMNI2IR(GenericVisitor):
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_FifStatement(self, o, source=None):
-        conditions = [self.visit(c) for c in o.findall('condition')]
-        bodies = as_tuple([self.visit(o.find('then/body'))])
-        else_body = self.visit(o.find('else/body')) if o.find('else') is not None else None
-        return ir.Conditional(conditions=as_tuple(conditions),
-                              bodies=(bodies, ), else_body=else_body, source=source)
+        condition = self.visit(o.find('condition'))
+        body = as_tuple(self.visit(o.find('then/body')))
+        if o.find('else'):
+            else_body = as_tuple(self.visit(o.find('else/body')))
+        else:
+            else_body = ()
+        return ir.Conditional(condition=condition, body=body, else_body=else_body, source=source)
 
     def visit_FselectCaseStatement(self, o, source=None):
         expr = self.visit(o.find('value'))

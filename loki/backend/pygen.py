@@ -225,16 +225,20 @@ class PyCodegen(Stringifier):
         [else:]
           [...body...]
         """
-        conditions = self.visit_all(o.conditions, **kwargs)
-        conditions = [self.format_line(kw, ' ', cond, ':')
-                      for kw, cond in zip_longest(['if'], conditions, fillvalue='elif')]
-        if o.else_body:
-            conditions.append(self.format_line('else:'))
+        is_elseif = kwargs.pop('is_elseif', False)
+        keyword = 'elif' if is_elseif else 'if'
+        header = self.format_line(keyword, ' ', self.visit(o.condition, **kwargs), ':')
         self.depth += 1
-        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
-        branches = [item for branch in zip(conditions, bodies) for item in branch]
-        return self.join_lines(*branches)
+        body = self.visit(o.body, **kwargs)
+        if o.has_elseif:
+            self.depth -= 1
+            else_body = [self.visit(o.else_body, is_elseif=True, **kwargs)]
+        else:
+            else_body = [self.visit(o.else_body, **kwargs)]
+            self.depth -= 1
+            if o.else_body:
+                else_body = [self.format_line('else:')] + else_body
+        return self.join_lines(header, body, *else_body)
 
     def visit_Assignment(self, o, **kwargs):
         """
