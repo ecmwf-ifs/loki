@@ -12,6 +12,7 @@ from loki import (
     warning
 )
 
+
 __all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
 
 
@@ -228,9 +229,13 @@ class CLAWTransformation(ExtractSCATransformation):
     Transformation to extract SCA Fortran and apply the necessary CLAW annotations.
 
     Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
+
+    :param claw_data_offload: Flag triggering the insert of CLAW data offload regions
+                              (via OpenACC ``create`` and ``update`` pragmas).
     """
 
     def __init__(self, **kwargs):
+        self.claw_data_offload = kwargs.pop('claw_data_offload', True)
         super().__init__(**kwargs)
 
         # We need to keep track of the depth of items in the tree
@@ -318,6 +323,10 @@ class CLAWTransformation(ExtractSCATransformation):
         if role == 'driver':
             # Insert loop pragmas in driver (in-place)
             for loop in FindNodes(Loop).visit(routine.body):
+                claw_keywords = 'sca forward'
+                if self.claw_data_offload:
+                    claw_keywords += ' create update'
+
                 if loop.variable == self.dimension.variable:
-                    pragma = Pragma(keyword='claw', content='sca forward create update')
+                    pragma = Pragma(keyword='claw', content=claw_keywords)
                     loop._update(pragma=pragma)

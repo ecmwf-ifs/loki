@@ -398,7 +398,7 @@ class Subroutine:
         """
         routine_map = {r.name.upper(): r for r in as_tuple(routines)}
 
-        with pragmas_attached(self, CallStatement):
+        with pragmas_attached(self, CallStatement, attach_pragma_post=False):
             for call in FindNodes(CallStatement).visit(self.body):
                 if call.name.upper() in routine_map:
                     # Calls marked as 'reference' are inactive and thus skipped

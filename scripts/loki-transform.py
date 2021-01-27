@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
 from transformations import Dimension, ExtractSCATransformation, CLAWTransformation
+from transformations import DataOffloadTransformation
 
 
 """
@@ -51,18 +52,6 @@ cloudsc_config = {
         }
     ]
 }
-
-
-def remove_omp_do(routine):
-    """
-    Utility routine that strips existing !$opm do pragmas from driver code.
-    """
-    mapper = {}
-    for p in FindNodes(Pragma).visit(routine.body):
-        if p.keyword.lower() == 'omp':
-            if p.content.startswith('do') or p.content.startswith('end do'):
-                mapper[p] = None
-    routine.body = Transformer(mapper).visit(routine.body)
 
 
 @click.group()
@@ -173,8 +162,8 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
               help='Additional path for header files, specifically for OMNI')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
-@click.option('--strip-omp-do', is_flag=True, default=False,
-              help='Removes existing !$omp do loop pragmas')
+@click.option('--remove-openmp', is_flag=True, default=False,
+              help='Removes existing OpenMP pragmas in "!$loki data" regions')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
@@ -182,7 +171,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
 def convert(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-            strip_omp_do, mode, frontend, config):
+            remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -207,6 +196,12 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
+    use_claw_offload = False
+    if mode == 'claw':
+        offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
+        scheduler.process(transformation=offload_transform)
+        use_claw_offload = not offload_transform.has_data_regions
+
     # Define the target dimension to strip from kernel and caller
     horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
                            variable='JL', iteration=('KIDIA', 'KFDIA'))
@@ -215,13 +210,10 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     if mode == 'sca':
         sca_transform = ExtractSCATransformation(dimension=horizontal)
     elif mode == 'claw':
-        sca_transform = CLAWTransformation(dimension=horizontal)
+        sca_transform = CLAWTransformation(
+            dimension=horizontal, claw_data_offload=use_claw_offload
+        )
     scheduler.process(transformation=sca_transform)
-
-    # Hacky way to strip OpenMP annotations from driver loop
-    if strip_omp_do:
-        driver = scheduler.item_map['cloudsc_driver'].routine
-        remove_omp_do(driver)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
