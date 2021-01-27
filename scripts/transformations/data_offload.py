@@ -1,9 +1,3 @@
-"""
-Utility transformation to insert data offload regions for GPU devices
-based on marked ``!$loki data`` regions. In the first instance this
-will insert OpenACC data offload regions, but can be extended to other
-offload region semantics (eg. OpenMP-5) in the future.
-"""
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
     CallStatement, Pragma, Array, as_tuple, Transformer, JoinableStringList,
@@ -16,7 +10,15 @@ __all__ = ['DataOffloadTransformation']
 
 class DataOffloadTransformation(Transformation):
     """
-    Find `!$loki data` pragma regions and create according `!$acc udpdate` regions.
+    Utility transformation to insert data offload regions for GPU devices
+    based on marked ``!$loki data`` regions. In the first instance this
+    will insert OpenACC data offload regions, but can be extended to other
+    offload region semantics (eg. OpenMP-5) in the future.
+
+    Parameters
+    ----------
+    remove_openmp : bool
+        Remove any existing OpenMP pragmas inside the marked region.
     """
 
     def __init__(self, **kwargs):
@@ -26,9 +28,23 @@ class DataOffloadTransformation(Transformation):
         self.remove_openmp = kwargs.get('remove_openmp', False)
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply the transformation to a `Subroutine` object.
+
+        Parameters
+        ----------
+        routine : `Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the `routine` in the scheduler call tree.
+            This transformation will only apply at the ``'driver'`` level.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
         role = kwargs.get('role')
         targets = as_tuple(kwargs.get('targets', None))
-        has_data_regions = False
+        self.has_data_regions = False
 
         if targets:
             targets = tuple(t.lower() for t in targets)
@@ -37,7 +53,8 @@ class DataOffloadTransformation(Transformation):
             self.remove_openmp_pragmas(routine, targets)
             self.insert_data_offload_pragmas(routine, targets)
 
-    def _is_active_loki_data_region(self, region, targets):
+    @staticmethod
+    def _is_active_loki_data_region(region, targets):
         """
         Utility to decide if a ``PragmaRegion`` is of type ``!$loki data``
         and has active target routines.
@@ -57,7 +74,16 @@ class DataOffloadTransformation(Transformation):
 
     def insert_data_offload_pragmas(self, routine, targets):
         """
-        Find `!$loki data` pragma regions and create according `!$acc udpdate` regions.
+        Find ``!$loki data`` pragma regions and create according
+        ``!$acc udpdate`` regions.
+
+        Parameters
+        ----------
+        routine : `Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
         """
         pragma_map = {}
         with pragma_regions_attached(routine):
@@ -118,6 +144,14 @@ class DataOffloadTransformation(Transformation):
         Remove any existing OpenMP pragmas in the offload regions that
         will have been intended for OpenMP threading rather than
         offload.
+
+        Parameters
+        ----------
+        routine : `Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
         """
         pragma_map = {}
         with pragma_regions_attached(routine):
