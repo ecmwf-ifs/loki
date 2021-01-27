@@ -4,7 +4,8 @@ import os
 import io
 
 from loki import (
-    Sourcefile, Module, Subroutine, fgen, OFP, OMNI, compile_and_load, FindNodes, CallStatement)
+    Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement
+)
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
 

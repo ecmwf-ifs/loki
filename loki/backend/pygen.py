@@ -1,4 +1,3 @@
-from itertools import zip_longest
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
 from loki.expression import symbols as sym, LokiStringifyMapper
@@ -267,7 +266,7 @@ class PyCodegen(Stringifier):
         kw_args = ['{}={}'.format(kw, self.visit(arg, **kwargs)) for kw, arg in o.kwarguments]
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
-    def visit_SymbolType(self, o, **kwargs):
+    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
         return numpy_type(o)
 
 
