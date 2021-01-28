@@ -73,8 +73,27 @@ html_theme = 'sphinxawesome_theme'
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+html_theme_options = {
+    "nav_include_hidden": True,
+    "show_nav": True,
+    "show_breadcrumbs": True,
+    "breadcrumbs_separator": "/",
+    "show_prev_next": False,
+}
+
+html_collapsible_definitions = True
+
 
 # -- Options for todo extension ----------------------------------------------
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = True
+
+
+# -- Options for autodoc extension -------------------------------------------
+
+autodoc_default_options = {
+    'members': True,  # include members in the documentation
+    'member-order': 'bysource',  # members in the order they appear in source
+    'show-inheritance': True,  # list base classes
+}
