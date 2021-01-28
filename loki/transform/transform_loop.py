@@ -644,7 +644,7 @@ class FissionTransformer(NestedMaskedTransformer):
         if o not in self.loop_pragmas:
             # loops that are not marked for fission can be handled as
             # in the regular NestedMaskedTransformer
-            return super().visit_Loop(o, **kwargs)
+            return super().visit_InternalNode(o, **kwargs)
 
         if not (self.active or self.start):
             # this happens if we encounter a loop marked for fission while
