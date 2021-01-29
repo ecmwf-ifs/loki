@@ -44,7 +44,6 @@ class DataOffloadTransformation(Transformation):
         """
         role = kwargs.get('role')
         targets = as_tuple(kwargs.get('targets', None))
-        self.has_data_regions = False
 
         if targets:
             targets = tuple(t.lower() for t in targets)
