@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, FindNodes, Loop, Pragma,
-    Frontend, flatten, Dimension
+    Sourcefile, Transformation, Scheduler, SchedulerConfig, FindNodes,
+    Loop, Pragma, Frontend, flatten, Dimension
 )
 
 # Get generalized transformations provided by Loki
@@ -102,7 +102,9 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
     if config is None:
-        config = cloudsc_config
+        config = SchedulerConfig.from_dict(cloudsc_config)
+    else:
+        config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -113,7 +115,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
-    scheduler.populate(routines=[r['name'] for r in config['routine']])
+    scheduler.populate(routines=config.routines.keys())
 
     class IdemTransformation(Transformation):
         """
@@ -186,7 +188,9 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     for further downstream transformations.
     """
     if config is None:
-        config = cloudsc_config
+        config = SchedulerConfig.from_dict(cloudsc_config)
+    else:
+        config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -197,7 +201,7 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
-    scheduler.populate(routines=[r['name'] for r in config['routine']])
+    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())

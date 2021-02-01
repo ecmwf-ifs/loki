@@ -11,7 +11,7 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import info, warning, error, debug
 
 
-__all__ = ['Item', 'Scheduler']
+__all__ = ['Item', 'Scheduler', 'SchedulerConfig']
 
 
 class SchedulerConfig:
