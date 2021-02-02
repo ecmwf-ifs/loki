@@ -50,18 +50,17 @@ cloudsc_config = {
             'role': 'driver',
             'expand': True,
         }
+    ],
+    'dimension': [
+        {
+            'name': 'horizontal',
+            'size': 'KLON',
+            'index': 'JL',
+            'bounds': ('KIDIA', 'KFDIA'),
+            'aliases': ['NPROMA', 'KDIM%KLON'],
+        }
     ]
 }
-
-
-"""
-Define the horizontal dimension used in the CLOUDSC demonstrator
-dwarf in terms of expression strings. These expressions are then
-used to extract SCA-format code for Loki-CLAW transformations.
-"""
-horizontal = Dimension(name='horizontal', size='KLON', index='JL',
-                       bounds=('KIDIA', 'KFDIA'),
-                       aliases=['NPROMA', 'KDIM%KLON'])
 
 
 @click.group()
@@ -116,6 +115,9 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
     scheduler.populate(routines=config.routines.keys())
+
+    # Fetch the dimension definitions from the config
+    horizontal = scheduler.config.dimensions['horizontal']
 
     class IdemTransformation(Transformation):
         """
@@ -205,6 +207,9 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
+
+    # Fetch the dimension definitions from the config
+    horizontal = scheduler.config.dimensions['horizontal']
 
     use_claw_offload = False
     if mode == 'claw':
