@@ -27,11 +27,12 @@ venv_path=
 with_jdk=false
 with_ant=false
 with_claw=false
+claw_install_env=""
 with_max=false
 
 # Helper functions
 print_usage() {
-  echo "Usage: $0 [-v] [--ecmwf] [--proxy-certificate] [--jdk-certificate] [--use-venv[=]<path>] [--with-*]" >&2
+  echo "Usage: $0 [-v] [--ecmwf] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]" >&2
 }
 
 print_step() {
@@ -51,9 +52,22 @@ while getopts "$optspec" optchar; do
           proxy_certificate=$(realpath "${!OPTIND}")
           OPTIND=$(( OPTIND + 1 ))
           ;;
+        proxy-certificate=*)
+          proxy_certificate=$(realpath "${!OPTARG#*=}")
+          ;;
         jdk-certificate)
           jdk_certificate=$(realpath "${!OPTIND}")
           OPTIND=$(( OPTIND + 1 ))
+          ;;
+        jdk-certificate=*)
+          jdk_certificate=$(realpath "${!OPTARG#*=}")
+          ;;
+        claw-install-env)    # Provide custom environment variables for CLAW build
+          claw_install_env="${!OPTIND}"
+          OPTIND=$(( OPTIND + 1 ))
+          ;;
+        claw-install-env=*)  # Provide custom environment variables for CLAW build
+          claw_install_env="${!OPTARG#*=}"
           ;;
         ecmwf)       # Load ECMWF workstation specific modules and settings
           is_ecmwf=true
@@ -94,13 +108,14 @@ while getopts "$optspec" optchar; do
       echo "  -h                           Display this help message"
       echo "  -v                           Enable verbose output"
       echo "  --ecmwf                      Load ECMWF workstation specific modules and settings"
-      echo "  --proxy-certificate[=]<path> Install using https proxy"
-      echo "  --jdk-certificate[=]<path>   Install using https proxy"
+      echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads"
+      echo "  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime"
       echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
       echo "  --with-jdk                   Install JDK instead of using system version"
       echo "  --with-ant                   Install ant instead of using system version"
       echo "  --with-claw                  Install CLAW and OMNI Compiler"
       echo "  --with-max                   Enable experimental use of Maxeler simulator (requires --ecmwf)"
+      echo "  --claw-install-env           Specify environmental variables for CLAW build and install"
       exit 2
       ;;
     v)
@@ -215,8 +230,8 @@ if [ "$with_jdk" == true ]; then
   if [ "x$jdk_certificate" != "x" ]; then
     f1=$jdk_certificate
     f2=${JAVA_HOME}/lib/security/cacerts
-    mv $f2 $f2.bak
-    cp $f1 $f2
+    mv "$f2" "$f2.bak"
+    cp "$f1" "$f2"
   fi
 fi
 
@@ -264,8 +279,7 @@ if [ "$with_claw" == true ]; then
   git clone --recursive https://github.com/claw-project/claw-compiler.git claw-compiler
   cd claw-compiler
 
-  # C99 is required
-  CFLAGS="-std=c99" cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+  ${claw_install_env} cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
   make
   make install
 fi
@@ -292,7 +306,7 @@ perl -e '
   my $code = do { local $/ = undef; my $fh = "FileHandle"->new ("<$py"); <$fh> };
 
   "FileHandle"->new (">$py")->print (<< "EOF");
-import ssl 
+import ssl
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
