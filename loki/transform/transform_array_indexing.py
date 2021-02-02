@@ -7,7 +7,7 @@ from itertools import count
 import operator as op
 
 from loki import info
-from loki.analyse import defined_symbols_attached
+from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
 )
@@ -185,14 +185,14 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     # Insert new index dimension
     if index is not None:
         index = as_tuple(index)
-        index_vars = [{var.name.lower() for var in FindVariables().visit(i)} for i in index]
+        index_vars = [set(FindVariables().visit(i)) for i in index]
 
         # Create a copy of the tree and apply promotion in-place
         routine.body = Transformer().visit(routine.body)
 
-        with defined_symbols_attached(routine):
+        with dataflow_analysis_attached(routine):
             for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
-
+                # All the variables marked for promotion that appear in this IR node
                 var_list = [v for v in var_list if v.name.lower() in variable_names]
 
                 if not var_list:
@@ -200,7 +200,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
 
                 # We use the given index expression in this node if all
                 # variables therein are defined, otherwise we use `:`
-                node_index = tuple(i if v <= node.defined_symbols else sym.RangeIndex((None, None))
+                node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
                                    for i, v in zip(index, index_vars))
 
                 var_map = {}

@@ -162,19 +162,51 @@ class Node:
         return pprint(self)
 
     @property
-    def defined_symbols(self):
+    def live_symbols(self):
         """
-        Yield the list of symbol names defined at this node.
+        Yield the list of live symbols at this node, i.e., variables that
+        have been defined (potentially) prior to this point in the control flow
+        graph.
 
         This property is attached to the Node by
-        :py:func:`loki.analyse.analyse_dataflow.attach_defined_symbols` or
+        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
         when using the
-        :py:func:`loki.analyse.analyse_dataflow.defined_symbols_attached`
+        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
         context manager.
         """
-        if not hasattr(self, '_defined_symbols'):
-            raise RuntimeError('Need to run "defined_symbols" for the IR first.')
-        return self._defined_symbols
+        if not hasattr(self, '_live_symbols'):
+            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        return self._live_symbols
+
+    @property
+    def defines_symbols(self):
+        """
+        Yield the list of symbols (potentially) defined by this node.
+
+        This property is attached to the Node by
+        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
+        when using the
+        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
+        context manager.
+        """
+        if not hasattr(self, '_defines_symbols'):
+            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        return self._defines_symbols
+
+    @property
+    def uses_symbols(self):
+        """
+        Yield the list of symbols used by this node before defining it.
+
+        This property is attached to the Node by
+        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
+        when using the
+        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
+        context manager.
+        """
+        if not hasattr(self, '_uses_symbols'):
+            raise RuntimeError('Need to run dataflow analysis on the IR first.')
+        return self._uses_symbols
 
 
 class InternalNode(Node):

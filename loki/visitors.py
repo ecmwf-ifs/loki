@@ -376,11 +376,12 @@ class NestedMaskedTransformer(MaskedTransformer):
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
 
-        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+        rebuilt = [self.visit(i, **kwargs) for i in o.children]
+        body_index = o._traversable.index('body')
+        rebuilt[body_index] = flatten(rebuilt[body_index])
 
         # check if body still exists, otherwise delete this node
-        body_index = o._traversable.index('body')
-        if not flatten(rebuilt[body_index]):
+        if not rebuilt[body_index]:
             return None
         return self._rebuild(o, rebuilt)
 
@@ -388,11 +389,11 @@ class NestedMaskedTransformer(MaskedTransformer):
         if o in self.mapper:
             return super().visit(o, **kwargs)
 
-        condition = self.visit(o.condition)
-        body = self.visit(o.body)
-        else_body = self.visit(o.else_body)
+        condition = self.visit(o.condition, **kwargs)
+        body = flatten(as_tuple(self.visit(o.body, **kwargs)))
+        else_body = flatten(as_tuple(self.visit(o.else_body, **kwargs)))
 
-        if not flatten(as_tuple(body)):
+        if not body:
             return else_body
 
         has_elseif = o.has_elseif and isinstance(else_body[0], Conditional)
