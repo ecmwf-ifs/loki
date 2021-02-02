@@ -31,7 +31,7 @@ class StateDump:
 
     # Numpy data type to allocate arrays
     _alloctype = {
-        'int32': np.int32, 'float64': np.float64, 'logical': np.bool
+        'int32': np.int32, 'float64': np.float64, 'logical': bool
     }
 
     @staticmethod
