@@ -1076,6 +1076,16 @@ class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
 
     mapper_method = intern('map_range')
 
+    def __hash__(self):
+        """ Need custom hashing function if we sepcialise __eq__ """
+        return hash(super().__str__().lower().replace(' ', ''))
+
+    def __eq__(self, other):
+        """ Specialization to capture `a(1:n) == a(n)` """
+        if self.children[0] == 1 and self.children[2] is None:
+            return self.children[1] == other or super().__eq__(other)
+        return super().__eq__(other)
+
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
