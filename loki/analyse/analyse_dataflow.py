@@ -5,7 +5,7 @@ Collection of dataflow analysis schema routines.
 from contextlib import contextmanager
 from loki.expression import FindVariables
 from loki.visitors import Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten
 
 
 __all__ = [
@@ -43,7 +43,7 @@ class DataflowAnalysisAttacher(Transformer):
         if uses is None:
             uses = set()
         visited = []
-        for i in body:
+        for i in flatten(body):
             visited += [self.visit(i, live_symbols=live|defines, **kwargs)]
             uses |= visited[-1].uses_symbols.copy() - defines
             defines |= visited[-1].defines_symbols.copy()

@@ -378,7 +378,9 @@ class NestedMaskedTransformer(MaskedTransformer):
 
         rebuilt = [self.visit(i, **kwargs) for i in o.children]
         body_index = o._traversable.index('body')
-        rebuilt[body_index] = flatten(rebuilt[body_index])
+
+        if rebuilt[body_index]:
+            rebuilt[body_index] = flatten(rebuilt[body_index])
 
         # check if body still exists, otherwise delete this node
         if not rebuilt[body_index]:
@@ -396,7 +398,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         if not body:
             return else_body
 
-        has_elseif = o.has_elseif and isinstance(else_body[0], Conditional)
+        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):

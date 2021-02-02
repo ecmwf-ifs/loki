@@ -12,7 +12,7 @@ def numpy_type(_type):
     if _type.shape is not None:
         return 'np.ndarray'
     if _type.dtype == BasicType.LOGICAL:
-        return 'np.bool'
+        return 'bool'
     if _type.dtype == BasicType.INTEGER:
         return 'np.int32'
     if _type.dtype == BasicType.REAL:
