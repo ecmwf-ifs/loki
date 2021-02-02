@@ -455,3 +455,76 @@ end subroutine transform_region_to_call_multiple
 
     clean_test(filepath)
     clean_test(mod_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_region_to_call_arguments(here, frontend):
+    """
+    Test hoisting with multiple groups and multiple regions per group
+    and automatic derivation of arguments
+    """
+    fcode = """
+subroutine transform_region_to_call_arguments(a, b, c)
+  integer, intent(out) :: a, b, c
+
+  a = 1
+  a = a + 1
+  a = a + 1
+!$loki region-to-call name(func_a)
+  a = a + 1
+!$loki end region-to-call
+  a = a + 1
+
+!$loki region-to-call name(func_b)
+  b = a
+!$loki end region-to-call
+
+! partially override arguments
+!$loki region-to-call name(func_c) inout(b)
+  c = a + b
+!$loki end region-to-call
+end subroutine transform_region_to_call_arguments
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    a, b, c = function()
+    assert a == 5 and b == 5 and c == 10
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 7
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+
+    # Apply transformation
+    routines = region_to_call(routine)
+    assert len(routines) == 3
+    assert [r.name for r in routines] == ['func_a', 'func_b', 'func_c']
+
+    assert len(routines[0].arguments) == 1
+    assert routines[0].arguments[0] == 'a' and routines[0].arguments[0].type.intent == 'inout'
+
+    assert {str(a) for a in routines[1].arguments} == {'a', 'b'}
+    assert routines[1].variable_map['a'].type.intent == 'in'
+    assert routines[1].variable_map['b'].type.intent == 'out'
+
+    assert {str(a) for a in routines[2].arguments} == {'a', 'b', 'c'}
+    assert routines[2].variable_map['a'].type.intent == 'in'
+    assert routines[2].variable_map['b'].type.intent == 'inout'
+    assert routines[2].variable_map['c'].type.intent == 'out'
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+
+    # Test transformation
+    module = Module(name='{}_mod'.format(routine.name), spec=(), routines=[*routines, routine])
+    mod_filepath = here/('%s_converted_%s.f90' % (module.name, frontend))
+    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
+    mod_function = getattr(mod, routine.name)
+
+    a, b, c = mod_function()
+    assert a == 5 and b == 5 and c == 10
+
+    clean_test(filepath)
+    clean_test(mod_filepath)
