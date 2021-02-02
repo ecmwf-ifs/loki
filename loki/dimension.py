@@ -1,51 +1,79 @@
-"""
-Utility class to manage variables pertaining to a conceptual array dimension.
-"""
-
+from loki.tools import as_tuple
 
 __all__ = ['Dimension']
 
 
 class Dimension:
     """
-    Dimension that defines a one-dimensional iteration space.
+    Dimension object that defines a one-dimensional data and iteration space.
 
-    :param name: Name of the dimension, as used in data array declarations
-    :param variable: Name of the iteration variable used in loops in this
-                     dimension.
-    :param iteration: Tuple defining the start/end variable names or values for
-                      loops in this dimension.
+    Parameters
+    ----------
+    name : string
+        Name of the dimension to identify in configurations
+    index : string
+        String representation of the predominant loop index variable
+        associated with this dimension.
+    size : string
+        String representation of the predominant size variable used
+        to declare array shapes using this dimension.
+    bounds : tuple of strings
+        String representation of the variables usually used to denote
+        the iteration bounds of this dimension.
+    aliases : list or tuple of strings
+        String representations of alternative size variables that are
+        used to define arrays shapes of this dimension (eg. alternative
+        names used in "driver" subroutines).
     """
 
-    def __init__(self, name=None, aliases=None, variable=None, iteration=None):
+    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None):
         self.name = name
-        self.aliases = aliases
-        self.variable = variable
-        self.iteration = iteration
+        self._index = index
+        self._bounds = bounds
+        self._size = size
+        self._aliases = aliases
 
     @property
     def variables(self):
-        return (self.name, self.variable) + self.iteration
+        return (self.index, self.size) + self.bounds
+
+    @property
+    def size(self):
+        """
+        String that matches the size expression of a data space (variable allocation).
+        """
+        return self._size
+
+    @property
+    def index(self):
+        """
+        String that matches the primary index expression of an iteration space (loop).
+        """
+        return self._index
+
+    @property
+    def bounds(self):
+        """
+        Tuple of expression string that represent the bounds of an iteration space.
+        """
+        return self._bounds
+
+    @property
+    def range(self):
+        """
+        String that matches the range expression of an iteration space (loop).
+        """
+        return '{}:{}'.format(self._bounds[0], self._bounds[1])
 
     @property
     def size_expressions(self):
         """
-        Return a list of expression strings all signifying "dimension size".
-        """
-        iteration = ['%s - %s + 1' % (self.iteration[1], self.iteration[0])]
-        # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
-        iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
-        iteration += ['1:%s' % self.name]
-        iteration += ['1:%s' % alias for alias in self.aliases]
-        return [self.name] + self.aliases + iteration
+        A list of all expression strings representing the size of a data space.
 
-    @property
-    def index_expressions(self):
+        This includes generic aliases, like ``end - start + 1`` or ``1:size`` ranges.
         """
-        Return a list of expression strings all signifying potential
-        dimension indices, including range accesses like `START:END`.
-        """
-        i_range = ['%s:%s' % (self.iteration[0], self.iteration[1])]
-        # A somewhat strange expression used in VMASS bracnhes
-        i_range += ['%s-%s+1' % (self.variable, self.iteration[0])]
-        return [self.variable] + i_range
+        exprs = as_tuple(self.size)
+        exprs += as_tuple(self._aliases)
+        exprs += ('1:{}'.format(self.size), )
+        exprs += ('{} - {} + 1'.format(self._bounds[1], self._bounds[0]), )
+        return exprs
