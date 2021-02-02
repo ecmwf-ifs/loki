@@ -2,17 +2,17 @@ import pytest
 import sys
 from pathlib import Path
 
-from loki import OFP, OMNI, FP, Sourcefile
+from loki import OFP, OMNI, FP, Sourcefile, Dimension
 
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # pylint: disable=wrong-import-position,wrong-import-order
-from transformations import Dimension, ExtractSCATransformation
+from transformations import ExtractSCATransformation
 
 
 @pytest.fixture(scope='module', name='dimension')
 def fixture_dimension():
-    return Dimension(name='horizontal', variable='jl', iteration=('jstart', 'jend'))
+    return Dimension(name='horizontal', index='jl', bounds=('jstart', 'jend'))
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -44,7 +44,7 @@ def test_extract_sca_horizontal(frontend):
   END SUBROUTINE compute_column
 """
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
+    dimension = Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel')
 
@@ -90,7 +90,7 @@ def test_extract_sca_iteration(frontend):
   END SUBROUTINE compute_column
 """
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
+    dimension = Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel')
 
@@ -150,7 +150,7 @@ def test_extract_sca_nested_level_zero(frontend):
     source['compute_column'].enrich_calls(routines=level_zero.all_subroutines)
 
     # Apply single-column extraction trasnformation in topological order
-    dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
+    dimension = Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel', targets=['compute_utility'])
     level_zero.apply(sca_transform, role='kernel')
@@ -212,7 +212,7 @@ def test_extract_sca_nested_level_one(frontend):
     source['compute_column'].enrich_calls(routines=level_one.all_subroutines)
 
     # Apply single-column extraction trasnformation in topological order
-    dimension = Dimension(name='nlon', variable='jl', iteration=('jstart', 'jend'), aliases=[])
+    dimension = Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
     sca_transform = ExtractSCATransformation(dimension=dimension)
     source.apply(sca_transform, role='kernel', targets=['compute_utility'])
     level_one.apply(sca_transform, role='kernel')

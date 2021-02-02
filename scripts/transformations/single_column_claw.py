@@ -51,7 +51,7 @@ class ExtractSCATransformation(Transformation):
         # Remove all loops over the target dimensions
         loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
-            if loop.variable == target.variable:
+            if loop.variable == target.index:
                 loop_map[loop] = loop.body
 
         routine.body = Transformer(loop_map).visit(routine.body)
@@ -133,7 +133,7 @@ class ExtractSCATransformation(Transformation):
                     # Remove target dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
-                        new_dims = tuple(Variable(name=target.variable, scope=caller.scope)
+                        new_dims = tuple(Variable(name=target.index, scope=caller.scope)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -148,9 +148,9 @@ class ExtractSCATransformation(Transformation):
                 dim_lower = None
                 dim_upper = None
                 for arg, val in call.context.arg_iter(call):
-                    if arg == target.iteration[0]:
+                    if arg == target.bounds[0]:
                         dim_lower = val
-                    if arg == target.iteration[1]:
+                    if arg == target.bounds[1]:
                         dim_upper = val
 
                 # Remove call-side arguments (in-place)
@@ -162,7 +162,7 @@ class ExtractSCATransformation(Transformation):
 
                 # Create and insert new loop over target dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable, scope=caller.scope),
+                    loop = Loop(variable=Variable(name=target.index, scope=caller.scope),
                                 bounds=LoopRange((dim_lower, dim_upper, None)),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -172,10 +172,10 @@ class ExtractSCATransformation(Transformation):
         caller.body = Transformer(replacements).visit(caller.body)
 
         # Finally, we add the declaration of the loop variable
-        if wrap and target.variable not in [str(v) for v in caller.variables]:
+        if wrap and target.index not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(BasicType.INTEGER, kind='JPIM')
-            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.scope),)
+            caller.variables += (Variable(name=target.index, type=dtype, scope=caller.scope),)
 
 
 class CLAWTransformation(ExtractSCATransformation):
@@ -228,17 +228,17 @@ class CLAWTransformation(ExtractSCATransformation):
                 # that mimic dimension variables in the kernel
                 assignments = []
                 for arg, val in call.context.arg_iter(call):
-                    if arg == self.dimension.name and not arg.name in routine.variables:
+                    if arg == self.dimension.size and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
-                    if arg == self.dimension.iteration[0] and not arg.name in routine.variables:
+                    if arg == self.dimension.bounds[0] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
-                    if arg == self.dimension.iteration[1] and not arg.name in routine.variables:
+                    if arg == self.dimension.bounds[1] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
@@ -281,6 +281,6 @@ class CLAWTransformation(ExtractSCATransformation):
                 if self.claw_data_offload:
                     claw_keywords += ' create update'
 
-                if loop.variable == self.dimension.variable:
+                if loop.variable == self.dimension.index:
                     pragma = Pragma(keyword='claw', content=claw_keywords)
                     loop._update(pragma=pragma)
