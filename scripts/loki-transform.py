@@ -54,6 +54,16 @@ cloudsc_config = {
 }
 
 
+"""
+Define the horizontal dimension used in the CLOUDSC demonstrator
+dwarf in terms of expression strings. These expressions are then
+used to extract SCA-format code for Loki-CLAW transformations.
+"""
+horizontal = Dimension(name='horizontal', size='KLON', index='JL',
+                       bounds=('KIDIA', 'KFDIA'),
+                       aliases=['NPROMA', 'KDIM%KLON'])
+
+
 @click.group()
 def cli():
     pass
@@ -112,10 +122,6 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
         """
 
         def transform_subroutine(self, routine, **kwargs):
-            # Define the horizontal dimension
-            horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
-                                   variable='JL', iteration=('KIDIA', 'KFDIA'))
-
             if openmp:
                 # Experimental OpenMP loop pragma insertion
                 for loop in FindNodes(Loop).visit(routine.body):
@@ -202,16 +208,12 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
         scheduler.process(transformation=offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
-    # Define the target dimension to strip from kernel and caller
-    horizontal = Dimension(name='KLON', aliases=['NPROMA', 'KDIM%KLON'],
-                           variable='JL', iteration=('KIDIA', 'KFDIA'))
-
     # Now we instantiate our SCA pipeline and apply the changes
     if mode == 'sca':
-        sca_transform = ExtractSCATransformation(dimension=horizontal)
+        sca_transform = ExtractSCATransformation(horizontal=horizontal)
     elif mode == 'claw':
         sca_transform = CLAWTransformation(
-            dimension=horizontal, claw_data_offload=use_claw_offload
+            horizontal=horizontal, claw_data_offload=use_claw_offload
         )
     scheduler.process(transformation=sca_transform)
 
