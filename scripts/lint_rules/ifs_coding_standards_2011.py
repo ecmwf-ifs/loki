@@ -7,7 +7,7 @@ from collections import defaultdict
 import re
 
 from loki import (
-    FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
+    Visitor, FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
     flatten, as_tuple, strip_inline_comments, Module, Subroutine, BasicType
 )
 from loki.lint import GenericRule, RuleType
@@ -30,31 +30,48 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
         'max_nesting_depth': 3,
     }
 
+    class NestingDepthVisitor(Visitor):
+
+        @classmethod
+        def default_retval(cls):
+            return []
+
+        def __init__(self, max_nesting_depth):
+            super().__init__()
+            self.max_nesting_depth = max_nesting_depth
+
+        def visit(self, o, *args, **kwargs):
+            return flatten(super().visit(o, *args, **kwargs))
+
+        def visit_Conditional(self, o, **kwargs):
+            level = kwargs.pop('level', 0)
+            too_deep = []
+            if level >= self.max_nesting_depth and not getattr(o, 'inline', False):
+                too_deep = [o]
+            too_deep += self.visit(o.body, level=level + 1, **kwargs)
+            if o.has_elseif:
+                too_deep += self.visit(o.else_body, level=level, **kwargs)
+            else:
+                too_deep += self.visit(o.else_body, level=level + 1, **kwargs)
+            return too_deep
+
+        def visit_MultiConditional(self, o, **kwargs):
+            level = kwargs.pop('level', 0)
+            too_deep = []
+            if level >= self.max_nesting_depth and not getattr(o, 'inline', False):
+                too_deep = [o]
+            too_deep += self.visit(o.bodies, level=level + 1, **kwargs)
+            too_deep += self.visit(o.else_body, level=level + 1, **kwargs)
+            return too_deep
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check the code body: Nesting of conditional blocks.'''
-        # Determine all conditionals inside each body of a conditional
-        # while max_nesting_depth is not yet reached
-        visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=True)
-        bodies = list(subroutine.ir)
-        for _ in range(config['max_nesting_depth']):
-            level_bodies, bodies = bodies, []
-            for body in level_bodies:
-                if body:
-                    for cond in visitor.visit(body):
-                        bodies += list(cond.bodies)
-                        if hasattr(cond, 'else_body'):
-                            bodies += [cond.else_body]
-
-        # If there are still conditionals inside the list of bodies, they are
-        # too deeply nested
+        too_deep = cls.NestingDepthVisitor(config['max_nesting_depth']).visit(subroutine.body)
         fmt_string = 'Nesting of conditionals exceeds limit of {}.'
         msg = fmt_string.format(config['max_nesting_depth'])
-        visitor = FindNodes((ir.Conditional, ir.MultiConditional), greedy=False)
-        for body in bodies:
-            for cond in visitor.visit(body):
-                if not getattr(cond, 'inline', False):
-                    rule_report.add(msg, cond)
+        for node in too_deep:
+            rule_report.add(msg, node)
 
 
 class ModuleNamingRule(GenericRule):  # Coding standards 1.5
@@ -99,8 +116,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         cond = None
         for node in reversed(ast) if is_reversed else ast:
             if isinstance(node, ir.Conditional):
-                if isinstance(node.conditions[0], sym.Scalar) and \
-                        node.conditions[0].name.upper() == 'LHOOK':
+                if isinstance(node.condition, sym.Scalar) and node.condition == 'LHOOK':
                     cond = node
                     break
             elif not isinstance(node, cls.non_exec_nodes):
@@ -114,7 +130,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         if cond:
             # We use as_tuple here because the conditional can be inline and then its body is not
             # iterable but a single node (e.g., CallStatement)
-            body = reversed(as_tuple(cond.bodies[0])) if is_reversed else as_tuple(cond.bodies[0])
+            body = reversed(as_tuple(cond.body)) if is_reversed else as_tuple(cond.body)
             for node in body:
                 if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
                     call = node

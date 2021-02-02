@@ -2,8 +2,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import OFP, OMNI, FP, Subroutine, FindNodes, Loop
 from conftest import jit_compile, clean_test
+from loki import OFP, OMNI, FP, Subroutine, FindNodes, Loop, Conditional
 
 
 @pytest.fixture(scope='module', name='here')
@@ -256,6 +256,12 @@ end subroutine multi_body_conditionals
 """
     filepath = here/('control_flow_multi_body_conditionals_%s.f90' % frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(conditionals) == 4
+    if frontend != OMNI:
+        assert sum(int(cond.has_elseif) for cond in conditionals) == 2
+
     function = jit_compile(routine, filepath=filepath, objname='multi_body_conditionals')
 
     out1, out2 = function(5)

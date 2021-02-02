@@ -9,7 +9,7 @@ class Fixer:
     """
 
     @classmethod
-    def fix_module(cls, module, reports, config):
+    def fix_module(cls, module, reports, config):  # pylint: disable=unused-argument
         """
         Call `fix_module` for all rules and apply the transformations.
         """
@@ -39,7 +39,7 @@ class Fixer:
         return subroutine
 
     @classmethod
-    def fix_sourcefile(cls, sourcefile, reports, config):
+    def fix_sourcefile(cls, sourcefile, reports, config):  # pylint: disable=unused-argument
         """
         Call `fix_sourcefile` for all rules and apply the transformations.
         """

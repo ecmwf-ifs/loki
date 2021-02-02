@@ -175,6 +175,16 @@ class FParser2IR(GenericVisitor):
             source = Source(lines=lines, string=string)
         return source
 
+    def get_block_source(self, start_node, end_node):
+        """
+        Helper method that builds the source object for a block node.
+        """
+        # Extract source by looking at everything between start_type and end_type nodes
+        lines = (start_node.item.span[0], end_node.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+        return source
+
     def get_label(self, o):
         """
         Helper method that returns the label of the node.
@@ -783,36 +793,44 @@ class FParser2IR(GenericVisitor):
             banter += [self.visit(ch, **kwargs)]
         else:
             if_then_stmt = get_child(o, Fortran2003.If_Then_Stmt)
-        # Extract source by looking at everything between IF and END IF statements
+        # Identifiers
         end_if_stmt = rget_child(o, Fortran2003.End_If_Stmt)
-        lines = (if_then_stmt.item.span[0], end_if_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
         construct_name = if_then_stmt.item.name
-        label = self.get_label(if_then_stmt)
         # Start with the condition that is always there
         conditions = [self.visit(if_then_stmt, **kwargs)]
+        labels = [self.get_label(if_then_stmt)]
         # Walk throught the if construct and collect statements for the if branch
         # Pick up any ELSE IF along the way and collect their statements as well
-        bodies = []
+        bodies, source = [], []
         body = []
         for child in node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt):
             if isinstance(child, Fortran2003.End_If_Stmt):
-                # Skip this explicitly in case it has a construct name
+                # Skip this explicitly (only there in case it has a construct name)
                 continue
             node = self.visit(child, **kwargs)
             if isinstance(child, Fortran2003.Else_If_Stmt):
                 bodies.append(as_tuple(flatten(body)))
-                body = []
+                source.append(self.get_block_source(if_then_stmt, end_if_stmt))
                 conditions.append(node)
+                labels.append(self.get_label(child))
+                if_then_stmt = child
+                body = []
             else:
                 body.append(node)
         bodies.append(as_tuple(flatten(body)))
-        assert len(conditions) == len(bodies)
+        source.append(self.get_block_source(if_then_stmt, end_if_stmt))
+        assert len(conditions) == len(bodies) and len(source) == len(bodies)
+        # Take care of the else branch
         else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
         else_body = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(else_ast)))
-        return (*banter, ir.Conditional(conditions=conditions, bodies=bodies, else_body=else_body,
-                                        inline=False, label=label, name=construct_name, source=source))
+        # Now build IR nodes backwards, using else-if branch as else body
+        node = ir.Conditional(condition=conditions[-1], body=bodies[-1], else_body=else_body, inline=False,
+                              has_elseif=False, label=labels[-1], source=source[-1])
+        for idx in reversed(range(len(conditions)-1)):
+            name = construct_name if idx == 0 else None
+            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=(node,), inline=False,
+                                  has_elseif=True, label=labels[idx], name=name, source=source[idx])
+        return (*banter, node)
 
     def visit_If_Then_Stmt(self, o, **kwargs):
         return self.visit(o.items[0], **kwargs)
@@ -820,9 +838,9 @@ class FParser2IR(GenericVisitor):
     visit_Else_If_Stmt = visit_If_Then_Stmt
 
     def visit_If_Stmt(self, o, **kwargs):
-        cond = as_tuple(self.visit(o.items[0], **kwargs))
+        cond = self.visit(o.items[0], **kwargs)
         body = as_tuple(self.visit(o.items[1], **kwargs))
-        return ir.Conditional(conditions=cond, bodies=body, else_body=(), inline=True,
+        return ir.Conditional(condition=cond, body=body, else_body=(), inline=True,
                               label=kwargs.get('label'), source=kwargs.get('source'))
 
     def visit_Call_Stmt(self, o, **kwargs):

@@ -1,9 +1,9 @@
 import pytest
 
+import rules
+
 from loki.lint import GenericHandler, Reporter, Linter, GenericRule
 from loki.sourcefile import Sourcefile
-
-import rules
 
 
 @pytest.mark.parametrize('rule_names, num_rules', [

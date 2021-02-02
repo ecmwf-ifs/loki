@@ -594,10 +594,10 @@ def loop_fusion(routine):
                     conditions += [sym.Comparison(variable, '<=', loop_range.stop)]
             if conditions:
                 if len(conditions) == 1:
-                    conditions = conditions[0]
+                    condition = conditions[0]
                 else:
-                    conditions = sym.LogicalAnd(as_tuple(conditions))
-                body = Conditional(conditions=[conditions], bodies=[body], else_body=())
+                    condition = sym.LogicalAnd(as_tuple(conditions))
+                body = Conditional(condition=condition, body=body, else_body=())
 
             fusion_bodies += [body]
 

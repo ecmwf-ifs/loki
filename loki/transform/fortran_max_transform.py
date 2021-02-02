@@ -209,49 +209,43 @@ class FortranMaxTransformation(Transformation):
             body = []
 
             # Extract conditions as separate variables
-            cond_vars = []
-            for i, condition in enumerate(cond.conditions):
-                cond_vars += [sym.Variable(name='cond_{cnt}_{i}'.format(cnt=cnt, i=i),
-                                           type=cond_type.clone(), scope=max_kernel.scope)]
-                body += [ir.Assignment(lhs=cond_vars[-1], rhs=condition)]
-            max_kernel.variables += as_tuple(cond_vars)
+            cond_var = sym.Variable(name='cond_{cnt}'.format(cnt=cnt),
+                                    type=cond_type.clone(), scope=max_kernel.scope)
+            body += [ir.Assignment(lhs=cond_var, rhs=cond.condition)]
+            max_kernel.variables += as_tuple(cond_var)
 
-            # Build list of dicts with all the statements from all bodies of the conditional
-            stmts = []
-            for cond_body in cond.bodies:
-                body_stmts = OrderedDict()
-                for stmt in FindNodes(ir.Assignment).visit(cond_body):
-                    body_stmts[stmt.lhs] = body_stmts.get(stmt.lhs, []) + [stmt]
-                stmts += [body_stmts]
-
-            else_stmts = OrderedDict()
-            for stmt in FindNodes(ir.Assignment).visit(cond.else_body):
-                else_stmts[stmt.lhs] = else_stmts.get(stmt.lhs, []) + [stmt]
-
-            # Collect all the statements grouped by their lhs
-            lhsset = set(t for slist in (stmts + [else_stmts]) for t in slist.keys())
-            lhs_stmts = {t: [slist.get(t, []) for slist in stmts] for t in lhsset}
-
-            # Hacky heuristic: We use the first body to hangle us along the order of statements
+            # Hacky heuristic: We use body and else body to hangle us along the order of statements
             # TODO: Do this in a better way!
-            for stmt in FindNodes(ir.Assignment).visit(cond.bodies[0]):
-                t = stmt.lhs
-                cond_stmt = else_stmts[t].pop(0).rhs if else_stmts.get(t, []) else t
-                for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(t, []))):
-                    cond_stmt = ir.ConditionalAssignment(lhs=t, condition=var,
-                                                         rhs=slist.pop(0).rhs if slist else t,
-                                                         else_rhs=cond_stmt)
-                body += [cond_stmt]
+            else_stmts = FindNodes(ir.Assignment).visit(cond.else_body)
+            for stmt in FindNodes(ir.Assignment).visit(cond.body):
+                # Try to find a matching statement in else_stmts
+                for i, s in enumerate(else_stmts):
+                    if s.lhs == stmt.lhs:
+                        else_index = i
+                        break
+                else:
+                    else_index = -1
 
-            # Add all remaining statements of all targets at the end
-            for l in lhsset:
-                while else_stmts.get(l, []) or any(lhs_stmts.get(l, [])):
-                    cond_stmt = else_stmts[l].pop(0).rhs if else_stmts.get(l, []) else l
-                    for var, slist in zip(reversed(cond_vars), reversed(lhs_stmts.get(l, []))):
-                        cond_stmt = ir.ConditionalAssignment(lhs=l, condition=var,
-                                                             rhs=slist.pop(0).rhs if slist else l,
-                                                             else_rhs=cond_stmt)
+                # Create conditional assignment
+                if else_index == -1:
+                    # no matching else-stmt: insert only body-stmt
+                    cond_stmt = ir.ConditionalAssignment(lhs=stmt.lhs, condition=cond_var,
+                                                         rhs=stmt.rhs, else_rhs=stmt.lhs)
                     body += [cond_stmt]
+                else:
+                    # insert any else-stmts before the matching stmt
+                    for else_stmt in else_stmts[:else_index]:
+                        cond_stmt = ir.ConditionalAssignment(lhs=else_stmt.lhs, condition=cond_var,
+                                                             rhs=else_stmt.lhs, else_rhs=else_stmt.rhs)
+                        body += [cond_stmt]
+
+                    # conditional assignment with body-stmt rhs and else-stmt rhs
+                    cond_stmt = ir.ConditionalAssignment(lhs=stmt.lhs, condition=cond_var,
+                                                         rhs=stmt.rhs, else_rhs=else_stmts[else_index].rhs)
+                    body += [cond_stmt]
+
+                    # remove processed else_stmts
+                    else_stmts = else_stmts[else_index+1:]
 
             cond_map[cond] = body
         max_kernel.body = Transformer(cond_map).visit(max_kernel.body)

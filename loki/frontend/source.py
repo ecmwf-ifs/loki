@@ -1,6 +1,6 @@
 
 
-__all = ['Source', 'extract_source']
+__all = ['Source', 'extract_source', 'extract_source_from_range']
 
 
 class Source:
@@ -59,16 +59,24 @@ def extract_source(ast, text, label=None, full_lines=False):
     """
     Extract the marked string from source text.
     """
-    attrib = ast.attrib if hasattr(ast, 'attrib') else ast
+    attrib = getattr(ast, 'attrib', ast)
     lstart = int(attrib['line_begin'])
     lend = int(attrib['line_end'])
     cstart = int(attrib['col_begin'])
     cend = int(attrib['col_end'])
+    return extract_source_from_range((lstart, lend), (cstart, cend), text, label=label, full_lines=full_lines)
 
+
+def extract_source_from_range(lines, columns, text, label=None, full_lines=False):
+    """
+    Extract the marked string from source text.
+    """
     text = text.splitlines(keepends=True)
+    lstart, lend = lines
+    cstart, cend = columns
 
     if full_lines:
-        return Source(string=''.join(text[lstart-1:lend]).strip('\n'), lines=(lstart, lend))
+        return Source(string=''.join(text[lstart-1:lend]).strip('\n'), lines=lines)
 
     lines = text[lstart-1:lend]
 

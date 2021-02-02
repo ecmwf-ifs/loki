@@ -1,10 +1,9 @@
-from itertools import zip_longest
 from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_NONE
 )
 
 from loki.visitors import Stringifier
-from loki.tools import flatten, as_tuple
+from loki.tools import as_tuple
 from loki.expression import LokiStringifyMapper
 from loki.types import BasicType, DerivedType
 
@@ -385,25 +384,32 @@ class FortranCodegen(Stringifier):
         """
         if o.inline:
             # No indentation and only a single body node
-            assert len(o.conditions) == 1 and len(flatten(o.bodies)) == 1
-            cond = self.visit(o.conditions[0], **kwargs)
-            body = self.visit(flatten(o.bodies)[0], **kwargs)
+            cond = self.visit(o.condition, **kwargs)
+            body = self.visit(o.body, **kwargs)
             return self.format_line('IF (', cond, ') ', body)
 
-        header = ('{}: IF'.format(o.name) if o.name else 'IF', '')
-        name = ' {}'.format(o.name) if o.name else ''
-        other_case = ('ELSE IF', name)
-        conditions = self.visit_all(o.conditions, **kwargs)
-        conditions = [self.format_line(items[0], ' (', cond, ') THEN', items[1])
-                      for items, cond in zip_longest([header], conditions, fillvalue=other_case)]
-        if o.else_body:
-            conditions.append(self.format_line('ELSE', name))
-        footer = self.format_line('END IF', name)
+        name = kwargs.pop('name', ' {}'.format(o.name) if o.name else '')
+        is_elseif = kwargs.pop('is_elseif', False)
+
+        if is_elseif:
+            header = self.format_line('ELSE IF', ' (', self.visit(o.condition, **kwargs), ') THEN', name)
+        else:
+            header = '{}: IF'.format(name[1:]) if name else 'IF'
+            header = self.format_line(header, ' (', self.visit(o.condition, **kwargs), ') THEN')
+
         self.depth += 1
-        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
-        branches = [item for branch in zip(conditions, bodies) for item in branch]
-        return self.join_lines(*branches, footer)
+        body = self.visit(o.body, **kwargs)
+        if o.has_elseif:
+            self.depth -= 1
+            else_body = [self.visit(o.else_body, is_elseif=True, name=name, **kwargs)]
+        else:
+            else_body = [self.visit(o.else_body, **kwargs)]
+            self.depth -= 1
+            if o.else_body:
+                else_body = [self.format_line('ELSE', name)] + else_body
+            else_body += [self.format_line('END IF', name)]
+
+        return self.join_lines(header, body, *else_body)
 
     def visit_MultiConditional(self, o, **kwargs):
         """

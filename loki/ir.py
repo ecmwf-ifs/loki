@@ -273,18 +273,23 @@ class Conditional(Node):
     Internal representation of a conditional branching construct.
     """
 
-    _traversable = ['conditions', 'bodies', 'else_body']
+    _traversable = ['condition', 'body', 'else_body']
 
-    def __init__(self, conditions, bodies, else_body, inline=False, name=None, **kwargs):
+    def __init__(self, condition, body, else_body, inline=False,
+                 has_elseif=False, name=None, **kwargs):
         super().__init__(**kwargs)
 
-        assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
-        assert is_iterable(bodies) and len(bodies) == len(conditions)
+        assert isinstance(condition, Expression)
 
-        self.conditions = as_tuple(conditions)
-        self.bodies = as_tuple(bodies)
-        self.else_body = as_tuple(else_body)
+        else_body = as_tuple(else_body)
+        if has_elseif:
+            assert len(else_body) == 1 and isinstance(else_body[0], Conditional)
+
+        self.condition = condition
+        self.body = as_tuple(body)
+        self.else_body = else_body
         self.inline = inline
+        self.has_elseif = has_elseif
         self.name = name
 
     def __repr__(self):

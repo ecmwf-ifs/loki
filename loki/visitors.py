@@ -1,7 +1,7 @@
 import inspect
-from itertools import zip_longest, groupby
+from itertools import groupby
 
-from loki.ir import Node
+from loki.ir import Node, Conditional
 from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
 
 __all__ = [
@@ -166,11 +166,12 @@ class Transformer(Visitor):
         self.rebuilt = {}
         self.inplace = inplace
 
-    def _rebuild_without_source(self, o, children):
+    def _rebuild_without_source(self, o, children, **args):
         """
         Rebuild the given node without the source property.
         """
         args_frozen = o.args_frozen
+        args_frozen.update(args)
         if 'source' in o.args_frozen:
             args_frozen['source'] = None
 
@@ -182,25 +183,27 @@ class Transformer(Visitor):
         # Rebuild updated nodes by default
         return o._rebuild(*children, **args_frozen)
 
-    def _rebuild(self, o, children):
+    def _rebuild(self, o, children, **args):
         """
         Rebuild the given node with the provided children.
 
         If `invalidate_source` is `True`, `source` is set to `None` whenever
         any of the children has `source == None`.
         """
-        if self.invalidate_source and 'source' in o.args_frozen:
+        args_frozen = o.args_frozen
+        args_frozen.update(args)
+        if self.invalidate_source and 'source' in args_frozen:
             child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
             if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
-                return self._rebuild_without_source(o, children)
+                return self._rebuild_without_source(o, children, **args_frozen)
 
         if self.inplace:
             # Updated nodes in place, if requested
-            o._update(*children)
+            o._update(*children, **args_frozen)
             return o
 
         # Rebuild updated nodes by default
-        return o._rebuild(*children, **o.args_frozen)
+        return o._rebuild(*children, **args_frozen)
 
     def visit_object(self, o, **kwargs):
         return o
@@ -389,19 +392,15 @@ class NestedMaskedTransformer(MaskedTransformer):
         if o in self.mapper:
             return super().visit(o, **kwargs)
 
-        # need to make (condition, body) pairs to track vanishing bodies
-        branches = [(self.visit(c, **kwargs), self.visit(b, **kwargs))
-                    for c, b in zip(o.conditions, o.bodies)]
-        branches = [(c, b) for c, b in branches if flatten(as_tuple(b))]
-        else_body = self.visit(o.else_body, **kwargs)
+        condition = self.visit(o.condition)
+        body = self.visit(o.body)
+        else_body = self.visit(o.else_body)
 
-        # retain whatever is in the else body if all other branches are gone
-        if not branches:
+        if not flatten(as_tuple(body)):
             return else_body
 
-        # rebuild conditional with remaining branches
-        conditions, bodies = zip(*branches)
-        return self._rebuild(o, tuple((conditions,) + (bodies,) + (else_body,)))
+        has_elseif = o.has_elseif and isinstance(else_body[0], Conditional)
+        return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
         if o in self.mapper:
@@ -793,20 +792,16 @@ class Stringifier(Visitor):
           <repr(Conditional)>
             <If [condition]>
               ...
-            <ElseIf [condition]>
-              ...
             <Else>
               ...
         """
         header = self.format_node(repr(o))
         self.depth += 1
-        conditions = self.visit_all(o.conditions, **kwargs)
-        conditions = [self.format_node(*vals)
-                      for vals in zip_longest(['If'], conditions, fillvalue='ElseIf')]
+        conditions = [self.format_node('If', self.visit(o.condition, **kwargs))]
         if o.else_body:
             conditions.append(self.format_node('Else'))
         self.depth += 1
-        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        bodies = self.visit_all(o.body, o.else_body, **kwargs)
         self.depth -= 1
         self.depth -= 1
         body = [item for branch in zip(conditions, bodies) for item in branch]

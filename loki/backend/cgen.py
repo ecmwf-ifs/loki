@@ -1,4 +1,3 @@
-from itertools import zip_longest
 from pymbolic.mapper.stringifier import (
     PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
@@ -320,18 +319,23 @@ class CCodegen(Stringifier):
             [...body...]
           }
         """
-        footer = self.format_line('}')
-        conditions = self.visit_all(o.conditions, **kwargs)
-        conditions = [self.format_line(item, ' (', cond, ') {')
-                      for item, cond in zip_longest(['if'], conditions, fillvalue='} else if')]
-        if o.else_body:
-            conditions.append(self.format_line('} else {'))
-
+        is_elseif = kwargs.pop('is_elseif', False)
+        if is_elseif:
+            header = self.format_line('} else if (', self.visit(o.condition, **kwargs), ') {')
+        else:
+            header = self.format_line('if (', self.visit(o.condition, **kwargs), ') {')
         self.depth += 1
-        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
-        branches = [item for branch in zip(conditions, bodies) for item in branch]
-        return self.join_lines(*branches, footer)
+        body = self.visit(o.body, **kwargs)
+        if o.has_elseif:
+            self.depth -= 1
+            else_body = [self.visit(o.else_body, is_elseif=True, **kwargs)]
+        else:
+            else_body = [self.visit(o.else_body, **kwargs)]
+            self.depth -= 1
+            if o.else_body:
+                else_body = [self.format_line('} else {')] + else_body
+            else_body += [self.format_line('}')]
+        return self.join_lines(header, body, *else_body)
 
     def visit_Assignment(self, o, **kwargs):
         """
