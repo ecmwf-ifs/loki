@@ -60,8 +60,12 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
         live = kwargs.pop('live_symbols', set())
-        body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, **kwargs)
+        uses = {v.clone() for v in FindVariables().visit(o.bounds)}
+        body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
+        # Make sure the induction variable is not considered outside the loop
+        uses.discard(o.variable)
+        defines.discard(o.variable)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_WhileLoop(self, o, **kwargs):

@@ -1,6 +1,8 @@
 import pytest
 
-from loki import FP, OFP, OMNI, Subroutine, FindNodes, Assignment, fgen
+from loki import (
+    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, fgen
+)
 from loki.analyse import dataflow_analysis_attached
 
 
@@ -25,6 +27,7 @@ subroutine analyse_live_symbols(v1, v2, v3)
 end subroutine analyse_live_symbols
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(routine)
 
     assignments = FindNodes(Assignment).visit(routine.body)
     assert len(assignments) == 4
@@ -41,10 +44,74 @@ end subroutine analyse_live_symbols
     }
 
     with dataflow_analysis_attached(routine):
+        assert routine.body
+
         for assignment in assignments:
             live_symbols = {str(s).lower() for s in assignment.live_symbols}
             assert live_symbols == ref_live_symbols[str(assignment.lhs).lower()]
 
+    assert routine.body
+    assert fgen(routine) == ref_fgen
+
     with pytest.raises(RuntimeError):
         for assignment in assignments:
             _ = assignment.live_symbols
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_analyse_defines_uses_symbols(frontend):
+    fcode = """
+subroutine analyse_defines_uses_symbols(a, j, m, n)
+  integer, intent(out) :: a, j
+  integer, intent(in) :: m, n
+  integer :: i
+  j = n
+  a = 1
+  do i=m-1,n
+    if (i > a) then
+      a = a + 1
+      if (i < n) exit
+    end if
+    j = j - 1
+  end do
+end subroutine analyse_defines_uses_symbols
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(routine)
+
+    conditionals = FindNodes(Conditional).visit(routine.body)
+    assert len(conditionals) == 2
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    with pytest.raises(RuntimeError):
+        for cond in conditionals:
+            _ = cond.defines_symbols
+        for cond in conditionals:
+            _ = cond.uses_symbols
+
+    with dataflow_analysis_attached(routine):
+        assert fgen(routine) == ref_fgen
+        assert len(FindNodes(Conditional).visit(routine.body)) == 2
+        assert len(FindNodes(Loop).visit(routine.body)) == 1
+
+        assert {str(s) for s in routine.body.uses_symbols} == {'m', 'n'}
+        assert {str(s) for s in loops[0].uses_symbols} == {'m', 'n', 'a', 'j'}
+        assert {str(s) for s in conditionals[0].uses_symbols} == {'i', 'a', 'n'}
+        assert {str(s) for s in conditionals[1].uses_symbols} == {'i', 'n'}
+        assert not conditionals[1].body[0].uses_symbols
+
+        assert {str(s) for s in routine.body.defines_symbols} == {'j', 'a'}
+        assert {str(s) for s in loops[0].defines_symbols} == {'j', 'a'}
+        assert {str(s) for s in conditionals[0].defines_symbols} == {'a'}
+        assert not conditionals[1].defines_symbols
+        assert not conditionals[1].body[0].defines_symbols
+
+    assert fgen(routine) == ref_fgen
+
+    with pytest.raises(RuntimeError):
+        for cond in conditionals:
+            _ = cond.defines_symbols
+        for cond in conditionals:
+            _ = cond.uses_symbols
