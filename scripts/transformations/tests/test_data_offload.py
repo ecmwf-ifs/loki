@@ -1,6 +1,6 @@
-import pytest
 import sys
 from pathlib import Path
+import pytest
 
 from loki import (
     OFP, OMNI, FP, Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
@@ -49,7 +49,7 @@ def test_data_offload_region_openacc(frontend):
       end do
     end do
   END SUBROUTINE kernel_routine
-"""    
+"""
     driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich_calls(kernel)

@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Module, Transformation, Transformer, Scheduler,
-    FindNodes, Loop, Pragma, Frontend, flatten, Dimension
+    Sourcefile, Transformation, Scheduler, FindNodes, Loop, Pragma,
+    Frontend, flatten, Dimension
 )
 
 # Get generalized transformations provided by Loki
@@ -125,7 +125,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
             if openmp:
                 # Experimental OpenMP loop pragma insertion
                 for loop in FindNodes(Loop).visit(routine.body):
-                    if loop.variable == horizontal.variable:
+                    if loop.variable == horizontal.index:
                         # Update the loop in-place with new OpenMP pragmas
                         pragma = Pragma(keyword='omp', content='do simd')
                         pragma_nowait = Pragma(keyword='omp',

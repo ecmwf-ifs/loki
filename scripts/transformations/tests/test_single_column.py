@@ -1,6 +1,6 @@
-import pytest
 import sys
 from pathlib import Path
+import pytest
 
 from loki import OFP, OMNI, FP, Sourcefile, Dimension
 
