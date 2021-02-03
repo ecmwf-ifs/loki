@@ -1,30 +1,40 @@
 r"""
 Collection of classes to represent basic and complex types. The key ideas are:
- * Expression symbols (eg. `Scalar`, `Array` or `Literal` has a
-   `SymbolType` accessible via the `.type` attribute. This encodes the
-   type definition in the local scope.
- * Each symbol type can represent either a `BasicType`, which may be `DEFERRED`, or
-   a `DerivedType`. This is generally accessible as `symbol.type.dtype`.
-   TODO: A `ProcedureType` may be added soon.
- * Each 'scope' object (eg. `Subroutine` or `Module` uses `TypeTable` objects to
-   map symbol instances to types and derived type definitions.
 
-           symbols.Variable  ---                      Subroutine | Module | TypeDef
-                                 \                            \      |      /
-                                  \                            \     |     /
-                                   SymbolType    ------------   SymbolTable
-                                 /     |      \
-                                /      |       \
-                       BasicType   DerivedType  ProcedureType
+* Expression symbols (:any:`TypedSymbol`, i.e. for example :any:`Scalar`,
+  :any:`Array` or :any:`Literal`) have a :any:`SymbolType` accessible via
+  their :py:attr:`type` attribute. This encodes the type definition in the
+  local scope.
+* Each :any:`SymbolType` can represent either a :any:`BasicType`, which may
+  be ``DEFERRED``, a :any:`DerivedType`, or, for functions/subroutines a
+  :any:`ProcedureType`. This underlying type is generally accessible as
+  ``symbol.type.dtype``.
+* Each scoped object (eg. :any:`Subroutine` or :any:`Module`) has an
+  associated :any:`Scope` member (accessible as ``routine.scope``) that
+  manages :any:`TypeTable` objects to map symbol instances to types and
+  derived type definitions.
 
-A note on scoping:
-==================
-When importing `TypeDef` objects into a local scope, a `DerivedType` object
-will act as a wrapper in the `symbol.type.dtype` attribute. Importantly, when
-variable instances based on this get created, the `DerivedType` object will
-re-create all member variable of the object in the local scope, which are then
-accessible via `symbol.type.dtype.variables`. If the original member declaration
-variables are required, these can be accessed via `symbol.type.dtype.typedef.variables`.
+.. code-block:: none
+
+   symbols.Variable  ---                      Subroutine | Module | TypeDef
+                         \                            \      |      /
+                          \                            \     |     /
+                           SymbolType    ------------    TypeTable
+                         /     |      \
+                        /      |       \
+               BasicType   DerivedType  ProcedureType
+
+
+.. note::
+
+   When importing :any:`TypeDef` objects into a local scope, a
+   :any:`DerivedType` object will act as a wrapper in the ``symbol.type.dtype``
+   attribute. Importantly, when variable instances based on this get created,
+   the :any:`DerivedType` object will re-create all member variables of the
+   object in the local scope, which are then accessible via
+   ``symbol.type.dtype.variables``. If the original member declaration
+   variables are required, these can be accessed via
+   ``symbol.type.dtype.typedef.variables``.
 """
 
 import weakref
@@ -132,6 +142,9 @@ class DerivedType:
     def __str__(self):
         return self.name
 
+    def __repr__(self):
+        return '<DerivedType {}>'.format(self.name)
+
 
 class ProcedureType:
     """
@@ -162,6 +175,9 @@ class ProcedureType:
 
     def __str__(self):
         return self.name
+
+    def __repr__(self):
+        return '<ProcedureType {}>'.format(self.name)
 
 
 class SymbolType:

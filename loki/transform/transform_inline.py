@@ -51,8 +51,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)
 
-        scope = kwargs.get('scope')
-        function = expr.procedure_type.procedure.clone(scope=scope)
+        function = expr.procedure_type.procedure.clone()
         v_result = [v for v in function.variables if v == function.name][0]
 
         # Substitute all arguments through the elemental body

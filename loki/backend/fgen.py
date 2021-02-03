@@ -591,6 +591,9 @@ class FortranCodegen(Stringifier):
     def visit_DerivedType(self, o, **kwargs):
         return o.name
 
+    def visit_ProcedureType(self, o, **kwargs):
+        return o.name
+
 def fgen(ir, depth=0, conservative=False, linewidth=132):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
