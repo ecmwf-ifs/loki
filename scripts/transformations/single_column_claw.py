@@ -20,6 +20,12 @@ class ExtractSCATransformation(Transformation):
     Transformation to convert vectorized Fortran kernels into SCA format by
     removing horizontal vector loops.
 
+    This will remove all "vector loops" as determined by the ``horizontal``
+    :any:`Dimension` object from "kernel" subroutines, and adjust variable
+    and argument declarations accordingly. In "driver" subroutines, the call
+    signature will be adjusted accordingly, and a single hoisted loop across
+    the horizontal dimension inserted around the first-level kernel invocation.
+
     Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`,
     if "array-of-struct"-type derived type arguments are present.
 
@@ -209,10 +215,24 @@ class CLAWTransformation(ExtractSCATransformation):
     """
     Transformation to extract SCA Fortran and apply the necessary CLAW annotations.
 
-    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
+    This transformation builds on the SCA extraction of the `ExtractSCATransformation`
+    by inserting additional CLAW SCA directives into the "kernel" and "driver" routines.
 
-    :param claw_data_offload: Flag triggering the insert of CLAW data offload regions
-                              (via OpenACC ``create`` and ``update`` pragmas).
+    The following CLAW directives are inserted by the transformation:
+    * ``!$claw sca forward`` markers in the "driver" routine
+    * ``!$claw sca`` and ``claw model-config`` regions in the first-level "kernel" routine
+    * ``!$claw sca routine`` in any "kernel" routines beyond first-level
+
+    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`,
+    if "array-of-struct"-type derived type arguments are present.
+
+    Parameters
+    ----------
+    claw_data_offload : bool
+        Flag triggering the addition of ``create`` and ``update`
+        clauses to the ``!$claw sca forward`` directive, causing CLAW
+        to tightly wrap the kernel invocation in OpenACC offload
+        directives.
     """
 
     def __init__(self, **kwargs):
