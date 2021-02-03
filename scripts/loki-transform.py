@@ -63,6 +63,16 @@ cloudsc_config = {
 }
 
 
+class IdemTransformation(Transformation):
+    """
+    A custom transformation pipeline that primarily does nothing,
+    allowing us to test simple parse-unparse cycles.
+    """
+
+    def transform_subroutine(self, routine, **kwargs):
+        pass
+
+
 @click.group()
 def cli():
     pass
@@ -89,14 +99,12 @@ def cli():
               help='Path for additional module file(s)')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
-@click.option('--openmp/--no-openmp', default=False,
-              help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
 def idempotence(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-                flatten_args, openmp, frontend, config):
+                flatten_args, frontend, config):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
@@ -118,23 +126,6 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 
     # Fetch the dimension definitions from the config
     horizontal = scheduler.config.dimensions['horizontal']
-
-    class IdemTransformation(Transformation):
-        """
-        Define a custom transformation pipeline that optionally inserts
-        experimental OpenMP pragmas for horizontal loops.
-        """
-
-        def transform_subroutine(self, routine, **kwargs):
-            if openmp:
-                # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(routine.body):
-                    if loop.variable == horizontal.index:
-                        # Update the loop in-place with new OpenMP pragmas
-                        pragma = Pragma(keyword='omp', content='do simd')
-                        pragma_nowait = Pragma(keyword='omp',
-                                               content='end do simd nowait')
-                        loop._update(pragma=pragma, pragma_post=pragma_nowait)
 
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
@@ -172,16 +163,18 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
               help='Additional path for header files, specifically for OMNI')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
+@click.option('--data-offload', is_flag=True, default=False,
+              help='Run transformation to insert custom data offload regions')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['sca', 'claw']))
+              type=click.Choice(['idem', 'sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
 def convert(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-            remove_openmp, mode, frontend, config):
+            data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -211,20 +204,27 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     # Fetch the dimension definitions from the config
     horizontal = scheduler.config.dimensions['horizontal']
 
-    use_claw_offload = False
-    if mode == 'claw':
+    # Insert data offload regions for GPUs and remove OpenMP threading directives
+    use_claw_offload = True
+    if data_offload:
         offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
         scheduler.process(transformation=offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
-    # Now we instantiate our SCA pipeline and apply the changes
+    # Now we instantiate our transformation pipeline and apply the main changes
+    transformation = None
+    if mode == 'idem':
+        transformation = IdemTransformation()
     if mode == 'sca':
-        sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    elif mode == 'claw':
-        sca_transform = CLAWTransformation(
+        transformation = ExtractSCATransformation(horizontal=horizontal)
+    if mode == 'claw':
+        transformation = CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
-    scheduler.process(transformation=sca_transform)
+    if transformation:
+        scheduler.process(transformation=transformation)
+    else:
+        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
