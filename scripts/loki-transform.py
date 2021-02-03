@@ -11,7 +11,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig, FindNodes,
-    Loop, Pragma, Frontend, flatten, Dimension
+    Loop, Pragma, Frontend, flatten, Dimension, as_tuple
 )
 
 # Get generalized transformations provided by Loki
@@ -147,6 +147,8 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
+@click.option('--path', '-p', type=click.Path(),
+              help='Path to search during source exploration.')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
@@ -173,7 +175,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-def convert(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
+def convert(out_path, path, source, driver, header, cpp, include, define, omni_include, xmod,
             data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -193,8 +195,9 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
                                                frontend=frontend_type).modules for h in header)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(s).resolve().parent for s in source]
-    paths += [Path(h).resolve().parent for h in header]
+    paths = [Path(p).resolve() for p in as_tuple(path)]
+    paths += [Path(s).resolve().parent for s in as_tuple(source)]
+    paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
     scheduler.populate(routines=config.routines.keys())
 
