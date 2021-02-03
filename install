@@ -216,7 +216,7 @@ if [ "$with_ant" == true ]; then
   mkdir -p "${ANT_INSTALL_DIR}"
   rm -rf "${ANT_HOME}" "${ANT_INSTALL_DIR}/${ANT_ARCHIVE}"
   cd "${ANT_INSTALL_DIR}"
-  wget -O "${ANT_ARCHIVE}" http://mirror.ox.ac.uk/sites/rsync.apache.org/ant/binaries/${ANT_ARCHIVE}
+  wget -O "${ANT_ARCHIVE}" http://ftp.fau.de/apache/ant/binaries/${ANT_ARCHIVE}
   tar -xzf "${ANT_ARCHIVE}"
 
   export PATH="${ANT_HOME}/bin:${PATH}"
