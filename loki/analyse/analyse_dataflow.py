@@ -22,20 +22,13 @@ class DataflowAnalysisAttacher(Transformer):
     def __init__(self, **kwargs):
         super().__init__(inplace=True, **kwargs)
 
-    def visit_Node(self, o, **kwargs):
-        # Live symbols are determined on InternalNode handler levels and
-        # get passed down to all child nodes
-        setattr(o, '_live_symbols', kwargs.get('live_symbols', set()))
-
-        # Symbols defined or used by this node are determined by their individual
-        # handler routines and passed on to visitNode from there
-        setattr(o, '_defines_symbols', kwargs.get('defines_symbols', set()))
-        setattr(o, '_uses_symbols', kwargs.get('uses_symbols', set()))
-        return o
-
-    # Internal nodes
+    # Utility routines
 
     def _visit_body(self, body, live=None, defines=None, uses=None, **kwargs):
+        """
+        Iterate through the tuple that is a body and update defines and
+        uses along the way.
+        """
         if live is None:
             live = set()
         if defines is None:
@@ -49,6 +42,49 @@ class DataflowAnalysisAttacher(Transformer):
             defines |= visited[-1].defines_symbols.copy()
         return as_tuple(visited), defines, uses
 
+    @staticmethod
+    def _symbols_from_expr(expr, condition=None):
+        """
+        Return set of symbols found in an expression.
+        """
+        if condition is not None:
+            return {v.clone(dimensions=None) for v in FindVariables().visit(expr) if condition(v)}
+        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+
+    @classmethod
+    def _symbols_from_lhs_expr(cls, expr):
+        """
+        Determine symbol use and symbol definition from a left-hand side expression.
+
+        Parameters
+        ----------
+        expr : :any:`Scalar` or :any:`Array`
+            The left-hand side expression of an assignment.
+
+        Returns
+        -------
+        (defines, uses) : (set, set)
+            The sets of defined and used symbols (in that order).
+        """
+        defines = {expr.clone(dimensions=None)}
+        uses = cls._symbols_from_expr(getattr(expr, 'dimensions', ()))
+        return defines, uses
+
+    # Abstract node (also called from every node type for integration)
+
+    def visit_Node(self, o, **kwargs):
+        # Live symbols are determined on InternalNode handler levels and
+        # get passed down to all child nodes
+        setattr(o, '_live_symbols', kwargs.get('live_symbols', set()))
+
+        # Symbols defined or used by this node are determined by their individual
+        # handler routines and passed on to visitNode from there
+        setattr(o, '_defines_symbols', kwargs.get('defines_symbols', set()))
+        setattr(o, '_uses_symbols', kwargs.get('uses_symbols', set()))
+        return o
+
+    # Internal nodes
+
     def visit_InternalNode(self, o, **kwargs):
         # An internal node defines all symbols defined by its body and uses all
         # symbols used by its body before they are defined in the body
@@ -60,7 +96,7 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
         live = kwargs.pop('live_symbols', set())
-        uses = {v.clone() for v in FindVariables().visit(o.bounds)}
+        uses = self._symbols_from_expr(o.bounds)
         body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
         # Make sure the induction variable is not considered outside the loop
@@ -71,43 +107,39 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_WhileLoop(self, o, **kwargs):
         # A while loop uses variables in its condition
         live = kwargs.pop('live_symbols', set())
-        uses = {v.clone() for v in FindVariables().visit(o.condition)}
+        uses = self._symbols_from_expr(o.condition)
         body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Conditional(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
-        uses = {v.clone() for v in FindVariables().visit(o.condition)}
-        body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
+        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(o.condition), **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
-        defines |= else_defines
         o._update(body=body, else_body=else_body)
-        return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
+        return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
 
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
-        uses = {v.clone() for v in FindVariables().visit(o.condition)}
-        body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
-        default, default_defines, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
-        defines |= default_defines
+        body, defines, uses = self._visit_body(o.body, live=live, uses=self._symbols_from_expr(o.condition), **kwargs)
+        default, default_defs, uses = self._visit_body(o.default, live=live, uses=uses, **kwargs)
         o._update(body=body, default=default)
-        return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
+        return self.visit_Node(o, live_symbols=live, defines_symbols=defines|default_defs, uses_symbols=uses, **kwargs)
 
     # Leaf nodes
 
     def visit_Assignment(self, o, **kwargs):
         # The left-hand side variable is defined by this statement
-        defines = {o.lhs.clone()}
+        defines, uses = self._symbols_from_lhs_expr(o.lhs)
         # Anything on the right-hand side is used before assigning to it
-        uses = {v.clone() for v in FindVariables().visit(o.rhs)}
+        uses |= self._symbols_from_expr(o.rhs)
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_ConditionalAssignment(self, o, **kwargs):
         # The left-hand side variable is defined by this statement
-        defines = {o.lhs.clone()}
+        defines, uses = self._symbols_from_lhs_expr(o.lhs)
         # Anything on the right-hand side is used before assigning to it
-        uses = {v.clone() for v in FindVariables().visit((o.condition, o.rhs, o.else_rhs))}
+        uses |= self._symbols_from_expr((o.condition, o.rhs, o.else_rhs))
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
@@ -118,36 +150,34 @@ class DataflowAnalysisAttacher(Transformer):
             defines, uses = set(), set()
             for arg, val in o.context.arg_iter(o):
                 if o.context.routine.arguments[arg].intent.lower() in ('inout', 'out'):
-                    defines |= {v.clone() for v in FindVariables().visit(val)}
+                    defines |= self._symbols_from_expr(val)
                 if o.context.routine.arguments[arg].intent.lower() in ('in', 'inout'):
-                    uses |= {v.clone() for v in FindVariables().visit(val)}
+                    uses |= self._symbols_from_expr(val)
         else:
             # We don't know the intent of any of these arguments and thus have
             # to assume all of them are potentially used or defined by this
             # statement
-            defines = {v.clone() for v in FindVariables().visit(o.children)}
+            defines = self._symbols_from_expr(o.children)
             uses = defines.copy()
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Allocation(self, o, **kwargs):
-        defines = {v.clone() for v in o.variables}
-        uses = {v.clone() for v in o.data_source or ()}
+        defines = self._symbols_from_expr(o.variables)
+        uses = self._symbols_from_expr(o.data_source or ())
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Deallocation(self, o, **kwargs):
-        defines = {v.clone() for v in o.variables}
+        defines = self._symbols_from_expr(o.variables)
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     visit_Nullify = visit_Deallocation
 
     def visit_Import(self, o, **kwargs):
-        defines = set()
-        if o.symbols:
-            defines = {v.clone() for v in o.symbols}
+        defines = self._symbols_from_expr(o.symbols or ())
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     def visit_Declaration(self, o, **kwargs):
-        defines = {v.clone() for v in o.variables if v.type.initial is not None}
+        defines = self._symbols_from_expr(o.variables, condition=lambda v: v.type.initial is not None)
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
 
@@ -183,8 +213,10 @@ def attach_dataflow_analysis(module_or_routine):
     """
     live_symbols = set()
     if hasattr(module_or_routine, 'arguments'):
-        live_symbols = {a.clone() for a in module_or_routine.arguments
-                        if a.type.intent and a.type.intent.lower() in ('in', 'inout')}
+        live_symbols = DataflowAnalysisAttacher._symbols_from_expr(
+            module_or_routine.arguments,
+            condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
+        )
 
     if hasattr(module_or_routine, 'spec'):
         module_or_routine.spec = DataflowAnalysisAttacher().visit(module_or_routine.spec, live_symbols=live_symbols)
