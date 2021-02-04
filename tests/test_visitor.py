@@ -549,7 +549,6 @@ END MODULE some_mod
     if frontend == OMNI:
         # Some string inconsistencies
         ref_lines[15] = ref_lines[15].replace('1E-8', '1e-8')
-        ref_lines[25] = ref_lines[25].replace('1:n', '1:n:1')
         ref_lines[35] = ref_lines[35].replace('SQRT', 'sqrt')
         ref_lines[48] = ref_lines[48].replace('PRINT', 'print')
         ref_lines[52] = ref_lines[52].replace('PRINT', 'print')

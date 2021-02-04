@@ -354,6 +354,8 @@ class OMNI2IR(GenericVisitor):
         lower = self.visit(o.find('indexRange/lowerBound'))
         upper = self.visit(o.find('indexRange/upperBound'))
         step = self.visit(o.find('indexRange/step'))
+        # Drop OMNI's `:1` step counting for ranges in the name of consistency
+        step = None if step == '1' else step
         bounds = sym.LoopRange((lower, upper, step), source=source)
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
@@ -471,6 +473,8 @@ class OMNI2IR(GenericVisitor):
         upper = self.visit(ubound) if ubound is not None else None
         st = o.find('step')
         step = self.visit(st) if st is not None else None
+        # Drop OMNI's `:1` step counting for ranges in the name of consistency
+        step = None if step == '1' else step
         return sym.RangeIndex((lower, upper, step), source=source)
 
     def visit_FrealConstant(self, o, source=None):

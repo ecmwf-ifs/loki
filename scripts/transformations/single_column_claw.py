@@ -8,103 +8,84 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
     Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
-    SymbolType, BasicType, JoinableStringList, CaseInsensitiveDict, fgen, as_tuple,
-    warning
+    SymbolType, BasicType, CaseInsensitiveDict, as_tuple, warning
 )
 
 
-__all__ = ['Dimension', 'ExtractSCATransformation', 'CLAWTransformation']
-
-
-class Dimension:
-    """
-    Dimension that defines a one-dimensional iteration space.
-
-    :param name: Name of the dimension, as used in data array declarations
-    :param variable: Name of the iteration variable used in loops in this
-                     dimension.
-    :param iteration: Tuple defining the start/end variable names or values for
-                      loops in this dimension.
-    """
-
-    def __init__(self, name=None, aliases=None, variable=None, iteration=None):
-        self.name = name
-        self.aliases = aliases
-        self.variable = variable
-        self.iteration = iteration
-
-    @property
-    def variables(self):
-        return (self.name, self.variable) + self.iteration
-
-    @property
-    def size_expressions(self):
-        """
-        Return a list of expression strings all signifying "dimension size".
-        """
-        iteration = ['%s - %s + 1' % (self.iteration[1], self.iteration[0])]
-        # Add ``1:x`` size expression for OMNI (it will insert an explicit lower bound)
-        iteration += ['1:%s - %s + 1' % (self.iteration[1], self.iteration[0])]
-        iteration += ['1:%s' % self.name]
-        iteration += ['1:%s' % alias for alias in self.aliases]
-        return [self.name] + self.aliases + iteration
-
-    @property
-    def index_expressions(self):
-        """
-        Return a list of expression strings all signifying potential
-        dimension indices, including range accesses like `START:END`.
-        """
-        i_range = ['%s:%s' % (self.iteration[0], self.iteration[1])]
-        # A somewhat strange expression used in VMASS bracnhes
-        i_range += ['%s-%s+1' % (self.variable, self.iteration[0])]
-        return [self.variable] + i_range
+__all__ = ['ExtractSCATransformation', 'CLAWTransformation']
 
 
 class ExtractSCATransformation(Transformation):
     """
-    Transformation to transform vectorized Frotran kernel into SCA format.
+    Transformation to convert vectorized Fortran kernels into SCA format by
+    removing horizontal vector loops.
 
-    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
+    This will remove all "vector loops" as determined by the ``horizontal``
+    :any:`Dimension` object from "kernel" subroutines, and adjust variable
+    and argument declarations accordingly. In "driver" subroutines, the call
+    signature will be adjusted accordingly, and a single hoisted loop across
+    the horizontal dimension inserted around the first-level kernel invocation.
+
+    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`,
+    if "array-of-struct"-type derived type arguments are present.
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in existing
+        code to define the horizontal data dimension and iteration space.
     """
 
-    def __init__(self, dimension):
-        self.dimension = dimension
+    def __init__(self, horizontal):
+        self.horizontal = horizontal
 
     def transform_subroutine(self, routine, **kwargs):
-        task = kwargs.get('task', None)
-        role = kwargs['role'] if task is None else task.config['role']
+        """
+        Apply transformation to convert a :any:`Subroutine` to SCA code format.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the subroutine in the call tree; either ``"driver"`` or ``"kernel"``
+        """
+        role = kwargs.get('role')
 
         if role == 'driver':
-            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=True)
+            self.hoist_dimension_from_call(routine, wrap=True)
 
         elif role == 'kernel':
-            self.hoist_dimension_from_call(routine, target=self.dimension, wrap=False)
-            self.remove_dimension(routine, target=self.dimension)
+            self.hoist_dimension_from_call(routine, wrap=False)
+            self.remove_dimension(routine)
 
         if routine.members is not None:
             for member in routine.members:
                 self.apply(member, **kwargs)
 
-    @staticmethod
-    def remove_dimension(routine, target):
+    def remove_dimension(self, routine):
         """
-        Remove all loops and variable indices of a given target dimension
+        Remove all loops and variable indices of the stored horizontal dimension
         from the given routine.
-        """
-        size_expressions = target.size_expressions
 
-        # Remove all loops over the target dimensions
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        """
+        size_expressions = self.horizontal.size_expressions
+
+        # Remove all loops over the self.horizontal dimensions
         loop_map = OrderedDict()
         for loop in FindNodes(Loop).visit(routine.body):
-            if loop.variable == target.variable:
+            if loop.variable == self.horizontal.index:
                 loop_map[loop] = loop.body
 
         routine.body = Transformer(loop_map).visit(routine.body)
 
         # Drop declarations for dimension variables (eg. loop counter or sizes)
         # Note that this also removes arguments and their declarations!
-        routine.variables = [v for v in routine.variables if v not in target.variables]
+        routine.variables = [v for v in routine.variables if v not in self.horizontal.variables]
 
         # Establish the new dimensions and shapes first, before cloning the variables
         # The reason for this is that shapes of all variable instances are linked
@@ -145,18 +126,24 @@ class ExtractSCATransformation(Transformation):
         for m in as_tuple(routine.members):
             m.body = SubstituteExpressions(vmap2).visit(m.body)
 
-    @staticmethod
-    def hoist_dimension_from_call(caller, target, wrap=True):
+    def hoist_dimension_from_call(self, caller, wrap=True):
         """
-        Remove all indices and variables of a target dimension from
-        caller (driver) and callee (kernel) routines, and insert the
-        necessary loop over the target dimension into the driver.
+        Remove all indices and variables of the horzontal dimension
+        from caller (driver) and callee (kernel) routines, and insert
+        the necessary loop over the target dimension into the driver.
 
-        Note: In order for this routine to see the target dimensions
+        Note: In order for this routine to see the horizontal dimension
         in the argument declarations of the kernel, it must be applied
         before they are stripped from the kernel itself.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        wrap : bool
+            Flag to trigger the creation of a loop to wrap the kernel call in.
         """
-        size_expressions = target.size_expressions
+        size_expressions = self.horizontal.size_expressions
         replacements = {}
 
         for call in FindNodes(CallStatement).visit(caller.body):
@@ -164,7 +151,7 @@ class ExtractSCATransformation(Transformation):
                 routine = call.context.routine
                 argmap = {}
 
-                # Replace target dimension with a loop index in arguments
+                # Replace self.horizontal dimension with a loop index in arguments
                 for arg, val in call.context.arg_iter(call):
                     if not isinstance(arg, Array) or not isinstance(val, Array):
                         continue
@@ -176,10 +163,10 @@ class ExtractSCATransformation(Transformation):
                     if arg.shape is not None and not val.dimensions:
                         new_dims = tuple(RangeIndex((None, None)) for _ in arg.shape)
 
-                    # Remove target dimension sizes from caller-side argument indices
+                    # Remove self.horizontal dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
-                        new_dims = tuple(Variable(name=target.variable, scope=caller.scope)
+                        new_dims = tuple(Variable(name=self.horizontal.index, scope=caller.scope)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -194,21 +181,21 @@ class ExtractSCATransformation(Transformation):
                 dim_lower = None
                 dim_upper = None
                 for arg, val in call.context.arg_iter(call):
-                    if arg == target.iteration[0]:
+                    if arg == self.horizontal.bounds[0]:
                         dim_lower = val
-                    if arg == target.iteration[1]:
+                    if arg == self.horizontal.bounds[1]:
                         dim_upper = val
 
                 # Remove call-side arguments (in-place)
                 arguments = tuple(darg for darg, karg in zip(arguments, routine.arguments)
-                                  if karg not in target.variables)
+                                  if karg not in self.horizontal.variables)
                 kwarguments = list((darg, karg) for darg, karg in kwarguments
-                                   if karg not in target.variables)
+                                   if karg not in self.horizontal.variables)
                 new_call = call.clone(arguments=arguments, kwarguments=kwarguments)
 
-                # Create and insert new loop over target dimension
+                # Create and insert new loop over self.horizontal dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=target.variable, scope=caller.scope),
+                    loop = Loop(variable=Variable(name=self.horizontal.index, scope=caller.scope),
                                 bounds=LoopRange((dim_lower, dim_upper, None)),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -218,20 +205,34 @@ class ExtractSCATransformation(Transformation):
         caller.body = Transformer(replacements).visit(caller.body)
 
         # Finally, we add the declaration of the loop variable
-        if wrap and target.variable not in [str(v) for v in caller.variables]:
+        if wrap and self.horizontal.index not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
             dtype = SymbolType(BasicType.INTEGER, kind='JPIM')
-            caller.variables += (Variable(name=target.variable, type=dtype, scope=caller.scope),)
+            caller.variables += (Variable(name=self.horizontal.index, type=dtype, scope=caller.scope),)
 
 
 class CLAWTransformation(ExtractSCATransformation):
     """
     Transformation to extract SCA Fortran and apply the necessary CLAW annotations.
 
-    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`.
+    This transformation builds on the SCA extraction of the `ExtractSCATransformation`
+    by inserting additional CLAW SCA directives into the "kernel" and "driver" routines.
 
-    :param claw_data_offload: Flag triggering the insert of CLAW data offload regions
-                              (via OpenACC ``create`` and ``update`` pragmas).
+    The following CLAW directives are inserted by the transformation:
+    * ``!$claw sca forward`` markers in the "driver" routine
+    * ``!$claw sca`` and ``claw model-config`` regions in the first-level "kernel" routine
+    * ``!$claw sca routine`` in any "kernel" routines beyond first-level
+
+    Note, this requires preprocessing with the `DerivedTypeArgumentsTransformation`,
+    if "array-of-struct"-type derived type arguments are present.
+
+    Parameters
+    ----------
+    claw_data_offload : bool
+        Flag triggering the addition of ``create`` and ``update`
+        clauses to the ``!$claw sca forward`` directive, causing CLAW
+        to tightly wrap the kernel invocation in OpenACC offload
+        directives.
     """
 
     def __init__(self, **kwargs):
@@ -261,7 +262,7 @@ class CLAWTransformation(ExtractSCATransformation):
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
-                     if isinstance(v, Array) and v.shape[0] in self.dimension.size_expressions]
+                     if isinstance(v, Array) and v.shape[0] in self.horizontal.size_expressions]
 
         # The CLAW assumes that variables defining dimension sizes or iteration spaces
         # exist in both driver and kernel as local variables. We often rely on implicit
@@ -274,17 +275,17 @@ class CLAWTransformation(ExtractSCATransformation):
                 # that mimic dimension variables in the kernel
                 assignments = []
                 for arg, val in call.context.arg_iter(call):
-                    if arg == self.dimension.name and not arg.name in routine.variables:
+                    if arg == self.horizontal.size and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
-                    if arg == self.dimension.iteration[0] and not arg.name in routine.variables:
+                    if arg == self.horizontal.bounds[0] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
-                    if arg == self.dimension.iteration[1] and not arg.name in routine.variables:
+                    if arg == self.horizontal.bounds[1] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
@@ -327,6 +328,6 @@ class CLAWTransformation(ExtractSCATransformation):
                 if self.claw_data_offload:
                     claw_keywords += ' create update'
 
-                if loop.variable == self.dimension.variable:
+                if loop.variable == self.horizontal.index:
                     pragma = Pragma(keyword='claw', content=claw_keywords)
                     loop._update(pragma=pragma)
