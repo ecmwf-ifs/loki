@@ -196,9 +196,7 @@ source "${venv_path}/bin/activate"
 
 if [ "x$proxy_certificate" != "x" ]
 then
-PROXY=$proxy_certificate perl -i -pe '
-s,/etc/pki/tls/certs/ca-bundle.crt,$ENV{PROXY}\n/etc/pki/tls/certs/ca-bundle.crt,go
-' ./loki_env/lib/python3.6/site-packages/setuptools/ssl_support.py 
+export SSL_CERT_FILE=$proxy_certificate
 fi
 
 #
