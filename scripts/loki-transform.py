@@ -21,8 +21,9 @@ from loki.transform import DependencyTransformation, FortranCTransformation
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
-from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import DataOffloadTransformation
+from transformations import ExtractSCATransformation, CLAWTransformation
+from transformations import SingleColumnCoalescedTransformation
 
 
 """
@@ -170,7 +171,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
@@ -225,6 +226,10 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
         transformation = CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
+
+    if mode == 'scc':
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = SingleColumnCoalescedTransformation(horizontal=horizontal)
 
     if transformation:
         scheduler.process(transformation=transformation)
