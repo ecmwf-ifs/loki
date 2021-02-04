@@ -4,14 +4,12 @@ Collection of utility routines that provide transformations for code regions.
 """
 from collections import defaultdict
 
-from loki import Scope, Subroutine, info
+from loki import Subroutine, info
 from loki.analyse import dataflow_analysis_attached
-from loki.expression import (
-    symbols as sym, FindTypedSymbols, SubstituteExpressions
-)
+from loki.expression import FindVariables
 from loki.ir import CallStatement, Comment, Import, Loop, Pragma, PragmaRegion, Section
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragma_regions_attached
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
@@ -139,19 +137,6 @@ def region_to_call(routine):
     :return: the list of newly created subroutines.
 
     """
-    def _build_arg_list(region_args, intent, scope):
-        """Helper routine to re-scope and clone arguments for call statement and new routine."""
-        arguments, call_arguments = [], []
-        for arg in region_args:
-            call_arguments += [arg.clone(dimensions=None)]
-            if isinstance(arg, sym.Array):
-                amap = {v: v.clone(scope=scope) for v in FindTypedSymbols(unique=False).visit(arg.shape)}
-                dim = sym.ArraySubscript(SubstituteExpressions(amap).visit(arg.shape))
-                arguments += [arg.clone(scope=scope, type=arg.type.clone(intent=intent), dimensions=dim)]
-            else:
-                arguments += [arg.clone(scope=scope, type=arg.type.clone(intent=intent))]
-        return arguments, call_arguments
-
     counter = 0
     routines, starts, stops = [], [], []
     imports = {var for imprt in FindNodes(Import).visit(routine.spec) for var in imprt.symbols}
@@ -167,45 +152,53 @@ def region_to_call(routine):
                 name = parameters.get('name', '{}_region_to_call_{}'.format(routine.name, counter))
                 counter += 1
 
+                # Create the external subroutine containing the routine's imports and the region's body
+                spec = Section(body=Transformer().visit(FindNodes(Import).visit(routine.spec)))
+                body = Section(body=Transformer().visit(region.body))
+                region_routine = Subroutine(name, spec=spec, body=body, rescope_variables=True)
+
                 # Use dataflow analysis to find in, out and inout variables to that region
                 # (ignoring any symbols that are external imports)
-                region_inout_args = region.uses_symbols & region.defines_symbols - imports
                 region_in_args = region.uses_symbols - region.defines_symbols - imports
+                region_inout_args = region.uses_symbols & region.defines_symbols - imports
                 region_out_args = region.defines_symbols - region.uses_symbols - imports
 
-                region_var_map = {v.name.lower(): v for v in FindTypedSymbols().visit(region.body) if v not in imports}
-                region_local_vars = set(region_var_map.values()) - region_in_args - region_out_args - region_inout_args
+                # Remove any parameters from in args
+                region_in_args = {arg for arg in region_in_args if not arg.type.parameter}
 
                 # Extract arguments given in pragma annotations
-                pragma_inout_args = {region_var_map[v.lower()] for v in parameters.get('inout', '').split(',') if v}
+                region_var_map = CaseInsensitiveDict(
+                    (v.name, v.clone(dimensions=None))
+                    for v in FindVariables().visit(region.body) if v.clone(dimensions=None) not in imports
+                )
                 pragma_in_args = {region_var_map[v.lower()] for v in parameters.get('in', '').split(',') if v}
+                pragma_inout_args = {region_var_map[v.lower()] for v in parameters.get('inout', '').split(',') if v}
                 pragma_out_args = {region_var_map[v.lower()] for v in parameters.get('out', '').split(',') if v}
 
                 # Override arguments according to pragma annotations
-                region_inout_args = (region_inout_args - (pragma_in_args | pragma_out_args)) | pragma_inout_args
                 region_in_args = (region_in_args - (pragma_inout_args | pragma_out_args)) | pragma_in_args
+                region_inout_args = (region_inout_args - (pragma_in_args | pragma_out_args)) | pragma_inout_args
                 region_out_args = (region_out_args - (pragma_in_args | pragma_inout_args)) | pragma_out_args
 
-                # Copy body for external routine
-                scope = Scope(parent=routine.scope.parent)
-                body_map = {v: v.clone(scope=scope) for v in FindTypedSymbols(unique=False).visit(region.body)}
-                body = Section(body=SubstituteExpressions(body_map).visit(region.body))
-
-                # Copy imports from spec for external routine
-                spec = Transformer().visit(FindNodes(Import).visit(routine.spec))
-                spec_map = {v: v.clone(scope=scope) for v in FindTypedSymbols(unique=False).visit(spec)}
-                spec = Section(body=SubstituteExpressions(spec_map).visit(spec))
+                # Now fix the order
+                region_inout_args = as_tuple(region_inout_args)
+                region_in_args = as_tuple(region_in_args)
+                region_out_args = as_tuple(region_out_args)
 
                 # Build the call signature
-                in_args, call_in_args = _build_arg_list(region_in_args, 'in', scope)
-                inout_args, call_inout_args = _build_arg_list(region_inout_args, 'inout', scope)
-                out_args, call_out_args = _build_arg_list(region_out_args, 'out', scope)
-                variables, _ = _build_arg_list(region_local_vars, None, scope)
+                region_routine_var_map = CaseInsensitiveDict(
+                    (v.name, v.clone(dimensions=v.type.shape or None))
+                    for v in FindVariables().visit(region_routine.body) if v.name in region_var_map
+                )
+                region_routine_arguments = []
+                for intent, args in zip(('in', 'inout', 'out'), (region_in_args, region_inout_args, region_out_args)):
+                    for arg in args:
+                        local_var = region_routine_var_map[arg.name]
+                        region_routine_arguments += [local_var.clone(type=local_var.type.clone(intent=intent))]
 
-                # Create the external routine and insert it into the list
-                region_routine = Subroutine(name, spec=spec, body=body, scope=scope)
-                region_routine.variables = variables
-                region_routine.arguments = in_args + inout_args + out_args
+                # Set variables and arguments for region routine and insert into list of new routines
+                region_routine.variables = as_tuple(region_routine_var_map.values())
+                region_routine.arguments = as_tuple(region_routine_arguments)
                 routines.append(region_routine)
 
                 # Register start and end nodes in transformer mask for original routine
@@ -213,7 +206,7 @@ def region_to_call(routine):
                 stops += [region.pragma]
 
                 # Replace end pragma by call in original routine
-                call_arguments = call_in_args + call_inout_args + call_out_args
+                call_arguments = region_in_args + region_inout_args + region_out_args
                 call = CallStatement(name=name, arguments=call_arguments)
                 mask_map[region.pragma_post] = call
 

@@ -2,15 +2,23 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import Module, Subroutine, OFP, OMNI, FP, FindNodes, Loop, Assignment, CallStatement
+from conftest import jit_compile, jit_compile_lib, clean_test
+from loki import (
+    Builder, Module, Subroutine, OFP, OMNI, FP, as_tuple,
+    FindNodes, Loop, Assignment, CallStatement
+)
 from loki.expression import symbols as sym
-from loki.transform import region_hoist, region_to_call
+from loki.transform import region_hoist, region_to_call, normalize_range_indexing
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(here):
+    return Builder(source_dirs=here, build_dir=here/'build')
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -528,3 +536,172 @@ end subroutine transform_region_to_call_arguments
 
     clean_test(filepath)
     clean_test(mod_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_region_to_call_arrays(here, frontend):
+    """
+    Test hoisting with array variables
+    """
+    fcode = """
+subroutine transform_region_to_call_arrays(a, b, n)
+  integer, intent(out) :: a(n), b(n)
+  integer, intent(in) :: n
+  integer :: j
+
+!$loki region-to-call
+  do j=1,n
+    a(j) = j
+  end do
+!$loki end region-to-call
+
+!$loki region-to-call
+  do j=1,n
+    b(j) = j
+  end do
+!$loki end region-to-call
+
+!$loki region-to-call
+  do j=1,n-1
+    b(j) = b(j+1) - a(j)
+  end do
+  b(n) = 1
+!$loki end region-to-call
+end subroutine transform_region_to_call_arrays
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    normalize_range_indexing(routine)
+
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    n = 10
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    function(a, b, n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == [1] * n)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+
+    # Apply transformation
+    routines = region_to_call(routine)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 0
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+
+    assert len(routines) == 3
+
+    assert {(str(a), a.type.intent) for a in routines[0].arguments} == {('a(n)', 'out'), ('n', 'in')}
+    assert {(str(a), a.type.intent) for a in routines[1].arguments} == {('b(n)', 'out'), ('n', 'in')}
+    assert {(str(a), a.type.intent) for a in routines[2].arguments} == {('a(n)', 'in'), ('b(n)', 'inout'), ('n', 'in')}
+
+    # Test transformation
+    module = Module(name='{}_mod'.format(routine.name), spec=(), routines=[*routines, routine])
+    mod_filepath = here/('%s_converted_%s.f90' % (module.name, frontend))
+    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
+    mod_function = getattr(mod, routine.name)
+
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    b = np.zeros(shape=(n,), dtype=np.int32)
+    mod_function(a, b, n)
+    assert np.all(a == range(1,n+1))
+    assert np.all(b == [1] * n)
+
+    clean_test(filepath)
+    clean_test(mod_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transform_region_to_call_imports(here, builder, frontend):
+    """
+    Test hoisting with correct treatment of imports
+    """
+    fcode_module = """
+module region_to_call_mod
+  implicit none
+  integer, parameter :: param = 1
+  integer :: arr1(10)
+  integer :: arr2(10)
+end module region_to_call_mod
+    """.strip()
+
+    fcode = """
+module transform_region_to_call_imports_mod
+  implicit none
+contains
+  subroutine transform_region_to_call_imports(a, b)
+    use region_to_call_mod, only: param, arr1, arr2
+    integer, intent(out) :: a(10), b(10)
+    integer :: j
+
+!$loki region-to-call
+    do j=1,10
+      a(j) = param
+    end do
+!$loki end region-to-call
+
+!$loki region-to-call
+    do j=1,10
+      arr1(j) = j+1
+    end do
+!$loki end region-to-call
+
+    arr2(:) = arr1(:)
+
+!$loki region-to-call
+    do j=1,10
+      b(j) = arr2(j) - a(j)
+    end do
+!$loki end region-to-call
+  end subroutine transform_region_to_call_imports
+end module transform_region_to_call_imports_mod
+"""
+    ext_module = Module.from_source(fcode_module, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, definitions=ext_module)
+    normalize_range_indexing(module.subroutines[0])
+    refname = 'ref_%s_%s' % (module.name, frontend)
+    reference = jit_compile_lib([module, ext_module], path=here, name=refname, builder=builder)
+    function = getattr(getattr(reference, module.name), module.subroutines[0].name)
+
+    # Test the reference solution
+    a = np.zeros(shape=(10,), dtype=np.int32)
+    b = np.zeros(shape=(10,), dtype=np.int32)
+    function(a, b)
+    assert np.all(a == [1] * 10)
+    assert np.all(b == range(1,11))
+    (here/'{}.f90'.format(module.name)).unlink()
+
+    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 4
+    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
+
+    # Apply transformation
+    routines = region_to_call(module.subroutines[0])
+
+    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 1
+    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 3
+
+    assert len(routines) == 3
+
+    assert {(str(a), a.type.intent) for a in routines[0].arguments} == {('a(10)', 'out')}
+    assert {(str(a), a.type.intent) for a in routines[1].arguments} == set()
+    assert {(str(a), a.type.intent) for a in routines[2].arguments} == {('a(10)', 'in'), ('b(10)', 'out')}
+
+    # Insert created routines into module
+    module.routines += as_tuple(routines)
+
+    # Hack: rename module to use a different filename in the build
+    module.name = '%s_' % module.name
+    obj = jit_compile_lib([module, ext_module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+    mod_function = getattr(getattr(obj, module.name), module.subroutines[0].name)
+
+    # Test transformation
+    a = np.zeros(shape=(10,), dtype=np.int32)
+    b = np.zeros(shape=(10,), dtype=np.int32)
+    mod_function(a, b)
+    assert np.all(a == [1] * 10)
+    assert np.all(b == range(1,11))
+    #(here/'{}.f90'.format(module.name)).unlink()
+    (here/'{}.f90'.format(ext_module.name)).unlink()
