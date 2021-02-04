@@ -194,6 +194,13 @@ fi
 print_step "Activating virtualenv"
 source "${venv_path}/bin/activate"
 
+if [ "x$proxy_certificate" != "x" ]
+then
+PROXY=$proxy_certificate perl -i -pe '
+s,/etc/pki/tls/certs/ca-bundle.crt,$ENV{PROXY}\n/etc/pki/tls/certs/ca-bundle.crt,go
+' ./loki_env/lib/python3.6/site-packages/setuptools/ssl_support.py 
+fi
+
 #
 # Install Loki with Python dependencies
 #
@@ -258,7 +265,18 @@ if [ "$with_ant" == true ]; then
   mkdir -p "${ANT_INSTALL_DIR}"
   rm -rf "${ANT_HOME}" "${ANT_INSTALL_DIR}/${ANT_ARCHIVE}"
   cd "${ANT_INSTALL_DIR}"
-  wget $WGETPROXYOPTIONS -O "${ANT_ARCHIVE}" http://ftp.fau.de/apache/ant/binaries/${ANT_ARCHIVE}
+
+  set +e
+  for mirror in http://ftp.fau.de/apache http://mirror.ox.ac.uk/sites/rsync.apache.org https://apache.mirrors.benatherton.com
+  do
+    wget --tries 3 $WGETPROXYOPTIONS -O "${ANT_ARCHIVE}" $mirror/ant/binaries/${ANT_ARCHIVE}
+    if [ $? -eq 0 ]
+    then
+      break
+    fi
+  done
+  set -e
+
   tar -xzf "${ANT_ARCHIVE}"
 
   export PATH="${ANT_HOME}/bin:${PATH}"
@@ -279,7 +297,12 @@ if [ "$with_claw" == true ]; then
   git clone --recursive https://github.com/claw-project/claw-compiler.git claw-compiler
   cd claw-compiler
 
-  ${claw_install_env} cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+  (
+    set -a
+    eval ${claw_install_env} 
+    cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+  )
+
   make
   make install
 fi
