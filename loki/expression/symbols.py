@@ -9,7 +9,7 @@ import pymbolic.primitives as pmbl
 from loki.tools import as_tuple
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
-from loki.expression.mappers import LokiStringifyMapper
+from loki.expression.mappers import LokiStringifyMapper, ExpressionRetriever
 
 
 __all__ = [
@@ -79,17 +79,24 @@ class StrCompareMixin:
     identify expression symbols from equivalent strings.
     """
 
+    @staticmethod
+    def _canonical(s):
+        """ Define canonical string representations (lower-case, no spaces) """
+        return s.__str__().lower().replace(' ', '')
+
     def __hash__(self):
-        return hash(super().__str__().lower().replace(' ', ''))
+        return hash(self._canonical(self))
 
     def __eq__(self, other):
         if isinstance(other, str):
-            # Do comparsion based on canonical string representations (lower-case, no spaces)
-            sexpr = super().__str__().lower().replace(' ', '')
-            other = other.lower().replace(' ', '')
-            return sexpr == other
+            # Do comparsion based on canonical string representations
+            return self._canonical(self) == self._canonical(other)
 
         return super().__eq__(other)
+
+    def __contains__(self, other):
+        # Assess containment via a retriver with node-wise string comparison
+        return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
 
 
 class TypedSymbol:

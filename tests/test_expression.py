@@ -810,6 +810,24 @@ def test_string_compare():
     assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
 
 
+@pytest.mark.parametrize('expr, string, ref', [
+    ('a + 1', 'a', True),
+    ('u(a)', 'a', True),
+    ('u(a + 1)', 'a', True),
+    ('u(a + 1) + 2', 'u(a + 1)', True),
+    ('ansatz(a + 1)', 'a', True),
+    ('ansatz(b + 1)', 'a', False),  # Ensure no false positives
+])
+def test_subexpression_match(expr, string, ref):
+    """
+    Test that we can identify individual symbols or sub-expressions in
+    expressions via canonical string matching.
+    """
+    scope = Scope()
+    expr = parse_fparser_expression(expr, scope)
+    assert (string in expr) == ref
+
+
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '1 + 1'),
     ('1+2+3+4', '1 + 2 + 3 + 4'),
