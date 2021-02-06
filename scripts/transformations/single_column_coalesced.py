@@ -156,7 +156,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                     if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
                         continue
 
-                    loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
+                    if self.directive == 'openacc':
+                        loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
 
         if not self.hoist_column_arrays:
@@ -205,9 +206,10 @@ class SingleColumnCoalescedTransformation(Transformation):
                 loop = loops[0]
 
                 # Mark driver loop as "gang parallel".
-                if loop.pragma is None:
-                    loop._update(pragma=Pragma(keyword='acc', content='parallel loop gang'))
-                    loop._update(pragma_post=Pragma(keyword='acc', content='end parallel loop'))
+                if self.directive == 'openacc':
+                    if loop.pragma is None:
+                        loop._update(pragma=Pragma(keyword='acc', content='parallel loop gang'))
+                        loop._update(pragma_post=Pragma(keyword='acc', content='end parallel loop'))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
@@ -248,8 +250,7 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Create a driver-level buffer variable for all promoted column arrays
         # TODO: Note that this does not recurse into the kernels yet!
-        dtype = SymbolAttributes(BasicType.INTEGER)
-        block_var = Variable(name=self.block_dim.size, type=dtype, scope=routine)
+        block_var = get_integer_variable(routine, self.block_dim.size)
         arg_dims = [v.shape + (block_var,) for v in column_locals]
         # Translate shape variables back to caller's namespace
         routine.variables += as_tuple(v.clone(dimensions=arg_mapper.visit(dims), scope=routine)
@@ -259,16 +260,18 @@ class SingleColumnCoalescedTransformation(Transformation):
         def _pragma_string(items):
             return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
 
-        vnames = _pragma_string(v.name for v in column_locals)
-        pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
-        pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
-        routine.body.prepend(pragma)
-        routine.body.append(pragma_post)
+        if self.directive == 'openacc':
+            vnames = _pragma_string(v.name for v in column_locals)
+            pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
+            pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
+            routine.body.prepend(pragma)
+            routine.body.append(pragma_post)
 
         # Add a block-indexed slice of each column variable to the call
-        idx = Variable(name=self.block_dim.index, type=dtype, scope=routine)
+        idx = get_integer_variable(routine, self.block_dim.index)
         new_args = [v.clone(
-            dimensions=as_tuple([RangeIndex((None, None)) for _ in v.shape]) + (idx,)
+            dimensions=as_tuple([RangeIndex((None, None)) for _ in v.shape]) + (idx,),
+            scope=routine
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
 
@@ -281,7 +284,9 @@ class SingleColumnCoalescedTransformation(Transformation):
         new_call._update(kwarguments=new_call.kwarguments + ((self.horizontal.index, v_index),))
 
         # Now create a vector loop around the kerne invocation
-        pragma = Pragma(keyword='acc', content='loop vector')
+        pragma = None
+        if self.directive == 'openacc':
+            pragma = Pragma(keyword='acc', content='loop vector')
         v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
         bounds = LoopRange((v_start, v_end))
