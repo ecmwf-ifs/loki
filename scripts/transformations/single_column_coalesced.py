@@ -3,7 +3,7 @@ from loki import (
     SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached,
-    JoinableStringList, FindScopes
+    JoinableStringList, FindScopes, Comment
 )
 
 
@@ -168,7 +168,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             # do not have vertical dimension.
 
             # Add vector-level loops at the highest level in the kernel
-            self.kernel_add_vector_loops(routine)
+            with pragmas_attached(routine, Loop):
+                self.kernel_add_vector_loops(routine)
 
         if self.directive == 'openacc':
             if not self.hoist_column_arrays:
@@ -264,8 +265,9 @@ class SingleColumnCoalescedTransformation(Transformation):
             vnames = _pragma_string(v.name for v in column_locals)
             pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
             pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
-            routine.body.prepend(pragma)
-            routine.body.append(pragma_post)
+            # Add comments around standalone pragmas to avoid false attachment
+            routine.body.prepend((Comment(), pragma, Comment()))
+            routine.body.append((Comment(), pragma_post, Comment()))
 
         # Add a block-indexed slice of each column variable to the call
         idx = get_integer_variable(routine, self.block_dim.index)
@@ -383,4 +385,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         bounds = LoopRange((v_start, v_end))
         index = get_integer_variable(routine, self.horizontal.index)
         vector_loop = Loop(variable=index, bounds=bounds, body=[routine.body.body], pragma=pragma)
-        routine.body.body = (vector_loop,)
+
+        # Add a comment before the pragma-annotated loop to ensure not
+        # overlap with neightbouring pragmas
+        routine.body.body = (Comment(), vector_loop,)
