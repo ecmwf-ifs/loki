@@ -9,6 +9,8 @@ Welcome to Loki's documentation!
 .. toctree::
    :maxdepth: 1
 
+   internal_representation
+
    scripts
    loki_api
 

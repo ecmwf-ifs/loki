@@ -359,7 +359,7 @@ class NestedMaskedTransformer(MaskedTransformer):
         # retained if other children turn on active status
         return o
 
-    def visit_Node(self, o, **kwargs):
+    def visit_LeafNode(self, o, **kwargs):
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
         if not self.active:
@@ -372,21 +372,17 @@ class NestedMaskedTransformer(MaskedTransformer):
 
     # Handler for block nodes
 
-    def visit_Section(self, o, **kwargs):
+    def visit_InternalNode(self, o, **kwargs):
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
 
-        # check if body exists, otherwise delete this node
+        # check if body still exists, otherwise delete this node
         body_index = o._traversable.index('body')
         if not flatten(rebuilt[body_index]):
             return None
         return self._rebuild(o, rebuilt)
-
-    visit_Loop = visit_Section
-    visit_WhileLoop = visit_Section
-    visit_Associate = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
         if o in self.mapper:

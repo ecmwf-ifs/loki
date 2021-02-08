@@ -8,6 +8,9 @@ loki.egg-info/*
 .pytest_cache/*
 .dacecache/*
 
+# Omni overhead
+*.xmod
+
 # Basic Fortran compilation overheads
 *.o
 *.mod
