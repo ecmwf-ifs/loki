@@ -73,23 +73,23 @@ class TypedSymbol:
     def __init__(self, *args, **kwargs):
         self.name = kwargs.get('name')
         scope = kwargs.pop('scope')
-        type = kwargs.pop('type', None)
+        _type = kwargs.pop('type', None)
 
         super().__init__(*args, **kwargs)
 
         assert isinstance(scope, Scope)
         self._scope = weakref.ref(scope)
 
-        if type is None:
+        if _type is None:
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
             self.scope.symbols.setdefault(self.name, SymbolType(BasicType.DEFERRED))
-        elif type is not self.scope.symbols.lookup(self.name):
+        elif _type is not self.scope.symbols.lookup(self.name):
             # If the type information does already exist and is identical (not just
             # equal) we don't update it. This makes sure that we don't create double
             # entries for variables inherited from a parent scope
-            self.type = type.clone()
+            self.type = _type.clone()
 
     def __getinitargs__(self):
         args = [self.name, ('scope', self.scope)]
@@ -112,6 +112,20 @@ class TypedSymbol:
     @type.setter
     def type(self, value):
         self.scope.symbols[self.name] = value
+
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        # Add existing meta-info to the clone arguments, only if we have them.
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.scope and 'scope' not in kwargs:
+            kwargs['scope'] = self.scope
+        if self.type and 'type' not in kwargs:
+            kwargs['type'] = self.type
+
+        return type(self)(**kwargs)
 
 
 class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
@@ -779,7 +793,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
     parameter handed down in the constructor.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
         super().__init__()
 
 

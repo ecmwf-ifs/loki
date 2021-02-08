@@ -1,5 +1,3 @@
-# pylint: disable=too-many-lines
-# (We are not against extensive testing)
 from pathlib import Path
 import pytest
 import numpy as np
@@ -8,7 +6,8 @@ from conftest import jit_compile, clean_test
 from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Declaration
+    SymbolType, StringLiteral, fgen, fexprgen, Declaration,
+    Transformer, FindTypedSymbols
 )
 
 
@@ -1199,3 +1198,178 @@ INTERFACE
   END SUBROUTINE test_subroutine_interface
 END INTERFACE
 """.strip()
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_subroutine_rescope_variables(frontend):
+    """
+    Test the rescoping of variables.
+    """
+    fcode = """
+subroutine test_subroutine_rescope(a, b, n)
+  use some_mod, only: ext1
+  implicit none
+  integer, intent(in) :: a(n)
+  integer, intent(out) :: b(n)
+  integer, intent(in) :: n
+  integer :: j
+
+  b(:) = 0
+
+  do j=1,n
+    b(j) = a(j)
+  end do
+
+  call nested_routine(b, n)
+contains
+
+  subroutine nested_routine(a, n)
+    use some_mod, only: ext2
+    integer, intent(inout) :: a
+    integer, intent(in) :: n
+    integer :: j
+
+    do j=1,n
+      a(j) = a(j) + 1
+    end do
+
+    call ext1(a)
+    call ext2(a)
+  end subroutine nested_routine
+end subroutine test_subroutine_rescope
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(routine)
+
+    # Create a copy of the nested subroutine with rescoping and
+    # make sure all symbols are in the right scope
+    nested_spec = Transformer().visit(routine.members[0].spec)
+    nested_body = Transformer().visit(routine.members[0].body)
+    nested_routine = Subroutine(name=routine.members[0].name, args=routine.members[0]._dummies,
+                                spec=nested_spec, body=nested_body, parent_scope=routine.scope,
+                                rescope_variables=True)
+
+    for var in FindTypedSymbols().visit(nested_routine.ir):
+        if var.name == 'ext1':
+            assert var.scope is routine.scope
+        else:
+            assert var.scope is nested_routine.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    nested_spec = Transformer().visit(routine.members[0].spec)
+    nested_body = Transformer().visit(routine.members[0].body)
+    other_routine = Subroutine(name=routine.members[0].name, args=routine.members[0].argnames,
+                               spec=nested_spec, body=nested_body, parent_scope=routine.scope)
+
+    # Explicitly throw away type information from original nested routine
+    routine.members[0].scope._parent = None
+    routine.members[0].scope.symbols.clear()
+    routine.members[0].scope.symbols._parent = None
+    routine.members[0].scope.types.clear()
+    routine.members[0].scope.types._parent = None
+    assert all(var.type is None for var in other_routine.variables)
+    assert all(var.scope is not None for var in other_routine.variables)
+
+    # Replace member routine by copied routine
+    routine._members = (nested_routine,)
+
+    # Now, all variables should still be well-defined and fgen should produce the same string
+    assert all(var.scope is not None for var in nested_routine.variables)
+    assert fgen(routine) == ref_fgen
+
+    # accessing any local type information should fail because either the scope got garbage
+    # collected or its types are gonee
+    assert all(var.scope is None or var.type is None for var in other_routine.variables)
+
+    # fgen of the not rescoped routine should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_routine)
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_subroutine_rescope_clone(frontend):
+    """
+    Test the rescoping of variables in clone.
+    """
+    fcode = """
+subroutine test_subroutine_rescope_clone(a, b, n)
+  use some_mod, only: ext1
+  implicit none
+  integer, intent(in) :: a(n)
+  integer, intent(out) :: b(n)
+  integer, intent(in) :: n
+  integer :: j
+
+  b(:) = 0
+
+  do j=1,n
+    b(j) = a(j)
+  end do
+
+  call nested_routine(b, n)
+contains
+
+  subroutine nested_routine(a, n)
+    use some_mod, only: ext2
+    integer, intent(inout) :: a
+    integer, intent(in) :: n
+    integer :: j
+
+    do j=1,n
+      a(j) = a(j) + 1
+    end do
+
+    call ext1(a)
+    call ext2(a)
+  end subroutine nested_routine
+end subroutine test_subroutine_rescope_clone
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(routine)
+
+    # Create a copy of the nested subroutine with rescoping and
+    # make sure all symbols are in the right scope
+    nested_routine = routine.members[0].clone()
+
+    for var in FindTypedSymbols().visit(nested_routine.ir):
+        if var.name == 'ext1':
+            assert var.scope is routine.scope
+        else:
+            assert var.scope is nested_routine.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    other_routine = routine.members[0].clone(rescope_variables=False)
+
+    # Explicitly throw away type information from original nested routine
+    routine.members[0].scope._parent = None
+    routine.members[0].scope.symbols.clear()
+    routine.members[0].scope.symbols._parent = None
+    routine.members[0].scope.types.clear()
+    routine.members[0].scope.types._parent = None
+    assert all(var.type is None for var in other_routine.variables)
+    assert all(var.scope is not None for var in other_routine.variables)
+
+    # Replace member routine by copied routine
+    routine._members = (nested_routine,)
+
+    # Now, all variables should still be well-defined and fgen should produce the same string
+    assert all(var.scope is not None for var in nested_routine.variables)
+    assert fgen(routine) == ref_fgen
+
+    # accessing any local type information should fail because either the scope got garbage
+    # collected or its types are gonee
+    assert all(var.scope is None or var.type is None for var in other_routine.variables)
+
+    # fgen of the not rescoped routine should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_routine)

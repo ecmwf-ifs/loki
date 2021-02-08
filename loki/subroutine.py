@@ -10,7 +10,8 @@ from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma
 )
-from loki.expression import FindVariables, Array, SubstituteExpressions
+from loki.expression import FindVariables, FindTypedSymbols, Array, SubstituteExpressions
+from loki.logging import warning, debug
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -24,21 +25,47 @@ class Subroutine:
     """
     Class to handle and manipulate a single subroutine.
 
-    :param name: Name of the subroutine
-    :param ast: Frontend node for this subroutine
-    :param Source source: Source object representing the raw source string information from
-            the read file.
-    :param definitions: Optional list of external definitions (``Module`` objects) that
-                        provide external variable and type definitions.
-    :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
-                  cache type information for all symbols defined within this module's scope.
-    :param parent_scope: ``Scope`` object with enclosing type information used to create
-                         local scope if no local scope is provided. This is also used to
-                         define the backward link via `Subroutine.parent`.
+    Parameters
+    ----------
+    name : str
+        Name of the subroutine.
+    args : iterable of str, optional
+        The names of the dummy args.
+    docstring : tuple of :any:`Node`, optional
+        The subroutine docstring in the original source.
+    spec : :any:`Section`, optional
+        The spec of the subroutine.
+    body : :any:`Section`, optional
+        The body of the subroutine.
+    members : iterable of :any:`Subroutine`
+        Member subroutines contained in this subroutine.
+    ast : optional
+        Frontend node for this subroutine (from parse tree of the frontend).
+    bind : optional
+        Bind information (e.g., for Fortran ``BIND(C)`` annotation).
+    is_function : bool, optional
+        Flag to indicate this is a function instead of subroutine
+        (in the Fortran sense). Defaults to `False`.
+    scope : :any:`Scope`, optional
+        The container that manages :any:`TypeTable` objects that cache type
+        information for all symbols defined within this subroutine's scope.
+        If not provided an empty scope is created.
+    parent_scope : :any:`Scope`, optional
+        Object with type information for the enclosing scope that is given as
+        parent to a newly created `scope`. This is also used to define the
+        backward link via :py:attr:`Subroutine.parent`.
+    rescope_variables : bool, optional
+        Ensure that the type information for all :any:`TypedSymbol` in the
+        subroutine's IR exist in the subroutine's scope or the scope's parents.
+        Defaults to `False`.
+    source : :any:`Source`
+        Source object representing the raw source string information from the
+        read file.
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
-                 ast=None, bind=None, is_function=False, scope=None, parent_scope=None, source=None):
+                 ast=None, bind=None, is_function=False, scope=None, parent_scope=None,
+                 rescope_variables=False, source=None):
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
@@ -55,6 +82,9 @@ class Subroutine:
         assert isinstance(body, Section) or body is None
         self.body = body
         self._members = as_tuple(members)
+
+        if rescope_variables:
+            self.rescope_variables()
 
         self.bind = bind
         self.is_function = is_function
@@ -498,9 +528,72 @@ class Subroutine:
         """
         return '{}:: {}'.format('Function' if self.is_function else 'Subroutine', self.name)
 
+    def rescope_variables(self):
+        """
+        Verify that all :any:`TypedSymbol` objects in the IR are in the
+        subroutine's scope or in a parent scope.
+        """
+        # Collect all scopes that we can access/are relevant in this routine
+        scope_hierarchy = []
+        s = self.scope
+        while s is not None:
+            scope_hierarchy += [s]
+            s = s.parent
+
+        # The local variable map. These really need to be in *this* scope.
+        variable_map = self.variable_map
+        imports_map = CaseInsensitiveDict(
+            (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
+        )
+
+        # Check for all variables that they are associated with one of the
+        # scopes in the hierarchy
+        rescope_map = {}
+        for var in FindTypedSymbols().visit(self.ir):
+            if (var.name in variable_map or var.name in imports_map) and var.scope is not self.scope:
+                # This takes care of all local variables or imported symbols
+                rescope_map[var] = var.clone(scope=self.scope)
+            elif var.scope not in scope_hierarchy and var not in rescope_map:
+                # This is the fallback for any symbols from parent scopes.
+                # We need to run through the scope hierarchy manually because we
+                # not only need to know the stored type (if any) but also in which
+                # scope it is stored
+                for s in scope_hierarchy:
+                    # Here we try to be careful not to accidentally overwrite
+                    # existing type information
+                    _type = s.symbols.lookup(var.name, recursive=False)
+                    if _type:
+                        if _type != var.type:
+                            warning('Subroutine.rescope_variables: type for %s does not match stored type.',
+                                    var.name)
+                        rescope_map[var] = var.clone(scope=s, type=_type)
+                        break
+                else:
+                    # Variable does not exist in any scope so we put this in the local
+                    # scope just to be on the safe side
+                    debug('Subroutine.rescope_variables: type for %s not found in any scope.', var.name)
+                    rescope_map[var] = var.clone(scope=self.scope)
+
+        # Now apply the rescoping map
+        if rescope_map and self.spec:
+            self.spec = SubstituteExpressions(rescope_map).visit(self.spec)
+        if rescope_map and self.body:
+            self.body = SubstituteExpressions(rescope_map).visit(self.body)
+
     def clone(self, **kwargs):
         """
-        Create a copy of the subroutine.
+        Create a copy of the subroutine with the option to override individual
+        parameters.
+
+        Parameters
+        ----------
+        **kwargs :
+            Any parameters from the constructor of :any:`Subroutine`.
+
+        Returns
+        -------
+        :any:`Subroutine`
+            The cloned subroutine object.
         """
         if self.name and 'name' not in kwargs:
             kwargs['name'] = self.name
@@ -515,15 +608,18 @@ class Subroutine:
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
 
-        kwargs['scope'] = Scope(parent=kwargs.get('parent_scope', self.scope.parent))
+        if 'scope' not in kwargs:
+            kwargs['scope'] = Scope(parent=kwargs.get('parent_scope', self.scope.parent))
+        if 'rescope_variables' not in kwargs:
+            kwargs['rescope_variables'] = True
         if self.members and 'members' not in kwargs:
-            kwargs['members'] = [member.clone(parent_scope=kwargs['scope']) for member in self.members]
+            kwargs['members'] = [
+                member.clone(parent_scope=kwargs['scope'], rescope_variables=kwargs['rescope_variables'])
+                for member in self.members
+            ]
+
         kwargs['docstring'] = Transformer({}).visit(self.docstring)
-        spec_map = {v: v.clone(scope=kwargs['scope'])
-                    for v in FindVariables(unique=False).visit(self.spec)}
-        kwargs['spec'] = SubstituteExpressions(spec_map).visit(Transformer({}).visit(self.spec))
-        body_map = {v: v.clone(scope=kwargs['scope'])
-                    for v in FindVariables(unique=False).visit(self.body)}
-        kwargs['body'] = SubstituteExpressions(body_map).visit(Transformer({}).visit(self.body))
+        kwargs['spec'] = Transformer({}).visit(self.spec)
+        kwargs['body'] = Transformer({}).visit(self.body)
 
         return type(self)(**kwargs)
