@@ -549,7 +549,7 @@ class Subroutine:
         # Check for all variables that they are associated with one of the
         # scopes in the hierarchy
         rescope_map = {}
-        for var in FindTypedSymbols().visit(as_tuple([self.spec, self.body])):
+        for var in FindTypedSymbols().visit(self.ir):
             if (var.name in variable_map or var.name in imports_map) and var.scope is not self.scope:
                 # This takes care of all local variables or imported symbols
                 rescope_map[var] = var.clone(scope=self.scope)
