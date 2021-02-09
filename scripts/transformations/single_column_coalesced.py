@@ -1,9 +1,11 @@
+from more_itertools import pairwise
+
 from loki import (
     Transformation, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached,
-    JoinableStringList, FindScopes, Comment
+    JoinableStringList, FindScopes, Comment, MaskedTransformer, flatten
 )
 
 
@@ -266,8 +268,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
             pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
             # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((Comment(), pragma, Comment()))
-            routine.body.append((Comment(), pragma_post, Comment()))
+            routine.body.prepend((Comment(''), pragma, Comment('')))
+            routine.body.append((Comment(''), pragma_post, Comment('')))
 
         # Add a block-indexed slice of each column variable to the call
         idx = get_integer_variable(routine, self.block_dim.index)
@@ -367,25 +369,40 @@ class SingleColumnCoalescedTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
+        def _construct_loop_with_private_arrays(body):
+            # Find local arrays that need explicitly privatization
+            argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+            private_arrays = [v for v in routine.variables if not v.name in argument_map]
+            private_arrays = [v for v in private_arrays if isinstance(v, Array)]
+            private_arrays = [v for v in private_arrays if not any(self.vertical.size in d for d in v.shape)]
 
-        # Find local arrays that need explicitly privatization
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        private_arrays = [v for v in routine.variables if not v.name in argument_map]
-        private_arrays = [v for v in private_arrays if isinstance(v, Array)]
-        private_arrays = [v for v in private_arrays if not any(self.vertical.size in d for d in v.shape)]
+            # Construct pragma and wrap entire body in vector loop
+            private_arrs = ', '.join(v.name for v in private_arrays)
+            pragma = None
+            if self.directive == 'openacc':
+                private_clause = '' if not private_arrays else ' private({})'.format(private_arrs)
+                pragma = Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
 
-        # Construct pragma and wrap entire body in vector loop
-        private_arrs = ', '.join(v.name for v in private_arrays)
-        pragma = None
-        if self.directive == 'openacc':
-            pragma = Pragma(keyword='acc', content='loop vector private({})'.format(private_arrs))
+            v_start = routine.variable_map[self.horizontal.bounds[0]]
+            v_end = routine.variable_map[self.horizontal.bounds[1]]
+            bounds = LoopRange((v_start, v_end))
+            index = get_integer_variable(routine, self.horizontal.index)
+            # Ensure we clone all body nodes, to avoid recursion issues
+            return Loop(variable=index, bounds=bounds, body=Transformer().visit(body), pragma=pragma)
 
-        v_start = routine.variable_map[self.horizontal.bounds[0]]
-        v_end = routine.variable_map[self.horizontal.bounds[1]]
-        bounds = LoopRange((v_start, v_end))
-        index = get_integer_variable(routine, self.horizontal.index)
-        vector_loop = Loop(variable=index, bounds=bounds, body=[routine.body.body], pragma=pragma)
+        # Create a list of sections between calls and create wrapping vector loops
+        call_map = {}
+        calls = FindNodes(CallStatement).visit(routine.body)
+        sections = [None, *calls, None]
+        for start, stop in pairwise(sections):
+            t = MaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
+            sec = as_tuple(flatten(t.visit(routine.body.body)))
+            if start is not None:
+                sec = sec[1:]  # Strip `start` node
 
-        # Add a comment before the pragma-annotated loop to ensure not
-        # overlap with neightbouring pragmas
-        routine.body.body = (Comment(), vector_loop,)
+            # Add a comment before the pragma-annotated loop to ensure
+            # not overlap with neightbouring pragmas
+            vector_loop = _construct_loop_with_private_arrays(sec)
+            call_map[sec] = (Comment(''), vector_loop)
+
+        routine.body = Transformer(call_map).visit(routine.body)
