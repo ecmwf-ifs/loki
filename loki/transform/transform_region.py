@@ -155,7 +155,7 @@ def region_to_call(routine):
                 # Create the external subroutine containing the routine's imports and the region's body
                 spec = Section(body=Transformer().visit(FindNodes(Import).visit(routine.spec)))
                 body = Section(body=Transformer().visit(region.body))
-                region_routine = Subroutine(name, spec=spec, body=body, rescope_variables=True)
+                region_routine = Subroutine(name, spec=spec, body=body)
 
                 # Use dataflow analysis to find in, out and inout variables to that region
                 # (ignoring any symbols that are external imports)
@@ -185,20 +185,29 @@ def region_to_call(routine):
                 region_in_args = as_tuple(region_in_args)
                 region_out_args = as_tuple(region_out_args)
 
+                # Set the list of variables used in region routine (to create declarations)
+                # and put all in the new scope
+                region_routine_variables = {v.clone(dimensions=v.type.shape or None)
+                                            for v in FindVariables().visit(region_routine.body)
+                                            if v.name in region_var_map}
+                region_routine.variables = as_tuple(region_routine_variables)
+                region_routine.rescope_variables()
+
                 # Build the call signature
-                region_routine_var_map = CaseInsensitiveDict(
-                    (v.name, v.clone(dimensions=v.type.shape or None))
-                    for v in FindVariables().visit(region_routine.body) if v.name in region_var_map
-                )
+                region_routine_var_map = region_routine.variable_map
                 region_routine_arguments = []
                 for intent, args in zip(('in', 'inout', 'out'), (region_in_args, region_inout_args, region_out_args)):
                     for arg in args:
                         local_var = region_routine_var_map[arg.name]
-                        region_routine_arguments += [local_var.clone(type=local_var.type.clone(intent=intent))]
+                        local_var = local_var.clone(type=local_var.type.clone(intent=intent))
+                        region_routine_var_map[arg.name] = local_var
+                        region_routine_arguments += [local_var]
 
-                # Set variables and arguments for region routine and insert into list of new routines
+                # We need to update the list of variables again to avoid duplicate declarations
                 region_routine.variables = as_tuple(region_routine_var_map.values())
                 region_routine.arguments = as_tuple(region_routine_arguments)
+
+                # insert into list of new routines
                 routines.append(region_routine)
 
                 # Register start and end nodes in transformer mask for original routine
