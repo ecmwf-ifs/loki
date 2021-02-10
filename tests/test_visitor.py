@@ -806,6 +806,42 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformer_multinode_keys(frontend):
+    """
+    Test basic transformer functionality with nulti-node keys
+    """
+    fcode = """
+subroutine routine_simple (x, y, a, b, c, d, e)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer, intent(in) :: x, y
+  real(kind=jprb), intent(in) :: a(x), b(x), c(x), d(x), e(x)
+  integer :: i
+
+  b(i) = a(i) + 1.
+  c(i) = a(i) + 2.
+  d(i) = c(i) + 3.
+  e(i) = d(i) + 4.
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assigns = FindNodes(Assignment).visit(routine.body)
+    bounds = LoopRange((IntLiteral(1), routine.variable_map['x']))
+
+    # Filter out only the two middle assignments to wrap in a loop.
+    # Note that we need to be careful to clone loop body nodes to
+    # avoid infinite recursion.
+    assigns = tuple(a for a in assigns if a.lhs in ['c(i)', 'd(i)'])
+    loop = Loop(variable=routine.variable_map['i'], bounds=bounds,
+                body=tuple(a.clone() for a in assigns))
+    transformed = Transformer({assigns: loop}).visit(routine.body)
+
+    new_loops = FindNodes(Loop).visit(transformed)
+    assert len(new_loops) == 1
+    assert len(FindNodes(Assignment).visit(new_loops)) == 2
+    assert len(FindNodes(Assignment).visit(transformed)) == 4
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_masked_transformer(frontend):
     """
     A very basic sanity test for the MaskedTransformer class.
