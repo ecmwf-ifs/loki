@@ -1,3 +1,7 @@
+"""
+Visitor classes that allow traversing the tree of control flow nodes.
+"""
+
 import inspect
 from itertools import groupby
 
@@ -12,7 +16,6 @@ __all__ = [
 
 
 class GenericVisitor:
-
     """
     A generic visitor class, shamelessly copied from:
     https://github.com/opesci/devito/
@@ -22,16 +25,21 @@ class GenericVisitor:
     If a specific method for a class :data:`Foo` is not found, the MRO
     of the class is walked in order until a matching method is found.
     The method signature is:
-        .. code-block::
-           def visit_Foo(self, o, [*args, **kwargs]):
-               pass
+
+    .. code-block::
+
+       def visit_Foo(self, o, [*args, **kwargs]):
+           pass
+
     The handler is responsible for visiting the children (if any) of
     the node :data:`o`.  :data:`*args` and :data:`**kwargs` may be
     used to pass information up and down the call stack.  You can also
     pass named keyword arguments, e.g.:
-        .. code-block::
-           def visit_Foo(self, o, parent=None, *args, **kwargs):
-               pass
+
+    .. code-block::
+
+        def visit_Foo(self, o, parent=None, *args, **kwargs):
+            pass
     """
 
     def __init__(self):

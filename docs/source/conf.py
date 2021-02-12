@@ -41,8 +41,20 @@ extensions = [
     'sphinx.ext.todo',  # include todos
     'sphinx.ext.autodoc',  # use docstrings
     'sphinx.ext.napoleon',  # understand docstrings also in other formats
+    'sphinx.ext.autosummary',  # automatically compile lists of classes/functions
+    'sphinx.ext.intersphinx',  # link to docs of other projects
     'recommonmark',  # read markdown
+    'sphinx_rtd_theme',  # read the docs theme
 ]
+
+autosummary_generate = True  # Turn on sphinx.ext.autosummary
+html_show_sourcelink = False  # Remove 'view source code' from top of page (for html, not python)
+add_module_names = False # Remove namespaces from class/method signatures
+
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'pymbolic': ('https://documen.tician.de/pymbolic/', None),
+}
 
 # The file extensions of source files. Sphinx considers the files with
 # this suffix as sources. The value can be a dictionary mapping file
@@ -66,7 +78,7 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinxawesome_theme'
+html_theme = 'sphinx_rtd_theme'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -74,15 +86,19 @@ html_theme = 'sphinxawesome_theme'
 html_static_path = ['_static']
 
 html_theme_options = {
-    "nav_include_hidden": True,
-    "show_nav": True,
-    "show_breadcrumbs": True,
-    "breadcrumbs_separator": "/",
-    "show_prev_next": False,
+    'logo_only': False,
+    'display_version': True,
+    'prev_next_buttons_location': 'bottom',
+    'style_external_links': False,
+    'vcs_pageview_mode': 'view',
+    'style_nav_header_background': '',
+    # Toc options
+    'collapse_navigation': True,
+    'sticky_navigation': True,
+    'navigation_depth': 4,
+    'includehidden': True,
+    'titles_only': False,
 }
-
-html_collapsible_definitions = True
-
 
 # -- Options for todo extension ----------------------------------------------
 

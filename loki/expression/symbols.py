@@ -1,3 +1,6 @@
+"""
+Expression tree node classes for :ref:`expression-ir`.
+"""
 import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
@@ -7,12 +10,18 @@ from loki.types import BasicType, DerivedType, SymbolType, Scope
 from loki.expression.mappers import LokiStringifyMapper
 
 
-__all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
-           'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral', 'IntrinsicLiteral',
-           'Literal', 'LiteralList',
-           'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
-           'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
-           'ProcedureSymbol']
+__all__ = [
+    # Mix-ins
+    'ExprMetadataMixin', 'StrCompareMixin',
+    # Typed leaf nodes
+    'TypedSymbol', 'Scalar', 'Array', 'Variable', 'ProcedureSymbol',
+    # Non-typed leaf nodes
+    'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
+    'IntrinsicLiteral', 'Literal', 'LiteralList',
+    # Internal nodes
+    'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
+    'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
+]
 
 
 # pylint: disable=abstract-method
@@ -20,7 +29,14 @@ __all__ = ['ExprMetadataMixin', 'Scalar', 'Array', 'Variable',
 
 class ExprMetadataMixin:
     """
-    Meta-data annotations for expression tree nodes.
+    Mixin to store metadata annotations for expression tree nodes.
+
+    Currently, this stores only source information for expression nodes.
+
+    Parameters
+    ----------
+    source : :any:`Source`, optional
+        Raw source string and line information from original source code.
     """
 
     def __init__(self, *args, **kwargs):
@@ -30,24 +46,29 @@ class ExprMetadataMixin:
         super().__init__(*args, **kwargs)
 
     def get_metadata(self):
+        """All metadata as a dict."""
         return self._metadata.copy()
 
     def update_metadata(self, data):
+        """Update the metadata for this expression node."""
         self._metadata.update(data)
 
     @property
     def source(self):
+        """The :any:`Source` object for this expression node."""
         return self._metadata['source']
 
     @staticmethod
-    def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument
+    def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument,missing-function-docstring
         return LokiStringifyMapper()
 
 
 class StrCompareMixin:
     """
-    String comparison overrides to reliably and flexibly identify
-    expression symbols from equivalent strings.
+    Mixin to enable comparing expressions to strings.
+
+    The purpose of the string comparison override is to reliably and flexibly
+    identify expression symbols from equivalent strings.
     """
 
     def __hash__(self):
@@ -67,7 +88,24 @@ class TypedSymbol:
     """
     Base class for symbols that carry type information from an associated scope.
 
+    Every :any:`TypedSymbol` is associated with a specific scope in which type
+    information is cached. The scope itself is owned by the corresponding
+    container class in which it is declared (such as :any:`Module` or
+    :any:`Subroutine`).
 
+    Parameters
+    ----------
+    name : str
+        The identifier of that symbol (e.g., variable name).
+    scope : :any:`Scope`
+        The scope in which that symbol is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+
+    .. note::
+        Providing a type overwrites the corresponding entry in the scope's
+        symbol table. This is due to the assumption that the type of a symbol
+        is only explicitly specified when it should be updated.
     """
 
     def __init__(self, *args, **kwargs):
@@ -130,15 +168,18 @@ class TypedSymbol:
 
 class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
-    Expression node for scalar variables (and other algebraic leaves).
+    Expression node for scalar variables.
 
-    It is always associated with a given class:``Scope`` (typically held by a
-    class:``Subroutine``) where the corresponding symbol table is found with its type.
-
-    Warning: Providing a type overwrites the corresponding entry in the symbol table.
-    This is due to the assumption that we might have encountered a variable name before
-    knowing about its declaration and thus treat the latest given type information as
-    the one that is most up-to-date.
+    Parameters
+    ----------
+    name : str
+        The name of the variable.
+    scope : :any:`Scope`
+        The scope in which the variable is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    parent : :any:`Scalar` or :any:`Array`, optional
+        The derived type variable this variable belongs to.
     """
 
     def __init__(self, name, scope, type=None, parent=None, **kwargs):
@@ -199,16 +240,23 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
     Expression node for array variables.
 
-    It can have associated dimensions (i.e., the indexing/slicing when accessing entries),
-    which can be a :class:`RangeIndex` or an expression or a :class:`Literal` or
-    a :class:`Scalar`
+    Similar to :any:`Scalar` with the notable difference that it has
+    a shape (stored in :data:`type`) and can have associated
+    :data:`dimensions` (i.e., the array subscript for indexing/slicing
+    when accessing entries).
 
-    Shape, data type and parent information are part of the type.
-
-    Warning: Providing a type overwrites the corresponding entry in the symbol table.
-    This is due to the assumption that we might have encountered a variable name before
-    knowing about its declaration and thus treat the latest given type information as
-    the one that is most up-to-date.
+    Parameters
+    ----------
+    name : str
+        The name of the variable.
+    scope : :any:`Scope`
+        The scope in which the variable is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    parent : :any:`Scalar` or :any:`Array`, optional
+        The derived type variable this variable belongs to.
+    dimensions : :any:`ArraySubscript`, optional
+        The array subscript expression.
     """
 
     def __init__(self, name, scope, type=None, parent=None, dimensions=None, **kwargs):
@@ -280,8 +328,8 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         """
         Replicate the :class:`Array` variable with the provided overrides.
 
-        Note, if :param dimensions: is provided as ``None``, a
-        :class:`Scalar` variable will be created.
+        Note, if :data:`dimensions` is set to ``None`` and :data:`type` updated
+        to have no shape, this will create a :any:`Scalar` variable.
         """
         # Add existing meta-info to the clone arguments, only if we have them.
         if self.name and 'name' not in kwargs:
@@ -300,16 +348,25 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
 
 class Variable:
     """
-    A symbolic object representing either a :class:`Scalar` or a :class:`Array`
-    variable in arithmetic expressions.
+    Factory class for :any:`Scalar` and :any:`Array`.
 
-    Note, that this is only a convenience constructor that always returns either
-    a :class:`Scalar` or :class:`Array` variable object.
+    This is a convenience constructor to provide a uniform interface for
+    instantiating both scalar and array variables. Depending on the shape
+    in :data:`type` or a given :data:`dimensions`, this creates a
+    :any:`Array` or :any:`Scalar` object.
 
-    Warning: Providing a type overwrites the corresponding entry in the symbol table.
-    This is due to the assumption that we might have encountered a variable name before
-    knowing about its declaration and thus treat the latest given type information as
-    the one that is most up-to-date.
+    Parameters
+    ----------
+    name : str
+        The name of the variable.
+    scope : :any:`Scope`
+        The scope in which the variable is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    parent : :any:`Scalar` or :any:`Array`, optional
+        The derived type variable this variable belongs to.
+    dimensions : :any:`ArraySubscript`, optional
+        The array subscript expression.
     """
 
     def __new__(cls, **kwargs):
@@ -334,12 +391,18 @@ class Variable:
     @classmethod
     def instantiate_derived_type_variables(cls, obj):
         """
-        If the type of obj is a derived type then its list of variables is possibly from
-        the declarations inside a TypeDef and as such, the variables are referring to a
-        different scope. Thus, we must re-create these variables in the correct scope.
-        For the actual instantiation of a variable with that type, we need to create a dedicated
-        copy of that type and replace its parent by this object and its list of variables (which
-        is an OrderedDict of SymbolTypes) by a list of Variable instances.
+        Helper routine to instantiate derived type variables.
+
+        This method is called from the class constructor
+
+        For members of a derived type we store type information in the scope
+        the derived type variable is declared. To make sure type information
+        exists for all members of the derived type, this helper routine
+        instantiates these member variables.
+
+        The reason this has to be done is that the list of variables stored in
+        the type object of :data:`obj` potentially stems from a :any:`TypeDef`
+        and as such, the variables are referring to a different scope.
         """
         if obj.type is not None and isinstance(obj.type.dtype, DerivedType):
             if obj.type.dtype.typedef is not BasicType.DEFERRED:
@@ -350,10 +413,45 @@ class Variable:
         return obj
 
 
+class _FunctionSymbol(pmbl.FunctionSymbol):
+    """
+    Adapter class for pmbl.FunctionSymbol that stores a name argument.
+
+    This is needed since the original symbol does not like having a :data:`name`
+    parameter handed down in the constructor.
+    """
+
+    def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
+        super().__init__()
+
+
+class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
+    """
+    Internal representation of a callable subroutine or function.
+
+    Parameters
+    ----------
+    name : str
+        The name of the symbol.
+    scope : :any:`Scope`
+        The scope in which the symbol is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    """
+
+    def __init__(self, name, scope, type=None, **kwargs):
+        # pylint: disable=redefined-builtin
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+    mapper_method = intern('map_procedure_symbol')
+
+
 class _Literal(pmbl.Leaf):
     """
-    Helper base class for literals to overcome the problem of a disfunctional
-    __getinitargs__ in py:class:`pymbolic.primitives.Leaf`.
+    Base class for literals.
+
+    This exists to overcome the problem of a disfunctional
+    :meth:`__getinitargs__` in any:`pymbolic.primitives.Leaf`.
     """
 
     def __getinitargs__(self):
@@ -364,8 +462,19 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
     """
     A floating point constant in an expression.
 
-    It can have a specific type associated, which can be used to cast the constant to that
-    type in the output of the backend.
+    Note that its :data:`value` is stored as a string to avoid any
+    representation issues that could stem from converting it to a
+    Python floating point number.
+
+    It can have a specific type associated, which backends can use to cast
+    or annotate the constant to make sure the specified type is used.
+
+    Parameters
+    ----------
+    value : str
+        The value of that literal.
+    kind : optional
+        The kind information for that literal.
     """
 
     def __init__(self, value, **kwargs):
@@ -435,8 +544,15 @@ class IntLiteral(ExprMetadataMixin, _Literal):
     """
     An integer constant in an expression.
 
-    It can have a specific type associated, which can be used to cast the constant to that
-    type in the output of the backend.
+    It can have a specific type associated, which backends can use to cast
+    or annotate the constant to make sure the specified type is used.
+
+    Parameters
+    ----------
+    value : int
+        The value of that literal.
+    kind : optional
+        The kind information for that literal.
     """
 
     def __init__(self, value, **kwargs):
@@ -511,6 +627,11 @@ pmbl.register_constant_class(IntLiteral)
 class LogicLiteral(ExprMetadataMixin, _Literal):
     """
     A boolean constant in an expression.
+
+    Parameters
+    ----------
+    value : bool
+        The value of that literal.
     """
 
     def __init__(self, value, **kwargs):
@@ -528,7 +649,12 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
 
 class StringLiteral(ExprMetadataMixin, _Literal):
     """
-    A string.
+    A string constant in an expression.
+
+    Parameters
+    ----------
+    value : str
+        The value of that literal. Enclosing quotes are removed.
     """
 
     def __init__(self, value, **kwargs):
@@ -561,10 +687,15 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
 class IntrinsicLiteral(ExprMetadataMixin, _Literal):
     """
-    Any literal not represented by a dedicated class. Its value is stored as
-    string and returned unaltered.
+    Any literal not represented by a dedicated class.
 
+    Its value is stored as string and returned unaltered.
     This is currently used for complex and BOZ constants.
+
+    Parameters
+    ----------
+    value : str
+        The value of that literal.
     """
 
     def __init__(self, value, **kwargs):
@@ -582,11 +713,19 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
 
 class Literal:
     """
-    A factory class that instantiates the appropriate :class:`*Literal` type for
-    a given value.
+    Factory class to instantiate the best-matching literal node.
 
-    This always returns a :class:`IntLiteral`, :class:`FloatLiteral`, :class:`StringLiteral`,
-    :class:`LogicLiteral` or, as a fallback, :class:`IntrinsicLiteral`.
+    This always returns a :class:`IntLiteral`, :class:`FloatLiteral`,
+    :class:`StringLiteral`, :class:`LogicLiteral` or, as a fallback,
+    :class:`IntrinsicLiteral`, selected by using any provided :data:`type`
+    information or inspecting the Python data type of :data: value.
+
+    Parameters
+    ----------
+    value :
+        The value of that literal.
+    kind : optional
+        The kind information for that literal.
     """
 
     @staticmethod
@@ -783,26 +922,3 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
         return LokiStringifyMapper()
 
     mapper_method = intern('map_array_subscript')
-
-
-class _FunctionSymbol(pmbl.FunctionSymbol):
-    """
-    Adapter class for pmbl.FunctionSymbol that stores a name argument.
-
-    This is needed since the original symbol does not like having a `name`
-    parameter handed down in the constructor.
-    """
-
-    def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
-        super().__init__()
-
-
-class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
-    """
-    Internal representation of a callable subroutine or function.
-    """
-
-    def __init__(self, name, scope, type=None, **kwargs):
-        super().__init__(name=name, scope=scope, type=type, **kwargs)
-
-    mapper_method = intern('map_procedure_symbol')

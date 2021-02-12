@@ -28,4 +28,4 @@ pytest-pylint
 # For docs
 sphinx
 recommonmark
-sphinxawesome-theme
+sphinx-rtd-theme

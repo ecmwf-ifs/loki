@@ -3,16 +3,24 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+.. toctree::
+   :hidden:
+
+   Home page <self>
+
+   Internal representation <internal_representation>
+   Traversing the IR <visitors>
+
+   Scripts <scripts>
+
+   API reference <_autosummary/loki>
+
 Welcome to Loki's documentation!
 ================================
 
-.. toctree::
-   :maxdepth: 1
-
-   internal_representation
-
-   scripts
-   loki_api
+.. todo:: This mostly lists all modules/subpackages at the moment, some of it
+          is also redundant to hand-crafted documentation in other places.
+          This should be filled further as we go along.
 
 Indices and tables
 ------------------
