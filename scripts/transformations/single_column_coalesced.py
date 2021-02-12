@@ -5,7 +5,8 @@ from loki import (
     SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached,
-    JoinableStringList, FindScopes, Comment, MaskedTransformer, flatten
+    JoinableStringList, FindScopes, Comment, MaskedTransformer,
+    flatten, resolve_associates
 )
 
 
@@ -124,6 +125,11 @@ class SingleColumnCoalescedTransformation(Transformation):
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         """
+
+        # Associates at the highest level, so they don't interfere
+        # with the sections we need to do for detecting subroutine calls
+        resolve_associates(routine)
+
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)
 
