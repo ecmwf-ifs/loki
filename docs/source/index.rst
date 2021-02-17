@@ -9,7 +9,7 @@
    Home page <self>
 
    Internal representation <internal_representation>
-   Traversing the IR <visitors>
+   Working with the IR <visitors>
 
    Scripts <scripts>
 

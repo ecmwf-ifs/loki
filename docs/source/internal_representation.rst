@@ -13,16 +13,20 @@ Loki's internal representation (IR)
 
 Loki's internal representation aims to achieve a balance between usability
 and general applicability. This means that in places there may be shortcuts
-taken to ease its use in the context of a source-to-source transformation
+taken to ease its use in the context of a source-to-source translation
 utility but may break with established practices in compiler theory.
 The IR was developed with Fortran source code in mind and that shows. Where
 there exist similar concepts in other languages, things are transferable.
 In other places, Fortran-specific annotations are included for the sole purpose
-of enabling string-reproducibility.
+of enabling string reproducibility.
 
 The internal representation is vertically divided into different layers,
 roughly aligned with high level concepts found in Fortran and other
-programming languages.
+programming languages:
+
+.. contents::
+   :local:
+   :depth: 1
 
 
 Container data structures

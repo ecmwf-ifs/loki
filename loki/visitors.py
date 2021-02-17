@@ -61,25 +61,32 @@ class GenericVisitor:
             handlers[name[len(prefix):]] = meth
         self._handlers = handlers
 
-    """
-    :attr:`default_args`. A dict of default keyword arguments for the visitor.
-    These are not used by default in :meth:`visit`, however, a caller may pass
-    them explicitly to :meth:`visit` by accessing :attr:`default_args`.
-    For example::
-        .. code-block::
-           v = FooVisitor()
-           v.visit(node, **v.default_args)
-    """
     default_args = {}
+    """
+    Dict of default keyword arguments for the visitor. These are not used by
+    default in :meth:`visit`, however, a caller may pass them explicitly to
+    :meth:`visit` by accessing :attr:`default_args`. For example:
+
+    .. code-block:: python
+
+       v = FooVisitor()
+       v.visit(node, **v.default_args)
+    """
 
     @classmethod
     def default_retval(cls):
         """
-        A method that returns an object to use to populate return values.
+        Default return value for handler methods.
+
+        This method returns an object to use to populate return values.
         If your visitor combines values in a tree-walk, it may be useful to
-        provide a object to combine the results into. :meth:`default_retval`
+        provide an object to combine the results into. :meth:`default_retval`
         may be defined by the visitor to be called to provide an empty object
         of appropriate type.
+
+        Returns
+        -------
+        None
         """
         return None
 
@@ -104,27 +111,59 @@ class GenericVisitor:
 
     def visit(self, o, *args, **kwargs):
         """
-        Apply this :class:`Visitor` to an AST.
+        Apply this :class:`Visitor` to an IR tree.
 
-        :param o: The :class:`Node` to visit.
-        :param args: Optional arguments to pass to the visit methods.
-        :param kwargs: Optional keyword arguments to pass to the visit methods.
+        Parameters
+        ----------
+        o : :any:`Node`
+            The node to visit.
+        *args :
+            Optional arguments to pass to the visit methods.
+        **kwargs :
+            Optional keyword arguments to pass to the visit methods.
         """
         meth = self.lookup_method(o)
         return meth(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
+        """
+        Fallback method for objects that do not match any handler.
+
+        Parameters
+        ----------
+        o :
+            The object to visit.
+        **kwargs :
+            Optional keyword arguments passed to the visit methods.
+
+        Returns
+        -------
+        :py:meth:`GenericVisitor.default_retval`
+            The default return value.
+        """
         return self.default_retval()
 
 
 class Visitor(GenericVisitor):
+    """
+    The basic visitor-class for traversing Loki's control flow tree.
+
+    It enhances the generic visitor class :class:`GenericVisitor` with the
+    ability to recurse for all children of a :any:`Node`.
+    """
 
     def visit_tuple(self, o, **kwargs):
+        """
+        Visit all elements in a tuple and return the results as a tuple.
+        """
         return tuple(self.visit(c, **kwargs) for c in o)
 
     visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
+        """
+        Visit all children of a :any:`Node`.
+        """
         return self.visit(o.children, **kwargs)
 
     @staticmethod
@@ -148,23 +187,52 @@ class Visitor(GenericVisitor):
 
 
 class Transformer(Visitor):
+    r"""
+    Visitor class to rebuild the tree and replace nodes according to a mapper.
 
-    """
-    Given an Iteration/Expression tree T and a mapper from nodes in T to
-    a set of new nodes L, M : N --> L, build a new Iteration/Expression tree T'
-    where a node ``n`` in N is replaced with ``M[n]``.
+    Given a control flow tree :math:`T` and a mapper from nodes in :math:`T`
+    to a set of new nodes :math:`L, M : N \rightarrow L`, build a new control
+    flow tree :math:`T'` where a node :math:`n \in N` is replaced with
+    :math:`M(n)`.
 
-    In the special case in which ``M[n]`` is None, ``n`` is dropped from T'.
+    .. important::
+       The mapping is applied before visiting any children of a node.
 
-    In the special case in which ``M[n]`` is an iterable of nodes,
-    all nodes in ``M[n]`` are inserted into the tuple containing ``n``.
+    *Removing nodes*: In the special case in which :math:`M(n)` is `None`,
+    :math:`n` is dropped from :math:`T'`.
 
-    :param dict mapper: the mapping M : N --> L.
-    :param bool invalidate_source: if set to True and if ``M[n]`` has `source=None`,
-        this triggers invalidating the source property for all nodes enclosing ``n``.
-        Note that the source property is not explicitly invalidated for ``M[n]``.
-    :param bool inplace: If set, all updated are performed on existing ``Node``
-                         objects, keeping the original tree intact.
+    *One to many mapping*: In the special case in which :math:`M(n)` is an
+    iterable of nodes, all nodes in :math:`M(n)` are inserted into the tuple
+    containing :math:`n`.
+
+    .. warning::
+       Applying a :class:`Transformer` to an IR tree rebuilds all nodes by
+       default, which means individual nodes from the original IR are no longer
+       found in the new tree. To update references to IR nodes, the attribute
+       :any:`Transformer.rebuilt` provides a mapping from original to rebuilt
+       nodes. Alternatively, with :data:`inplace` the mapping can be
+       applied without rebuilding the tree, leaving existing references to
+       individual IR nodes intact (as long as the mapping does not replace or
+       remove them in the tree).
+
+    Parameters
+    ----------
+    mapper : dict
+        The mapping :math:`M : N \rightarrow L`.
+    invalidate_source : bool, optional
+        If set to `True`, this triggers invalidating the :data:`source`
+        property of all parent nodes of a node :math:`n` if :math:`M(n)`
+        has :data:`source=None`.
+    inplace : bool, optional
+        If set to `True`, all updates are performed on existing :any:`Node`
+        objects, instead of rebuilding them, keeping the original tree intact.
+
+    Attributes
+    ----------
+    rebuilt : dict
+        After applying the :class:`Transformer` to an IR, this contains a
+        mapping :math:`n \rightarrow n'` for every node of the original tree
+        :math:`n \in T` to the rebuilt nodes in the new tree :math:`n' \in T'`.
     """
 
     def __init__(self, mapper=None, invalidate_source=True, inplace=False):
@@ -176,7 +244,7 @@ class Transformer(Visitor):
 
     def _rebuild_without_source(self, o, children, **args):
         """
-        Rebuild the given node without the source property.
+        Utility method to rebuild the given node without the source property.
         """
         args_frozen = o.args_frozen
         args_frozen.update(args)
@@ -193,10 +261,10 @@ class Transformer(Visitor):
 
     def _rebuild(self, o, children, **args):
         """
-        Rebuild the given node with the provided children.
+        Utility method to rebuild the given node with the provided children.
 
-        If `invalidate_source` is `True`, `source` is set to `None` whenever
-        any of the children has `source == None`.
+        If :data:`invalidate_source` is `True`, :data:`Node.source` is set to
+        `None` whenever any of the children has :data:`source == None`.
         """
         args_frozen = o.args_frozen
         args_frozen.update(args)
@@ -214,11 +282,14 @@ class Transformer(Visitor):
         return o._rebuild(*children, **args_frozen)
 
     def visit_object(self, o, **kwargs):
+        """Return the object unchanged."""
         return o
 
     def _inject_tuple_mapping(self, o):
-        # For one-to-many mappings check iterables for the replacement
-        # node and insert the sub-list/tuple into the list/tuple.
+        """
+        Utility method for one-to-many mappings to insert iterables for
+        the replaced node into a tuple.
+        """
         for k, handle in self.mapper.items():
             if k in o and is_iterable(handle):
                 i = o.index(k)
@@ -226,6 +297,9 @@ class Transformer(Visitor):
         return o
 
     def visit_tuple(self, o, **kwargs):
+        """
+        Visit all elements in a tuple, injecting any one-to-many mappings.
+        """
         o = self._inject_tuple_mapping(o)
         visited = tuple(self.visit(i, **kwargs) for i in o)
         return tuple(i for i in visited if i is not None)
@@ -233,6 +307,12 @@ class Transformer(Visitor):
     visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
+        """
+        Handler for :any:`Node` objects.
+
+        It replaces :data:`o` by :data:`mapper[o]`, if it is in the mapper,
+        otherwise visits all children before rebuilding the node.
+        """
         if o in self.mapper:
             handle = self.mapper[o]
             if handle is None:
@@ -248,6 +328,23 @@ class Transformer(Visitor):
         return self._rebuild(o, rebuilt)
 
     def visit(self, o, *args, **kwargs):
+        """
+        Apply this :class:`Transformer` to an IR tree.
+
+        Parameters
+        ----------
+        o : :any:`Node`
+            The node to visit.
+        *args :
+            Optional arguments to pass to the visit methods.
+        **kwargs :
+            Optional keyword arguments to pass to the visit methods.
+
+        Returns
+        -------
+        :any:`Node` or tuple
+            The rebuilt control flow tree.
+        """
         obj = super().visit(o, *args, **kwargs)
         if isinstance(o, Node) and obj is not o:
             self.rebuilt[o] = obj
@@ -256,11 +353,15 @@ class Transformer(Visitor):
 
 class NestedTransformer(Transformer):
     """
-    Unlike a :class:`Transformer`, a :class:`NestedTransforer` applies
-    replacements in a depth-first fashion.
+    A :class:`Transformer` that applies replacements in a depth-first fashion.
     """
 
     def visit_Node(self, o, **kwargs):
+        """
+        Handler for :any:`Node` objects.
+
+        It visits all children before applying the :data:`mapper`.
+        """
         rebuilt = [self.visit(i, **kwargs) for i in o.children]
         handle = self.mapper.get(o, o)
         if handle is None:
@@ -278,33 +379,69 @@ class NestedTransformer(Transformer):
 
 class MaskedTransformer(Transformer):
     """
-    An enriched :class:`Transformer` that allows to selectively activate and
-    deactivate including nodes or subtrees in the produced tree.
+    An enriched :class:`Transformer` that can selectively include or exclude
+    parts of the tree.
 
-    This can be used, e.g., to extract everything between two nodes. Or to
-    create a copy of the entire tree but without all nodes between two nodes.
+    For that :class:`MaskedTransformer` is selectively switched on and
+    off while traversing the tree. Nodes are only included in the new tree
+    while it is "switched on".
+    The transformer is switched on or off when it encounters nodes from
+    :data:`start` or :data:`stop`, respectively. This can be used, e.g., to
+    extract everything between two nodes, or to create a copy of the entire
+    tree but without all nodes between two nodes.
+    Multiple such ranges can be defined by providing more than one
+    :data:`start` and :data:`stop` node, respectively.
 
-    Parameters `start` and `stop` are to be understood in a Pythonic way, i.e.,
-    `start` will be included in the result and `stop` excluded.
+    The sets :data:`start` and :data:`stop` are to be understood in a Pythonic
+    way, i.e., :data:`start` nodes will be included in the result and
+    :data:`stop` excluded.
 
-    :param start: a node or list/set of nodes. When a node from this list is
-        encountered, it and all subsequently traversed nodes are included in
-        the produced tree until a node from the `stop` list is encountered.
-    :param stop: a node or list/set of nodes. When a node from this list is
-        encountered, it and all subsequently traversed nodes are excluded from
-        the produced tree until a node from the `start` list is encountered.
-    :param bool active: if set to `True` nodes are included in the produced tree
-        from the beginning.
-    :param bool require_all_start: if set to ``True``, nodes will be included
-        in the produced tree only after all nodes in ``start`` have been
-        encountered.
-    :param bool greedy_stop: No more nodes will be added to the produced tree
-        as soon as any of the nodes in ``stop`` has been encountered, not even
-        if another node in ``start`` matches.
+    .. important::
+       When recursing down a tree, any :any:`InternalNode` are only included
+       in the tree if the :class:`MaskedTransformer` was switched on before
+       visiting that :any:`InternalNode`. Importantly, this means the node is
+       also not included if the transformer is switched on while traversing
+       the internal node's body. In such a case, only the body nodes that are
+       included are retained.
 
-    NB: Enabling ``require_all_start`` and ``greedy_stop`` at the same time is
-        useful, e.g., when one requires the minimum number of nodes in-between
-        multiple start and end nodes without knowing in which order they appear.
+    Optionally as a variant, switching on can also be delayed until all nodes
+    from :data:`start` have been encountered by setting
+    :data:`require_all_start` to `True`.
+
+    Optionally, traversal can be terminated early with :data:`greedy_stop`.
+    If enabled, the :class:`MaskedTransformer` will stop completely to
+    traverse the tree as soon as encountering a node from :data:`stop`.
+
+    .. note::
+       Enabling :data:`require_all_start` and :data:`greedy_stop` at the same
+       time can be useful when you require the minimum number of nodes
+       in-between multiple start and end nodes without knowing in which order
+       they appear.
+
+    Parameters
+    ----------
+    start : (iterable of) :any:`Node`, optional
+        Encountering a node from :data:`start` during traversal switches the
+        :class:`MaskedTransformer` on and includes that node and all
+        subsequently traversed nodes in the produced tree.
+    stop : (iterable of) :any:`Node`, optional
+        Encountering a node from :data:`stop` during traversal switches the
+        :class:`MaskedTransformer` off and excludes that node and all
+        subsequently traversed nodes from the produced tree.
+    active : bool, optional
+        Switch the :class:`MaskedTransformer` on at the beginning of the
+        traversal. By default, it is switched on only after encountering a node
+        from :data:`start`.
+    require_all_start : bool, optional
+        Switch the :class:`MaskedTransformer` on only after encountering `all`
+        nodes from :data:`start`. By default, it is switched on after
+        encountering `any` node from :data:`start`.
+    greedy_stop : bool, optional
+        Stop traversing the tree as soon as any node from :data:`stop` is
+        encountered. By default, traversal continues but nodes are excluded
+        from the new tree until a node from :data:`start` is encountered.
+    **kwargs : optional
+        Keyword arguments that are passed to the parent class constructor.
     """
 
     def __init__(self, start=None, stop=None, active=False,
@@ -356,18 +493,33 @@ class MaskedTransformer(Transformer):
 
 class NestedMaskedTransformer(MaskedTransformer):
     """
-    Like :class:``MaskedTransformer`` but retains encapsulating code
-    blocks (such as loops, conditionals, etc.).
+    A :class:`MaskedTransformer` that retains parents for children that
+    are included in the produced tree.
+
+    In contrast to :class:`MaskedTransformer`, any encountered
+    :any:`InternalNode` are included in the new tree as long as any of its
+    children are included.
     """
 
     # Handler for leaf nodes
 
+
     def visit_object(self, o, **kwargs):
-        # need to keep them active here because inactive parents may still be
-        # retained if other children turn on active status
+        """
+        Return the object unchanged.
+
+        Note that we need to keep them here regardless of the transformer
+        being active because this handler takes care of properties for
+        inactive parents that may still be retained if other children switch
+        on the transformer.
+        """
         return o
 
     def visit_LeafNode(self, o, **kwargs):
+        """
+        Handler for :any:`LeafNode` that are included in the tree if the
+        :class:`NestedMaskedTransformer` is active.
+        """
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
         if not self.active:
@@ -381,6 +533,10 @@ class NestedMaskedTransformer(MaskedTransformer):
     # Handler for block nodes
 
     def visit_InternalNode(self, o, **kwargs):
+        """
+        Handler for :any:`InternalNode` that are included in the tree as long
+        as any :attr:`body` node is included.
+        """
         if o in self.mapper:
             return super().visit_Node(o, **kwargs)
 
@@ -393,6 +549,13 @@ class NestedMaskedTransformer(MaskedTransformer):
         return self._rebuild(o, rebuilt)
 
     def visit_Conditional(self, o, **kwargs):
+        """
+        Handler for :any:`Conditional` to account for the :attr:`else_body`.
+
+        .. note::
+           This removes the :any:`Conditional` if :attr:`body` is empty. In
+           that case, :attr:`else_body` is returned (which can be empty, too).
+        """
         if o in self.mapper:
             return super().visit(o, **kwargs)
 
@@ -407,6 +570,14 @@ class NestedMaskedTransformer(MaskedTransformer):
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
+        """
+        Handler for :any:`MultiConditional` to account for all bodies.
+
+        .. note::
+           This removes the :any:`MultiConditional` if all of the
+           :attr:`bodies` are empty. In that case, :attr:`else_body` is
+           returned (which can be empty, too).
+        """
         if o in self.mapper:
             return super().visit(o, **kwargs)
 
@@ -427,24 +598,46 @@ class NestedMaskedTransformer(MaskedTransformer):
 
 
 class FindNodes(Visitor):
+    """
+    Find :any:`Node` instances that match a given criterion.
+
+    Parameters
+    ----------
+    match :
+        Node type(s) or node instance to look for.
+    mode : optional
+        Drive the search. Accepted values are:
+
+        * ``'type'`` (default) : Collect all instances of type :data:`match`.
+        * ``'scope'`` : Return the :any:`InternalNode` in which the object
+          :data:`match` appears.
+    greedy : bool, optional
+        Do not recurse for children of a matched node.
+
+    Returns
+    -------
+    list
+        All nodes in the traversed IR that match the criteria.
+    """
 
     @classmethod
     def default_retval(cls):
-        return []
+        """
+        Default return value is an empty list.
 
-    """
-    Find :class:`Node` instances.
-    :param match: Pattern to look for.
-    :param mode: Drive the search. Accepted values are: ::
-        * 'type' (default): Collect all instances of type ``match``.
-        * 'scope': Return the scope in which the object ``match`` appears.
-    :param greedy: Do not recurse for children of a matched node.
-    """
+        Returns
+        -------
+        list
+        """
+        return []
 
     rules = {
         'type': lambda match, o: isinstance(o, match),
         'scope': lambda match, o: match in flatten(o.children)
     }
+    """
+    Mapping of available :data:`mode` selectors to match rules.
+    """
 
     def __init__(self, match, mode='type', greedy=False):
         super().__init__()
@@ -457,6 +650,9 @@ class FindNodes(Visitor):
         return ret or self.default_retval()
 
     def visit_tuple(self, o, **kwargs):
+        """
+        Visit all elements in the iterable and return the combined result.
+        """
         ret = kwargs.pop('ret', self.default_retval())
         for i in o:
             ret = self.visit(i, ret=ret, **kwargs)
@@ -465,6 +661,10 @@ class FindNodes(Visitor):
     visit_list = visit_tuple
 
     def visit_Node(self, o, **kwargs):
+        """
+        Add the node to the returned list if it matches the criteria and visit
+        all children.
+        """
         ret = kwargs.pop('ret', self.default_retval())
         if self.rule(self.match, o):
             ret.append(o)
@@ -477,33 +677,55 @@ class FindNodes(Visitor):
 
 def is_child_of(node, other):
     """
-    Return ``True`` if ``node`` is contained in the IR below ``other``,
-    otherwise return ``False``.
+    Utility function to test relationship between nodes.
 
     Note that this can be expensive for large subtrees.
+
+    Returns
+    -------
+    bool
+        Return `True` if :data:`node` is contained in the IR below
+        :data:`other`, otherwise return `False`.
     """
     return len(FindNodes(node, mode='scope', greedy=True).visit(other)) > 0
 
 
 def is_parent_of(node, other):
     """
-    Return ``True`` if ``other`` is contained in the IR below ``node``,
-    otherwise return ``False``.
+    Utility function to test relationship between nodes.
 
     Note that this can be expensive for large subtrees.
+
+    Returns
+    -------
+    bool
+        Return `True` if :data:`other` is contained in the IR below
+        :data:`node`, otherwise return `False`.
     """
     return len(FindNodes(other, mode='scope', greedy=True).visit(node)) > 0
 
 
 class FindScopes(FindNodes):
     """
-    Find all enclosing scopes for object ``match``.
+    Find all parent nodes for node :data:`match`.
+
+    Parameters
+    ----------
+    match : :any:`Node`
+        The node for which the parent nodes are to be found.
+    greedy : bool, optional
+        Stop traversal when :data:`match` was found.
     """
     def __init__(self, match, greedy=True):
         super().__init__(match=match, greedy=greedy)
         self.rule = lambda match, o: match is o
 
     def visit_Node(self, o, **kwargs):
+        """
+        Add the node to the list of ancestors that is passed down to the
+        children and, if :data:`o` is :data:`match`, return the list of
+        ancestors.
+        """
         ret = kwargs.pop('ret', self.default_retval())
         ancestors = kwargs.pop('ancestors', []) + [o]
 
@@ -519,8 +741,12 @@ class FindScopes(FindNodes):
 
 class SequenceFinder(Visitor):
     """
-    Utility visitor that finds repeated nodes of the same type in
-    lists/tuples within a given tree.
+    Find repeated nodes of the same type in lists/tuples within a given tree.
+
+    Parameters
+    ----------
+    node_type :
+        The node type to look for.
     """
 
     def __init__(self, node_type):
@@ -529,9 +755,19 @@ class SequenceFinder(Visitor):
 
     @classmethod
     def default_retval(cls):
+        """
+        Default return value is an empty list.
+
+        Returns
+        -------
+        list
+        """
         return []
 
     def visit_tuple(self, o, **kwargs):
+        """
+        Visit all children and look for sequences of matching type.
+        """
         groups = []
         for c in o:
             # First recurse...
@@ -550,8 +786,12 @@ class SequenceFinder(Visitor):
 
 class PatternFinder(Visitor):
     """
-    Utility visitor that finds a pattern of nodes given as tuple/list
-    of types within a given tree.
+    Find a pattern of nodes given as tuple/list of types within a given tree.
+
+    Parameters
+    ----------
+    pattern : iterable of types
+        The type pattern tto look for.
     """
 
     def __init__(self, pattern):
@@ -560,6 +800,13 @@ class PatternFinder(Visitor):
 
     @classmethod
     def default_retval(cls):
+        """
+        Default return value is an empty list.
+
+        Returns
+        -------
+        list
+        """
         return []
 
     @staticmethod
@@ -573,6 +820,10 @@ class PatternFinder(Visitor):
         return matches
 
     def visit_tuple(self, o, **kwargs):
+        """
+        Visit all children and look for sequences of nodes with types matching
+        the pattern.
+        """
         matches = []
         for c in o:
             # First recurse...
@@ -590,24 +841,36 @@ class PatternFinder(Visitor):
 
 class Stringifier(Visitor):
     """
-    Visitor that converts a given IR tree to string.
+    Convert a given IR tree to a string representation.
 
-    It serves as base class for backends and provides a number of helpful routines that
-    ease implementing automatic recursion and line wrapping.
+    This serves as base class for backends and provides a number of helpful
+    routines that ease implementing automatic recursion and line wrapping.
+    It doubles as a means to produce a human readable representation of the
+    IR, which is useful for debugging purposes.
 
-    :param int depth: the current level of indentation.
-    :param str indent: the string to be prepended to a line for each level of indentation.
-    :param int linewidth: the line width limit.
-    :param line_cont: a function handle that takes the current indentation string and yields
-                      the string that should be inserted inbetween lines when they need to
-                      be wrapped to stay within the line width limit.
-    :type line_cont: function expecting 1 str argument
+    Parameters
+    ----------
+    depth : int, optional
+        The level of indentation to be applied initially.
+    indent : str, optional
+        The string to be prepended to a line for each level of indentation.
+    linewidth : int, optional
+        The line width limit after which to break a line.
+    line_cont : optional
+        A function handle that accepts the current indentation string
+        (:attr:`Stringifier.indent`) and returns the string for line
+        continuation. This is inserted between two lines when they need to
+        wrap to stay within the line width limit. Defaults to newline character
+        plus indentation.
+    symgen : optional
+        A function handle that accepts a :any:`pymbolic.primitives.Expression`
+        and produces a string representation for that.
     """
 
     # pylint: disable=arguments-differ
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, line_cont=lambda indent: '\n' + indent,
-                 symgen=str):
+    def __init__(self, depth=0, indent='  ', linewidth=90,
+                 line_cont=lambda indent: '\n' + indent, symgen=str):
         super().__init__()
 
         self.depth = depth
@@ -626,9 +889,12 @@ class Stringifier(Visitor):
     @property
     def indent(self):
         """
-        Yield indentation according to current depth.
+        Yield indentation string according to current depth.
 
-        :rtype: str
+        Returns
+        -------
+        str
+            A string containing ``indent * depth``.
         """
         return self._indent * self.depth
 
@@ -638,9 +904,15 @@ class Stringifier(Visitor):
         Combine multiple lines into a long string, inserting line breaks in between.
         Entries that are `None` are skipped.
 
-        :param list lines: the list of lines to be combined.
-        :return: the resulting string or `None` if no lines are given.
-        :rtype: str or NoneType
+        Parameters
+        ----------
+        lines : list
+             The lines to be combined.
+
+        Returns
+        -------
+        str or `None`
+            The combined string or `None` if an empty list was given.
         """
         if not lines:
             return None
@@ -648,19 +920,26 @@ class Stringifier(Visitor):
 
     def join_items(self, items, sep=', ', separable=True):
         """
-        Concatenate a list of items by creating a py:class:`JoinableStringList` object.
+        Concatenate a list of items into :any:`JoinableStringList`.
 
-        The return value can be passed to `format_line` or `format_node` or converted to a string
-        by simply calling `str` with it as an argument. Upon expansion, lines will be
-        wrapped automatically to stay within the linewidth.
+        The return value can be passed to :meth:`format_line` or
+        :meth:`format_node` or converted to a string with `str`, using
+        the :any:`JoinableStringList` as an argument.
+        Upon expansion, lines will be wrapped automatically to stay within
+        the linewidth limit.
 
-        :param list items: the list of strings to be joined.
-        :param str sep: the separator to be inserted between items.
-        :param bool separable: an indicator whether cosmetic line breaks between items are
-                               permitted.
+        Parameters
+        ----------
+        items : list
+            The list of strings to be joined.
+        sep : str, optional
+            The separator to be inserted between items.
+        separable : bool, optional
+            Allow line breaks between individual :data:`items`.
 
-        :return: a py:class:`JoinableStringList` object for the items.
-        :rtype: py:class:`JoinableStringList`
+        Returns
+        -------
+        :any:`JoinableStringList`
         """
         return JoinableStringList(items, sep=sep, width=self.linewidth,
                                   cont=self.line_cont(self.indent), separable=separable)
@@ -669,7 +948,7 @@ class Stringifier(Visitor):
         """
         Default format for a node.
 
-        Creates a string of the form `<name[, attribute, attribute, ...]>`.
+        Creates a string of the form ``<name[, attribute, attribute, ...]>``.
         """
         if items:
             return self.format_line('<', name, ' ', self.join_items(items), '>')
@@ -706,9 +985,10 @@ class Stringifier(Visitor):
 
     def visit_all(self, item, *args, **kwargs):
         """
-        Convenience function to call `visit` for all given items.
-        If only one iterable argument is provided, `visit` is called on all of
-        its elements.
+        Convenience function to call :meth:`visit` for all given arguments.
+
+        If only a single argument is given that is iterable,
+        :meth:`visit` is called on all of its elements instead.
         """
         if is_iterable(item) and not args:
             return as_tuple(self.visit(i, **kwargs) for i in item if i is not None)
@@ -718,10 +998,13 @@ class Stringifier(Visitor):
 
     def visit_Module(self, o, **kwargs):
         """
-        Format as
-          <repr(Module)>
-            ...spec...
-            ...routines...
+        Format a :any:`Module` as
+
+        .. code-block:: none
+
+           <repr(Module)>
+             ...spec...
+             ...routines...
         """
         header = self.format_node(repr(o))
         self.depth += 1
@@ -732,12 +1015,15 @@ class Stringifier(Visitor):
 
     def visit_Subroutine(self, o, **kwargs):
         """
-        Format as
-          <repr(Subroutine)>
-            ...docstring...
-            ...spec...
-            ...body...
-            ...members...
+        Format a :any:`Subroutine` as
+
+        .. code-block:: none
+
+           <repr(Subroutine)>
+             ...docstring...
+             ...spec...
+             ...body...
+             ...members...
         """
         header = self.format_node(repr(o))
         self.depth += 1
@@ -752,14 +1038,18 @@ class Stringifier(Visitor):
 
     def visit_Node(self, o, **kwargs):
         """
-        Format as
-          <repr(Node)>
+        Format a :any:`Node` as
+
+        .. code-block:: none
+
+           <repr(Node)>
         """
         return self.format_node(repr(o))
 
     def visit_Expression(self, o, **kwargs):  # pylint: disable=unused-argument
         """
-        Dispatch routine to expression tree stringifier.
+        Dispatch routine to expression tree stringifier
+        :attr:`Stringifier.symgen`.
         """
         return self.symgen(o)
 
@@ -774,11 +1064,14 @@ class Stringifier(Visitor):
 
     # Handler for IR nodes
 
-    def visit_Section(self, o, **kwargs):
+    def visit_InternalNode(self, o, **kwargs):
         """
-        Format as
-          <repr(Section)>
-            ...body...
+        Format :any:`InternalNode` as
+
+        .. code-block:: none
+
+           <repr(InternalNode)>
+             ...body...
         """
         header = self.format_node(repr(o))
         self.depth += 1
@@ -786,18 +1079,18 @@ class Stringifier(Visitor):
         self.depth -= 1
         return self.join_lines(header, body)
 
-    visit_Loop = visit_Section
-    visit_WhileLoop = visit_Section
-    visit_PragmaRegion = visit_Section
 
     def visit_Conditional(self, o, **kwargs):
         """
-        Format as
-          <repr(Conditional)>
-            <If [condition]>
-              ...
-            <Else>
-              ...
+        Format :any:`Conditional` as
+
+        .. code-block:: none
+
+           <repr(Conditional)>
+             <If [condition]>
+               ...
+             <Else>
+               ...
         """
         header = self.format_node(repr(o))
         self.depth += 1
@@ -813,14 +1106,17 @@ class Stringifier(Visitor):
 
     def visit_MultiConditional(self, o, **kwargs):
         """
-        Format as
-          <repr(MultiConditional)>
-            <Case [value(s)]>
-              ...
-            <Case [value(s)]>
-              ...
-            <Default>
-              ...
+        Format :any:`MultiConditional` as
+
+        .. code-block:: none
+
+           <repr(MultiConditional)>
+             <Case [value(s)]>
+               ...
+             <Case [value(s)]>
+               ...
+             <Default>
+               ...
         """
         header = self.format_node(repr(o))
         self.depth += 1
@@ -840,6 +1136,6 @@ class Stringifier(Visitor):
 
 def pprint(ir):
     """
-    Convert the given IR to string using the py:class:`Stringifier`.
+    Pretty-print the given IR using :any:`Stringifier`.
     """
     print(Stringifier().visit(ir))

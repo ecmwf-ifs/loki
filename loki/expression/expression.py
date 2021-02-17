@@ -1,3 +1,7 @@
+"""
+Visitor classes for traversing and transforming all expression trees in
+:ref:`internal-representation`.
+"""
 from pymbolic.primitives import Expression
 
 from loki.ir import Node
