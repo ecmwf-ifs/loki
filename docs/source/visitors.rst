@@ -11,6 +11,9 @@ Working with the IR
     `master` frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
+.. contents:: Contents
+   :local:
+
 The most important tool for working with
 :ref:`Loki's internal representation <internal-representation>` are utilities
 that traverse the IR to find specific nodes or patterns, to modify or

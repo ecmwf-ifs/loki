@@ -11,6 +11,9 @@ Loki's internal representation (IR)
     `master` frequently by rebasing feature branches and upstreaming
     more general applicable work in the form of pull requests.
 
+.. contents:: Contents
+   :local:
+
 Loki's internal representation aims to achieve a balance between usability
 and general applicability. This means that in places there may be shortcuts
 taken to ease its use in the context of a source-to-source translation

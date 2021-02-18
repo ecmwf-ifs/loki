@@ -13,13 +13,11 @@
    Frontends <frontends>
    Backends <backends>
    Transformations <transform>
-   Bulk-processing source trees <scheduler>
-   Analysis <analysis>
    Utilities <utils>
 
    Scripts <scripts>
-
-   API reference <_autosummary/loki>
+   Loki API reference <_autosummary/loki>
+   Scripts API reference <_autosummary/scripts>
 
 Welcome to Loki's documentation!
 ================================

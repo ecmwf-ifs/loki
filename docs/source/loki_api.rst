@@ -3,3 +3,4 @@
    :recursive:
 
    loki
+   scripts
