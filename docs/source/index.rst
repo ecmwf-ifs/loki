@@ -10,6 +10,12 @@
 
    Internal representation <internal_representation>
    Working with the IR <visitors>
+   Frontends <frontends>
+   Backends <backends>
+   Transformations <transform>
+   Bulk-processing source trees <scheduler>
+   Analysis <analysis>
+   Utilities <utils>
 
    Scripts <scripts>
 
@@ -17,6 +23,13 @@
 
 Welcome to Loki's documentation!
 ================================
+
+.. important::
+    Loki is still under active development and has not yet seen a stable
+    release. Interfaces can change at any time, objects may be renamed, or
+    concepts may be re-thought. Make sure to sync your work to the current
+    `master` frequently by rebasing feature branches and upstreaming
+    more general applicable work in the form of pull requests.
 
 .. todo:: This mostly lists all modules/subpackages at the moment, some of it
           is also redundant to hand-crafted documentation in other places.
