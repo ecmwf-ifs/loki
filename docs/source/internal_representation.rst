@@ -1,5 +1,3 @@
-.. _internal-representation:
-
 ===================================
 Loki's internal representation (IR)
 ===================================
@@ -62,8 +60,6 @@ Available container classes
    loki.subroutine.Subroutine
 
 
-.. _control-flow-ir:
-
 Control flow tree
 =================
 
@@ -75,10 +71,12 @@ control flow and expression nodes as children. Consequently, this separation on
 node level is reflected in the internal representation, splitting the tree into
 two levels:
 
-1. `Control flow` (e.g., loops, conditionals, assignments, etc.);
+1. :ref:`Control flow <internal_representation:Control flow tree>`
+   (e.g., loops, conditionals, assignments, etc.);
    the corresponding classes are declared in :py:mod:`loki.ir` and described
    in this section.
-2. `Expressions` (e.g., scalar/array variables, literals, operators, etc.);
+2. :ref:`Expressions <internal_representation:Expression tree>`
+   (e.g., scalar/array variables, literals, operators, etc.);
    this is based on `Pymbolic <https://github.com/inducer/pymbolic>`__ with
    encapsulating classes declared in :py:mod:`loki.expression.symbols` and
    described below.
@@ -201,8 +199,6 @@ Leaf node classes
    loki.ir.MultiConditional
    loki.ir.Intrinsic
 
-
-.. _expression-ir:
 
 Expression tree
 ===============

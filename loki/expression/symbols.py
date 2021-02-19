@@ -1,5 +1,6 @@
 """
-Expression tree node classes for :ref:`expression-ir`.
+Expression tree node classes for
+:ref:`internal_representation:Expression tree`.
 """
 import weakref
 from sys import intern

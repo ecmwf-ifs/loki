@@ -1,5 +1,3 @@
-.. _visitors:
-
 ===================
 Working with the IR
 ===================
@@ -15,7 +13,7 @@ Working with the IR
    :local:
 
 The most important tool for working with
-:ref:`Loki's internal representation <internal-representation>` are utilities
+:doc:`Loki's internal representation <internal_representation>` are utilities
 that traverse the IR to find specific nodes or patterns, to modify or
 replace subtrees, or to annotate the tree. In Loki there exist two types of
 tree traversal tools, depending on which level of the IR they operate on:
@@ -102,7 +100,7 @@ Converting the tree to string
 -----------------------------
 
 The last step in a transformation pipeline is usually to write the transformed
-IR to a file. This is a task for :ref:`Loki's backends <backends>` which
+IR to a file. This is a task for :doc:`Loki's backends <backends>` which
 themselves are subclasses of :any:`Stringifier`, yet another visitor.
 :any:`Stringifier` doubles as a pretty-printer for the IR that is useful for
 debugging.
@@ -148,7 +146,8 @@ pass named keyword arguments, e.g.:
 Mappers
 =======
 
-Mappers are visitors that traverse :ref:`expression trees <expression-ir>`.
+Mappers are visitors that traverse
+:ref:`expression trees <internal_representation:Expression tree>`.
 
 They are built upon :py:mod:`pymbolic.mapper` classes and for that reason use
 a slightly different way of determining the handler methods: each expression

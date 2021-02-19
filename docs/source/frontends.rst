@@ -14,7 +14,7 @@ Reading Fortran source code
 
 
 The first step in a transformation pipeline is reading Fortran source code
-and converting it to :ref:`internal-representation`.
+and converting it to :doc:`internal_representation`.
 
 
 Parsing a file or string

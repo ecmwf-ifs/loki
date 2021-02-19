@@ -1,5 +1,6 @@
 """
-Control flow node classes for :ref:`control-flow-ir`.
+Control flow node classes for
+:ref:`internal_representation:Control flow tree`
 """
 
 from collections import OrderedDict

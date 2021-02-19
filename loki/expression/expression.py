@@ -1,6 +1,6 @@
 """
 Visitor classes for traversing and transforming all expression trees in
-:ref:`internal-representation`.
+:doc:`internal_representation`.
 """
 from pymbolic.primitives import Expression
 

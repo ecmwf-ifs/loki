@@ -17,7 +17,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.abspath('../..'))
-#sys.path.insert(0, os.path.abspath('../../scripts'))
+sys.path.insert(0, os.path.abspath('../../scripts'))
 
 
 # -- Project information -----------------------------------------------------
@@ -39,10 +39,11 @@ version = release
 # ones.
 extensions = [
     'sphinx.ext.todo',  # include todos
-    'sphinx.ext.autodoc',  # use docstrings
+#    'sphinx.ext.autodoc',  # use docstrings
     'sphinx.ext.napoleon',  # understand docstrings also in other formats
     'sphinx.ext.autosummary',  # automatically compile lists of classes/functions
     'sphinx.ext.intersphinx',  # link to docs of other projects
+    'sphinx.ext.autosectionlabel',  # allows to refer to sections using their title
     'recommonmark',  # read markdown
     'sphinx_rtd_theme',  # read the docs theme
 ]
@@ -72,6 +73,10 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
+# Prefix each section label with the document it is in, followed by a colon
+autosectionlabel_prefix_document = True
+
+numpydoc_show_class_members = False 
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -108,8 +113,8 @@ todo_include_todos = True
 
 # -- Options for autodoc extension -------------------------------------------
 
-autodoc_default_options = {
-    'members': True,  # include members in the documentation
-    'member-order': 'bysource',  # members in the order they appear in source
-    'show-inheritance': True,  # list base classes
-}
+#autodoc_default_options = {
+#    'members': True,  # include members in the documentation
+#    'member-order': 'bysource',  # members in the order they appear in source
+#    'show-inheritance': True,  # list base classes
+#}

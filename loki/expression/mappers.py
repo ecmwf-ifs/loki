@@ -1,5 +1,6 @@
 """
-Mappers for traversing and transforming the :ref:`expression-ir`.
+Mappers for traversing and transforming the
+:ref:`internal_representation:Expression tree`.
 """
 import re
 import pymbolic.primitives as pmbl

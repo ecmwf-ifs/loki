@@ -12,7 +12,7 @@ Generating source code
 
 At the end of a source-to-source translation process the output source code
 needs to be generated. Loki provides a number of different backends depending
-on the target language, which, once again, are :ref:`Visitors <visitors>`.
+on the target language, which, once again, are :doc:`Visitors <visitors>`.
 
 All backends are subclasses of :any:`Stringifier` that convert the internal
 representation to a string representation in the syntax of the target language.
@@ -39,9 +39,9 @@ Currently, Loki has backends to generate Fortran, C, Python, and Maxeler MaxJ
    loki.backend.maxgen.maxjgen
 
 .. warning::
-   Backends do not take make sure that the internal representation is
+   Backends do not make sure that the internal representation is
    compatible with the target language. Adapting the IR to the desired output
    format needs to be done before calling the relevant code generation routine.
    For language transpilation (e.g., Fortran to C), corresponding
-   :ref:`transformations <transformations>` must be applied
+   :doc:`transformations <transformations>` must be applied
    (e.g., :any:`FortranCTransformation`).

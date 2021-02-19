@@ -122,7 +122,7 @@ Linting functionality
 
 The source analysis capabilities of Loki can be used to build a static source
 code analysis tool for Fortran. This is being developed as a standalone script
-:ref:`scripts.loki-lint` and includes a few data structures for the linter
+:doc:`loki-lint <loki-lint>` and includes a few data structures for the linter
 mechanics in :mod:`loki.lint`:
 
 .. autosummary::
