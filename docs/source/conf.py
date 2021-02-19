@@ -38,8 +38,7 @@ version = release
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.todo',  # include todos
-#    'sphinx.ext.autodoc',  # use docstrings
+    'sphinx.ext.autodoc',  # create documentation from docstrings
     'sphinx.ext.napoleon',  # understand docstrings also in other formats
     'sphinx.ext.autosummary',  # automatically compile lists of classes/functions
     'sphinx.ext.intersphinx',  # link to docs of other projects
@@ -76,8 +75,6 @@ exclude_patterns = []
 # Prefix each section label with the document it is in, followed by a colon
 autosectionlabel_prefix_document = True
 
-numpydoc_show_class_members = False 
-
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -113,8 +110,9 @@ todo_include_todos = True
 
 # -- Options for autodoc extension -------------------------------------------
 
-#autodoc_default_options = {
-#    'members': True,  # include members in the documentation
-#    'member-order': 'bysource',  # members in the order they appear in source
-#    'show-inheritance': True,  # list base classes
-#}
+autodoc_default_options = {
+    'members': True,  # include members in the documentation
+    'member-order': 'bysource',  # members in the order they appear in source
+    'show-inheritance': True,  # list base classes
+    'undoc-members': True,  # show also undocumented members
+}

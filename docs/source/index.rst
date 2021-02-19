@@ -9,8 +9,7 @@
    Home page <self>
    getting_started
    using_loki
-   Loki API reference <_autosummary/loki>
-   Scripts API reference <_autosummary/scripts>
+   loki_api
 
 Welcome to Loki's documentation!
 ================================

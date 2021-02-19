@@ -11,4 +11,4 @@ Using Loki
    backends
    transform
    utils
-   scripts
+   loki_scripts

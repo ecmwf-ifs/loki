@@ -51,8 +51,9 @@ loki-activate
 
 # Docs
 docs/build
-docs/source/loki.*
-docs/source/loki-*
+docs/source/loki.*rst
+docs/source/scripts.*rst
+docs/source/loki-*.rst
 docs/source/lint_rules.*
 docs/source/raps_deps.rst
 docs/source/transformations.*

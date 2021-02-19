@@ -1,5 +1,9 @@
+=============
+API reference
+=============
+
 .. autosummary::
-   :toctree: _autosummary
+   :toctree:
    :recursive:
 
    loki
