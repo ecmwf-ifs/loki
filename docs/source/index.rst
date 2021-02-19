@@ -7,15 +7,8 @@
    :hidden:
 
    Home page <self>
-
-   Internal representation <internal_representation>
-   Working with the IR <visitors>
-   Reading Fortran source code <frontends>
-   Backends <backends>
-   Transformations <transform>
-   Utilities <utils>
-
-   Scripts <scripts>
+   getting_started
+   using_loki
    Loki API reference <_autosummary/loki>
    Scripts API reference <_autosummary/scripts>
 
