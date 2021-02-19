@@ -10,7 +10,7 @@
 
    Internal representation <internal_representation>
    Working with the IR <visitors>
-   Frontends <frontends>
+   Reading Fortran source code <frontends>
    Backends <backends>
    Transformations <transform>
    Utilities <utils>

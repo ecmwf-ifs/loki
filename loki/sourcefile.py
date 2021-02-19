@@ -24,6 +24,9 @@ class Sourcefile:
     Class to handle and manipulate source files, storing :any:`Module` and
     :any:`Subroutine` objects.
 
+    Reading existing source code from file or string can be done via
+    :meth:`from_file` or :meth:`from_source`.
+
     Parameters
     ----------
     path : str
@@ -61,7 +64,13 @@ class Sourcefile:
             :any:`Module` object(s) that may supply external type or procedure
             definitions.
         preprocess : bool, optional
-            Flag to trigger CPP preprocessing (by default ``False``).
+            Flag to trigger CPP preprocessing (by default `False`).
+
+            .. attention::
+                Please note that, when using the OMNI frontend, C-preprocessing
+                will always be applied, so :data:`includes` and :data:`defines`
+                may have to be defined even when disabling :data:`preprocess`.
+
         includes : list of str, optional
             Include paths to pass to the C-preprocessor.
         defines : list of str, optional
@@ -71,15 +80,11 @@ class Sourcefile:
             OMNI frontend.
         omni_includes: list of str, optional
             Additional include paths to pass to the preprocessor run as part of
-            the OMNI frontend parse. If set, this **replaces** (!) ``includes``,
-            otherwise ``omni_includes`` defaults to the value of ``includes``.
+            the OMNI frontend parse. If set, this **replaces** (!)
+            :data:`includes`, otherwise :data:`omni_includes` defaults to the
+            value of :data:`includes`.
         frontend : :any:`Frontend`, optional
             Frontend to use for producing the AST (default :any:`FP`).
-
-        .. attention::
-            Please note that, when using the OMNI frontend, C-preprocessing
-            will always be applied, so ``includes`` and ``defines`` may need
-            to be defined even with ``preprocess=False``.
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
@@ -209,7 +214,7 @@ class Sourcefile:
         return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=OFP):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
 
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
