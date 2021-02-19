@@ -256,3 +256,24 @@ Mix-ins
 
    loki.expression.symbols.ExprMetadataMixin
    loki.expression.symbols.StrCompareMixin
+
+
+Type information and scopes
+===========================
+
+.. warning::
+   A conceptual overhaul of the representation of scopes and the way how a
+   typed symbol is associated with a scope is planned for the near future.
+   For that reason this section is intentionally left empty for now and will
+   be added as soon as this work has been carried out.
+
+See :mod:`loki.types` for a rough outline of the current type system.
+
+.. autosummary::
+
+   loki.types.Scope
+   loki.types.TypeTable
+   loki.types.SymbolType
+   loki.types.BasicType
+   loki.types.DerivedType
+   loki.types.ProcedureType

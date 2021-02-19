@@ -6,6 +6,6 @@ Getting started
    :hidden:
 
    overview
-   installation
+   install
    first_steps
    contributing

@@ -36,7 +36,7 @@ Currently, Loki has backends to generate Fortran, C, Python, and Maxeler MaxJ
    loki.backend.cgen.cgen
    loki.backend.pygen.pygen
    loki.backend.dacegen.dacegen
-   loki.backend.maxgen.maxgen
+   loki.backend.maxgen.maxjgen
 
 .. warning::
    Backends do not take make sure that the internal representation is
