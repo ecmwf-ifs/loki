@@ -43,8 +43,9 @@ extensions = [
     'sphinx.ext.autosummary',  # automatically compile lists of classes/functions
     'sphinx.ext.intersphinx',  # link to docs of other projects
     'sphinx.ext.autosectionlabel',  # allows to refer to sections using their title
-    'recommonmark',  # read markdown
+#    'recommonmark',  # read markdown
     'sphinx_rtd_theme',  # read the docs theme
+    'myst_parser',  # parse markdown files
 ]
 
 autosummary_generate = True  # Turn on sphinx.ext.autosummary

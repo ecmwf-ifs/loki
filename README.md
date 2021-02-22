@@ -1,5 +1,9 @@
 ## Loki: Freely programmable source-to-source translation
 
+```{contents}
+:local:
+```
+
 **Loki is an experimental tool(!)** to explore the possible use of
 source-to-source translation for the IFS and ESCAPE dwarfs. Loki is
 based on compiler technology (visitor patterns and ASTs) and aims to

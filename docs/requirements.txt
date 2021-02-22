@@ -1,3 +1,4 @@
-sphinx
-recommonmark
-sphinx-rtd-theme
+sphinx  # to build documentation
+recommonmark  # to allow parsing markdown
+sphinx-rtd-theme  # ReadTheDocs theme
+myst-parser  # Markdown parser for sphinx

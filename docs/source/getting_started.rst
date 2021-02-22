@@ -5,7 +5,6 @@ Getting started
 .. toctree::
    :hidden:
 
-   overview
-   install
+   INSTALL
    first_steps
    contributing
