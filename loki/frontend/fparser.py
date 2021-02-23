@@ -615,9 +615,17 @@ class FParser2IR(GenericVisitor):
         else:
             arguments = None
             kwarguments = None
-        fct_symbol = sym.ProcedureSymbol(name, scope=self.scope)
+
+        source = kwargs.get('source')
+        fct_type = self.scope.types.lookup(name)
+        if fct_type:
+            # We know this function from out own type table
+            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(fct_type),
+                                             scope=self.scope, source=source)
+        else:
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope)
         return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
-                              source=kwargs.get('source'))
+                              source=source)
 
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
