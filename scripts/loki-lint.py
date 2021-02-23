@@ -198,15 +198,12 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
 @click.option('--worker', type=int, default=4, show_default=True,
               help=('Number of worker processes to use. With --debug enabled '
                     'this option is ignored and only one worker is used.'))
-@click.option('--preprocess/--no-preprocess', default=False, show_default=True,
-              help=('Enable preprocessing of files before parsing them. '
-                    'This applies some string replacements to work around '
-                    'frontend deficiencies and saves a copy of the modified '
-                    'source in a separate file.'))
+# @click.option('--preprocess/--no-preprocess', default=False, show_default=True,
+#               help='Enable C-preprocessing of files before parsing them.')
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, preprocess, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -246,16 +243,14 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, pr
     success_count = 0
     if worker == 1:
         for f in files:
-            success_count += check_and_fix_file(f, linter, preprocess=preprocess, fix=fix,
-                                                backup_suffix=backup_suffix, ctx=ctx)
+            success_count += check_and_fix_file(f, linter, fix=fix, backup_suffix=backup_suffix, ctx=ctx)
     else:
         manager = Manager()
         linter.reporter.init_parallel(manager)
 
         with workqueue(workers=worker, logger=logger, manager=manager) as q:
             log_queue = q.log_queue if hasattr(q, 'log_queue') else None  # pylint: disable=no-member
-            q_tasks = [q.call(check_and_fix_file, f, linter, log_queue=log_queue,
-                              preprocess=preprocess, fix=fix, backup_suffix=backup_suffix)
+            q_tasks = [q.call(check_and_fix_file, f, linter, log_queue=log_queue, fix=fix, backup_suffix=backup_suffix)
                        for f in files]
             for t in as_completed(q_tasks):
                 success_count += t.result()
