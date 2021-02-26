@@ -7,7 +7,7 @@ from itertools import count
 import operator as op
 
 from loki import info
-from loki.analyse import defined_symbols_attached
+from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
 )
@@ -151,31 +151,33 @@ def normalize_range_indexing(routine):
 
 def promote_variables(routine, variable_names, pos, index=None, size=None):
     """
-    Promote the given variables by inserting new array dimensions of given size.
+    Promote a list of variables by inserting new array dimensions of given size
+    and updating all uses of these variables with a given index expression.
 
-    :param :class:``Subroutine`` routine:
-            the subroutine to be modified.
-    :param list variable_names:
-            the list of (case-insensitive) variable names to be promoted.
-    :param int pos:
-            the position of the new array dimension using Python indexing
-            convention (i.e., negative values count from end).
-    :param index:
-            (optional) the index expression to use for the new dimension when
-            accessing/writing any of the variables.
-    :type index:
-            :class:``pymbolic.Expression`` or tuple of expressions
-    :param size:
-            (optional) the size of the new array dimension. If specified the
-            given size is inserted into the variable shape and, as a
-            consequence, variable declarations are updated accordingly.
-    :type size:
-            :class:``pymbolic.Expression`` or tuple of expressions
+    When providing only `size` or `index`, promotion is restricted to updating
+    only variable declarations or their use, respectively, and the other is
+    left unchanged.
 
-    NB: When specifying only ``index`` the declaration and declared shape of
-        variables is not changed. Similarly, when specifying only ``size`` the
-        use of variables is left unchanged.
-
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the variables should be promoted.
+    variable_names : list of str
+        The names of variables to be promoted. Matching of variables against
+        names is case-insensitive.
+    pos : int
+        The position of the new array dimension using Python indexing
+        convention (i.e., count from 0 and use negative values to count from
+        the end).
+    index : :py:class:`pymbolic.Expression`, optional
+        The indexing expression (or a tuple for multi-dimension promotion)
+        to use for the promotion dimension(s), e.g., loop variables. Usage of
+        variables is only updated if `index` is provided. When the index
+        expression is not live at the variable use, ``:`` is used instead.
+    size : :py:class:`pymbolic.Expression`, optional
+        The size of the dimension (or tuple for multi-dimension promotion) to
+        insert at `pos`. When this is provided, the declaration of variables
+        is updated accordingly.
     """
     variable_names = {name.lower() for name in variable_names}
 
@@ -185,14 +187,14 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     # Insert new index dimension
     if index is not None:
         index = as_tuple(index)
-        index_vars = [{var.name.lower() for var in FindVariables().visit(i)} for i in index]
+        index_vars = [set(FindVariables().visit(i)) for i in index]
 
         # Create a copy of the tree and apply promotion in-place
         routine.body = Transformer().visit(routine.body)
 
-        with defined_symbols_attached(routine):
+        with dataflow_analysis_attached(routine):
             for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
-
+                # All the variables marked for promotion that appear in this IR node
                 var_list = [v for v in var_list if v.name.lower() in variable_names]
 
                 if not var_list:
@@ -200,7 +202,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
 
                 # We use the given index expression in this node if all
                 # variables therein are defined, otherwise we use `:`
-                node_index = tuple(i if v <= node.defined_symbols else sym.RangeIndex((None, None))
+                node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
                                    for i, v in zip(index, index_vars))
 
                 var_map = {}

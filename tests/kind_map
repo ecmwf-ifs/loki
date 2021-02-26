@@ -21,6 +21,7 @@
         'c_double': 'double',
     },
     'integer': {
+        '': 'int',
         '4': 'int',
         'int8': 'char',
         'INT8': 'char',

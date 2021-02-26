@@ -45,6 +45,13 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         return expr.__class__(expr.name, scope=scope, type=stype, parent=parent,
                               dimensions=dimensions, source=expr.source)
 
+    def map_procedure_symbol(self, expr, *args, **kwargs):  # pylint: disable=no-self-use,unused-argument
+        scope = kwargs.get('scope', None) or expr.scope
+        stype = expr.type
+        if expr.scope != scope:
+            stype = expr.type.clone()
+        return expr.__class__(expr.name, scope=scope, type=stype, source=expr.source)
+
     def map_inline_call(self, expr, *args, **kwargs):
         if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
             # Unkonw inline call, potentially an intrinsic

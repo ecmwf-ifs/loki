@@ -674,11 +674,11 @@ class FissionTransformer(NestedMaskedTransformer):
                 self.mapper[start_node] = None
             # we stop when encountering this or any previously defined stop nodes
             self.stop = _stop.copy() | set(as_tuple(stop_node))
-            body = self.visit(o.body, **kwargs)
+            body = flatten(self.visit(o.body, **kwargs))
             if start_node is not None:
                 self.mapper.pop(start_node)
             if not body:
-                return [None]
+                return [()]
             # inject a comment to mark where the loop was split
             comment = [] if start_node is None else [Comment('! Loki - {}'.format(start_node.content))]
             return comment + [self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])]
@@ -693,7 +693,7 @@ class FissionTransformer(NestedMaskedTransformer):
         # been changed when traversing the loop body)
         self.start, self.stop = _start, _stop
 
-        return as_tuple(i for i in rebuilt if i is not None)
+        return as_tuple(i for i in rebuilt if i)
 
 
 def loop_fission(routine):
