@@ -16,17 +16,22 @@ __all__ = [
 
 
 class Frontend(IntEnum):
+    """
+    Enumeration to identify available frontends.
+    """
+    #: The OMNI compiler frontend
     OMNI = 1
+    #: The Open Fortran Parser
     OFP = 2
+    #: Fparser 2 from STFC
     FP = 3
 
     def __str__(self):
         return self.name.lower()  # pylint: disable=no-member
 
-
 OMNI = Frontend.OMNI
 OFP = Frontend.OFP
-FP = Frontend.FP  # The STFC FParser
+FP = Frontend.FP
 
 
 def inline_comments(ir):

@@ -1,3 +1,7 @@
+"""
+Mappers for traversing and transforming the
+:ref:`internal_representation:Expression tree`.
+"""
 import re
 import pymbolic.primitives as pmbl
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
@@ -136,15 +140,19 @@ class LokiStringifyMapper(StringifyMapper):
 
 class ExpressionRetriever(WalkMapper):
     """
-    A visitor for the expression tree that looks for entries specified by a query.
+    A mapper for the expression tree that looks for entries specified by
+    a query.
 
-    :param query: Function handle that is given each visited expression node and
-                  yields `True` or `False` depending on whether that expression
-                  should be included into the result.
-    :param recurse_query: Optional function handle that is given each visited
-                          expression node and yields `True` or `False` depending
-                          on whether that expression and its children should be
-                          visited.
+    Parameters
+    ----------
+    query :
+        Function handle that is given each visited expression node and
+        yields `True` or `False` depending on whether that expression
+        should be included into the result.
+    recurse_query : optional
+        Optional function handle to which each visited expression node is
+        given and that should return `True` or `False` depending on whether
+        that expression node and its children should be visited.
     """
     # pylint: disable=abstract-method
 
@@ -223,18 +231,21 @@ class ExpressionRetriever(WalkMapper):
 
 def retrieve_expressions(expr, cond, recurse_cond=None):
     """
-    Utility function to retrieve all expressions satisfying condition `cond`.
+    Utility function to retrieve all expressions satisfying a condition
+    in an expression tree.
 
-    Can be used with py:class:`ExpressionRetriever` to query the IR for
-    expression nodes using custom conditions.
+    It uses :class:`ExpressionRetriever` to search the expression tree.
 
-    :param cond: Function handle that is given each visited expression node and
-                 yields `True` or `False` depending on whether that expression
-                 should be included into the result.
-    :param recurse_cond: Optional function handle that is given each visited
-                         expression node and yields `True` or `False` depending
-                         on whether that expression and its children should be
-                         visited.
+    Parameters
+    ----------
+    query :
+        Function handle that is given each visited expression node and
+        yields `True` or `False` depending on whether that expression
+        should be included into the result.
+    recurse_query : optional
+        Optional function handle to which each visited expression node is
+        given and that should return `True` or `False` depending on whether
+        that expression node and its children should be visited.
     """
     retriever = ExpressionRetriever(cond, recurse_query=recurse_cond)
     retriever(expr)

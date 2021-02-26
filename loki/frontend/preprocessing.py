@@ -1,3 +1,6 @@
+"""
+Preprocessing utilities for frontends.
+"""
 import io
 import re
 import pickle
@@ -23,19 +26,23 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     Note that the global option ``LOKI_CPP_DUMP_FILES`` will cause the intermediate
     preprocessed source to be written to a temporary file in ``LOKI_TMP_DIR``.
 
-    Parameters:
-    ===========
-    * ``source``: Source string to preprocess via ``pcpp``
-    * ``filepath``: Optional filepath name, which will be used to derive the filename
-                    should intermediate file dumping be enabled via the global config.
-    * ``includes``: (List of) include paths to add to the C-preprocessor.
-    * ``defines``: (List of) symbol definitions to add to the C-preprocessor.
+    Parameters
+    ----------
+    source : str
+        Source string to preprocess via ``pcpp``
+    filepath : str or pathlib.Path
+        Optional filepath name, which will be used to derive the filename
+        should intermediate file dumping be enabled via the global config.
+    includes : (list of) str
+        Include paths for the C-preprocessor.
+    defines : (list of) str
+        Symbol definitions to add to the C-preprocessor.
     """
 
     class _LokiCPreprocessor(pcpp.Preprocessor):
 
         def on_error(self, file, line, msg):
-            # Redict CPP error to our logger and increment return code
+            # Redirect CPP error to our logger and increment return code
             debug("[Loki-CPP] %s:%d error: %s" % (file, line, msg))
             self.return_code += 1
 

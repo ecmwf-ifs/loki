@@ -1,6 +1,6 @@
 """
-Module containing a set of classes to represent and manipuate a
-Fortran source code file.
+Contains the declaration of :any:`Sourcefile` that is used to represent and
+manipulate (Fortran) source code files.
 """
 from pathlib import Path
 from fparser.two import Fortran2003
@@ -21,13 +21,24 @@ __all__ = ['Sourcefile']
 
 class Sourcefile:
     """
-    Class to handle and manipulate source files.
+    Class to handle and manipulate source files, storing :any:`Module` and
+    :any:`Subroutine` objects.
 
-    :param str path: the name of the source file
-    :param tuple routines: the subroutines (functions) contained in this source.
-    :param tuple modules: the Fortran modules contained in this source.
-    :param ast: optional parser-AST of the original source file
-    :param Source source: string and line information about the original source file.
+    Reading existing source code from file or string can be done via
+    :meth:`from_file` or :meth:`from_source`.
+
+    Parameters
+    ----------
+    path : str
+        The name of the source file.
+    routines : tuple of :any:`Subroutine`, optional
+        The subroutines (functions) contained in this source file.
+    modules : tuple of :any:`Module`, optional
+        The Fortran modules contained in this source file.
+    ast : optional
+        Parser-AST of the original source file.
+    source : :any:`Source`, optional
+        Raw source string and line information about the original source file.
     """
 
     def __init__(self, path, routines=None, modules=None, ast=None, source=None):
@@ -45,25 +56,35 @@ class Sourcefile:
         Constructor from raw source files that can apply a
         C-preprocessor before invoking frontend parsers.
 
-        Parameters:
-        ===========
-        * ``filename``: Name of the file to parse into a ``Sourcefile`` object.
-        * ``definitions``: (List of) ``Module`` object(s) that may supply external
-                           type of procedure definitions.
-        * ``preprocess``: Flag to trigger CPP preprocessing (by default ``False``)
-        * ``includes``: (List of) include paths to pass to the C-preprocessor.
-        * ``defines``: (List of) symbol definitions to pass to the C-preprocessor.
-        * ``xmods``: (Optional) path to directory to find and store ``.xmod`` files
-                     when using the OMNI frontend.
-        * ``omni_includes``: (List of) additional include paths to pass to the
-                             preprocessor run as part of the OMNI frontend parse.
-                             If set, this replaces(!) ``includes``, if not ``includes``
-                             will be used instead.
-        * ``frontend``: Frontend to use for AST parsing (default FP).
+        Parameters
+        ----------
+        filename : str
+            Name of the file to parse into a :any:`Sourcefile` object.
+        definitions : list of :any:`Module`, optional
+            :any:`Module` object(s) that may supply external type or procedure
+            definitions.
+        preprocess : bool, optional
+            Flag to trigger CPP preprocessing (by default `False`).
 
-        Please note that, when using the OMNI frontend, C-preprocessing will always
-        be applied, so ``includes`` and ``defines`` may need to be defined eve with
-        ``preprocess=False``.
+            .. attention::
+                Please note that, when using the OMNI frontend, C-preprocessing
+                will always be applied, so :data:`includes` and :data:`defines`
+                may have to be defined even when disabling :data:`preprocess`.
+
+        includes : list of str, optional
+            Include paths to pass to the C-preprocessor.
+        defines : list of str, optional
+            Symbol definitions to pass to the C-preprocessor.
+        xmods : str, optional
+            Path to directory to find and store ``.xmod`` files when using the
+            OMNI frontend.
+        omni_includes: list of str, optional
+            Additional include paths to pass to the preprocessor run as part of
+            the OMNI frontend parse. If set, this **replaces** (!)
+            :data:`includes`, otherwise :data:`omni_includes` defaults to the
+            value of :data:`includes`.
+        frontend : :any:`Frontend`, optional
+            Frontend to use for producing the AST (default :any:`FP`).
         """
         filepath = Path(filename)
         raw_source = read_file(filepath)
@@ -193,7 +214,7 @@ class Sourcefile:
         return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=OFP):
+    def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
 
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)

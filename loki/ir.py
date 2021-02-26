@@ -1,6 +1,6 @@
 """
-Definition of classes for the control flow layer of the
-:ref:`internal-representation`.
+Control flow node classes for
+:ref:`internal_representation:Control flow tree`
 """
 
 from collections import OrderedDict
@@ -398,7 +398,7 @@ class WhileLoop(InternalNode):
 
     Parameters
     ----------
-    condition : :any:`Expression`
+    condition : :any:`pymbolic.primitives.Expression`
         The condition evaluated before executing the loop body.
     body : tuple
         The loop body.
@@ -456,7 +456,7 @@ class Conditional(InternalNode):
 
     Parameters
     ----------
-    condition : :any:`Expression`
+    condition : :any:`pymbolic.primitives.Expression`
         The condition evaluated before executing the body.
     body : tuple
         The conditional's body.
@@ -507,7 +507,7 @@ class MaskedStatement(InternalNode):
 
     Parameters
     ----------
-    condition : :any:`Expression`
+    condition : :any:`pymbolic.primitives.Expression`
         The condition that defines the mask.
     body : tuple
         The assignment statements.
@@ -609,9 +609,9 @@ class Assignment(LeafNode):
 
     Parameters
     ----------
-    lhs : :any:`Expression`
+    lhs : :any:`pymbolic.primitives.Expression`
         The left-hand side of the assignment.
-    rhs : :any:`Expression`
+    rhs : :any:`pymbolic.primitives.Expression`
         The right-hand side expression of the assignment.
     ptr : bool, optional
         Flag to indicate pointer assignment (``=>``). Defaults to ``False``.
@@ -652,14 +652,14 @@ class ConditionalAssignment(LeafNode):
 
     Parameters
     ----------
-    lhs : :any:`Expression`
+    lhs : :any:`pymbolic.primitives.Expression`
         The left-hand side of the assignment.
-    condition : :any:`Expression`
+    condition : :any:`pymbolic.primitives.Expression`
         The condition of the ternary operator.
-    rhs : :any:`Expression`
+    rhs : :any:`pymbolic.primitives.Expression`
         The right-hand side expression of the assignment that is assigned when
         the condition applies.
-    else_rhs : :any:`Expression`
+    else_rhs : :any:`pymbolic.primitives.Expression`
         The right-hand side expression of the assignment that is assigned when
         the condition does not apply.
     **kwargs : optional
@@ -694,7 +694,7 @@ class CallStatement(LeafNode):
     ----------
     name : str
         The name of the subroutine to call.
-    arguments : tuple of :any:`Expression`
+    arguments : tuple of :any:`pymbolic.primitives.Expression`
         The list of positional arguments.
     kwarguments : tuple of tuple
         The list of keyword arguments, provided as pairs of `(name, value)`.
@@ -785,9 +785,9 @@ class Allocation(LeafNode):
 
     Parameters
     ----------
-    variables : tuple of :any:`Expression`
+    variables : tuple of :any:`pymbolic.primitives.Expression`
         The list of variables that are allocated.
-    data_source : :any:`Expression` or str
+    data_source : :any:`pymbolic.primitives.Expression` or str
         Fortran's ``SOURCE`` allocation option.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -813,7 +813,7 @@ class Deallocation(LeafNode):
 
     Parameters
     ----------
-    variables : tuple of :any:`Expression`
+    variables : tuple of :any:`pymbolic.primitives.Expression`
         The list of variables that are deallocated.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -837,7 +837,7 @@ class Nullify(LeafNode):
 
     Parameters
     ----------
-    variables : tuple of :any:`Expression`
+    variables : tuple of :any:`pymbolic.primitives.Expression`
         The list of pointer variables that are nullified.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -958,7 +958,7 @@ class Import(LeafNode):
     ----------
     module : str
         The name of the module or header file to import from.
-    symbols : tuple of :any:`Expression`, optional
+    symbols : tuple of :any:`pymbolic.primitives.Expression`, optional
         The list of names imported. Can be empty when importing all.
     c_import : bool, optional
         Flag to indicate that this is a C-style include. Defaults to `False`.
@@ -993,9 +993,9 @@ class Declaration(LeafNode):
 
     Parameters
     ----------
-    variables : tuple of :any:`Expression`
+    variables : tuple of :any:`pymbolic.primitives.Expression`
         The list of variables declared by this declaration.
-    dimensions : tuple of :any:`Expression`, optional
+    dimensions : tuple of :any:`pymbolic.primitives.Expression`, optional
         The declared allocation size if given as part of the declaration
         attributes.
     external : bool, optional
@@ -1041,9 +1041,9 @@ class DataDeclaration(LeafNode):
 
     Parameters
     ----------
-    variable : :any:`Expression`
+    variable : :any:`pymbolic.primitives.Expression`
         The left-hand side of the data declaration.
-    values : tuple of :any:`Expression`
+    values : tuple of :any:`pymbolic.primitives.Expression`
         The right-hand side of the data declaration.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -1139,9 +1139,9 @@ class MultiConditional(LeafNode):
 
     Parameters
     ----------
-    expr : :any:`Expression`
+    expr : :any:`pymbolic.primitives.Expression`
         The expression that is evaluated to choose the appropriate case.
-    values : tuple of :any:`Expression`
+    values : tuple of :any:`pymbolic.primitives.Expression`
         The list of values, one for each case.
     bodies : tuple of tuple
         The corresponding bodies for each case.

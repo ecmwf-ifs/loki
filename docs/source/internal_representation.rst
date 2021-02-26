@@ -1,23 +1,85 @@
-.. _internal-representation:
-
 ===================================
 Loki's internal representation (IR)
 ===================================
 
-.. todo:: Talk about the container data structures :any:`Sourcefile`,
-          :any:`Module` and :any:`Subroutine`.
+.. important::
+    Loki is still under active development and has not yet seen a stable
+    release. Interfaces can change at any time, objects may be renamed, or
+    concepts may be re-thought. Make sure to sync your work to the current
+    `master` frequently by rebasing feature branches and upstreaming
+    more general applicable work in the form of pull requests.
 
-The overall structure of a program is represented by a tree of control flow
-nodes, which themselves can have control flow and expression nodes as children.
-This separation is reflected in the internal representation, which is a tree
-that is split into two levels:
+.. contents:: Contents
+   :local:
 
-1. Control flow (e.g., loops, conditionals, assignments, etc.);
+Loki's internal representation aims to achieve a balance between usability
+and general applicability. This means that in places there may be shortcuts
+taken to ease its use in the context of a source-to-source translation
+utility but may break with established practices in compiler theory.
+The IR was developed with Fortran source code in mind and that shows. Where
+there exist similar concepts in other languages, things are transferable.
+In other places, Fortran-specific annotations are included for the sole purpose
+of enabling string reproducibility.
+
+The internal representation is vertically divided into different layers,
+roughly aligned with high level concepts found in Fortran and other
+programming languages:
+
+.. contents::
+   :local:
+   :depth: 1
+
+
+Container data structures
+=========================
+
+Outermost are container data structures that conceptually translate to
+Fortran's `program-units`, such as modules and subprograms.
+
+Fortran modules are represented by :any:`Module` objects which comprise
+a specification part (:py:attr:`Module.spec`) and a list of :any:`Subroutine`
+objects contained in the module.
+
+Subroutines and functions are represented by :any:`Subroutine` objects that
+in turn have their own docstring (:py:attr:`Subroutine.docstring`),
+specification part (:py:attr:`Subroutine.spec`), execution part
+(:py:attr:`Subroutine.body`), and contained subprograms
+(:py:attr:`Subroutine.members`).
+
+To map these programming language concepts to source files and ease input or
+output operations, any number of these container data structures can be
+classes.
+
+Available container classes
+---------------------------
+
+.. autosummary::
+
+   loki.sourcefile.Sourcefile
+   loki.module.Module
+   loki.subroutine.Subroutine
+
+
+Control flow tree
+=================
+
+Specification and execution parts of (sub)programs and modules are the central
+components of container data structures. Each of them is represented by a tree
+of control flow nodes, with a :any:`Section` as root node. This tree resembles
+to some extend a hierarchical control flow graph where each node can have
+control flow and expression nodes as children. Consequently, this separation on
+node level is reflected in the internal representation, splitting the tree into
+two levels:
+
+1. :ref:`Control flow <internal_representation:Control flow tree>`
+   (e.g., loops, conditionals, assignments, etc.);
    the corresponding classes are declared in :py:mod:`loki.ir` and described
-   in this document.
-2. Expressions (e.g., scalar/array variables, literals, operators, etc.);
-   the structure of this layer is described in
-   :py:mod:`loki.expression.symbols`.
+   in this section.
+2. :ref:`Expressions <internal_representation:Expression tree>`
+   (e.g., scalar/array variables, literals, operators, etc.);
+   this is based on `Pymbolic <https://github.com/inducer/pymbolic>`__ with
+   encapsulating classes declared in :py:mod:`loki.expression.symbols` and
+   described below.
 
 All control flow nodes implement the common base class :any:`Node` and
 can have an arbitrary number of children that are either control flow nodes
@@ -33,10 +95,11 @@ following:
             /           |        \
       Expression   Expression   Node   ...
 
-As an example, consider a basic Fortran ``DO`` loop: it defines a loop
-variable, a loop range and a loop body. The body can be one/multiple
-statements or other control flow structures and therefore is a subtree of
-control flow nodes. Loop variable and range, however, are expressions.
+As an example, consider a basic Fortran ``DO i=1,n`` loop: it defines a loop
+variable (``i``), a loop range (``1:n``) and a loop body. The body can be
+one/multiple statements or other control flow structures and therefore is a
+subtree of control flow nodes. Loop variable and range, however, are
+expression nodes.
 
 All control flow nodes fall into one of two categories:
 
@@ -86,75 +149,127 @@ layer of the internal representation are as follows:
                         |
                        ...
 
-.. todo:: Elaborate on how to traverse the internal representation.
 
-What follows is a description of the base classes and all implementations of
-those:
-
-.. contents::
-   :local:
+Available control flow nodes
+----------------------------
 
 Abstract base classes
-=====================
+^^^^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: loki.ir.Node
+.. autosummary::
 
-.. autoclass:: loki.ir.InternalNode
-
-.. autoclass:: loki.ir.LeafNode
+   loki.ir.Node
+   loki.ir.InternalNode
+   loki.ir.LeafNode
 
 Internal node classes
-=====================
+^^^^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: loki.ir.Section
+.. autosummary::
 
-.. autoclass:: loki.ir.Associate
-
-.. autoclass:: loki.ir.Loop
-
-.. autoclass:: loki.ir.WhileLoop
-
-.. autoclass:: loki.ir.Conditional
-
-.. autoclass:: loki.ir.MaskedStatement
-
-.. autoclass:: loki.ir.PragmaRegion
-
-.. autoclass:: loki.ir.Interface
+   loki.ir.Section
+   loki.ir.Associate
+   loki.ir.Loop
+   loki.ir.WhileLoop
+   loki.ir.Conditional
+   loki.ir.MaskedStatement
+   loki.ir.PragmaRegion
+   loki.ir.Interface
 
 Leaf node classes
-=================
+^^^^^^^^^^^^^^^^^
 
-.. autoclass:: loki.ir.Assignment
+.. autosummary::
 
-.. autoclass:: loki.ir.ConditionalAssignment
+   loki.ir.Assignment
+   loki.ir.ConditionalAssignment
+   loki.ir.CallStatement
+   loki.ir.CallContext
+   loki.ir.Allocation
+   loki.ir.Deallocation
+   loki.ir.Nullify
+   loki.ir.Comment
+   loki.ir.CommentBlock
+   loki.ir.Pragma
+   loki.ir.PreprocessorDirective
+   loki.ir.Import
+   loki.ir.Declaration
+   loki.ir.DataDeclaration
+   loki.ir.TypeDef
+   loki.ir.MultiConditional
+   loki.ir.Intrinsic
 
-.. autoclass:: loki.ir.CallStatement
 
-.. autoclass:: loki.ir.CallContext
+Expression tree
+===============
 
-.. autoclass:: loki.ir.Allocation
+Many control flow nodes contain one or multiple expressions, such as the
+right-hand side of an assignment (:py:attr:`loki.ir.Assignment.rhs`) or the
+condition of an ``IF`` statement (:py:attr:`loki.ir.Conditional.condition`).
+Such expressions are represented by expression trees, comprising a single
+node (e.g., the left-hand side of an assignment may be just a scalar variable)
+or a large expression tree consisting of multiple nested sub-expressions.
 
-.. autoclass:: loki.ir.Deallocation
+Loki's expression representation is based on
+`Pymbolic <https://github.com/inducer/pymbolic>`__ but encapsulates all
+classes with bespoke own implementations. This allows to enrich expression
+nodes by attaching custom metadata, implementing bespoke comparison operators,
+or store type information.
 
-.. autoclass:: loki.ir.Nullify
+The base class for all expression nodes is :any:`pymbolic.primitives.Expression`.
 
-.. autoclass:: loki.ir.Comment
+Available expression tree nodes
+-------------------------------
 
-.. autoclass:: loki.ir.CommentBlock
+Typed symbol nodes
+^^^^^^^^^^^^^^^^^^
 
-.. autoclass:: loki.ir.Pragma
+.. autosummary::
 
-.. autoclass:: loki.ir.PreprocessorDirective
+   loki.expression.symbols.TypedSymbol
+   loki.expression.symbols.Variable
+   loki.expression.symbols.Scalar
+   loki.expression.symbols.Array
+   loki.expression.symbols.ProcedureSymbol
 
-.. autoclass:: loki.ir.Import
+Literals
+^^^^^^^^
 
-.. autoclass:: loki.ir.Declaration
+.. autosummary::
 
-.. autoclass:: loki.ir.DataDeclaration
+   loki.expression.symbols.Literal
+   loki.expression.symbols.FloatLiteral
+   loki.expression.symbols.IntLiteral
+   loki.expression.symbols.LogicLiteral
+   loki.expression.symbols.StringLiteral
+   loki.expression.symbols.IntrinsicLiteral
+   loki.expression.symbols.LiteralList
 
-.. autoclass:: loki.ir.TypeDef
+Mix-ins
+^^^^^^^
 
-.. autoclass:: loki.ir.MultiConditional
+.. autosummary::
 
-.. autoclass:: loki.ir.Intrinsic
+   loki.expression.symbols.ExprMetadataMixin
+   loki.expression.symbols.StrCompareMixin
+
+
+Type information and scopes
+===========================
+
+.. warning::
+   A conceptual overhaul of the representation of scopes and the way how a
+   typed symbol is associated with a scope is planned for the near future.
+   For that reason this section is intentionally left empty for now and will
+   be added as soon as this work has been carried out.
+
+See :mod:`loki.types` for a rough outline of the current type system.
+
+.. autosummary::
+
+   loki.types.Scope
+   loki.types.TypeTable
+   loki.types.SymbolType
+   loki.types.BasicType
+   loki.types.DerivedType
+   loki.types.ProcedureType

@@ -1,3 +1,6 @@
+"""
+Contains the declaration of :any:`Module` to represent Fortran modules.
+"""
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child
 
@@ -21,14 +24,20 @@ class Module:
     """
     Class to handle and manipulate source modules.
 
-    :param str name: Name of the module.
-    :param Section spec: the spec section of the module.
-    :param tuple routines: the routines contained in the module.
-    :param ast: Frontend node for this module.
-    :param Source source: Source object representing the raw source string information from
-            the read file.
-    :param scope: Instance of class:``Scope`` that holds :class:``TypeTable`` objects to
-                  cache type information for all symbols defined within this module's scope.
+    Parameters
+    ----------
+    name : str
+        Name of the module.
+    spec : :any:`Section`, optional
+        The spec section of the module.
+    routines : tuple of :any:`Subroutine`, optional
+        The routines contained in the module.
+    ast : optional
+        The node for this module from the parse tree produced by the frontend.
+    source : :any:`Source`, optional
+        Object representing the raw source string information from the read file.
+    scope : :any:`Scope`, optional
+        Prepopulated type and symbol information object to be used in this module.
     """
 
     def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, scope=None):

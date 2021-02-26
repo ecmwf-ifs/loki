@@ -24,8 +24,3 @@ pytest-cov
 coverage2clover
 pylint
 pytest-pylint
-
-# For docs
-sphinx
-recommonmark
-sphinxawesome-theme
