@@ -345,7 +345,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         'constant_types': ['REAL'],  # Coding standards document includes INTEGERS here
         'allowed_type_kinds': {
             'INTEGER': ['JPIM', 'JPIT', 'JPIB', 'JPIA', 'JPIS', 'JPIH'],
-            'REAL': ['JPRB', 'JPRM', 'JPRS', 'JPRT', 'JPRH', 'JPRD']
+            'REAL': ['JPRB', 'JPRM', 'JPRS', 'JPRT', 'JPRH', 'JPRD', 'JPHOOK']
         }
     }
 

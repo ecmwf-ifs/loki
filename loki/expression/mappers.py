@@ -223,7 +223,11 @@ class ExpressionRetriever(WalkMapper):
         if not self.visit(expr):
             return
         for elem in expr.elements:
-            self.rec(elem, *args, **kwargs)
+            if not isinstance(elem, str):
+                # TODO: We are not representing all cases properly
+                # (e.g., implicit loops) and instead retain them as plain
+                # strings. Do not recurse on those for the moment...
+                self.rec(elem, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_procedure_symbol = WalkMapper.map_function_symbol
