@@ -46,6 +46,7 @@ extensions = [
 #    'recommonmark',  # read markdown
     'sphinx_rtd_theme',  # read the docs theme
     'myst_parser',  # parse markdown files
+    'sphinx_panels',  # cards, panels and dropdown content
 ]
 
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
