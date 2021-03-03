@@ -2,15 +2,17 @@ import time
 import operator as op
 from functools import wraps
 from collections import OrderedDict
+from collections.abc import Sequence
 from subprocess import run, PIPE, STDOUT, CalledProcessError
+from contextlib import contextmanager
 from fastcache import clru_cache
 
 from loki.logging import log, debug, error, INFO
 
 
-__all__ = ['as_tuple', 'is_iterable', 'flatten', 'chunks', 'timeit',
+__all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
-           'binary_insertion_sort', 'cached_func']
+           'binary_insertion_sort', 'cached_func', 'optional']
 
 
 def as_tuple(item, type=None, length=None):
@@ -56,6 +58,65 @@ def is_iterable(o):
         return False
     else:
         return True
+
+
+def is_subset(a, b, ordered=True, subsequent=False):
+    """
+    Check if all items in iterable :data:`a` are contained in iterable :data:`b`.
+
+    Parameters
+    ----------
+    a : iterable
+        The iterable whose elements are searched in :data:`b`.
+    b : iterable
+        The iterable of which :data:`a` is tested to be a subset.
+    ordered : bool, optional
+        Require elements to appear in the same order in :data:`a` and :data:`b`.
+    subsequent : bool, optional
+        If set to `False`, then other elements are allowed to sit in :data:`b`
+        in-between the elements of :data:`a`. Only relevant when using
+        :data:`ordered`.
+
+    Returns
+    -------
+    bool :
+        `True` if all elements of :data:`a` are found in :data:`b`, `False`
+        otherwise.
+    """
+    if not ordered:
+        return set(a) <= set(b)
+
+    if not isinstance(a, Sequence):
+        raise ValueError('a is not a Sequence')
+    if not isinstance(b, Sequence):
+        raise ValueError('b is not a Sequence')
+    if not a:
+        return False
+
+    # Search for the first element of a in b and make sure a fits in the
+    # remainder of b
+    try:
+        idx = b.index(a[0])
+    except ValueError:
+        return False
+    if len(a) > (len(b) - idx):
+        return False
+
+    if subsequent:
+        # Now compare the sequences one by one and bail out if they don't match
+        for i, j in zip(a, b[idx:]):
+            if i != j:
+                return False
+        return True
+
+    # When allowing intermediate elements, we search for the next element
+    # in the remainder of b after the previous element
+    for i in a[1:]:
+        try:
+            idx = b.index(i, idx+1)
+        except ValueError:
+            return False
+    return True
 
 
 def flatten(l, is_leaf=None):
@@ -312,3 +373,25 @@ def cached_func(func):
     Decorator that memoizes (caches) the result of a function
     """
     return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
+
+
+
+@contextmanager
+def optional(condition, context_manager, *args, **kwargs):
+    """
+    Apply the context manager only when a condition is fulfilled.
+
+    Based on https://stackoverflow.com/a/41251962.
+
+    Parameters
+    ----------
+    condition : bool
+        The condition that needs to be fulfilled to apply the context manager.
+    context_manager :
+        The context manager to apply.
+    """
+    if condition:
+        with context_manager(*args, **kwargs) as y:
+            yield y
+    else:
+        yield

@@ -3,8 +3,87 @@ Unit tests for utility functions and classes in loki.tools.
 """
 
 import operator as op
+from contextlib import contextmanager
 import pytest
-from loki.tools import JoinableStringList, truncate_string, binary_insertion_sort
+from loki.tools import (
+    JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
+    optional
+)
+
+
+@pytest.mark.parametrize('a, b, ref', [
+    ((1, 2), (0, 1, 0, 2, 3), True),
+    ((1, 2), (0, 2, 0, 1, 3), False),
+    ((1, 2), (1, 0, 2, 3), True),
+    ((1, 2), (1, 2), True),
+    ((2, 1), (1, 2), False),
+    ((1, 2), (1, 0, 2), True),
+    ((), (1,), False),
+    ((1,), (), False),
+    ((), (), False),
+    ((0, 0), (0, 1, 0, 2, 0, 3), True),
+    ((0, 0), (0, 1, 2, 3), False),
+])
+def test_is_subset_ordered(a, b, ref):
+    """
+    Test :any:`is_subset` with ordered data types.
+    """
+    assert is_subset(a, b, ordered=True) == ref
+
+
+@pytest.mark.parametrize('a, b, ref', [
+    ((1, 2), (0, 1, 2, 3), True),
+    ((1, 2), (0, 1, 2), True),
+    ((1, 2), (1, 2, 3), True),
+    ((1, 2), (1, 2), True),
+    ((0, 1, 2, 3), (1, 2), False),
+    ((0, 1, 2), (1, 2), False),
+    ((1, 2, 3), (1, 2), False),
+    ([1], (0, 1, 2), True),
+    ((0, 1), [0, 1, 2, 3], True),
+    ((1, 0), (0, 1), False),
+    ((1,), (1, 2), True),
+    ((1, 2), (1, 0, 2), False),
+    ((), (1,), False),
+    ((1,), (), False),
+    ((), (), False),
+    ((0, 0), (0, 1, 0, 2, 0, 3), False),
+])
+def test_is_subset_ordered_subsequent(a, b, ref):
+    """
+    Test :any:`is_subset` with ordered data types.
+    """
+    assert is_subset(a, b, ordered=True, subsequent=True) == ref
+
+
+@pytest.mark.parametrize('a, b, ref', [
+    ((1, 2), (0, 1, 2, 3), True),
+    ((1, 2), (0, 1, 2), True),
+    ((1, 2), (1, 2, 3), True),
+    ((1, 2), (1, 2), True),
+    ((0, 1, 2, 3), (1, 2), False),
+    ((0, 1, 2), (1, 2), False),
+    ((1, 2, 3), (1, 2), False),
+    ([1], (0, 1, 2), True),
+    ((0, 1), [0, 1, 2, 3], True),
+    ((1, 0), (0, 1), True),
+    ((1,), (1, 2), True),
+    ((1, 2), (1, 0, 2), True),
+])
+def test_is_subset_not_ordered(a, b, ref):
+    """
+    Test :any:`is_subset` with ordered data types.
+    """
+    assert is_subset(a, b, ordered=False) == ref
+
+
+@pytest.mark.parametrize('a, b', [
+    ({1, 2}, [1, 2]),
+    ([1, 2], {1, 2}),
+])
+def test_is_subset_raises(a, b):
+    with pytest.raises(ValueError):
+        is_subset(a, b, ordered=True)
 
 
 @pytest.mark.parametrize('items, sep, width, cont, ref', [
@@ -84,3 +163,19 @@ def test_binary_insertion_sort():
     assert binary_insertion_sort(list(reversed(range(20)))) == list(range(20))
 
     assert binary_insertion_sort([1] * 5) == [1] * 5
+
+
+def test_optional():
+    @contextmanager
+    def dummy_manager(a, b, c):
+        ret = a + b + c
+        try:
+            yield ret
+        finally:
+            pass
+
+    with optional(True, dummy_manager, 1, c=10, b=100) as val:
+        assert val == 111
+
+    with optional(False, dummy_manager, 1, c=10, b=100) as val:
+        assert val is None
