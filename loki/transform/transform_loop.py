@@ -12,7 +12,7 @@ from loki.expression import (
 )
 from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import Loop, Conditional, Comment, Pragma
-from loki.logging import info
+from loki.logging import info, warning
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
@@ -21,7 +21,9 @@ from loki.tools import (
     flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort, optional
 )
 from loki.visitors import FindNodes, Transformer, NestedMaskedTransformer, is_parent_of
-from loki.analyse import dataflow_analysis_attached, read_after_write_vars
+from loki.analyse import (
+    dataflow_analysis_attached, read_after_write_vars, write_after_read_vars
+)
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron']
 
@@ -755,6 +757,15 @@ def loop_fission(routine, promote=True):
             if promote:
                 promote_vars += [v.name.lower() for v in read_after_write_vars(loops[-1].body, pragma)
                                  if v.name.lower() not in promote_vars]
+
+            write_after_read = write_after_read_vars(loops[-1].body, pragma)
+            if write_after_read:
+                if pragma.source.lines:
+                    warning('Loop fission at l. {} breaks potential loop-carried dependency for {}'.format(
+                        pragma.source.lines[0], ', '.join(str(v) for v in write_after_read)))
+                else:
+                    warning('Loop fission breaks potential loop-carried dependency for {}'.format(
+                        ', '.join(str(v) for v in write_after_read)))
 
             promotion_vars_dims, promotion_vars_index = promotion_dimensions_from_loop_nest(
                 promote_vars, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)

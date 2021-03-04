@@ -9,7 +9,7 @@ from loki.tools import as_tuple, flatten
 
 
 __all__ = [
-    'dataflow_analysis_attached', 'read_after_write_vars'
+    'dataflow_analysis_attached', 'read_after_write_vars', 'write_after_read_vars'
 ]
 
 
@@ -273,14 +273,35 @@ def dataflow_analysis_attached(module_or_routine):
         detach_dataflow_analysis(module_or_routine)
 
 
-class FindReadAfterWrite(Visitor):
+class FindReads(Visitor):
+    """
+    Look for reads in a specified part of a control flow tree.
 
-    def __init__(self, inspection_node, **kwargs):
+    Parameters
+    ----------
+    start : (iterable of) :any:`Node`, optional
+        Visitor is only active after encountering one of the nodes in
+        :data:`start` and until encountering a node in :data:`stop`.
+    stop : (iterable of) :any:`Node`, optional
+        Visitor is no longer active after encountering one of the nodes in
+        :data:`stop` until it encounters again a node in :data:`start`.
+    active : bool, optional
+        Set the visitor active right from the beginning.
+    candidate_set : set of :any:`Node`, optional
+        If given, only reads for symbols in this set are considered.
+    clear_candidates_on_write : bool, optional
+        If enabled, writes of a symbol remove it from the :data:`candidate_set`.
+    """
+
+    def __init__(self, start=None, stop=None, active=False,
+                 candidate_set=None, clear_candidates_on_write=False, **kwargs):
         super().__init__(**kwargs)
-        self.inspection_node = inspection_node
-        self.writes = set()
+        self.start = set(as_tuple(start))
+        self.stop = set(as_tuple(stop))
+        self.active = active
+        self.candidate_set = candidate_set
+        self.clear_candidates_on_write = clear_candidates_on_write
         self.reads = set()
-        self.find_reads = False
 
     @staticmethod
     def _symbols_from_expr(expr):
@@ -289,33 +310,98 @@ class FindReadAfterWrite(Visitor):
         """
         return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
 
+    def _register_reads(self, read_symbols):
+        if self.active:
+            if self.candidate_set is None:
+                self.reads |= read_symbols
+            else:
+                self.reads |= read_symbols & self.candidate_set
+
+    def _register_writes(self, write_symbols):
+        if self.active and self.clear_candidates_on_write and self.candidate_set is not None:
+            self.candidate_set -= write_symbols
+
     def visit(self, o, *args, **kwargs):
-        self.find_reads = self.find_reads or o is self.inspection_node
-        super().visit(o, *args, **kwargs)
+        self.active = (self.active and o not in self.stop) or o in self.start
+        return super().visit(o, *args, **kwargs)
 
     def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
         pass
 
     def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
-        if self.find_reads:
-            self.reads |= o.uses_symbols & self.writes
-        else:
-            self.writes |= o.defines_symbols
+        self._register_reads(o.uses_symbols)
+        self._register_writes(o.defines_symbols)
 
     def visit_Conditional(self, o, **kwargs):
-        if self.find_reads:
-            self.reads |= self._symbols_from_expr(o.condition) & self.writes
-        self.visit(o.children, **kwargs)
+        self._register_reads(self._symbols_from_expr(o.condition))
+        # Visit each branch with the original candidate set and then take the
+        # union of both afterwards to include all potential read-after-writes
+        candidate_set = self.candidate_set
+        self.visit(o.body, **kwargs)
+        self.candidate_set, candidate_set = candidate_set, self.candidate_set
+        self.visit(o.else_body, **kwargs)
+        if self.candidate_set is not None:
+            self.candidate_set |= candidate_set
 
     def visit_Loop(self, o, **kwargs):
-        if self.find_reads:
-            self.reads |= self._symbols_from_expr(o.bounds) & self.writes
+        self._register_reads(self._symbols_from_expr(o.bounds))
+        self._register_writes({o.variable})
         self.visit(o.children, **kwargs)
 
     def visit_WhileLoop(self, o, **kwargs):
-        if self.find_reads:
-            self.reads |= self._symbols_from_expr(o.condition) & self.writes
+        self._register_reads(self._symbols_from_expr(o.condition))
         self.visit(o.children, **kwargs)
+
+
+class FindWrites(Visitor):
+    """
+    Look for writes in a specified part of a control flow tree.
+
+    Parameters
+    ----------
+    start : (iterable of) :any:`Node`, optional
+        Visitor is only active after encountering one of the nodes in
+        :data:`start` and until encountering a node in :data:`stop`.
+    stop : (iterable of) :any:`Node`, optional
+        Visitor is no longer active after encountering one of the nodes in
+        :data:`stop` until it encounters again a node in :data:`start`.
+    active : bool, optional
+        Set the visitor active right from the beginning.
+    candidate_set : set of :any:`Node`, optional
+        If given, only writes for symbols in this set are considered.
+    """
+
+    def __init__(self, start=None, stop=None, active=False, candidate_set=None, **kwargs):
+        super().__init__(**kwargs)
+        self.start = set(as_tuple(start))
+        self.stop = set(as_tuple(stop))
+        self.active = active
+        self.candidate_set = candidate_set
+        self.writes = set()
+
+    @staticmethod
+    def _symbols_from_expr(expr):
+        """
+        Return set of symbols found in an expression.
+        """
+        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+
+    def _register_writes(self, write_symbols):
+        if self.candidate_set is None:
+            self.writes |= write_symbols
+        else:
+            self.writes |= write_symbols & self.candidate_set
+
+    def visit(self, o, *args, **kwargs):
+        self.active = (self.active and o not in self.stop) or o in self.start
+        return super().visit(o, *args, **kwargs)
+
+    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
+        pass
+
+    def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
+        if self.active:
+            self._register_writes(o.defines_symbols)
 
 
 def read_after_write_vars(ir, inspection_node):
@@ -324,6 +410,9 @@ def read_after_write_vars(ir, inspection_node):
 
     This requires prior application of :meth:`dataflow_analysis_attached` to
     the corresponding :any:`Module` or :any:`Subroutine`.
+
+    The result is the set of variables with a data dependency across the
+    :data:`inspection_node`.
 
     Parameters
     ----------
@@ -338,6 +427,39 @@ def read_after_write_vars(ir, inspection_node):
     :any:`set` of :any:`Scalar` or :any:`Array`
         The list of read-after-write variables.
     """
-    visitor = FindReadAfterWrite(inspection_node)
-    visitor.visit(ir)
-    return visitor.reads
+    write_visitor = FindWrites(stop=inspection_node, active=True)
+    write_visitor.visit(ir)
+    read_visitor = FindReads(start=inspection_node, candidate_set=write_visitor.writes,
+                             clear_candidates_on_write=True)
+    read_visitor.visit(ir)
+    return read_visitor.reads
+
+
+def write_after_read_vars(ir, inspection_node):
+    """
+    Find variables that are written after being read in the given IR.
+
+    This requires prior application of :meth:`dataflow_analysis_attached` to
+    the corresponding :any:`Module` or :any:`Subroutine`.
+
+    Applying this, e.g., to the body of a loop, allows to identify loop-carried
+    dependencies.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        The root of the control flow (sub-)tree to inspect.
+    inspection_node : :any:`Node`
+        Only variables with a read before and a write at or after this node
+        are considered.
+
+    Returns
+    -------
+    :any:`set` of :any:`Scalar` or :any:`Array`
+        The list of write-after-read variables.
+    """
+    read_visitor = FindReads(stop=inspection_node, active=True)
+    read_visitor.visit(ir)
+    write_visitor = FindWrites(start=inspection_node, candidate_set=read_visitor.reads)
+    write_visitor.visit(ir)
+    return write_visitor.writes
