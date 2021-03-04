@@ -154,9 +154,9 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     Promote a list of variables by inserting new array dimensions of given size
     and updating all uses of these variables with a given index expression.
 
-    When providing only `size` or `index`, promotion is restricted to updating
-    only variable declarations or their use, respectively, and the other is
-    left unchanged.
+    When providing only :data:`size` or :data:`index`, promotion is restricted
+    to updating only variable declarations or their use, respectively, and the
+    other is left unchanged.
 
     Parameters
     ----------
@@ -169,7 +169,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         The position of the new array dimension using Python indexing
         convention (i.e., count from 0 and use negative values to count from
         the end).
-    index : :py:class:`pymbolic.Expression`, optional
+    index : :py:class:`pymbolic.primitives.Expression`, optional
         The indexing expression (or a tuple for multi-dimension promotion)
         to use for the promotion dimension(s), e.g., loop variables. Usage of
         variables is only updated if `index` is provided. When the index
@@ -245,22 +245,27 @@ def promotion_dimensions_from_loop_nest(var_names, loops, promotion_vars_dims, p
     """
     Determine promotion dimensions corresponding to the iteration space of a loop nest.
 
-    :param list var_names:
-        the names of the variables to consider for promotion.
-    :param list loops:
-        the list of nested loops, sorted from outermost to innermost.
-    :param dict promotion_vars_dims:
-        the mapping of variable names to promotion dimensions. When determining
-        promotion dimensions for the variables in ``var_names`` this dict is
+    Parameters
+    ----------
+    var_names : list of str
+        The names of variables to consider for promotion.
+    loops : list of :any:`Loop`
+        The list of nested loops, sorted from outermost to innermost.
+    promotion_vars_dims : dict((str, tuple))
+        The mapping of variable names to promotion dimensions. When determining
+        promotion dimensions for the variables in :data:`var_names` this dict is
         checked for already existing promotion dimensions and, if not matching,
         the maximum of both is taken for each dimension.
-    :param dict promotion_vars_index:
-        the mapping of variable names to subscript expressions. These expressions
+    promotion_vars_index : dict((str, tuple))
+        The mapping of variable names to subscript expressions. These expressions
         are later inserted for every variable use. When the indexing expression
         for the loop nest does not match the existing expression in this dict,
-        a ``RuntimeError`` is raised.
+        a :any:`RuntimeError` is raised.
 
-    :return: the updated mappings ``(promotion_vars_dims, promotion_vars_index)``.
+    Returns
+    -------
+    (:data:`promotion_vars_dims`, :data:`promotion_vars_dims`) : tuple of dict
+        The updated mappings :data:`promotion_vars_dims` and :data:`promotion_vars_index`.
 
     """
     # TODO: Would be nice to be able to promote this to the smallest possible dimension
@@ -271,6 +276,82 @@ def promotion_dimensions_from_loop_nest(var_names, loops, promotion_vars_dims, p
     loop_lengths = [simplify(loop.bounds.stop) for loop in reversed(loops)]
     loop_index = [loop.variable for loop in reversed(loops)]
 
+    def _merge_dims_and_index(dims_a, index_a, dims_b, index_b, var_name):
+        """
+        Helper routine that takes two pairs of promotion dimensions and indices
+        (let's call them a and b) and tries to merge them to form the promotion
+        configuration that accomodates both.
+        """
+        # Let's assume we have the same or more promotion dimensions in b than in a
+        if len(dims_b) < len(dims_a):
+            return _merge_dims_and_index(dims_b, index_b, dims_a, index_a, var_name)  # pylint: disable=arguments-out-of-order
+
+        # We identify each dimension by the index expression; therefore, we have
+        # to merge them first
+        new_index = []
+        ptr_a, ptr_b = 0, 0
+        while ptr_a < len(index_a) and ptr_b < len(index_b):
+            # Let's see if the next index in a can be found somewhere in b
+            try:
+                a_in_b = index_b.index(index_a[ptr_a], ptr_b)
+            except ValueError:
+                a_in_b = None
+
+            if a_in_b is None:
+                # It's not in there, so just add it to the new index
+                # and go to the next
+                new_index += [index_a[ptr_a]]
+                ptr_a += 1
+            else:
+                # Found a in b: add it and anything before from b
+                new_index += index_b[ptr_b:a_in_b+1]
+                ptr_a += 1
+                ptr_b = a_in_b + 1
+
+            # Skip any indices we have already dealt with
+            while ptr_a < len(index_a) and index_a[ptr_a] in new_index:
+                ptr_a += 1
+            while ptr_b < len(index_b) and index_b[ptr_b] in new_index:
+                ptr_b += 1
+
+        # Add any remaining indices in a and b
+        if ptr_a < len(index_a):
+            assert ptr_b == len(index_b)
+            new_index += index_a[ptr_a:]
+        else:
+            assert ptr_a == len(index_a)
+            new_index += index_b[ptr_b:]
+
+        # With the merged index in place, we need to go through each corresponding
+        # dimension from a and b and pick the larger
+        new_dims = []
+        for idx in new_index:
+            # Look for position of that index in a and b
+            try:
+                ptr_a = index_a.index(idx)
+            except ValueError:
+                ptr_a = None
+            try:
+                ptr_b = index_b.index(idx)
+            except ValueError:
+                ptr_b = None
+
+            if ptr_a is None:
+                # exists only in b
+                new_dims += [dims_b[ptr_b]]
+            elif ptr_b is None:
+                # exists only in a
+                new_dims += [dims_a[ptr_a]]
+            else:
+                # exists in both: pick the larger
+                if symbolic_op(dims_a[ptr_a], op.lt, dims_b[ptr_b]):
+                    new_dims += [dims_b[ptr_b]]
+                else:
+                    new_dims += [dims_a[ptr_a]]
+
+        # ... and we're done: return the new dimensions and index
+        return new_dims, new_index
+
     for var_name in var_names:
         # Check if we have already marked this variable for promotion: let's make sure the added
         # dimensions are large enough for this loop (nest)
@@ -278,43 +359,60 @@ def promotion_dimensions_from_loop_nest(var_names, loops, promotion_vars_dims, p
             promotion_vars_dims[var_name] = loop_lengths
             promotion_vars_index[var_name] = loop_index
         else:
-            if len(promotion_vars_dims[var_name]) != len(loop_lengths):
-                raise RuntimeError('Conflicting promotion dimensions for "{}"'.format(var_name))
-            for i, (loop_length, index) in enumerate(zip(loop_lengths, loop_index)):
-                if index != promotion_vars_index[var_name][i]:
-                    raise RuntimeError('Loop variable "{}" does not match previous index "{}" for "{}"'.format(
-                        str(index), str(promotion_vars_index[var_name][i]), var_name))
-                if symbolic_op(promotion_vars_dims[var_name][i], op.lt, loop_length):
-                    promotion_vars_dims[var_name][i] = loop_length
+            promotion_vars_dims[var_name], promotion_vars_index[var_name] = \
+                _merge_dims_and_index(promotion_vars_dims[var_name], promotion_vars_index[var_name],
+                                      loop_lengths, loop_index, var_name)
 
     return promotion_vars_dims, promotion_vars_index
 
 
-def promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index, pos=-1):
+def promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index):
     """
     Promote multiple variables with potentially non-matching promotion
     dimensions or index expressions.
 
-    :param :class:``Subroutine`` routine:
-        the subroutine to be modified.
-    :param dict promotion_vars_dims:
-        the mapping of variable names to promotion dimensions. The variables'
-        shapes are expanded by these at position ``pos``.
-    :param dict promotion_vars_index:
-        the mapping of variable names to subscript expressions to be used whenever
-        reading/writing the variable.
+    This is a convenience routine for using :meth:`promote_variables` that
+    groups variables by indexing expression and promotion dimensions to
+    reduce the number of calls to :meth:`promote_variables`.
 
-    This is a convenience routine for using ``promote_variables`` that groups variables by
-    indexing expression and promotion dimensions to reduce the number of calls to
-    ``promote_variables``.
-
+    Parameters
+    ----------
+    routine : any:`Subroutine`
+        The subroutine to be modified.
+    promotion_vars_dims : dict
+        The mapping of variable names to promotion dimensions. The variables'
+        shapes are expanded where necessary to have at least these dimensions.
+    promotion_vars_index : dict
+        The mapping of variable names to subscript expressions to be used
+        whenever reading/writing the variable.
     """
     if not promotion_vars_dims:
         return
+
+    variable_map = routine.variable_map
+
+    # First, let's find out what dimensions we actually need to add
+    for var_name in promotion_vars_dims:
+        shape = variable_map[var_name].type.shape
+        if shape is None:
+            continue
+
+        # Eliminate 1:n declared shapes (mostly thanks to OMNI)
+        shape = [s.stop if isinstance(s, sym.Range) and s.start == 1 else s for s in shape]
+
+        dims = []
+        index = []
+        for dim, idx in zip(promotion_vars_dims[var_name], promotion_vars_index[var_name]):
+            if not any(symbolic_op(dim, op.eq, d) for d in shape):
+                dims += [dim]
+                index += [idx]
+        promotion_vars_dims[var_name] = dims
+        promotion_vars_index[var_name] = index
+
     # Group promotion variables by index and size to reduce number of traversals for promotion
     index_size_var_map = defaultdict(list)
     for var_name, size in promotion_vars_dims.items():
         index_size_var_map[(as_tuple(promotion_vars_index[var_name]), as_tuple(size))] += [var_name]
     for (index, size), var_names in index_size_var_map.items():
-        promote_variables(routine, var_names, pos, index=index, size=size)
+        promote_variables(routine, var_names, -1, index=index, size=size)
     info('%s: promoted variable(s): %s', routine.name, ', '.join(promotion_vars_dims.keys()))

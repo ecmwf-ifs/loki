@@ -17,8 +17,11 @@ from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_att
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
-from loki.tools import flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort
+from loki.tools import (
+    flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort, optional
+)
 from loki.visitors import FindNodes, Transformer, NestedMaskedTransformer, is_parent_of
+from loki.analyse import dataflow_analysis_attached, read_after_write_vars
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron']
 
@@ -696,16 +699,25 @@ class FissionTransformer(NestedMaskedTransformer):
         return as_tuple(i for i in rebuilt if i)
 
 
-def loop_fission(routine):
+def loop_fission(routine, promote=True):
     """
-    Search for ``!$loki loop-fission`` pragmas inside loops and to split them
-    into multiple loops.
+    Search for ``!$loki loop-fission`` pragmas in loops and split them.
 
-    The pragma syntax is
+    The expected pragma syntax is
     ``!$loki loop-fission [collapse(n)] [promote(var-name, var-name, ...)]``
     where ``collapse(n)`` gives the loop nest depth to be split (defaults to n=1)
-    and ``promote`` specifies a list of variable names to be promoted by the
-    split iteration space dimensions.
+    and ``promote`` optionally specifies a list of variable names to be promoted
+    by the split iteration space dimensions.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which loop fission is to be applied.
+    promote : bool, optional
+        Try to automatically detect read-after-write across fission points
+        and promote corresponding variables. Note that this does not affect
+        promotion of variables listed directly in the pragma's ``promote``
+        option.
     """
     promotion_vars_dims = CaseInsensitiveDict()
 
@@ -723,22 +735,29 @@ def loop_fission(routine):
     if not pragma_loops:
         return
 
-    for pragma in pragma_loops:
-        # Now, sort the loops enclosing each pragma from outside to inside and
-        # keep only the ones relevant for fission
-        loops = binary_insertion_sort(pragma_loops[pragma], lt=is_parent_of)
-        collapse = int(get_pragma_parameters(pragma).get('collapse', 1))
-        pragma_loops[pragma] = loops[-collapse:]
+    with optional(promote, dataflow_analysis_attached, routine):
+        for pragma in pragma_loops:
+            # Now, sort the loops enclosing each pragma from outside to inside and
+            # keep only the ones relevant for fission
+            loops = binary_insertion_sort(pragma_loops[pragma], lt=is_parent_of)
+            collapse = int(get_pragma_parameters(pragma).get('collapse', 1))
+            pragma_loops[pragma] = loops[-collapse:]
 
-        # Attach the pragma to the list of pragmas to be processed for the
-        # outermost loop
-        loop_pragmas[loops[-collapse]] += [pragma]
+            # Attach the pragma to the list of pragmas to be processed for the
+            # outermost loop
+            loop_pragmas[loops[-collapse]] += [pragma]
 
-        # Promote variables given in promotion list
-        promote_vars = [var.strip().lower()
-                        for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var]
-        promotion_vars_dims, promotion_vars_index = promotion_dimensions_from_loop_nest(
-            promote_vars, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)
+            # Promote variables given in promotion list
+            promote_vars = [var.strip().lower()
+                            for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var]
+
+            # Automatically determine promotion variables
+            if promote:
+                promote_vars += [v.name.lower() for v in read_after_write_vars(loops[-1].body, pragma)
+                                 if v.name.lower() not in promote_vars]
+
+            promotion_vars_dims, promotion_vars_index = promotion_dimensions_from_loop_nest(
+                promote_vars, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)
 
     routine.body = FissionTransformer(loop_pragmas).visit(routine.body)
     info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
