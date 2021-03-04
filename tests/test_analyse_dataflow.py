@@ -1,9 +1,9 @@
 import pytest
 
 from loki import (
-    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, fgen
+    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen
 )
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import dataflow_analysis_attached, read_after_write_vars
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -115,3 +115,39 @@ end subroutine analyse_defines_uses_symbols
             _ = cond.defines_symbols
         for cond in conditionals:
             _ = cond.uses_symbols
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_read_after_write_vars(frontend):
+    fcode = """
+subroutine analyse_read_after_write_vars
+  integer :: a, b, c, d, e, f
+
+  a = 1
+!$loki A
+  b = 2
+!$loki B
+  c = a + 1
+!$loki C
+  d = b + 1
+!$loki D
+  e = c + d
+!$loki E
+  f = 3
+end subroutine analyse_read_after_write_vars
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    variable_map = routine.variable_map
+
+    vars_at_inspection_node = {
+        'A': {variable_map['a']},
+        'B': {variable_map['a'], variable_map['b']},
+        'C': {variable_map['b'], variable_map['c']},
+        'D': {variable_map['c'], variable_map['d']},
+        'E': set(),
+    }
+
+    with dataflow_analysis_attached(routine):
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]

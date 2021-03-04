@@ -4,12 +4,12 @@ Collection of dataflow analysis schema routines.
 
 from contextlib import contextmanager
 from loki.expression import FindVariables
-from loki.visitors import Transformer
+from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
 
 
 __all__ = [
-    'dataflow_analysis_attached'
+    'dataflow_analysis_attached', 'read_after_write_vars'
 ]
 
 
@@ -246,10 +246,10 @@ def dataflow_analysis_attached(module_or_routine):
 
     This makes for each IR node the following properties available:
 
-    * :py:attr:``Node.live_symbols`: symbols defined before the node;
-    * :py:attr:``Node.defines_symbols`: symbols (potentially) defined by the
+    * :attr:`Node.live_symbols`: symbols defined before the node;
+    * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
       node;
-    * :py:attr:``Node.uses_symbols`: symbols used by the node that had to be
+    * :attr:`Node.uses_symbols`: symbols used by the node that had to be
       defined before.
 
     This is an in-place update of nodes and thus existing references to IR
@@ -271,3 +271,73 @@ def dataflow_analysis_attached(module_or_routine):
         yield module_or_routine
     finally:
         detach_dataflow_analysis(module_or_routine)
+
+
+class FindReadAfterWrite(Visitor):
+
+    def __init__(self, inspection_node, **kwargs):
+        super().__init__(**kwargs)
+        self.inspection_node = inspection_node
+        self.writes = set()
+        self.reads = set()
+        self.find_reads = False
+
+    @staticmethod
+    def _symbols_from_expr(expr):
+        """
+        Return set of symbols found in an expression.
+        """
+        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+
+    def visit(self, o, *args, **kwargs):
+        self.find_reads = self.find_reads or o is self.inspection_node
+        super().visit(o, *args, **kwargs)
+
+    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
+        pass
+
+    def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
+        if self.find_reads:
+            self.reads |= o.uses_symbols & self.writes
+        else:
+            self.writes |= o.defines_symbols
+
+    def visit_Conditional(self, o, **kwargs):
+        if self.find_reads:
+            self.reads |= self._symbols_from_expr(o.condition) & self.writes
+        self.visit(o.children, **kwargs)
+
+    def visit_Loop(self, o, **kwargs):
+        if self.find_reads:
+            self.reads |= self._symbols_from_expr(o.bounds) & self.writes
+        self.visit(o.children, **kwargs)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        if self.find_reads:
+            self.reads |= self._symbols_from_expr(o.condition) & self.writes
+        self.visit(o.children, **kwargs)
+
+
+def read_after_write_vars(ir, inspection_node):
+    """
+    Find variables that are read after being written in the given IR.
+
+    This requires prior application of :meth:`dataflow_analysis_attached` to
+    the corresponding :any:`Module` or :any:`Subroutine`.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        The root of the control flow (sub-)tree to inspect.
+    inspection_node : :any:`Node`
+        Only variables with a write before and a read at or after this node
+        are considered.
+
+    Returns
+    -------
+    :any:`set` of :any:`Scalar` or :any:`Array`
+        The list of read-after-write variables.
+    """
+    visitor = FindReadAfterWrite(inspection_node)
+    visitor.visit(ir)
+    return visitor.reads
