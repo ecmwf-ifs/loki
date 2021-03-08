@@ -9,7 +9,8 @@ from loki.tools import as_tuple, flatten
 
 
 __all__ = [
-    'dataflow_analysis_attached', 'read_after_write_vars', 'write_after_read_vars'
+    'dataflow_analysis_attached', 'read_after_write_vars',
+    'loop_carried_dependencies'
 ]
 
 
@@ -336,7 +337,7 @@ class FindReads(Visitor):
         self._register_reads(self._symbols_from_expr(o.condition))
         # Visit each branch with the original candidate set and then take the
         # union of both afterwards to include all potential read-after-writes
-        candidate_set = self.candidate_set
+        candidate_set = self.candidate_set.copy() if self.candidate_set is not None else None
         self.visit(o.body, **kwargs)
         self.candidate_set, candidate_set = candidate_set, self.candidate_set
         self.visit(o.else_body, **kwargs)
@@ -345,8 +346,13 @@ class FindReads(Visitor):
 
     def visit_Loop(self, o, **kwargs):
         self._register_reads(self._symbols_from_expr(o.bounds))
-        self._register_writes({o.variable})
+        active = self.active
+        if self.active and self.candidate_set is not None:
+            # remove the loop variable as a variable of interest
+            self.candidate_set.discard(o.variable)
         self.visit(o.children, **kwargs)
+        if active:
+            self.reads.discard(o.variable)
 
     def visit_WhileLoop(self, o, **kwargs):
         self._register_reads(self._symbols_from_expr(o.condition))
@@ -371,7 +377,8 @@ class FindWrites(Visitor):
         If given, only writes for symbols in this set are considered.
     """
 
-    def __init__(self, start=None, stop=None, active=False, candidate_set=None, **kwargs):
+    def __init__(self, start=None, stop=None, active=False,
+                 candidate_set=None, **kwargs):
         super().__init__(**kwargs)
         self.start = set(as_tuple(start))
         self.stop = set(as_tuple(stop))
@@ -402,6 +409,14 @@ class FindWrites(Visitor):
     def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
         if self.active:
             self._register_writes(o.defines_symbols)
+
+    def visit_Loop(self, o, **kwargs):
+        if self.active:
+            # remove the loop variable as a variable of interest
+            if self.candidate_set is not None:
+                self.candidate_set.discard(o.variable)
+            self.writes.discard(o.variable)
+        super().visit_Node(o, **kwargs)
 
 
 def read_after_write_vars(ir, inspection_node):
@@ -435,31 +450,21 @@ def read_after_write_vars(ir, inspection_node):
     return read_visitor.reads
 
 
-def write_after_read_vars(ir, inspection_node):
+def loop_carried_dependencies(loop):
     """
-    Find variables that are written after being read in the given IR.
+    Find variables that are potentially loop-carried dependencies.
 
     This requires prior application of :meth:`dataflow_analysis_attached` to
     the corresponding :any:`Module` or :any:`Subroutine`.
 
-    Applying this, e.g., to the body of a loop, allows to identify loop-carried
-    dependencies.
-
     Parameters
     ----------
-    ir : :any:`Node`
-        The root of the control flow (sub-)tree to inspect.
-    inspection_node : :any:`Node`
-        Only variables with a read before and a write at or after this node
-        are considered.
+    loop : :any:`Loop`
+        The loop node to inspect.
 
     Returns
     -------
     :any:`set` of :any:`Scalar` or :any:`Array`
-        The list of write-after-read variables.
+        The list of variables that potentially have a loop-carried dependency.
     """
-    read_visitor = FindReads(stop=inspection_node, active=True)
-    read_visitor.visit(ir)
-    write_visitor = FindWrites(start=inspection_node, candidate_set=read_visitor.reads)
-    write_visitor.visit(ir)
-    return write_visitor.writes
+    return loop.uses_symbols & loop.defines_symbols

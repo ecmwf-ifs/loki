@@ -4,7 +4,7 @@ from loki import (
     FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen
 )
 from loki.analyse import (
-    dataflow_analysis_attached, read_after_write_vars, write_after_read_vars
+    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
 
 
@@ -160,34 +160,72 @@ end subroutine analyse_read_after_write_vars
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_write_after_read_vars(frontend):
+def test_read_after_write_vars_conditionals(frontend):
     fcode = """
-subroutine analyse_write_after_read_vars(a, b, c, d, e, f)
-  integer, intent(inout) :: a, b, c, d, e, f
+subroutine analyse_read_after_write_vars_conditionals(a, b, c, d, e, f)
+  integer, intent(in) :: a
+  integer, intent(out) :: b, c, d, e, f
 
+  b = 1
+  d = 0
 !$loki A
-  a = a + b + c + d + e + f
+  if (a < 3) then
+    d = b
 !$loki B
-  b = c
+  endif
 !$loki C
-  c = a
+  c = 2 + d
 !$loki D
-end subroutine analyse_write_after_read_vars
+  if (a < 5) then
+    e = a
+  else
+    e = c
+  endif
+!$loki E
+  f = e
+end subroutine analyse_read_after_write_vars_conditionals
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     variable_map = routine.variable_map
 
     vars_at_inspection_node = {
-        'A': set(),
-        'B': {variable_map['b'], variable_map['c']},
-        'C': {variable_map['c']},
-        'D': set(),
+        'A': {variable_map['b'], variable_map['d']},
+        'B': {variable_map['d']},
+        'C': {variable_map['d']},
+        'D': {variable_map['c']},
+        'E': {variable_map['e']},
     }
 
     pragmas = FindNodes(Pragma).visit(routine.body)
-    assert len(pragmas) == 4
+    assert len(pragmas) == len(vars_at_inspection_node)
 
     with dataflow_analysis_attached(routine):
         for pragma in pragmas:
-            assert write_after_read_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+            assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_loop_carried_dependencies(frontend):
+    fcode = """
+subroutine analyse_loop_carried_dependencies(a, b, c)
+  integer, intent(inout) :: a, b, c
+  integer :: i, tmp
+
+  do i = 1,a
+    b = b + i
+    tmp = c
+    c = 5 + tmp
+  end do
+end subroutine analyse_loop_carried_dependencies
+    """.strip()
+
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    variable_map = routine.variable_map
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    with dataflow_analysis_attached(routine):
+        assert loop_carried_dependencies(loops[0]) == {variable_map['b'], variable_map['c']}
