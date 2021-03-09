@@ -1,3 +1,7 @@
+"""
+:any:`Linter` operator class definition to drive rule checking for
+:any:`Sourcefile` objects
+"""
 import inspect
 import shutil
 import time
@@ -10,17 +14,19 @@ from loki.sourcefile import Sourcefile
 
 class Linter:
     """
-    The operator class for Loki's linter functionality.
+    The operator class for Loki's linter functionality
 
-    It allows to check `Sourcefile` objects for compliance to the rules
-    implemented in `loki.lint.rules`.
+    It allows to check :any:`Sourcefile` objects for compliance to rules
+    specified as subclasses of :any:`GenericRule`.
 
-    :param `loki.lint.reporter.Reporter` reporter: the reporter instance to be
-        used for problem reporting.
-    :param rules: list of rules to check files against or module that contains
-        the rules.
-    :param dict config: (optional) config (e.g., from config file) to change
-        behaviour of rules.
+    Parameters
+    ----------
+    reporter : :any:`Reporter`
+        The reporter instance to be used for problem reporting.
+    Rules : list of :any:`GenericRule` or a Python module
+        List of rules to check files against or a module that contains the rules.
+    config : dict, optional
+        Configuration (e.g., from config file) to change behaviour of rules.
     """
     def __init__(self, reporter, rules, config=None):
         self.reporter = reporter
@@ -37,12 +43,19 @@ class Linter:
     @staticmethod
     def lookup_rules(rules_module, rule_names=None):
         """
-        Return list of all rules available or all rules contained in the given list of names.
+        Obtain all available rule classes in a module
 
-        :param rules_module: the module in which rules are implemented.
-        :param list rule_names: (optional) list of rule names to look for.
+        Parameters
+        ----------
+        rules_module : Python module
+            The module in which rules are implemented.
+        rule_names : list of str, optional
+            Only look for rules with a name that is in this list.
 
-        :return: list of rules.
+        Returns
+        -------
+        list
+            A list of rule classes.
         """
         rule_list = inspect.getmembers(
             rules_module, lambda obj: inspect.isclass(obj) and obj.__name__ in rules_module.__all__)
@@ -53,11 +66,18 @@ class Linter:
     @staticmethod
     def default_config(rules):
         """
-        Return default configuration for all rules.
+        Return default configuration for a list of rules
 
-        :param rules: list of rules or module in which rules are implemented.
-        :return: `dict` with the list of rule names and the default
-            configuration values for each rule.
+        Parameters
+        ----------
+        rules : list
+            List of rules for which to compile the default config.
+
+        Returns
+        -------
+        dict
+            Mapping of rule names to the dict of default configuration
+            values for each rule.
         """
         # List of rules
         config = {'rules': [rule.__name__ for rule in rules]}
@@ -68,7 +88,7 @@ class Linter:
 
     def update_config(self, config):
         """
-        Update the stored configuration using the given `config` dict.
+        Update the stored configuration using the given :data:`config` dict
         """
         if config is None:
             return
@@ -81,15 +101,25 @@ class Linter:
 
     def check(self, sourcefile, overwrite_rules=None, overwrite_config=None):
         """
-        Check the given `sourcefile` and compile the `FileReport`.
-        The report is then stored in the `reporter` and returned (e.g., to use it for `fix()`).
+        Check the given :data:`sourcefile` and compile a :any:`FileReport`.
 
-        :param Sourcefile sourcefile: the source file to check.
-        :param list overwrite_rules: (optional) list of rules to check.
-        :param dict overwrite_config: (optional) configuration that is used to update the
-            stored configuration.
+        The file report is then stored in the :any:`Reporter` given while
+        creating the :any:`Linter`. Additionally, the file report is returned,
+        e.g., to use it wiht :meth:`fix`.
 
-        :return: the `FileReport`.
+        Parameters
+        ----------
+        sourcefile : :any:`Sourcefile`
+            The source file to check.
+        overwrite_rules : list of rules, optional
+            List of rules to check. This overwrites the stored list of rules.
+        overwrite_config : dict, optional
+            Configuration that is used to update the stored configuration.
+
+        Returns
+        -------
+        :any:`FileReport`
+            The report for this file containing any discovered violations.
         """
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError(f'{type(sourcefile)} given, {Sourcefile} expected')
@@ -115,13 +145,19 @@ class Linter:
 
     def fix(self, sourcefile, file_report, backup_suffix=None, overwrite_config=None):
         """
-        Fix all problems reported by fixable rules.
+        Fix all rule violations in :data:`file_report` that were reported by
+        fixable rules and write them into the original file
 
-        :param Sourcefile sourcefile: the source file to fix.
-        :param FileReport file_report: the report created by `check()` for that file.
-        :param str backup_suffix: (optional) suffix to use for a copy of the original file.
-        :param dict overwrite_config: (optional) configuration that is used to update the
-            stored configuration.
+        Parameters
+        ----------
+        sourcefile : :any:`Sourcefile`
+            The source file to fix.
+        file_report : :any:`FileReport`
+            The report created by :meth:`check` for that file.
+        backup_suffix : str, optional
+            Create a copy of the original file using this file name suffix.
+        overwrite_config : dict, optional
+            Configuration that is used to update the stored configuration.
         """
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError(f'{type(sourcefile)} given, {Sourcefile} expected')
