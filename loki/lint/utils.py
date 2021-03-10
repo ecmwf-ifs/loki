@@ -1,6 +1,7 @@
 import re
 from loki import (
-    Sourcefile, Module, Subroutine, Transformer, FindNodes, Comment, CommentBlock
+    Sourcefile, Module, Subroutine, Transformer, FindNodes,
+    Comment, CommentBlock, LeafNode
 )
 
 __all__ = ['Fixer', 'get_filename_from_parent', 'is_rule_disabled']
@@ -121,14 +122,26 @@ def get_filename_from_parent(obj):
     return None
 
 
-_get_disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]+)')
+_disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]+)')
 
 def is_rule_disabled(ir, identifiers):
+    def _match_disabled_rules(comment):
+        match = _disabled_rules_re.match(comment.text)
+        if match:
+            for rule in match.group('rules').split(','):
+                if rule in identifiers:
+                    return True
+        return False
+
+    # If we have a leaf node, we check for in-line comments
+    if isinstance(ir, LeafNode):
+        if hasattr(ir, 'comment') and ir.comment:
+            return _match_disabled_rules(ir.comment)
+        return False
+
+    # Otherwise: look in the entire subtree
     for comments in FindNodes((Comment, CommentBlock)).visit(ir):
         for comment in getattr(comments, 'comments', [comments]):
-            match = _get_disabled_rules_re.match(comment.text)
-            if match:
-                for rule in match.group('rules').split(','):
-                    if rule in identifiers:
-                        return True
+            if _match_disabled_rules(comment):
+                return True
     return False

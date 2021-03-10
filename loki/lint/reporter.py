@@ -9,7 +9,7 @@ except ImportError:
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.logging import logger, error
-from loki.lint.utils import get_filename_from_parent
+from loki.lint.utils import get_filename_from_parent, is_rule_disabled
 
 
 class ProblemReport:
@@ -50,7 +50,8 @@ class RuleReport:
         :param str msg: the message describing the problem.
         :param location: the IR node or expression node in which the problem exists.
         """
-        self.problem_reports.append(ProblemReport(msg, location))
+        if not is_rule_disabled(location, self.rule.identifiers()):
+            self.problem_reports.append(ProblemReport(msg, location))
 
 
 class FileReport:

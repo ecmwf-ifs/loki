@@ -1,8 +1,10 @@
 import importlib
 import pytest
 
+import rules
+
+from loki import Sourcefile, Assignment, FindNodes, FindVariables
 from loki.lint import GenericHandler, Reporter, Linter, GenericRule
-from loki.sourcefile import Sourcefile
 
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
@@ -135,3 +137,63 @@ end module linter_mod
     linter.check(sourcefile)
 
     assert reporter.handlers_reports[handler] == [report_counts]
+
+
+@pytest.mark.parametrize('rule_list,count', [
+    ('', 8),
+    ('NonExistentRule', 8),
+    ('13.37', 5),
+    ('AssignmentComplainRule', 5),
+    ('NonExistentRule,AssignmentComplainRule', 5),
+    ('23.42', 3),
+    ('VariableComplainRule', 3),
+    ('23.42,NonExistentRule', 3),
+    ('13.37,23.42', 0),
+    ('VariableComplainRule,13.37', 0),
+    ('23.42,VariableComplainRule,AssignmentComplainRule', 0),
+])
+def test_linter_disable_inline(rule_list, count):
+    class AssignmentComplainRule(GenericRule):
+        docs = {'id': '13.37'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+            for node in FindNodes(Assignment).visit(subroutine.ir):
+                rule_report.add(cls.__name__ + '_' + str(node.source.lines[0]), node)
+
+    class VariableComplainRule(GenericRule):
+        docs = {'id': '23.42'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+            for node, variables in FindVariables(with_ir_node=True).visit(subroutine.body):
+                for var in variables:
+                    rule_report.add(cls.__name__ + '_' + str(var), node)
+
+    class TestHandler(GenericHandler):
+        def handle(self, file_report):
+            return sum(len(report.problem_reports) for report in file_report.reports)
+
+        def output(self, handler_reports):
+            pass
+
+    fcode = """
+subroutine linter_disable_inline
+integer :: a, b, c
+
+a = 1  ! loki-lint: disable=###
+b = 2  !loki-lint:disable=###
+c = a + b!     loki-lint       :      disable=###
+end subroutine linter_disable_inline
+    """.strip()
+
+    fcode = fcode.replace('###', rule_list)
+    sourcefile = Sourcefile.from_source(fcode)
+
+    handler = TestHandler()
+    reporter = Reporter(handlers=[handler])
+    rule_list = [AssignmentComplainRule, VariableComplainRule]
+    linter = Linter(reporter, rule_list)
+    linter.check(sourcefile)
+
+    assert reporter.handlers_reports[handler] == [count]
