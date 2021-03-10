@@ -1,6 +1,9 @@
-from loki import Sourcefile, Module, Subroutine, Transformer
+import re
+from loki import (
+    Sourcefile, Module, Subroutine, Transformer, FindNodes, Comment, CommentBlock
+)
 
-__all__ = ['Fixer', 'get_filename_from_parent']
+__all__ = ['Fixer', 'get_filename_from_parent', 'is_rule_disabled']
 
 
 class Fixer:
@@ -95,12 +98,19 @@ class Fixer:
 
 def get_filename_from_parent(obj):
     """
-    Try to determine filename by following ``parent`` attributes
-    until :py:class:``loki.sourcefile.Sourcefile`` is encountered.
+    Try to determine filename of the source file for an IR object
 
-    :param obj: A source file, module or subroutine object.
-    :return: The filename or ``None``
-    :rtype: str or NoneType
+    It follows ``parent`` attributes until :any:`Sourcefile` is encountered.
+
+    Parameters
+    ----------
+    obj : :any:`Sourcefile`, :any:`Subroutine` or :any:`Module`
+        A source file, module or subroutine object.
+
+    Returns
+    -------
+    str or NoneType
+        The filename if found, else `None`.
     """
     scope = obj
     while hasattr(scope, 'parent') and scope.parent:
@@ -109,3 +119,16 @@ def get_filename_from_parent(obj):
     if hasattr(scope, 'path'):
         return scope.path
     return None
+
+
+_get_disabled_rules_re = re.compile(r'^\s*!\s*loki-lint\s*:(?:.*?)disable=(?P<rules>[\w\.,]+)')
+
+def is_rule_disabled(ir, identifiers):
+    for comments in FindNodes((Comment, CommentBlock)).visit(ir):
+        for comment in getattr(comments, 'comments', [comments]):
+            match = _get_disabled_rules_re.match(comment.text)
+            if match:
+                for rule in match.group('rules').split(','):
+                    if rule in identifiers:
+                        return True
+    return False

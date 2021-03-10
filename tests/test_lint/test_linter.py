@@ -77,3 +77,61 @@ def test_linter_check():
     rule_list = [TestRule2, TestRule]
     linter = Linter(reporter, rule_list, config=config)
     linter.check(Sourcefile('test_file'))
+
+
+@pytest.mark.parametrize('match,report_counts', [
+    ('xxx', 2),  #3),
+    ('$$$', 1),  #2),
+    ('###', 1),  #2),
+    ('$$', 0),  #1),
+    ('##', 0),  #1),
+    pytest.param('$', 0, marks=pytest.mark.xfail()),  # Sourcefile-level comments are not preserved in Loki
+    pytest.param('#', 0, marks=pytest.mark.xfail()),  # Sourcefile-level comments are not preserved in Loki
+])
+def test_linter_disable_per_scope(match, report_counts):
+    class AlwaysComplainRule(GenericRule):
+        docs = {'id': '13.37'}
+
+        @classmethod
+        def check_sourcefile(cls, ast, rule_report, config):  # pylint: disable=unused-argument
+            rule_report.add(cls.__name__, ast)
+
+        check_module = check_sourcefile
+        check_subroutine = check_sourcefile
+
+    class TestHandler(GenericHandler):
+        def handle(self, file_report):
+            return len(file_report.reports[0].problem_reports)
+
+        def output(self, handler_reports):
+            pass
+
+
+    fcode = """
+! $loki-lint$: disable=13.37
+! #loki-lint#: disable=AlwaysComplainRule
+
+module linter_mod
+! $$loki-lint$$  : disable=13.37
+! ##loki-lint##:disable=AlwaysComplainRule
+
+contains
+
+subroutine linter_routine
+! $$$loki-lint$$$  :disable=13.37
+! ###loki-lint###: redherring=abc disable=AlwaysComplainRule
+
+end subroutine linter_routine
+end module linter_mod
+    """.strip()
+
+    fcode = fcode.replace('{match}loki-lint{match}'.format(match=match), 'loki-lint')
+    sourcefile = Sourcefile.from_source(fcode)
+
+    handler = TestHandler()
+    reporter = Reporter(handlers=[handler])
+    rule_list = [AlwaysComplainRule]
+    linter = Linter(reporter, rule_list)
+    linter.check(sourcefile)
+
+    assert reporter.handlers_reports[handler] == [report_counts]

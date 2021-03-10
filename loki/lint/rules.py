@@ -4,6 +4,7 @@ Base class for linter rules and available rule types
 from enum import Enum
 
 from loki import Sourcefile, Module, Subroutine
+from loki.lint import is_rule_disabled
 
 
 class RuleType(Enum):
@@ -38,11 +39,12 @@ class GenericRule:
 
     docs = None
     """
-    Description of the rule
+    :any:`dict` with description of the rule
 
-    Allows for Python's format specification mini-language to fill values using
-    values from :data:`config`, with the field name corresponding to the config
-    key.
+    Typically, this should include ``'id'`` and ``'title'``. Allows for
+    Python's format specification mini-language in ``'title'``to fill values
+    using data from :data:`config`, with the field name corresponding to the
+    config key.
     """
 
     config = {}
@@ -68,6 +70,15 @@ class GenericRule:
     """
     List of rules that replace the deprecated rule, where applicable
     """
+
+    @classmethod
+    def identifiers(cls):
+        """
+        Return list of strings that identify this rule
+        """
+        if cls.docs and 'id' in cls.docs:  # pylint: disable=unsupported-membership-test
+            return [cls.__name__, cls.docs['id']]  # pylint: disable=unsubscriptable-object
+        return [cls.__name__]
 
     @classmethod
     def check_module(cls, module, rule_report, config):
@@ -126,6 +137,9 @@ class GenericRule:
 
         # Perform checks on module level
         elif isinstance(ast, Module):
+            if is_rule_disabled(ast.spec, cls.identifiers()):
+                return
+
             cls.check_module(ast, rule_report, config)
 
             # Then recurse for all subroutines in that module
@@ -135,6 +149,9 @@ class GenericRule:
 
         # Peform checks on subroutine level
         elif isinstance(ast, Subroutine):
+            if is_rule_disabled(ast.ir, cls.identifiers()):
+                return
+
             cls.check_subroutine(ast, rule_report, config)
 
             # Recurse for any procedures contained in a subroutine
