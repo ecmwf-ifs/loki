@@ -1,5 +1,6 @@
 import pytest
 
+from loki import Intrinsic
 from loki.lint.reporter import ProblemReport, RuleReport, FileReport, DefaultHandler
 from loki.lint.rules import GenericRule
 
@@ -8,8 +9,8 @@ from loki.lint.rules import GenericRule
 def fixture_dummy_file_report():
     file_report = FileReport('file.f90')
     rule_report = RuleReport(GenericRule)
-    rule_report.add('Some message', 'foobar')
-    rule_report.add('Other message', 'baz')
+    rule_report.add('Some message', Intrinsic('foobar'))
+    rule_report.add('Other message', Intrinsic('baz'))
     file_report.add(rule_report)
     return file_report
 
@@ -27,10 +28,13 @@ def test_reports():
     file_report = FileReport('file.f90')
     assert not file_report.reports and file_report.reports is not None
 
-    rule_report = RuleReport('Some Rule')
+    class SomeRule(GenericRule):
+        pass
+
+    rule_report = RuleReport(SomeRule)
     assert not rule_report.problem_reports and rule_report.problem_reports is not None
-    rule_report.add('Some message', 'foobar')
-    rule_report.add('Other message', 'baz')
+    rule_report.add('Some message', Intrinsic('foobar'))
+    rule_report.add('Other message', Intrinsic('baz'))
     assert len(rule_report.problem_reports) == 2
     assert isinstance(rule_report.problem_reports[0], ProblemReport)
     assert rule_report.problem_reports[0].msg == 'Some message'

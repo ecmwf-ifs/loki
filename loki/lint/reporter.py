@@ -6,18 +6,21 @@ try:
 except ImportError:
     HAVE_JUNIT_XML = False
 
-from loki.subroutine import Subroutine
-from loki.module import Module
+from loki import Sourcefile, Module, Subroutine, Node
 from loki.logging import logger, error
 from loki.lint.utils import get_filename_from_parent, is_rule_disabled
 
 
 class ProblemReport:
     """
-    Data type to represent a problem reported for a node in the IR or expression tree.
+    Data type to represent a problem reported for a node in the IR
 
-    :param str msg: the message describing the problem.
-    :param location: the IR node or expression node in which the problem exists.
+    Parameters
+    ----------
+    msg : str
+        The message describing the problem.
+    location : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine` or :any:`Node`
+        The IR component in which the problem exists.
     """
 
     def __init__(self, msg, location):
@@ -27,11 +30,13 @@ class ProblemReport:
 
 class RuleReport:
     """
-    Container type to collect all individual problems reported by a rule.
+    Container type to collect all individual problems reported by a rule
 
-    All :py:class:`RuleReport`s that belong to a file are typically collected in
-    a :py:class:`FileReport`.
+    All :class:`RuleReport` instances that belong to a file are
+    collected in a :class:`FileReport`.
 
+    Parameters
+    ----------
     :param rule: the rule that generated the report.
     :type rule: subclass of :py:class:`GenericRule`
     :param list problem_reports: (optional) list of :py:class:`ProblemReport`.
@@ -50,6 +55,8 @@ class RuleReport:
         :param str msg: the message describing the problem.
         :param location: the IR node or expression node in which the problem exists.
         """
+        if not isinstance(location, (Sourcefile, Module, Subroutine, Node)):
+            raise TypeError('Invalid type for report location: {}'.format(type(location).__name__))
         if not is_rule_disabled(location, self.rule.identifiers()):
             self.problem_reports.append(ProblemReport(msg, location))
 

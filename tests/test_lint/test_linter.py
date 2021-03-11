@@ -40,7 +40,7 @@ def test_linter_check():
             assert len(config) == 1
             assert 'key' in config
             assert config['key'] == 'default_value'
-            rule_report.add('TestRule', 'Location')
+            rule_report.add('TestRule', ast)
 
     class TestRule2(GenericRule):
         config = {'key': 'default_value'}
@@ -52,7 +52,7 @@ def test_linter_check():
             assert config['key'] == 'non_default_value'
             assert 'other_key' in config
             assert config['other_key'] == 'other_value'
-            rule_report.add('TestRule2', 'Location2')
+            rule_report.add('TestRule2', ast)
 
     class TestHandler(GenericHandler):
 
@@ -60,10 +60,10 @@ def test_linter_check():
             assert len(file_report.reports) == 2
             assert len(file_report.reports[0].problem_reports) == 1
             assert file_report.reports[0].problem_reports[0].msg == 'TestRule2'
-            assert file_report.reports[0].problem_reports[0].location == 'Location2'
+            assert str(file_report.reports[0].problem_reports[0].location.path) == 'test_file'
             assert file_report.reports[0].rule == TestRule2
             assert file_report.reports[1].problem_reports[0].msg == 'TestRule'
-            assert file_report.reports[1].problem_reports[0].location == 'Location'
+            assert str(file_report.reports[1].problem_reports[0].location.path) == 'test_file'
             assert file_report.reports[1].rule == TestRule
 
         def output(self, handler_reports):

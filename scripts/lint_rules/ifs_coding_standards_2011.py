@@ -68,7 +68,7 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check the code body: Nesting of conditional blocks.'''
         too_deep = cls.NestingDepthVisitor(config['max_nesting_depth']).visit(subroutine.body)
-        fmt_string = 'Nesting of conditionals exceeds limit of {}.'
+        fmt_string = 'Nesting of conditionals exceeds limit of {}'
         msg = fmt_string.format(config['max_nesting_depth'])
         for node in too_deep:
             rule_report.add(msg, node)
@@ -88,14 +88,14 @@ class ModuleNamingRule(GenericRule):  # Coding standards 1.5
     def check_module(cls, module, rule_report, config):
         '''Check the module name and the name of the source file.'''
         if not module.name.lower().endswith('_mod'):
-            fmt_string = 'Name of module "{}" should end with "_mod".'
+            fmt_string = 'Name of module "{}" should end with "_mod"'
             msg = fmt_string.format(module.name)
             rule_report.add(msg, module)
 
         if module.source.file:
             path = Path(module.source.file)
             if module.name.lower() != path.stem.lower():
-                fmt_string = 'Module filename "{}" does not match module name "{}".'
+                fmt_string = 'Module filename "{}" does not match module name "{}"'
                 msg = fmt_string.format(path.name, module.name)
                 rule_report.add(msg, module)
 
@@ -153,20 +153,20 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
     @classmethod
     def _check_lhook_call(cls, call, subroutine, rule_report, pos='First'):
         if call is None:
-            fmt_string = '{} executable statement must be call to DR_HOOK.'
+            fmt_string = '{} executable statement must be call to DR_HOOK'
             msg = fmt_string.format(pos)
             rule_report.add(msg, subroutine)
         elif call.arguments:
             string_arg = cls._get_string_argument(subroutine)
             if not isinstance(call.arguments[0], sym.StringLiteral) or \
                     call.arguments[0].value.upper() != string_arg:
-                fmt_string = 'String argument to DR_HOOK call should be "{}".'
+                fmt_string = 'String argument to DR_HOOK call should be "{}"'
                 msg = fmt_string.format(string_arg)
                 rule_report.add(msg, call)
             second_arg = {'First': '0', 'Last': '1'}
             if not (len(call.arguments) > 1 and isinstance(call.arguments[1], sym.IntLiteral) and
                     str(call.arguments[1].value) == second_arg[pos]):
-                fmt_string = 'Second argument to DR_HOOK call should be "{}".'
+                fmt_string = 'Second argument to DR_HOOK call should be "{}"'
                 msg = fmt_string.format(second_arg[pos])
                 rule_report.add(msg, call)
             if not (len(call.arguments) > 2 and call.arguments[2] == 'ZHOOK_HANDLE'):
@@ -353,15 +353,18 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''Helper function that carries out the check for explicit kind specification
         on all declarations.
         '''
-        for var in subroutine.variables:
-            if var.type.dtype in types:
-                if not var.type.kind:
-                    rule_report.add('"{}" without explicit KIND declared.'.format(var), var)
-                elif allowed_type_kinds.get(var.type.dtype) and \
-                        var.type.kind not in allowed_type_kinds[var.type.dtype]:
-                    rule_report.add(
-                        '"{}" is not an allowed KIND value for "{}".'.format(var.type.kind, var),
-                        var)
+        for decl in FindNodes(ir.Declaration).visit(subroutine.spec):
+            decl_type = decl.variables[0].type
+            if decl_type.dtype in types:
+                if not decl_type.kind:
+                    # Declared without any KIND specification
+                    rule_report.add('{} without explicit KIND declared'.format(
+                        ', '.join(str(var) for var in decl.variables)), decl)
+                elif allowed_type_kinds.get(decl_type.dtype):
+                    if decl_type.kind not in allowed_type_kinds[decl_type.dtype]:
+                        # We have a KIND but it does not match any of the allowed kinds
+                        rule_report.add('{} is not an allowed KIND value for {}'.format(
+                                decl_type.kind, ', '.join(str(var) for var in decl.variables)), decl)
 
     @staticmethod
     def check_kind_literals(subroutine, types, allowed_type_kinds, rule_report):
@@ -376,15 +379,14 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
                                         recurse_query=lambda e: not isinstance(e, excl_types))
         finder = ExpressionFinder(unique=False, retrieve=retriever.retrieve, with_ir_node=True)
 
-        for _, exprs in finder.visit(subroutine.ir):
+        for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
                 if not literal.kind:
-                    rule_report.add('"{}" without explicit KIND declared.'.format(literal), literal)
-                elif allowed_type_kinds.get(literal.__class__) and \
-                        str(literal.kind).upper() not in allowed_type_kinds[literal.__class__]:
-                    rule_report.add(
-                        '"{}" is not an allowed KIND value for "{}".'.format(literal.kind, literal),
-                        literal)
+                    rule_report.add('{} used without explicit KIND'.format(literal), node)
+                elif allowed_type_kinds.get(literal.__class__):
+                    if str(literal.kind).upper() not in allowed_type_kinds[literal.__class__]:
+                        rule_report.add('{} is not an allowed KIND value for {}'.format(
+                            literal.kind, literal), node)
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
@@ -497,9 +499,9 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                     matches = cls._op_patterns[op].findall(source_string)
                     for f77, _ in matches:
                         if f77:
-                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}".'
+                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}"'
                             msg = fmt_string.format(op if op != '!=' else '/=', f77)
-                            rule_report.add(msg, expr_root)
+                            rule_report.add(msg, node)
 
     @classmethod
     def fix_subroutine(cls, subroutine, rule_report, config):
