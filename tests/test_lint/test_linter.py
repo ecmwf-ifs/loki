@@ -81,16 +81,20 @@ def test_linter_check():
     linter.check(Sourcefile('test_file'))
 
 
-@pytest.mark.parametrize('match,report_counts', [
-    ('xxx', 2),  #3),
-    ('$$$', 1),  #2),
-    ('###', 1),  #2),
-    ('$$', 0),  #1),
-    ('##', 0),  #1),
-    pytest.param('$', 0, marks=pytest.mark.xfail()),  # Sourcefile-level comments are not preserved in Loki
-    pytest.param('#', 0, marks=pytest.mark.xfail()),  # Sourcefile-level comments are not preserved in Loki
+@pytest.mark.parametrize('file_rule,module_rule,subroutine_rule,assignment_rule,report_counts', [
+    ('', '', '', '', 2),  #3),
+    ('', '', '', '13.37', 2),  #3),
+    ('', '', '13.37', '', 1),  #2),
+    ('', '13.37', '', '', 0),  #1),
+    ('BlubRule', 'FooRule', 'BarRule', 'BazRule', 2),  #3),
+    ('', '', '', 'AlwaysComplainRule', 2),  #3),
+    ('', '', 'AlwaysComplainRule', '', 1),  #2),
+    ('', 'AlwaysComplainRule', '', '', 0),  #1),
+    # Sourcefile-level comments are currently not preserved in Loki
+    pytest.param('AlwaysComplainRule', '', '', '', 0, marks=pytest.mark.xfail()),
+    pytest.param('13.37', '', '', '', 0, marks=pytest.mark.xfail()),
 ])
-def test_linter_disable_per_scope(match, report_counts):
+def test_linter_disable_per_scope(file_rule, module_rule, subroutine_rule, assignment_rule, report_counts):
     class AlwaysComplainRule(GenericRule):
         docs = {'id': '13.37'}
 
@@ -110,24 +114,26 @@ def test_linter_disable_per_scope(match, report_counts):
 
 
     fcode = """
-! $loki-lint$: disable=13.37
-! #loki-lint#: disable=AlwaysComplainRule
+! #loki-lint#: disable=#file_rule#
 
 module linter_mod
-! $$loki-lint$$  : disable=13.37
-! ##loki-lint##:disable=AlwaysComplainRule
+! loki-lint:disable=#module_rule#
 
 contains
 
 subroutine linter_routine
-! $$$loki-lint$$$  :disable=13.37
-! ###loki-lint###: redherring=abc disable=AlwaysComplainRule
+! loki-lint: redherring=abc disable=#subroutine_rule#
+  integer :: i
 
+  i = 1  ! loki-lint  : disable=#assignment_rule#
 end subroutine linter_routine
 end module linter_mod
     """.strip()
 
-    fcode = fcode.replace('{match}loki-lint{match}'.format(match=match), 'loki-lint')
+    fcode = fcode.replace('#file_rule#', file_rule)
+    fcode = fcode.replace('#module_rule#', module_rule)
+    fcode = fcode.replace('#subroutine_rule#', subroutine_rule)
+    fcode = fcode.replace('#assignment_rule#', assignment_rule)
     sourcefile = Sourcefile.from_source(fcode)
 
     handler = TestHandler()
