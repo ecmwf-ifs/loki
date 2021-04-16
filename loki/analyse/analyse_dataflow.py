@@ -203,11 +203,11 @@ def attach_dataflow_analysis(module_or_routine):
 
     This makes for each IR node the following properties available:
 
-    * :py:attr:``Node.live_symbols`: symbols defined before the node;
-    * :py:attr:``Node.defines_symbols`: symbols (potentially) defined by the
-      node;
-    * :py:attr:``Node.uses_symbols`: symbols used by the node that had to be
-      defined before.
+    * :attr:`Node.live_symbols`: symbols defined before the node;
+    * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
+      node, i.e., live in subsequent nodes;
+    * :attr:`Node.uses_symbols`: symbols used by the node (that had to be
+      defined before).
 
     The IR nodes are updated in-place and thus existing references to IR
     nodes remain valid.
@@ -241,7 +241,7 @@ def detach_dataflow_analysis(module_or_routine):
 
 @contextmanager
 def dataflow_analysis_attached(module_or_routine):
-    """
+    r"""
     Create a context in which information about defined, live and used symbols
     is attached to each IR node
 
@@ -257,15 +257,43 @@ def dataflow_analysis_attached(module_or_routine):
     nodes remain valid. When leaving the context the information is removed
     from IR nodes, while existing references remain valid.
 
-    Parameters
-    ----------
-    module_or_routine : :any:`Module` or :any:`Subroutine`
-        The object for which the IR is to be annotated.
+    The analysis is based on a rather crude regions-based analysis, with the
+    hierarchy implied by (nested) :any:`InternalNode` IR nodes used as regions
+    in the reducible flow graph (cf. Chapter 9, in particular 9.7 of Aho, Lam,
+    Sethi, and Ulliman (2007)). Our implementation shares some similarities
+    with a full reaching definitions dataflow analysis but is not quite as
+    powerful.
+
+    In reaching definitions dataflow analysis (cf. Chapter 9.2.4 Aho et. al.),
+    the transfer function of a definition :math:`d` can be expressed as:
+
+    .. math:: f_d(x) = \operatorname{gen}_d \cup (x - \operatorname{kill}_d)
+
+    with the set of definitions generated :math:`\operatorname{gen}_d` and the
+    set of definitions killed/invalidated :math:`\operatorname{kill}_d`.
+
+    We, however, do not record definitions explicitly and instead operate on
+    consolidated sets of defined symbols, i.e., effectively evaluate the
+    chained transfer functions up to the node. This yields a set of active
+    definitions at this node. The symbols defined by these definitions are
+    in :any:`Node.live_symbols`, and the symbols defined by the node (i.e.,
+    symbols defined by definitions in :math:`\operatorname{gen}_d`) are in
+    :any:`Node.defines_symbols`.
+
+    The advantage of this approach is that it avoids the need to introduce
+    a layer for definitions and dependencies. A downside is that this focus
+    on symbols instead of definitions precludes, in particular, the ability
+    to take data space into account, which makes it less useful for arrays.
 
     .. note::
         The context manager operates only on the module or routine itself
         (i.e., its spec and, if applicable, body), not on any contained
         subroutines or functions.
+
+    Parameters
+    ----------
+    module_or_routine : :any:`Module` or :any:`Subroutine`
+        The object for which the IR is to be annotated.
     """
     attach_dataflow_analysis(module_or_routine)
     try:
@@ -429,6 +457,10 @@ def read_after_write_vars(ir, inspection_node):
     The result is the set of variables with a data dependency across the
     :data:`inspection_node`.
 
+    See the remarks about implementation and limitations in the description of
+    :meth:`dataflow_analysis_attached`. In particular, this does not take into
+    account data space and iteration space for arrays.
+
     Parameters
     ----------
     ir : :any:`Node`
@@ -456,6 +488,13 @@ def loop_carried_dependencies(loop):
 
     This requires prior application of :meth:`dataflow_analysis_attached` to
     the corresponding :any:`Module` or :any:`Subroutine`.
+
+    See the remarks about implementation and limitations in the description of
+    :meth:`dataflow_analysis_attached`. In particular, this does not take into
+    account data space and iteration space for arrays. For cases with a
+    linear mapping from iteration to data space and no overlap, this will
+    falsely report loop-carried dependencies when there are in fact none.
+    However, the risk of false negatives should be low.
 
     Parameters
     ----------
