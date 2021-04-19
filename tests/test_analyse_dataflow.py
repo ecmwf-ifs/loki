@@ -1,9 +1,11 @@
 import pytest
 
 from loki import (
-    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, fgen
+    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen
 )
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import (
+    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
+)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -115,3 +117,115 @@ end subroutine analyse_defines_uses_symbols
             _ = cond.defines_symbols
         for cond in conditionals:
             _ = cond.uses_symbols
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_read_after_write_vars(frontend):
+    fcode = """
+subroutine analyse_read_after_write_vars
+  integer :: a, b, c, d, e, f
+
+  a = 1
+!$loki A
+  b = 2
+!$loki B
+  c = a + 1
+!$loki C
+  d = b + 1
+!$loki D
+  e = c + d
+!$loki E
+  e = 3
+  f = e
+end subroutine analyse_read_after_write_vars
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    variable_map = routine.variable_map
+
+    vars_at_inspection_node = {
+        'A': {variable_map['a']},
+        'B': {variable_map['a'], variable_map['b']},
+        'C': {variable_map['b'], variable_map['c']},
+        'D': {variable_map['c'], variable_map['d']},
+        'E': set(),
+    }
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == 5
+
+    with dataflow_analysis_attached(routine):
+        for pragma in pragmas:
+            assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_read_after_write_vars_conditionals(frontend):
+    fcode = """
+subroutine analyse_read_after_write_vars_conditionals(a, b, c, d, e, f)
+  integer, intent(in) :: a
+  integer, intent(out) :: b, c, d, e, f
+
+  b = 1
+  d = 0
+!$loki A
+  if (a < 3) then
+    d = b
+!$loki B
+  endif
+!$loki C
+  c = 2 + d
+!$loki D
+  if (a < 5) then
+    e = a
+  else
+    e = c
+  endif
+!$loki E
+  f = e
+end subroutine analyse_read_after_write_vars_conditionals
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    variable_map = routine.variable_map
+
+    vars_at_inspection_node = {
+        'A': {variable_map['b'], variable_map['d']},
+        'B': {variable_map['d']},
+        'C': {variable_map['d']},
+        'D': {variable_map['c']},
+        'E': {variable_map['e']},
+    }
+
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    assert len(pragmas) == len(vars_at_inspection_node)
+
+    with dataflow_analysis_attached(routine):
+        for pragma in pragmas:
+            assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_loop_carried_dependencies(frontend):
+    fcode = """
+subroutine analyse_loop_carried_dependencies(a, b, c)
+  integer, intent(inout) :: a, b, c
+  integer :: i, tmp
+
+  do i = 1,a
+    b = b + i
+    tmp = c
+    c = 5 + tmp
+  end do
+end subroutine analyse_loop_carried_dependencies
+    """.strip()
+
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    variable_map = routine.variable_map
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    with dataflow_analysis_attached(routine):
+        assert loop_carried_dependencies(loops[0]) == {variable_map['b'], variable_map['c']}

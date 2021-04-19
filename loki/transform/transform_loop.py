@@ -12,13 +12,18 @@ from loki.expression import (
 )
 from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import Loop, Conditional, Comment, Pragma
-from loki.logging import info
+from loki.logging import info, warning
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragmas_attached
 from loki.transform.transform_array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
-from loki.tools import flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort
+from loki.tools import (
+    flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort, optional
+)
 from loki.visitors import FindNodes, Transformer, NestedMaskedTransformer, is_parent_of
+from loki.analyse import (
+    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
+)
 
 __all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'Polyhedron']
 
@@ -631,14 +636,17 @@ class FissionTransformer(NestedMaskedTransformer):
     This works also for nested loops with individually different fission
     annotations.
 
-    :param dict loop_pragmas:
-        a dictionary that maps all loops to the list of contained
-        ``loop-fission`` pragmas on which they should be split.
+    Parameters
+    ----------
+    loop_pragmas : dict of (:any:`Loop`, list of :any:`Pragma`)
+        Mapping of all loops to the list of contained
+        ``loop-fission`` pragmas at which they should be split.
     """
 
     def __init__(self, loop_pragmas, active=True, **kwargs):
         super().__init__(active=active, require_all_start=True, greedy_stop=True, **kwargs)
         self.loop_pragmas = loop_pragmas
+        self.split_loops = {}
 
     def visit_Loop(self, o, **kwargs):
         if o not in self.loop_pragmas:
@@ -689,6 +697,10 @@ class FissionTransformer(NestedMaskedTransformer):
             rebuilt += rebuild_fission_branch(start, stop, **kwargs)
         rebuilt += rebuild_fission_branch(self.loop_pragmas[o][-1], None, **kwargs)
 
+        # Register the new loops in the mapping
+        loops = [l for l in rebuilt if isinstance(l, Loop)]
+        self.split_loops.update({pragma: loops[i:] for i, pragma in enumerate(self.loop_pragmas[o])})
+
         # Restore original state (except for the active status because this has potentially
         # been changed when traversing the loop body)
         self.start, self.stop = _start, _stop
@@ -696,16 +708,29 @@ class FissionTransformer(NestedMaskedTransformer):
         return as_tuple(i for i in rebuilt if i)
 
 
-def loop_fission(routine):
+def loop_fission(routine, promote=True, warn_loop_carries=True):
     """
-    Search for ``!$loki loop-fission`` pragmas inside loops and to split them
-    into multiple loops.
+    Search for ``!$loki loop-fission`` pragmas in loops and split them.
 
-    The pragma syntax is
+    The expected pragma syntax is
     ``!$loki loop-fission [collapse(n)] [promote(var-name, var-name, ...)]``
     where ``collapse(n)`` gives the loop nest depth to be split (defaults to n=1)
-    and ``promote`` specifies a list of variable names to be promoted by the
-    split iteration space dimensions.
+    and ``promote`` optionally specifies a list of variable names to be promoted
+    by the split iteration space dimensions.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which loop fission is to be applied.
+    promote : bool, optional
+        Try to automatically detect read-after-write across fission points
+        and promote corresponding variables. Note that this does not affect
+        promotion of variables listed directly in the pragma's ``promote``
+        option.
+    warn_loop_carries : bool, optional
+        Try to automatically detect loop-carried dependencies and warn
+        when the fission point sits after the initial read and before the
+        final write.
     """
     promotion_vars_dims = CaseInsensitiveDict()
 
@@ -713,6 +738,7 @@ def loop_fission(routine):
     loop_pragmas = defaultdict(list)  # List of pragmas splitting a loop
     promotion_vars_dims = {}  # Variables to promote with new dimension
     promotion_vars_index = {}  # Variable subscripts to promote with new indices
+    loop_carried_vars = {}  # List of loop carried dependencies in original loop
 
     # First, find the loops enclosing each pragma
     for loop in FindNodes(Loop).visit(routine.body):
@@ -723,23 +749,56 @@ def loop_fission(routine):
     if not pragma_loops:
         return
 
-    for pragma in pragma_loops:
-        # Now, sort the loops enclosing each pragma from outside to inside and
-        # keep only the ones relevant for fission
-        loops = binary_insertion_sort(pragma_loops[pragma], lt=is_parent_of)
-        collapse = int(get_pragma_parameters(pragma).get('collapse', 1))
-        pragma_loops[pragma] = loops[-collapse:]
+    with optional(promote or warn_loop_carries, dataflow_analysis_attached, routine):
+        for pragma in pragma_loops:
+            # Now, sort the loops enclosing each pragma from outside to inside and
+            # keep only the ones relevant for fission
+            loops = binary_insertion_sort(pragma_loops[pragma], lt=is_parent_of)
+            collapse = int(get_pragma_parameters(pragma).get('collapse', 1))
+            pragma_loops[pragma] = loops[-collapse:]
 
-        # Attach the pragma to the list of pragmas to be processed for the
-        # outermost loop
-        loop_pragmas[loops[-collapse]] += [pragma]
+            # Attach the pragma to the list of pragmas to be processed for the
+            # outermost loop
+            loop_pragmas[loops[-collapse]] += [pragma]
 
-        # Promote variables given in promotion list
-        promote_vars = [var.strip().lower()
-                        for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var]
-        promotion_vars_dims, promotion_vars_index = promotion_dimensions_from_loop_nest(
-            promote_vars, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)
+            # Promote variables given in promotion list
+            promote_vars = [var.strip().lower()
+                            for var in get_pragma_parameters(pragma).get('promote', '').split(',') if var]
 
-    routine.body = FissionTransformer(loop_pragmas).visit(routine.body)
+            # Automatically determine promotion variables
+            if promote:
+                promote_vars += [v.name.lower() for v in read_after_write_vars(loops[-1].body, pragma)
+                                 if v.name.lower() not in promote_vars]
+            promotion_vars_dims, promotion_vars_index = promotion_dimensions_from_loop_nest(
+                promote_vars, pragma_loops[pragma], promotion_vars_dims, promotion_vars_index)
+
+            # Store loop-carried dependencies for later analysis
+            if warn_loop_carries:
+                loop_carried_vars[pragma] = loop_carried_dependencies(pragma_loops[pragma][0])
+
+    fission_trafo = FissionTransformer(loop_pragmas)
+    routine.body = fission_trafo.visit(routine.body)
     info('%s: split %d loop(s) at %d loop-fission pragma(s).', routine.name, len(loop_pragmas), len(pragma_loops))
+
+    # Warn about broken loop-carried dependencies
+    if warn_loop_carries:
+        with dataflow_analysis_attached(routine):
+            for pragma, loop_carries in loop_carried_vars.items():
+                loop, *remainder = fission_trafo.split_loops[pragma]
+                if not remainder:
+                    continue
+
+                # The loop before the pragma has to read the variable ...
+                broken_loop_carries = loop_carries & loop.uses_symbols
+                # ... but it is written after the pragma
+                broken_loop_carries &= set.union(*[l.defines_symbols for l in remainder])
+
+                if broken_loop_carries:
+                    if pragma.source and pragma.source.lines:
+                        line_info = ' at l. {}'.format(pragma.source.lines[0])
+                    else:
+                        line_info = ''
+                    warning('Loop-fission{} potentially breaks loop-carried dependencies for variables: {}'.format(
+                        line_info, ', '.join(str(v) for v in broken_loop_carries)))
+
     promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index)

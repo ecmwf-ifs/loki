@@ -794,7 +794,7 @@ class PatternFinder(Visitor):
     Parameters
     ----------
     pattern : iterable of types
-        The type pattern tto look for.
+        The type pattern to look for.
     """
 
     def __init__(self, pattern):

@@ -4,12 +4,13 @@ Collection of dataflow analysis schema routines.
 
 from contextlib import contextmanager
 from loki.expression import FindVariables
-from loki.visitors import Transformer
+from loki.visitors import Visitor, Transformer
 from loki.tools import as_tuple, flatten
 
 
 __all__ = [
-    'dataflow_analysis_attached'
+    'dataflow_analysis_attached', 'read_after_write_vars',
+    'loop_carried_dependencies'
 ]
 
 
@@ -202,11 +203,11 @@ def attach_dataflow_analysis(module_or_routine):
 
     This makes for each IR node the following properties available:
 
-    * :py:attr:``Node.live_symbols`: symbols defined before the node;
-    * :py:attr:``Node.defines_symbols`: symbols (potentially) defined by the
-      node;
-    * :py:attr:``Node.uses_symbols`: symbols used by the node that had to be
-      defined before.
+    * :attr:`Node.live_symbols`: symbols defined before the node;
+    * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
+      node, i.e., live in subsequent nodes;
+    * :attr:`Node.uses_symbols`: symbols used by the node (that had to be
+      defined before).
 
     The IR nodes are updated in-place and thus existing references to IR
     nodes remain valid.
@@ -240,34 +241,269 @@ def detach_dataflow_analysis(module_or_routine):
 
 @contextmanager
 def dataflow_analysis_attached(module_or_routine):
-    """
+    r"""
     Create a context in which information about defined, live and used symbols
     is attached to each IR node
 
     This makes for each IR node the following properties available:
 
-    * :py:attr:``Node.live_symbols`: symbols defined before the node;
-    * :py:attr:``Node.defines_symbols`: symbols (potentially) defined by the
+    * :attr:`Node.live_symbols`: symbols defined before the node;
+    * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
       node;
-    * :py:attr:``Node.uses_symbols`: symbols used by the node that had to be
+    * :attr:`Node.uses_symbols`: symbols used by the node that had to be
       defined before.
 
     This is an in-place update of nodes and thus existing references to IR
     nodes remain valid. When leaving the context the information is removed
     from IR nodes, while existing references remain valid.
 
-    Parameters
-    ----------
-    module_or_routine : :any:`Module` or :any:`Subroutine`
-        The object for which the IR is to be annotated.
+    The analysis is based on a rather crude regions-based analysis, with the
+    hierarchy implied by (nested) :any:`InternalNode` IR nodes used as regions
+    in the reducible flow graph (cf. Chapter 9, in particular 9.7 of Aho, Lam,
+    Sethi, and Ulliman (2007)). Our implementation shares some similarities
+    with a full reaching definitions dataflow analysis but is not quite as
+    powerful.
+
+    In reaching definitions dataflow analysis (cf. Chapter 9.2.4 Aho et. al.),
+    the transfer function of a definition :math:`d` can be expressed as:
+
+    .. math:: f_d(x) = \operatorname{gen}_d \cup (x - \operatorname{kill}_d)
+
+    with the set of definitions generated :math:`\operatorname{gen}_d` and the
+    set of definitions killed/invalidated :math:`\operatorname{kill}_d`.
+
+    We, however, do not record definitions explicitly and instead operate on
+    consolidated sets of defined symbols, i.e., effectively evaluate the
+    chained transfer functions up to the node. This yields a set of active
+    definitions at this node. The symbols defined by these definitions are
+    in :any:`Node.live_symbols`, and the symbols defined by the node (i.e.,
+    symbols defined by definitions in :math:`\operatorname{gen}_d`) are in
+    :any:`Node.defines_symbols`.
+
+    The advantage of this approach is that it avoids the need to introduce
+    a layer for definitions and dependencies. A downside is that this focus
+    on symbols instead of definitions precludes, in particular, the ability
+    to take data space into account, which makes it less useful for arrays.
 
     .. note::
         The context manager operates only on the module or routine itself
         (i.e., its spec and, if applicable, body), not on any contained
         subroutines or functions.
+
+    Parameters
+    ----------
+    module_or_routine : :any:`Module` or :any:`Subroutine`
+        The object for which the IR is to be annotated.
     """
     attach_dataflow_analysis(module_or_routine)
     try:
         yield module_or_routine
     finally:
         detach_dataflow_analysis(module_or_routine)
+
+
+class FindReads(Visitor):
+    """
+    Look for reads in a specified part of a control flow tree.
+
+    Parameters
+    ----------
+    start : (iterable of) :any:`Node`, optional
+        Visitor is only active after encountering one of the nodes in
+        :data:`start` and until encountering a node in :data:`stop`.
+    stop : (iterable of) :any:`Node`, optional
+        Visitor is no longer active after encountering one of the nodes in
+        :data:`stop` until it encounters again a node in :data:`start`.
+    active : bool, optional
+        Set the visitor active right from the beginning.
+    candidate_set : set of :any:`Node`, optional
+        If given, only reads for symbols in this set are considered.
+    clear_candidates_on_write : bool, optional
+        If enabled, writes of a symbol remove it from the :data:`candidate_set`.
+    """
+
+    def __init__(self, start=None, stop=None, active=False,
+                 candidate_set=None, clear_candidates_on_write=False, **kwargs):
+        super().__init__(**kwargs)
+        self.start = set(as_tuple(start))
+        self.stop = set(as_tuple(stop))
+        self.active = active
+        self.candidate_set = candidate_set
+        self.clear_candidates_on_write = clear_candidates_on_write
+        self.reads = set()
+
+    @staticmethod
+    def _symbols_from_expr(expr):
+        """
+        Return set of symbols found in an expression.
+        """
+        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+
+    def _register_reads(self, read_symbols):
+        if self.active:
+            if self.candidate_set is None:
+                self.reads |= read_symbols
+            else:
+                self.reads |= read_symbols & self.candidate_set
+
+    def _register_writes(self, write_symbols):
+        if self.active and self.clear_candidates_on_write and self.candidate_set is not None:
+            self.candidate_set -= write_symbols
+
+    def visit(self, o, *args, **kwargs):
+        self.active = (self.active and o not in self.stop) or o in self.start
+        return super().visit(o, *args, **kwargs)
+
+    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
+        pass
+
+    def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
+        self._register_reads(o.uses_symbols)
+        self._register_writes(o.defines_symbols)
+
+    def visit_Conditional(self, o, **kwargs):
+        self._register_reads(self._symbols_from_expr(o.condition))
+        # Visit each branch with the original candidate set and then take the
+        # union of both afterwards to include all potential read-after-writes
+        candidate_set = self.candidate_set.copy() if self.candidate_set is not None else None
+        self.visit(o.body, **kwargs)
+        self.candidate_set, candidate_set = candidate_set, self.candidate_set
+        self.visit(o.else_body, **kwargs)
+        if self.candidate_set is not None:
+            self.candidate_set |= candidate_set
+
+    def visit_Loop(self, o, **kwargs):
+        self._register_reads(self._symbols_from_expr(o.bounds))
+        active = self.active
+        if self.active and self.candidate_set is not None:
+            # remove the loop variable as a variable of interest
+            self.candidate_set.discard(o.variable)
+        self.visit(o.children, **kwargs)
+        if active:
+            self.reads.discard(o.variable)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        self._register_reads(self._symbols_from_expr(o.condition))
+        self.visit(o.children, **kwargs)
+
+
+class FindWrites(Visitor):
+    """
+    Look for writes in a specified part of a control flow tree.
+
+    Parameters
+    ----------
+    start : (iterable of) :any:`Node`, optional
+        Visitor is only active after encountering one of the nodes in
+        :data:`start` and until encountering a node in :data:`stop`.
+    stop : (iterable of) :any:`Node`, optional
+        Visitor is no longer active after encountering one of the nodes in
+        :data:`stop` until it encounters again a node in :data:`start`.
+    active : bool, optional
+        Set the visitor active right from the beginning.
+    candidate_set : set of :any:`Node`, optional
+        If given, only writes for symbols in this set are considered.
+    """
+
+    def __init__(self, start=None, stop=None, active=False,
+                 candidate_set=None, **kwargs):
+        super().__init__(**kwargs)
+        self.start = set(as_tuple(start))
+        self.stop = set(as_tuple(stop))
+        self.active = active
+        self.candidate_set = candidate_set
+        self.writes = set()
+
+    @staticmethod
+    def _symbols_from_expr(expr):
+        """
+        Return set of symbols found in an expression.
+        """
+        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+
+    def _register_writes(self, write_symbols):
+        if self.candidate_set is None:
+            self.writes |= write_symbols
+        else:
+            self.writes |= write_symbols & self.candidate_set
+
+    def visit(self, o, *args, **kwargs):
+        self.active = (self.active and o not in self.stop) or o in self.start
+        return super().visit(o, *args, **kwargs)
+
+    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
+        pass
+
+    def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
+        if self.active:
+            self._register_writes(o.defines_symbols)
+
+    def visit_Loop(self, o, **kwargs):
+        if self.active:
+            # remove the loop variable as a variable of interest
+            if self.candidate_set is not None:
+                self.candidate_set.discard(o.variable)
+            self.writes.discard(o.variable)
+        super().visit_Node(o, **kwargs)
+
+
+def read_after_write_vars(ir, inspection_node):
+    """
+    Find variables that are read after being written in the given IR.
+
+    This requires prior application of :meth:`dataflow_analysis_attached` to
+    the corresponding :any:`Module` or :any:`Subroutine`.
+
+    The result is the set of variables with a data dependency across the
+    :data:`inspection_node`.
+
+    See the remarks about implementation and limitations in the description of
+    :meth:`dataflow_analysis_attached`. In particular, this does not take into
+    account data space and iteration space for arrays.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        The root of the control flow (sub-)tree to inspect.
+    inspection_node : :any:`Node`
+        Only variables with a write before and a read at or after this node
+        are considered.
+
+    Returns
+    -------
+    :any:`set` of :any:`Scalar` or :any:`Array`
+        The list of read-after-write variables.
+    """
+    write_visitor = FindWrites(stop=inspection_node, active=True)
+    write_visitor.visit(ir)
+    read_visitor = FindReads(start=inspection_node, candidate_set=write_visitor.writes,
+                             clear_candidates_on_write=True)
+    read_visitor.visit(ir)
+    return read_visitor.reads
+
+
+def loop_carried_dependencies(loop):
+    """
+    Find variables that are potentially loop-carried dependencies.
+
+    This requires prior application of :meth:`dataflow_analysis_attached` to
+    the corresponding :any:`Module` or :any:`Subroutine`.
+
+    See the remarks about implementation and limitations in the description of
+    :meth:`dataflow_analysis_attached`. In particular, this does not take into
+    account data space and iteration space for arrays. For cases with a
+    linear mapping from iteration to data space and no overlap, this will
+    falsely report loop-carried dependencies when there are in fact none.
+    However, the risk of false negatives should be low.
+
+    Parameters
+    ----------
+    loop : :any:`Loop`
+        The loop node to inspect.
+
+    Returns
+    -------
+    :any:`set` of :any:`Scalar` or :any:`Array`
+        The list of variables that potentially have a loop-carried dependency.
+    """
+    return loop.uses_symbols & loop.defines_symbols
