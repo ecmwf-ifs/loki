@@ -7,11 +7,12 @@ from loki.frontend import FP
 from loki.ir import CallStatement
 from loki.visitors import FindNodes
 from loki.sourcefile import Sourcefile
+from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import info, warning, error, debug
 
 
-__all__ = ['Item', 'Scheduler']
+__all__ = ['Item', 'Scheduler', 'SchedulerConfig']
 
 
 class SchedulerConfig:
@@ -36,13 +37,14 @@ class SchedulerConfig:
                     program control flow, like `flush` or `abort`.
     """
 
-    def __init__(self, default, routines, disable=None):
+    def __init__(self, default, routines, disable=None, dimensions=None):
         self.default = default
         if isinstance(routines, dict):
             self.routines = CaseInsensitiveDict(routines)
         else:
             self.routines = CaseInsensitiveDict((r.name, r) for r in as_tuple(routines))
         self.disable = as_tuple(disable)
+        self.dimensions = dimensions
 
     @classmethod
     def from_dict(cls, config):
@@ -51,7 +53,14 @@ class SchedulerConfig:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
         routines = config['routines']
         disable = default.get('disable', None)
-        return cls(default=default, routines=routines, disable=disable)
+
+        # Add any dimension definitions contained in the config dict
+        dimensions = {}
+        if 'dimension' in config:
+            dimensions = [Dimension(**d) for d in config['dimension']]
+            dimensions = {d.name: d for d in dimensions}
+
+        return cls(default=default, routines=routines, disable=disable, dimensions=dimensions)
 
     @classmethod
     def from_file(cls, path):

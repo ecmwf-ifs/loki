@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, FindNodes, Loop, Pragma,
-    Frontend, flatten, Dimension
+    Sourcefile, Transformation, Scheduler, SchedulerConfig, FindNodes,
+    Loop, Pragma, Frontend, flatten, Dimension, as_tuple
 )
 
 # Get generalized transformations provided by Loki
@@ -50,18 +50,27 @@ cloudsc_config = {
             'role': 'driver',
             'expand': True,
         }
+    ],
+    'dimension': [
+        {
+            'name': 'horizontal',
+            'size': 'KLON',
+            'index': 'JL',
+            'bounds': ('KIDIA', 'KFDIA'),
+            'aliases': ['NPROMA', 'KDIM%KLON'],
+        }
     ]
 }
 
 
-"""
-Define the horizontal dimension used in the CLOUDSC demonstrator
-dwarf in terms of expression strings. These expressions are then
-used to extract SCA-format code for Loki-CLAW transformations.
-"""
-horizontal = Dimension(name='horizontal', size='KLON', index='JL',
-                       bounds=('KIDIA', 'KFDIA'),
-                       aliases=['NPROMA', 'KDIM%KLON'])
+class IdemTransformation(Transformation):
+    """
+    A custom transformation pipeline that primarily does nothing,
+    allowing us to test simple parse-unparse cycles.
+    """
+
+    def transform_subroutine(self, routine, **kwargs):
+        pass
 
 
 @click.group()
@@ -90,19 +99,19 @@ def cli():
               help='Path for additional module file(s)')
 @click.option('--flatten-args/--no-flatten-args', default=True,
               help='Flag to trigger derived-type argument unrolling')
-@click.option('--openmp/--no-openmp', default=False,
-              help='Flag to force OpenMP pragmas onto existing horizontal loops')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
 def idempotence(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-                flatten_args, openmp, frontend, config):
+                flatten_args, frontend, config):
     """
     Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
     """
     if config is None:
-        config = cloudsc_config
+        config = SchedulerConfig.from_dict(cloudsc_config)
+    else:
+        config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -113,24 +122,10 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
-    scheduler.populate(routines=[r['name'] for r in config['routine']])
+    scheduler.populate(routines=config.routines.keys())
 
-    class IdemTransformation(Transformation):
-        """
-        Define a custom transformation pipeline that optionally inserts
-        experimental OpenMP pragmas for horizontal loops.
-        """
-
-        def transform_subroutine(self, routine, **kwargs):
-            if openmp:
-                # Experimental OpenMP loop pragma insertion
-                for loop in FindNodes(Loop).visit(routine.body):
-                    if loop.variable == horizontal.index:
-                        # Update the loop in-place with new OpenMP pragmas
-                        pragma = Pragma(keyword='omp', content='do simd')
-                        pragma_nowait = Pragma(keyword='omp',
-                                               content='end do simd nowait')
-                        loop._update(pragma=pragma, pragma_post=pragma_nowait)
+    # Fetch the dimension definitions from the config
+    horizontal = scheduler.config.dimensions['horizontal']
 
     if flatten_args:
         # Unroll derived-type arguments into multiple arguments
@@ -152,6 +147,8 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 @cli.command()
 @click.option('--out-path', '-out', type=click.Path(),
               help='Path for generated souce files.')
+@click.option('--path', '-p', type=click.Path(),
+              help='Path to search during source exploration.')
 @click.option('--source', '-s', type=click.Path(), multiple=True,
               help='Source file to convert.')
 @click.option('--driver', '-d', type=click.Path(),
@@ -168,16 +165,18 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
               help='Additional path for header files, specifically for OMNI')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
               help='Path for additional module file(s)')
+@click.option('--data-offload', is_flag=True, default=False,
+              help='Run transformation to insert custom data offload regions')
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['sca', 'claw']))
+              type=click.Choice(['idem', 'sca', 'claw']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-def convert(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-            remove_openmp, mode, frontend, config):
+def convert(out_path, path, source, driver, header, cpp, include, define, omni_include, xmod,
+            data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
     format and adjust driver to apply it over in a horizontal loop.
@@ -186,7 +185,9 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
     for further downstream transformations.
     """
     if config is None:
-        config = cloudsc_config
+        config = SchedulerConfig.from_dict(cloudsc_config)
+    else:
+        config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
@@ -194,28 +195,41 @@ def convert(out_path, source, driver, header, cpp, include, define, omni_include
                                                frontend=frontend_type).modules for h in header)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(s).resolve().parent for s in source]
-    paths += [Path(h).resolve().parent for h in header]
+    paths = [Path(p).resolve() for p in as_tuple(path)]
+    paths += [Path(s).resolve().parent for s in as_tuple(source)]
+    paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
-    scheduler.populate(routines=[r['name'] for r in config['routine']])
+    scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
-    use_claw_offload = False
-    if mode == 'claw':
+    # Insert data offload regions for GPUs and remove OpenMP threading directives
+    use_claw_offload = True
+    if data_offload:
         offload_transform = DataOffloadTransformation(remove_openmp=remove_openmp)
         scheduler.process(transformation=offload_transform)
         use_claw_offload = not offload_transform.has_data_regions
 
-    # Now we instantiate our SCA pipeline and apply the changes
+    # Now we instantiate our transformation pipeline and apply the main changes
+    transformation = None
+    if mode == 'idem':
+        transformation = IdemTransformation()
+
     if mode == 'sca':
-        sca_transform = ExtractSCATransformation(horizontal=horizontal)
-    elif mode == 'claw':
-        sca_transform = CLAWTransformation(
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = ExtractSCATransformation(horizontal=horizontal)
+
+    if mode == 'claw':
+        horizontal = scheduler.config.dimensions['horizontal']
+        transformation = CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
-    scheduler.process(transformation=sca_transform)
+
+    if transformation:
+        scheduler.process(transformation=transformation)
+    else:
+        raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),

@@ -29,9 +29,9 @@ class Dimension:
     def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None):
         self.name = name
         self._index = index
-        self._bounds = bounds
+        self._bounds = as_tuple(bounds)
         self._size = size
-        self._aliases = aliases
+        self._aliases = as_tuple(aliases)
 
     @property
     def variables(self):
