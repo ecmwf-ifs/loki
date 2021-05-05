@@ -57,6 +57,11 @@ class DependencyTransformation(Transformation):
         'strict' mode, also  re-generate the kernel interface headers.
         """
         role = kwargs.get('role')
+        item = kwargs.get('item', None)
+
+        # Bail if this routine is not part of a scheduler traversal
+        if item and item.name.lower() != routine.name.lower():
+            return
 
         if role == 'kernel':
             # Change the name of kernel routines
@@ -189,13 +194,14 @@ class DependencyTransformation(Transformation):
         Wrap target subroutines in modules and replace in source file.
         """
         targets = kwargs.get('targets', None)
+        item = kwargs.get('item', None)
 
         module_routines = [r for r in sourcefile.all_subroutines
                            if r not in sourcefile.subroutines]
 
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
-                if targets is None or routine.name in targets:
+                if routine.name.lower() == item.name.lower() or routine.name in targets:
                     # Create wrapper module and insert into file
                     modname = f'{routine.name}{self.module_suffix}'
                     module = Module(name=modname, routines=[routine])
