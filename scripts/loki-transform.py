@@ -204,9 +204,6 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
     # First, remove all derived-type arguments; caller first!
     scheduler.process(transformation=DerivedTypeArgumentsTransformation())
 
-    # Fetch the dimension definitions from the config
-    horizontal = scheduler.config.dimensions['horizontal']
-
     # Insert data offload regions for GPUs and remove OpenMP threading directives
     use_claw_offload = True
     if data_offload:
@@ -218,12 +215,17 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
     transformation = None
     if mode == 'idem':
         transformation = IdemTransformation()
+
     if mode == 'sca':
+        horizontal = scheduler.config.dimensions['horizontal']
         transformation = ExtractSCATransformation(horizontal=horizontal)
+
     if mode == 'claw':
+        horizontal = scheduler.config.dimensions['horizontal']
         transformation = CLAWTransformation(
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
+
     if transformation:
         scheduler.process(transformation=transformation)
     else:
