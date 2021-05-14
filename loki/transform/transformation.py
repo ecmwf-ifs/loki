@@ -103,6 +103,8 @@ class Transformation:
         if isinstance(source, Module):
             self.apply_module(source, **kwargs)
 
+        self.post_apply(source)
+
     def apply_file(self, sourcefile, **kwargs):
         """
         Apply transformation to all items in :data:`sourcefile`.
@@ -176,3 +178,64 @@ class Transformation:
         # Call the dispatch for all contained subroutines
         for routine in module.subroutines:
             self.apply(routine, **kwargs)
+
+    def post_apply(self, source):
+        """
+        Dispatch method for actions to be carried out after applying a transformation
+        to :data:`source`.
+
+        It dispatches to one of the type-specific dispatch methods
+        :meth:`post_apply_file`, :meth:`post_apply_module`, or :meth:`post_apply_subroutine`.
+
+        Parameters
+        ----------
+        source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
+            The source item to transform.
+        """
+        if isinstance(source, Sourcefile):
+            self.post_apply_file(source)
+
+        if isinstance(source, Subroutine):
+            self.post_apply_subroutine(source)
+
+        if isinstance(source, Module):
+            self.post_apply_module(source)
+
+    def post_apply_file(self, sourcefile):
+        """
+        Apply actions after applying a transformation to :data:`sourcefile`.
+
+        Parameters
+        ----------
+        sourcefile : :any:`Sourcefile`
+            The file to transform.
+        """
+        if not isinstance(sourcefile, Sourcefile):
+            raise TypeError('Transformation.post_apply_file can only be applied to Sourcefile object')
+
+    def post_apply_subroutine(self, subroutine):
+        """
+        Apply actions after applying a transformation to :data:`subroutine`.
+
+        Parameters
+        ----------
+        subroutine : :any:`Subroutine`
+            The file to transform.
+        """
+        if not isinstance(subroutine, Subroutine):
+            raise TypeError('Transformation.post_apply_subroutine can only be applied to Subroutine object')
+
+        # Ensure all objects in the IR are in the subroutine's or a parent scope.
+        subroutine.rescope_variables()
+
+    def post_apply_module(self, module):
+        """
+        Apply actions after applying a transformation to :data:`module`.
+
+        Parameters
+        ----------
+        module : :any:`Module`
+            The file to transform.
+        """
+        if not isinstance(module, Module):
+            raise TypeError('Transformation.post_apply_module can only be applied to Module object')

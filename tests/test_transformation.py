@@ -4,7 +4,8 @@ import pytest
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Sourcefile, Subroutine, CallStatement, Import,
-    FindNodes, FindInlineCalls, fgen
+    FindNodes, FindInlineCalls, fgen,
+    Scope, Assignment, IntLiteral
 )
 from loki.transform import Transformation, DependencyTransformation, replace_selected_kind
 
@@ -350,7 +351,7 @@ END SUBROUTINE kernel
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_transform_replace_selected_kind(here,frontend):
+def test_transform_replace_selected_kind(here, frontend):
     """
     Test correct replacement of all `selected_x_kind` calls by
     iso_fortran_env constant.
@@ -417,3 +418,52 @@ end subroutine transform_replace_selected_kind
 
     clean_test(filepath)
     clean_test(iso_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformation_post_apply_subroutine(here, frontend):
+    """Verify that post_apply is called for subroutines."""
+
+    #### Test that rescoping is applied and effective ####
+
+    tmp_scope = Scope()
+    class ScopingErrorTransformation(Transformation):
+        """Intentionally idiotic transformation that introduces a scoping error."""
+
+        def transform_subroutine(self, routine, **kwargs):
+            i = routine.variable_map['i']
+            j = i.clone(name='j', scope=tmp_scope, type=i.type.clone(intent=None))
+            routine.variables += (j,)
+            routine.body.append(Assignment(lhs=j, rhs=IntLiteral(2)))
+            routine.body.append(Assignment(lhs=i, rhs=j))
+            routine.name += '_transformed'
+            assert routine.variable_map['j'].scope is tmp_scope
+
+    fcode = """
+subroutine transformation_post_apply(i)
+  integer, intent(out) :: i
+  i = 1
+end subroutine transformation_post_apply
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Test the original implementation
+    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    i = function()
+    assert i == 1
+
+    # Apply transformation
+    routine.apply(ScopingErrorTransformation())
+    assert routine.variable_map['j'].scope is routine.scope
+
+    new_filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
+
+    i = new_function()
+    assert i == 2
+
+    clean_test(filepath)
+    clean_test(new_filepath)
