@@ -10,7 +10,7 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import Scope
+from loki.types import Scope, DerivedType, ProcedureType
 
 
 __all__ = [
@@ -976,6 +976,7 @@ class Import(LeafNode):
 
         self.module = module
         self.symbols = symbols or ()
+        assert all(isinstance(s, (Expression, DerivedType, ProcedureType)) for s in self.symbols)
         self.c_import = c_import
         self.f_include = f_include
 

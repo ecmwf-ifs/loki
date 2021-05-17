@@ -105,6 +105,12 @@ class FortranCTransformation(Transformation):
         return TypeDef(name=typename.lower(), bind_c=True, body=declarations, scope=scope)
 
     @staticmethod
+    def iso_c_intrinsic_import(scope):
+        symbols = as_tuple(Variable(name=name, scope=scope) for name in ['c_int', 'c_double', 'c_float'])
+        isoc_import = Import(module='iso_c_binding', symbols=symbols)
+        return isoc_import
+
+    @staticmethod
     def iso_c_intrinsic_kind(_type, scope):
         if _type.dtype == BasicType.INTEGER:
             return Variable(name='c_int', scope=scope)
@@ -140,8 +146,7 @@ class FortranCTransformation(Transformation):
 
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
-        wrapper_spec.prepend(Import(module='iso_c_binding',
-                                    symbols=('c_int', 'c_double', 'c_float')))
+        wrapper_spec.prepend(cls.iso_c_intrinsic_import(wrapper_scope))
         wrapper_spec.append(c_structs.values())
         wrapper_spec.append(interface)
 
@@ -188,14 +193,13 @@ class FortranCTransformation(Transformation):
         since certain type definitions cannot be used in ISO-C interfaces
         due to pointer variables, etc.
         """
+        module_scope = Scope()
+
         # Generate bind(c) intrinsics for module variables
         original_import = Import(module=module.name)
-        isoc_import = Import(module='iso_c_binding',
-                             symbols=('c_int', 'c_double', 'c_float'))
+        isoc_import = cls.iso_c_intrinsic_import(module_scope)
         implicit_none = Intrinsic(text='implicit none')
         spec = [original_import, isoc_import, implicit_none]
-
-        module_scope = Scope()
 
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
@@ -206,7 +210,7 @@ class FortranCTransformation(Transformation):
                 gettername = '%s__get__%s' % (module.name.lower(), v.name.lower())
                 getter_scope = Scope(parent=module_scope)
 
-                getterspec = Section(body=[Import(module=module.name, symbols=[v.name])])
+                getterspec = Section(body=[Import(module=module.name, symbols=[v.clone(scope=module_scope)])])
                 isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter_scope))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
@@ -254,9 +258,9 @@ class FortranCTransformation(Transformation):
         """
         Generate the ISO-C subroutine interface
         """
+        intf_scope = Scope()
         intf_name = '%s_iso_c' % routine.name
-        isoc_import = Import(module='iso_c_binding',
-                             symbols=('c_int', 'c_double', 'c_float'))
+        isoc_import = cls.iso_c_intrinsic_import(intf_scope)
         intf_spec = Section(body=as_tuple(isoc_import))
         intf_spec.append(im for im in FindNodes(Import).visit(routine.spec) if not im.c_import)
         intf_spec.append(Intrinsic(text='implicit none'))
