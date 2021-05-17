@@ -193,6 +193,32 @@ class Module:
         """
         return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
 
+    @variables.setter
+    def variables(self, variables):
+        """
+        Set the variables property and ensure that the internal declarations match.
+        """
+        # First map variables to existing declarations
+        declarations = FindNodes(Declaration).visit(self.spec)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+
+        for v in as_tuple(variables):
+            if v not in decl_map:
+                # By default, append new variables to the end of the spec
+                new_decl = Declaration(variables=[v])
+                self.spec.append(new_decl)
+
+        # Run through existing declarations and check that all variables still exist
+        dmap = {}
+        for decl in FindNodes(Declaration).visit(self.spec):
+            new_vars = as_tuple(v for v in decl.variables if v in variables)
+            if len(new_vars) > 0:
+                decl._update(variables=new_vars)
+            else:
+                dmap[decl] = None  # Mark for removal
+        # Remove all redundant declarations
+        self.spec = Transformer(dmap).visit(self.spec)
+
     @property
     def variable_map(self):
         """
