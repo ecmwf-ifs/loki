@@ -239,3 +239,6 @@ class Transformation:
         """
         if not isinstance(module, Module):
             raise TypeError('Transformation.post_apply_module can only be applied to Module object')
+
+        # Ensure all objects in the IR are in the module's scope.
+        module.rescope_variables()

@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen,
-    Scope, Assignment, IntLiteral
+    Scope, Assignment, IntLiteral, Module
 )
 from loki.transform import Transformation, DependencyTransformation, replace_selected_kind
 
@@ -464,6 +464,61 @@ end subroutine transformation_post_apply
 
     i = new_function()
     assert i == 2
+
+    clean_test(filepath)
+    clean_test(new_filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transformation_post_apply_module(here, frontend):
+    """Verify that post_apply is called for modules."""
+
+    #### Test that rescoping is applied and effective ####
+
+    tmp_scope = Scope()
+    class ScopingErrorTransformation(Transformation):
+        """Intentionally idiotic transformation that introduces a scoping error."""
+
+        def transform_module(self, module, **kwargs):
+            i = module.variable_map['i']
+            j = i.clone(name='j', scope=tmp_scope, type=i.type.clone(intent=None))
+            module.variables += (j,)
+            routine = module.subroutines[0]
+            routine.body.prepend(Assignment(lhs=i, rhs=j))
+            routine.body.prepend(Assignment(lhs=j, rhs=IntLiteral(2)))
+            module.name += '_transformed'
+            assert module.variable_map['j'].scope is tmp_scope
+
+    fcode = """
+module transformation_module_post_apply
+  integer :: i = 0
+contains
+  subroutine test_post_apply(ret)
+    integer, intent(out) :: ret
+    i = i + 1
+    ret = i
+  end subroutine test_post_apply
+end module transformation_module_post_apply
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Test the original implementation
+    filepath = here/('%s_%s.f90' % (module.name, frontend))
+    mod = jit_compile(module, filepath=filepath, objname=module.name)
+
+    i = mod.test_post_apply()
+    assert i == 1
+
+    # Apply transformation
+    module.apply(ScopingErrorTransformation())
+    assert module.variable_map['j'].scope is module.scope
+
+    new_filepath = here/('%s_%s.f90' % (module.name, frontend))
+    new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)
+
+    i = new_mod.test_post_apply()
+    assert i == 3
 
     clean_test(filepath)
     clean_test(new_filepath)
