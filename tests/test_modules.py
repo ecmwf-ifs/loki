@@ -2,7 +2,8 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
-    BasicType, Assignment, FindNodes, FindInlineCalls
+    BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
+    Transformer, fgen
 )
 
 
@@ -347,3 +348,91 @@ end module
     assert inline_calls[0].function.name == 'util_fct'
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_module_rescope_variables(frontend):
+    """
+    Test the rescoping of variables.
+    """
+    fcode = """
+module test_module_rescope
+  use some_mod, only: ext1
+  implicit none
+  integer :: a, b, c
+end module test_module_rescope
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(module)
+
+    # Create a copy of the module with rescoping and make sure all symbols are in the right scope
+    spec = Transformer().visit(module.spec)
+    module_copy = Module(name=module.name, spec=spec, rescope_variables=True)
+
+    for var in FindTypedSymbols().visit(module_copy.spec):
+        assert var.scope is module_copy.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    spec = Transformer().visit(module.spec)
+    other_module_copy = Module(name=module.name, spec=spec)
+
+    # Explicitly throw away type information from original module
+    module.scope.symbols.clear()
+    module.scope.types.clear()
+    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.scope is not None for var in other_module_copy.variables)
+
+    # fgen of the rescoped copy should work
+    assert fgen(module_copy) == ref_fgen
+
+    # fgen of the not rescoped copy should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_module_copy)
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_module_rescope_clone(frontend):
+    """
+    Test the rescoping of variables in clone.
+    """
+    fcode = """
+module test_module_rescope_clone
+  use some_mod, only: ext1
+  implicit none
+  integer :: a, b, c
+end module test_module_rescope_clone
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(module)
+
+    # Create a copy of the module with rescoping and make sure all symbols are in the right scope
+    module_copy = module.clone()
+
+    for var in FindTypedSymbols().visit(module_copy.spec):
+        assert var.scope is module_copy.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    other_module_copy = module.clone(rescope_variables=False)
+
+    # Explicitly throw away type information from original module
+    module.scope.symbols.clear()
+    module.scope.types.clear()
+    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.scope is not None for var in other_module_copy.variables)
+
+    # fgen of the rescoped copy should work
+    assert fgen(module_copy) == ref_fgen
+
+    # fgen of the not rescoped copy should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_module_copy)

@@ -9,11 +9,13 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
-from loki.ir import TypeDef, Section, Declaration
-from loki.visitors import FindNodes
+from loki.ir import TypeDef, Section, Declaration, Import
+from loki.expression import FindTypedSymbols, SubstituteExpressions
+from loki.logging import debug
+from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
 from loki.types import Scope, ProcedureType
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 
 
@@ -38,9 +40,12 @@ class Module:
         Object representing the raw source string information from the read file.
     scope : :any:`Scope`, optional
         Prepopulated type and symbol information object to be used in this module.
+    rescope_variables : bool, optional
+        Ensure that the type information for all :any:`TypedSymbol` in the
+        module's IR exist in the module's scope. Defaults to `False`.
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, scope=None):
+    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, scope=None, rescope_variables=False):
         self.name = name or ast.attrib['name']
         self.spec = spec
         self.routines = routines
@@ -48,6 +53,8 @@ class Module:
         # Ensure we always have a local scope, and register ourselves with it
         self._scope = Scope() if scope is None else scope
         self.scope.defined_by = self
+        if rescope_variables:
+            self.rescope_variables()
 
         self._ast = ast
         self._source = source
@@ -180,6 +187,20 @@ class Module:
         return {td.name.lower(): td for td in types}
 
     @property
+    def variables(self):
+        """
+        Return the variables (including arguments) declared in this module
+        """
+        return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
+
+    @property
+    def variable_map(self):
+        """
+        Map of variable names to `Variable` objects
+        """
+        return CaseInsensitiveDict((v.name, v) for v in self.variables)
+
+    @property
     def subroutines(self):
         """
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
@@ -244,3 +265,63 @@ class Module:
         String representation.
         """
         return 'Module:: {}'.format(self.name)
+
+    def rescope_variables(self):
+        """
+        Verify that all :any:`TypedSymbol` objects in the IR are in the
+        module's scope.
+        """
+        # The local variable map. These really need to be in *this* scope.
+        variable_map = self.variable_map
+        imports_map = CaseInsensitiveDict(
+            (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
+        )
+
+        # Check for all variables that they are associated with the scope
+        rescope_map = {}
+        for var in FindTypedSymbols().visit(self.spec):
+            if (var.name in variable_map or var.name in imports_map) and var.scope is not self.scope:
+                # This takes care of all local variables or imported symbols
+                rescope_map[var] = var.clone(scope=self.scope)
+            elif var not in rescope_map:
+                # Put this in the local scope just to be on the safe side
+                debug('Module.rescope_variables: type for %s not found in any scope.', var.name)
+                rescope_map[var] = var.clone(scope=self.scope)
+
+        # Now apply the rescoping map
+        if rescope_map and self.spec:
+            self.spec = SubstituteExpressions(rescope_map).visit(self.spec)
+
+    def clone(self, **kwargs):
+        """
+        Create a deep copy of the module with the option to override individual
+        parameters.
+
+        .. note:
+            This does not clone contained routines.
+
+        Parameters
+        ----------
+        **kwargs :
+            Any parameters from the constructor of :any:`Module`.
+
+        Returns
+        -------
+        :any:`Module`
+            The cloned module object.
+        """
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self._ast and 'ast' not in kwargs:
+            kwargs['ast'] = self._ast
+        if self.source and 'source' not in kwargs:
+            kwargs['source'] = self.source
+
+        if 'scope' not in kwargs:
+            kwargs['scope'] = Scope()
+        if 'rescope_variables' not in kwargs:
+            kwargs['rescope_variables'] = True
+
+        kwargs['spec'] = Transformer({}).visit(self.spec)
+
+        return type(self)(**kwargs)
