@@ -115,6 +115,7 @@ def used_names_from_symbol(symbol, modifier=str.lower):
             return {modifier(symbol.dtype.name)}
         if isinstance(symbol.dtype, BasicType) and symbol.kind is not None:
             return {modifier(str(symbol.kind))}
+        return {modifier(symbol.name)}
 
     if isinstance(symbol, (DerivedType, ProcedureType)):
         return {modifier(symbol.name)}
@@ -130,7 +131,7 @@ def eliminate_unused_imports(module_or_routine, used_symbols):
     imports = FindNodes(Import).visit(module_or_routine.spec)
     imported_symbols = [s for im in imports for s in im.symbols or []]
 
-    redundant_symbols = {s for s in imported_symbols if str(s).lower() not in used_symbols}
+    redundant_symbols = {s for s in imported_symbols if s.name.lower() not in used_symbols}
 
     if redundant_symbols:
         imprt_map = {}

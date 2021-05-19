@@ -14,7 +14,7 @@ from loki.expression import FindTypedSymbols, SubstituteExpressions
 from loki.logging import debug
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
-from loki.types import Scope, ProcedureType
+from loki.types import Scope, ProcedureType, DeclaredName
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 
@@ -110,7 +110,7 @@ class Module:
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
             for routine_ast in routine_asts:
                 fname = routine_ast.attrib['name']
-                scope.types[fname] = ProcedureType(fname, is_function=routine_ast.tag == 'function')
+                scope.types[fname] = DeclaredName(ProcedureType(fname, is_function=routine_ast.tag == 'function'))
 
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent_scope=scope, pp_info=pp_info)
@@ -168,7 +168,7 @@ class Module:
                 else:
                     routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
                     fname = routine_stmt.get_name().string
-                scope.types[fname] = ProcedureType(fname, is_function=is_function)
+                scope.types[fname] = DeclaredName(ProcedureType(fname, is_function=is_function))
 
             # Now create the actual Subroutine objects
             routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent_scope=scope,

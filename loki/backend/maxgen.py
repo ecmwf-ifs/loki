@@ -334,7 +334,8 @@ class MaxjCodegen(Stringifier):
 
     def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
         if isinstance(o.dtype, DerivedType):
-            return 'DFEStructType {}'.format(o.name)
+            return o.name
+        #    return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
             if o.shape:
                 return 'DFEVector<{}>'.format(self.visit(o.clone(shape=o.shape[:-1]), **kwargs))

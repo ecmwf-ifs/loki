@@ -299,8 +299,8 @@ end module
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
 
-    assert isinstance(module.types['util_fct'].procedure, Subroutine)
-    assert module.types['util_fct'].is_function
+    assert isinstance(module.types['util_fct'].dtype.procedure, Subroutine)
+    assert module.types['util_fct'].dtype.is_function
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

@@ -3,14 +3,21 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, Sourcefile, Module, Subroutine, BasicType,
-    SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper
+    SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
+    DataType
 )
 
 
-def test_data_type():
+def test_basic_type():
     """
     Tests the conversion of strings to `BasicType`.
     """
+    assert all(t == BasicType(t.value) for t in BasicType)
+    assert all(isinstance(t, DataType) for t in BasicType)
+
+    assert all(t == BasicType.from_name(t.name) for t in BasicType)
+    assert all(t == BasicType.from_str(t.name) for t in BasicType)
+
     fortran_type_map = {'LOGICAL': BasicType.LOGICAL, 'INTEGER': BasicType.INTEGER,
                         'REAL': BasicType.REAL, 'CHARACTER': BasicType.CHARACTER,
                         'COMPLEX': BasicType.COMPLEX}
@@ -19,8 +26,8 @@ def test_data_type():
     test_map = {''.join(choice((str.upper, str.lower))(c) for c in s): t
                 for s, t in fortran_type_map.items()}
 
-    assert all([t == BasicType.from_fortran_type(s) for s, t in test_map.items()])
-    assert all([t == BasicType.from_str(s) for s, t in test_map.items()])
+    assert all(t == BasicType.from_fortran_type(s) for s, t in test_map.items())
+    assert all(t == BasicType.from_str(s) for s, t in test_map.items())
 
     c99_type_map = {'bool': BasicType.LOGICAL, '_Bool': BasicType.LOGICAL,
                     'short': BasicType.INTEGER, 'unsigned short': BasicType.INTEGER,
@@ -33,8 +40,8 @@ def test_data_type():
                     'char': BasicType.CHARACTER, 'float _Complex': BasicType.COMPLEX,
                     'double _Complex': BasicType.COMPLEX, 'long double _Complex': BasicType.COMPLEX}
 
-    assert all([t == BasicType.from_c99_type(s) for s, t in c99_type_map.items()])
-    assert all([t == BasicType.from_str(s) for s, t in c99_type_map.items()])
+    assert all(t == BasicType.from_c99_type(s) for s, t in c99_type_map.items())
+    assert all(t == BasicType.from_str(s) for s, t in c99_type_map.items())
 
 
 def test_symbol_type():
@@ -141,7 +148,7 @@ end module types
     fsymgen = FCodeMapper()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    pragma_type = source['types'].types['pragma_type']
+    pragma_type = source['types'].types['pragma_type'].dtype
 
     assert fsymgen(pragma_type.variable_map['matrix'].shape) == '(3, 3)'
     assert fsymgen(pragma_type.variable_map['tensor'].shape) == '(klon, klat, 2)'
@@ -253,7 +260,7 @@ end module my_types_mod
     assert routine.symbols['a_kind'].initial == 4
     assert routine.symbols['a_dim'].dtype == BasicType.INTEGER
     assert routine.symbols['a_dim'].kind == 'a_kind'
-    assert isinstance(routine.types['a_type'].typedef, TypeDef)
+    assert isinstance(routine.types['a_type'].dtype.typedef, TypeDef)
 
     # Check that external type definition has been linked
     assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)

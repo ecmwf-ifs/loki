@@ -37,27 +37,40 @@ Collection of classes to represent basic and complex types. The key ideas are:
    ``symbol.type.dtype.typedef.variables``.
 """
 
+from abc import ABC
 import weakref
 from enum import IntEnum
 from collections import OrderedDict
 from loki.tools import flatten, as_tuple
 
 
-__all__ = ['BasicType', 'DerivedType', 'ProcedureType', 'SymbolType', 'TypeTable', 'Scope']
+__all__ = [
+    'DataType', 'BasicType', 'DerivedType', 'ProcedureType',
+    'SymbolType', 'AllocatedName', 'DeclaredName', 'ImportedName', 'UnknownName',
+    'TypeTable', 'Scope'
+]
 
 
-class BasicType(IntEnum):
+class DataType:
+    """
+    Base class for data types a symbol may have
+    """
+
+
+class BasicType(DataType, IntEnum):
     """
     Representation of intrinsic data types, names taken from the FORTRAN convention.
 
     Currently, there are
-    - `LOGICAL`
-    - `INTEGER`
-    - `REAL`
-    - `CHARACTER`
-    - `COMPLEX`
-    and, to mark symbols without a known type, `DEFERRED` (e.g., for members of an externally
-    defined derived type on use).
+
+    - :any:`LOGICAL`
+    - :any:`INTEGER`
+    - :any:`REAL`
+    - :any:`CHARACTER`
+    - :any:`COMPLEX`
+
+    and, to indicate a currently not defined data type (e.g., for imported
+    symbols whose definition is not available), :any:`DEFERRED`.
 
     For convenience, string representations of FORTRAN and C99 types can be
     heuristically converted.
@@ -73,15 +86,22 @@ class BasicType(IntEnum):
     @classmethod
     def from_str(cls, value):
         """
-        Try to convert the given string using any of the `from_*_type` methods.
+        Try to convert the given string using one of the `from_*` methods.
         """
-        lookup_methods = (cls.from_fortran_type, cls.from_c99_type)
+        lookup_methods = (cls.from_name, cls.from_fortran_type, cls.from_c99_type)
         for meth in lookup_methods:
             try:
                 return meth(value)
             except KeyError:
                 pass
         return ValueError('Unknown data type: %s' % value)
+
+    @classmethod
+    def from_name(cls, value):
+        """
+        Convert the given string representation of the :any:`BasicType`.
+        """
+        return {t.name: t for t in cls}[value]
 
     @classmethod
     def from_fortran_type(cls, value):
@@ -114,9 +134,9 @@ class BasicType(IntEnum):
         return type_map[value]
 
 
-class DerivedType:
+class DerivedType(DataType):
     """
-    Representation of a complex derived data types that may have an associated `TypeDef`.
+    Representation of derived data types that may have an associated `TypeDef`.
 
     Please note that the typedef attribute may be of `ir.TypeDef` or `BasicType.DEFERRED`,
     depending on the scope of the derived type declaration.
@@ -146,7 +166,7 @@ class DerivedType:
         return '<DerivedType {}>'.format(self.name)
 
 
-class ProcedureType:
+class ProcedureType(DataType):
     """
     Representation of a function or subroutine type definition.
     """
@@ -180,22 +200,32 @@ class ProcedureType:
         return '<ProcedureType {}>'.format(self.name)
 
 
-class SymbolType:
+class SymbolType(ABC):
     """
-    Representation of a symbols type.
+    Abstract base class for the representation of a symbol's data type
+    and attributes.
 
-    It has a fixed class:``BasicType`` associated, available as the property `BasicType.dtype`.
+    It has a fixed :any:`DataType` associated with, available as property
+    :attr:`SymbolType.dtype`.
 
-    Any other properties can be attached on-the-fly, thus allowing to store arbitrary metadata
-    for a symbol, e.g., declaration attributes such as `POINTER`, `ALLOCATABLE` or structural
+    Any other properties can be attached on-the-fly, thus allowing to store
+    arbitrary metadata for a symbol, e.g., declaration attributes such as
+    ``POINTER``, ``ALLOCATABLE``, or the shape of an array, or structural
     information, e.g., whether a variable is a loop index, argument, etc.
 
-    There is no need to check for the presence of attributes, undefined attributes can be queried
-    and default to `None`.
+    There is no need to check for the presence of attributes, undefined
+    attributes can be queried and default to `None`.
+
+    Parameters
+    ----------
+    dtype : :any:`DataType`
+        The data type associated with the symbol
+    **kwargs : optional
+        Any attributes that should be stored as properties
     """
 
     def __init__(self, dtype, **kwargs):
-        if isinstance(dtype, (BasicType, DerivedType, ProcedureType)):
+        if isinstance(dtype, DataType):
             self.dtype = dtype
         else:
             self.dtype = BasicType.from_str(dtype)
@@ -231,7 +261,7 @@ class SymbolType:
                                                   else 'Variable', v.name)]
             else:
                 parameters += ['%s=%s' % (k, str(v))]
-        return '<Type %s>' % ', '.join(parameters)
+        return '<{} {}>'.format(self.__class__.__name__, ', '.join(parameters))
 
     def __getinitargs__(self):
         args = [self.dtype]
@@ -241,7 +271,16 @@ class SymbolType:
             args += [(k, v)]
         return tuple(args)
 
+    @property
+    def name(self):
+        return self.dtype.name
+
     def clone(self, **kwargs):
+        """
+        Clone the :any:`SymbolType`, optionally overwriting any attributes
+
+        Attributes that should be removed should simply be given as `None`.
+        """
         args = self.__dict__.copy()
         args.update(kwargs)
         dtype = args.pop('dtype')
@@ -249,7 +288,18 @@ class SymbolType:
 
     def compare(self, other, ignore=None):
         """
-        Compare `SymbolType` objects while ignoring a set of select attributes.
+        Compare :any:`SymbolType` objects while ignoring a set of select attributes.
+
+        Parameters
+        ----------
+        other : :any:`SymbolType`
+            The object to compare with
+        ignore : iterable, optional
+            Names of attributes to ignore while comparing.
+
+        Returns
+        -------
+        bool
         """
         ignore_attrs = as_tuple(ignore)
         keys = set(as_tuple(self.__dict__.keys()) + as_tuple(self.__dict__.keys()))
@@ -257,18 +307,54 @@ class SymbolType:
                    for k in keys if k not in ignore_attrs)
 
 
+class AllocatedName(SymbolType):
+    """
+    The symbol type for allocated symbols
+
+    This applies, e.g., to :any:`Scalar` or :any:`Array`.
+    """
+
+
+class DeclaredName(SymbolType):
+    """
+    The symbol type for locally declared symbols
+
+    This applies, e.g., to :any:`ProcedureSymbol` or :any:`TypeSymbol`.
+    """
+
+
+class ImportedName(SymbolType):
+    """
+    The symbol type for imported symbols
+
+    This can apply to any :any:`TypedSymbol` imported in :any:`Import` node.
+    """
+
+class UnknownName(SymbolType):
+    """
+    The fallback symbol type for symbols without type information
+
+    This indicates an incomplete state.
+    """
+
+
 class TypeTable(dict):
     """
-    Lookup table for types that essentially behaves like a class:``dict``.
+    Lookup table for symbol types that maps symbol names to :any:`SymbolType`
 
-    Used to store types for symbols or derived types within a scope.
-    For derived types, no separate entries for the declared variables within a type
-    are added. Instead, lookup methods (such as ``get``, ``__getitem__``, ``lookup`` etc.)
-    disect the name and take care of chasing the information chain automagically.
+    It is used to store types for declared variables, defined types or imported
+    symbols within their respective scope. If its associated scope is nested
+    into an enclosing scope, it allows to perform recursive look-ups in parent
+    scopes.
 
-    :param parent: class:``TypeTable`` instance of the parent scope to allow
-                   for recursive lookups.
-    :param case_sensitive: Treat names of variables to be case sensitive.
+    The interface of this table behaves like a :class:`dict`.
+
+    Parameters
+    ----------
+    parent : :any:`TypeTable`, optional
+        The symbol table of the parent scope for recursive look-ups.
+    case_sensitive : bool, optional
+        Respect the case of symbol names in lookups (default: `False`).
     """
 
     def __init__(self, parent=None, case_sensitive=False, **kwargs):
@@ -321,6 +407,7 @@ class TypeTable(dict):
         return value if value is not None else default
 
     def __setitem__(self, key, value):
+        assert isinstance(value, SymbolType)
         name_parts = self.format_lookup_name(key)
         super().__setitem__(name_parts, value)
 

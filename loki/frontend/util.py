@@ -7,6 +7,7 @@ from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrin
 from loki.frontend.source import Source
 from loki.expression import Variable
 from loki.tools import as_tuple
+from loki.types import ImportedName
 from loki.logging import warning
 
 __all__ = [
@@ -125,7 +126,7 @@ def read_file(file_path):
 
 def import_external_symbols(module, symbol_names, scope):
     """
-    Import variable and type symbols from an external definition :param module:.
+    Import variable and type symbols from an external definition in :data:`module:`
 
     This ensures that all symbols are copied over to the local scope, in order
     to ensure correct variable and type derivation.
@@ -137,8 +138,8 @@ def import_external_symbols(module, symbol_names, scope):
             symbol = Variable(name=name, type=module.symbols[name], scope=scope)
 
         elif module and name in module.types:
-            symbol = module.types[name]
-            scope.types[name] = module.types[name]
+            symbol = ImportedName(module.types[name].dtype)
+            scope.types[name] = ImportedName(module.types[name].dtype)
         else:
             symbol = Variable(name=name, scope=scope)
         symbols.append(symbol)

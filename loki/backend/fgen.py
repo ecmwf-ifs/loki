@@ -532,6 +532,13 @@ class FortranCodegen(Stringifier):
         items = self.visit_all(o.variables, **kwargs)
         return self.format_line('NULLIFY (', self.join_items(items), ')')
 
+    def visit_ImportedName(self, o, **kwargs):
+        """
+        Format identifier of an imported symbols as
+          <typename>
+        """
+        return o.dtype.name
+
     def visit_SymbolType(self, o, **kwargs):
         """
         Format declaration type as

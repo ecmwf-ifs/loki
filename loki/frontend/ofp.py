@@ -22,7 +22,7 @@ from loki.tools import (
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG
-from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
+from loki.types import BasicType, DerivedType, ProcedureType, Scope, AllocatedName, DeclaredName
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -393,7 +393,7 @@ class OFP2IR(GenericVisitor):
                                      label=label, source=source)
 
                 # Now make the typedef known in its scope's type table
-                self.scope.types[name] = DerivedType(name=name, typedef=typedef)
+                self.scope.types[name] = DeclaredName(DerivedType(name=name, typedef=typedef))
 
                 return typedef
 
@@ -403,12 +403,16 @@ class OFP2IR(GenericVisitor):
             kind = o.find('type/kind')
             if kind is not None:
                 kind = self.visit(kind)
-            intent = o.find('intent').attrib['type'] if o.find('intent') else None
-            allocatable = o.find('attribute-allocatable') is not None
-            pointer = o.find('attribute-pointer') is not None
-            parameter = o.find('attribute-parameter') is not None
-            optional = o.find('attribute-optional') is not None
-            target = o.find('attribute-target') is not None
+
+            type_attrs = {
+                'intent': o.find('intent').attrib['type'] if o.find('intent') else None,
+                'parameter': o.find('attribute-parameter') is not None,
+                'optional': o.find('attribute-optional') is not None,
+                'allocatable': o.find('attribute-allocatable') is not None,
+                'pointer': o.find('attribute-pointer') is not None,
+                'target': o.find('attribute-target') is not None,
+            }
+
             external = o.find('attribute-external') is not None
             dims = o.find('dimensions')
             dimensions = None if dims is None else as_tuple(self.visit(dims))
@@ -416,19 +420,17 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
-                                   intent=intent, allocatable=allocatable, pointer=pointer,
-                                   optional=optional, parameter=parameter, shape=dimensions,
-                                   target=target, source=source)
+                stype = AllocatedName(BasicType.from_fortran_type(typename), kind=kind,
+                                      shape=dimensions, source=source, **type_attrs)
             else:
                 # Create the local variant of the derived type
                 dtype = self.scope.types.lookup(typename, recursive=True)
                 if dtype is None:
                     dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
+                else:
+                    dtype = dtype.dtype
 
-                stype = SymbolType(dtype, intent=intent, allocatable=allocatable,
-                                   pointer=pointer, optional=optional, parameter=parameter,
-                                   target=target, source=source)
+                stype = AllocatedName(dtype, source=source, **type_attrs)
 
             variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
@@ -561,7 +563,7 @@ class OFP2IR(GenericVisitor):
         # a 'Variable', which in this case is wrong...
         name = o.find('name').attrib['id']
         args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        kwargs = list([self.visit(i) for i in o.findall('name/subscripts/argument')])
+        kwargs = list(self.visit(i) for i in o.findall('name/subscripts/argument'))
         return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, label=label, source=source)
 
     def visit_argument(self, o, label=None, source=None):
@@ -607,9 +609,9 @@ class OFP2IR(GenericVisitor):
             # No previous type declaration known for this symbol,
             # see if it's a function call to a known procedure
             if not _type or _type.dtype == BasicType.DEFERRED:
-                if scope.types.lookup(vname):
-                    fct_type = SymbolType(scope.types.lookup(vname))
-                    fct_symbol = sym.ProcedureSymbol(vname, type=fct_type, scope=scope, source=source)
+                _type = scope.types.lookup(vname)
+                if _type:
+                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
                     return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # If the (possibly external) struct definitions exist
@@ -822,19 +824,24 @@ class OFP2IR(GenericVisitor):
         kind = t.find('kind')
         if kind is not None:
             kind = self.visit(kind, scope=scope)
+
+        type_attrs = {
+            'pointer': 'POINTER' in attrs,
+            'allocatable': 'ALLOCATABLE' in attrs,
+        }
+
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            stype = SymbolType(BasicType.from_fortran_type(typename), kind=kind,
-                               pointer='POINTER' in attrs,
-                               allocatable='ALLOCATABLE' in attrs, source=t_source)
+            stype = AllocatedName(BasicType.from_fortran_type(typename), kind=kind,
+                                  source=t_source, **type_attrs)
         else:
             # This is a derived type. Let's see if we know it already
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
                 dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-            stype = SymbolType(dtype, kind=kind, pointer='POINTER' in attrs,
-                               allocatable='ALLOCATABLE' in attrs,
-                               variables=OrderedDict(), source=t_source)
+            else:
+                dtype = dtype.dtype
+            stype = AllocatedName(dtype, kind=kind, variables=OrderedDict(), source=t_source, **type_attrs)
 
         # Derive variables for this declaration entry
         variables = []
