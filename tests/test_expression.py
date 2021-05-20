@@ -835,22 +835,109 @@ def test_variable_factory_invalid(kwargs, exception):
         _ = symbols.Variable(**kwargs)
 
 
-@pytest.mark.parametrize('stype,reftype', [
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
-    (SymbolAttributes(BasicType.REAL), symbols.Scalar),
-    (SymbolAttributes(DerivedType('t')), symbols.Scalar),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
-    (SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+@pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
+    # From deferred type to other type
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    # From Scalar to other type
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From Array to other type
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From ProcedureSymbol to other type
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
 ])
-def test_variable_rebuild(stype, reftype):
+def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     """
     Test that rebuilding a variable object changes class according to symmbol type
     """
     scope = Scope()
-    var = symbols.Variable(name='var', scope=scope, type=SymbolAttributes(BasicType.DEFERRED))
-    assert isinstance(var, symbols.DeferredTypeSymbol)
-    scope.symbols['var'] = stype
-    assert isinstance(var, symbols.DeferredTypeSymbol)
+    var = symbols.Variable(name='var', scope=scope, type=initype)
+    assert isinstance(var, inireftype)
+    assert 'var' in scope.symbols
+    scope.symbols['var'] = newtype
+    assert isinstance(var, inireftype)
     var = var.clone()
-    assert isinstance(var, reftype)
+    assert isinstance(var, newreftype)
+
+
+@pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
+    # From deferred type to other type
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    # From Scalar to other type
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From Array to other type
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From ProcedureSymbol to other type
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
+])
+def test_variable_clone(initype, inireftype, newtype, newreftype):
+    """
+    Test that cloning a variable object changes class according to symbol type
+    """
+    scope = Scope()
+    var = symbols.Variable(name='var', scope=scope, type=initype)
+    assert isinstance(var, inireftype)
+    assert 'var' in scope.symbols
+    var = var.clone(type=newtype)
+    assert isinstance(var, newreftype)
