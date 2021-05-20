@@ -332,9 +332,9 @@ class MaxjCodegen(Stringifier):
         assert not o.symbols
         return self.format_line('import ', o.module, ';')
 
-    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
+    def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=no-self-use,unused-argument
         if isinstance(o.dtype, DerivedType):
-            return o.name
+            return o.dtype.name
         #    return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
             if o.shape:

@@ -3,7 +3,7 @@ import pytest
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
-    Transformer, fgen, SymbolType, Variable
+    Transformer, fgen, SymbolAttributes, Variable
 )
 
 
@@ -369,8 +369,8 @@ end module module_variables_add_remove
 
     # Create a new set of variables and add to local routine variables
     x = module.variable_map['x']  # That's the symbol for variable 'x'
-    real_type = SymbolType('real', kind=module.variable_map['jprb'])
-    int_type = SymbolType('integer')
+    real_type = SymbolAttributes('real', kind=module.variable_map['jprb'])
+    int_type = SymbolAttributes('integer')
     a = Variable(name='a', type=real_type, scope=module.scope)
     b = Variable(name='b', dimensions=(x, ), type=real_type, scope=module.scope)
     c = Variable(name='c', type=int_type, scope=module.scope)

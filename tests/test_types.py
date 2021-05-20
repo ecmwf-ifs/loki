@@ -3,7 +3,7 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, Sourcefile, Module, Subroutine, BasicType,
-    SymbolType, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
+    SymbolAttributes, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
     DataType
 )
 
@@ -44,12 +44,12 @@ def test_basic_type():
     assert all(t == BasicType.from_str(s) for s, t in c99_type_map.items())
 
 
-def test_symbol_type():
+def test_symbol_attributes():
     """
     Tests the attachment, lookup and deletion of arbitrary attributes from
-    class:``SymbolType``
+    :any:`SymbolAttributes`
     """
-    _type = SymbolType('integer', a='a', b=True, c=None)
+    _type = SymbolAttributes('integer', a='a', b=True, c=None)
     assert _type.dtype == BasicType.INTEGER
     assert _type.a == 'a'
     assert _type.b
@@ -63,14 +63,14 @@ def test_symbol_type():
     assert _type.foo is None
 
 
-def test_symbol_type_compare():
+def test_symbol_attributes_compare():
     """
     Test dedicated `type.compare` methods that allows certain
     attributes to be excluded from comparison.
     """
-    someint = SymbolType('integer', a='a', b=True, c=None)
-    another = SymbolType('integer', a='a', b=False, c=None)
-    somereal = SymbolType('real', a='a', b=True, c=None)
+    someint = SymbolAttributes('integer', a='a', b=True, c=None)
+    another = SymbolAttributes('integer', a='a', b=False, c=None)
+    somereal = SymbolAttributes('real', a='a', b=True, c=None)
 
     assert not someint.compare(another)
     assert not another.compare(someint)

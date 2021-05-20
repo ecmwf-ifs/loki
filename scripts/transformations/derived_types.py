@@ -10,7 +10,7 @@ derived-type arguments in complex calling structures.
 from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
-    SubstituteExpressions, CallStatement, Variable, SymbolType,
+    SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
     DerivedType, BasicType, ArraySubscript, RangeIndex, as_tuple
 )
 
@@ -131,8 +131,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
             new_vars = []
             for type_var in type_vars:
                 # Create a new variable with a new type mimicking the old one
-                new_type = SymbolType(type_var.type.dtype, kind=type_var.type.kind,
-                                      intent=arg.type.intent, shape=type_var.type.shape)
+                new_type = SymbolAttributes(type_var.type.dtype, kind=type_var.type.kind,
+                                            intent=arg.type.intent, shape=type_var.type.shape)
                 new_name = '%s_%s' % (arg.name, type_var.basename)
                 new_dimensions = ArraySubscript(new_type.shape) if new_type.shape else None
                 new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions,

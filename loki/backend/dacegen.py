@@ -92,7 +92,7 @@ class DaceCodegen(PyCodegen):
         self.depth -= 1
         return self.join_lines(header, body)
 
-    def visit_SymbolType(self, o, **kwargs):
+    def visit_SymbolAttributes(self, o, **kwargs):
         dtype = dace_type(o)
         shape = ''
         if o.shape is not None:

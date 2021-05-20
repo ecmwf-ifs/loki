@@ -5,9 +5,9 @@ import codecs
 from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic, Pragma
 from loki.frontend.source import Source
-from loki.expression import Variable
+from loki.expression import Variable, DeferredTypeSymbol
 from loki.tools import as_tuple
-from loki.types import ImportedName
+from loki.types import SymbolAttributes, ProcedureType
 from loki.logging import warning
 
 __all__ = [
@@ -138,10 +138,13 @@ def import_external_symbols(module, symbol_names, scope):
             symbol = Variable(name=name, type=module.symbols[name], scope=scope)
 
         elif module and name in module.types:
-            symbol = ImportedName(module.types[name].dtype)
-            scope.types[name] = ImportedName(module.types[name].dtype)
+            if isinstance(module.types[name].dtype, ProcedureType):
+                symbol = Variable(name=name, type=module.types[name], scope=scope)
+            else:
+                symbol = module.types[name].dtype
+            scope.types[name] = module.types[name]
         else:
-            symbol = Variable(name=name, scope=scope)
+            symbol = DeferredTypeSymbol(name=name, scope=scope)
         symbols.append(symbol)
 
     return as_tuple(symbols)

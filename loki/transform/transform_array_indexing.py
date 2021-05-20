@@ -13,7 +13,7 @@ from loki.expression import (
 )
 from loki.ir import Assignment, Loop, Declaration
 from loki.tools import as_tuple
-from loki.types import SymbolType, BasicType
+from loki.types import SymbolAttributes, BasicType
 from loki.visitors import FindNodes, Transformer
 
 
@@ -93,7 +93,7 @@ def resolve_vector_notation(routine):
             for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
                     # Create new index variable
-                    vtype = SymbolType(BasicType.INTEGER)
+                    vtype = SymbolAttributes(BasicType.INTEGER)
                     ivar = sym.Variable(name='%s_%s' % (ivar_basename, i), type=vtype,
                                         scope=routine.scope)
                     shape_index_map[s] = ivar

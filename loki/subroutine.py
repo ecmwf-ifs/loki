@@ -15,7 +15,7 @@ from loki.logging import warning, debug
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import Scope, ProcedureType, DeclaredName
+from loki.types import Scope, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -91,7 +91,7 @@ class Subroutine:
 
         # Register this procedure in the parent scope
         if self.scope.parent:
-            self.scope.parent.types[self.name] = DeclaredName(ProcedureType(procedure=self))
+            self.scope.parent.types[self.name] = SymbolAttributes(ProcedureType(procedure=self))
 
         with pragmas_attached(self, Declaration):
             self.spec = process_dimension_pragmas(self.spec)

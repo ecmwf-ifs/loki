@@ -7,7 +7,7 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType, SymbolType, Scope
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.expression.mappers import LokiStringifyMapper
 
 
@@ -15,7 +15,7 @@ __all__ = [
     # Mix-ins
     'ExprMetadataMixin', 'StrCompareMixin',
     # Typed leaf nodes
-    'TypedSymbol', 'Scalar', 'Array', 'Variable', 'ProcedureSymbol',
+    'TypedSymbol', 'DeferredTypeSymbol', 'Scalar', 'Array', 'Variable', 'ProcedureSymbol',
     # Non-typed leaf nodes
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
     'IntrinsicLiteral', 'Literal', 'LiteralList',
@@ -102,6 +102,8 @@ class TypedSymbol:
         The scope in which that symbol is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    parent : :any:`Scalar` or :any:`Array`, optional
+        The derived type variable this variable belongs to.
 
     .. note::
         Providing a type overwrites the corresponding entry in the scope's
@@ -111,6 +113,7 @@ class TypedSymbol:
 
     def __init__(self, *args, **kwargs):
         self.name = kwargs.get('name')
+        self.parent = kwargs.pop('parent', None)
         scope = kwargs.pop('scope')
         _type = kwargs.pop('type', None)
 
@@ -123,7 +126,7 @@ class TypedSymbol:
             # Insert the deferred type in the type table only if it does not exist
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
-            self.scope.symbols.setdefault(self.name, SymbolType(BasicType.DEFERRED))
+            self.scope.symbols.setdefault(self.name, SymbolAttributes(BasicType.DEFERRED))
         else:
             lookup_type = self.scope.symbols.lookup(self.name)
             if not lookup_type or (_type.dtype is not BasicType.DEFERRED and _type is not lookup_type):
@@ -154,6 +157,14 @@ class TypedSymbol:
     def type(self, value):
         self.scope.symbols[self.name] = value
 
+    @property
+    def basename(self):
+        """
+        The symbol name without the qualifier from the parent.
+        """
+        idx = self.name.rfind('%')
+        return self.name[idx+1:]
+
     def clone(self, **kwargs):
         """
         Replicate the object with the provided overrides.
@@ -165,8 +176,38 @@ class TypedSymbol:
             kwargs['scope'] = self.scope
         if self.type and 'type' not in kwargs:
             kwargs['type'] = self.type
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
 
-        return type(self)(**kwargs)
+        return Variable(**kwargs)
+
+
+class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
+    """
+    Internal representation of symbols with deferred type
+
+    This is used, for example, in the symbol list of :any:`Import` if a symbol's
+    definition is not available.
+
+    Note that symbols with deferred type are assumed to be variables, which
+    implies they are included in the result from visitors such as
+    :any:`FindVariables`.
+
+    Parameters
+    ----------
+    name : str
+        The name of the symbol
+    scope : :any:`Scope`
+        The scope in which the symbol is declared
+    """
+
+    def __init__(self, name, scope, **kwargs):
+        if kwargs.get('type') is None:
+            kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
+        assert kwargs['type'].dtype is BasicType.DEFERRED
+        super().__init__(name=name, scope=scope, **kwargs)
+
+    mapper_method = intern('map_deferred_type_symbol')
 
 
 class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
@@ -181,24 +222,12 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         The scope in which the variable is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
-    parent : :any:`Scalar` or :any:`Array`, optional
-        The derived type variable this variable belongs to.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, **kwargs):
+    def __init__(self, name, scope, type=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
-
-        self.parent = parent
-
-    @property
-    def basename(self):
-        """
-        The symbol name without the qualifier from the parent.
-        """
-        idx = self.name.rfind('%')
-        return self.name[idx+1:]
 
     @property
     def initial(self):
@@ -222,22 +251,6 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
-    def clone(self, **kwargs):
-        """
-        Replicate the :class:`Scalar` variable with the provided overrides.
-        """
-        # Add existing meta-info to the clone arguments, only if we have them.
-        if self.name and 'name' not in kwargs:
-            kwargs['name'] = self.name
-        if self.scope and 'scope' not in kwargs:
-            kwargs['scope'] = self.scope
-        if self.type and 'type' not in kwargs:
-            kwargs['type'] = self.type
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-
-        return Variable(**kwargs)
-
 
 class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
     """
@@ -256,30 +269,19 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         The scope in which the variable is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
-    parent : :any:`Scalar` or :any:`Array`, optional
-        The derived type variable this variable belongs to.
     dimensions : :any:`ArraySubscript`, optional
         The array subscript expression.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, dimensions=None, **kwargs):
+    def __init__(self, name, scope, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
 
-        self.parent = parent
         # Ensure dimensions are treated via ArraySubscript objects
         if dimensions is not None and not isinstance(dimensions, ArraySubscript):
             dimensions = ArraySubscript(dimensions)
         self.dimensions = dimensions
-
-    @property
-    def basename(self):
-        """
-        The symbol name without the qualifier from the parent.
-        """
-        idx = self.name.rfind('%')
-        return self.name[idx+1:]
 
     @property
     def initial(self):
@@ -335,18 +337,9 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         to have no shape, this will create a :any:`Scalar` variable.
         """
         # Add existing meta-info to the clone arguments, only if we have them.
-        if self.name and 'name' not in kwargs:
-            kwargs['name'] = self.name
-        if self.scope and 'scope' not in kwargs:
-            kwargs['scope'] = self.scope
         if self.dimensions and 'dimensions' not in kwargs:
             kwargs['dimensions'] = self.dimensions
-        if self.type and 'type' not in kwargs:
-            kwargs['type'] = self.type
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-
-        return Variable(**kwargs)
+        return super().clone(**kwargs)
 
 
 class Variable:
@@ -381,12 +374,15 @@ class Variable:
         _type = kwargs.setdefault('type', scope.symbols.lookup(name))
 
         dimensions = kwargs.pop('dimensions', None)
-        shape = _type.shape if _type is not None else None
 
-        if dimensions is None and not shape:
+        if dimensions is not None or (_type and _type.shape):
+            obj = Array(dimensions=dimensions, **kwargs)
+        elif _type and isinstance(_type.dtype, ProcedureType):
+            obj = ProcedureSymbol(**kwargs)
+        elif _type and _type.dtype is not BasicType.DEFERRED:
             obj = Scalar(**kwargs)
         else:
-            obj = Array(dimensions=dimensions, **kwargs)
+            obj = DeferredTypeSymbol(**kwargs)
 
         obj = cls.instantiate_derived_type_variables(obj)
         return obj
@@ -451,6 +447,22 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         self.parent = parent
 
     mapper_method = intern('map_procedure_symbol')
+
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        # Add existing meta-info to the clone arguments, only if we have them.
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.scope and 'scope' not in kwargs:
+            kwargs['scope'] = self.scope
+        if self.type and 'type' not in kwargs:
+            kwargs['type'] = self.type
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+
+        return ProcedureSymbol(**kwargs)
 
 
 class _Literal(pmbl.Leaf):

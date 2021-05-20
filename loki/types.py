@@ -1,43 +1,110 @@
 r"""
-Collection of classes to represent basic and complex types. The key ideas are:
+Collection of classes to represent type information for symbols used
+throughout :ref:`internal_representation:Loki's internal representation`
 
-* Expression symbols (:any:`TypedSymbol`, i.e. for example :any:`Scalar`,
-  :any:`Array` or :any:`Literal`) have a :any:`SymbolType` accessible via
-  their :py:attr:`type` attribute. This encodes the type definition in the
-  local scope.
-* Each :any:`SymbolType` can represent either a :any:`BasicType`, which may
-  be ``DEFERRED``, a :any:`DerivedType`, or, for functions/subroutines a
-  :any:`ProcedureType`. This underlying type is generally accessible as
-  ``symbol.type.dtype``.
-* Each scoped object (eg. :any:`Subroutine` or :any:`Module`) has an
-  associated :any:`Scope` member (accessible as ``routine.scope``) that
-  manages :any:`TypeTable` objects to map symbol instances to types and
-  derived type definitions.
+The key ideas of Loki's type system are:
 
-.. code-block:: none
+* Every symbol (:any:`TypedSymbol`, such as :any:`Scalar`,
+  :any:`Array`, :any:`ProcedureSymbol`) has a type (represented by a
+  :any:`DataType`) and, possibly, other attributes associated with it.
+  Type and attributes are stored together in a :any:`SymbolAttributes`
+  object, which is essentially a `dict`.
 
-   symbols.Variable  ---                      Subroutine | Module | TypeDef
-                         \                            \      |      /
-                          \                            \     |     /
-                           SymbolType    ------------    TypeTable
-                         /     |      \
-                        /      |       \
-               BasicType   DerivedType  ProcedureType
+  .. note::
+     An array variable ``VAR`` may be declared in Fortran as a subroutine
+     argument in the following way:
 
+     .. code-block:: none
 
-.. note::
+        INTEGER(4), INTENT(INOUT) :: VAR(10)
 
-   When importing :any:`TypeDef` objects into a local scope, a
-   :any:`DerivedType` object will act as a wrapper in the ``symbol.type.dtype``
-   attribute. Importantly, when variable instances based on this get created,
-   the :any:`DerivedType` object will re-create all member variables of the
-   object in the local scope, which are then accessible via
-   ``symbol.type.dtype.variables``. If the original member declaration
-   variables are required, these can be accessed via
-   ``symbol.type.dtype.typedef.variables``.
+     This variable has type :any:`BasicType.INTEGER` and the following
+     additional attributes:
+
+     * ``KIND=4``
+     * ``INTENT=INOUT``
+     * ``SHAPE=(10,)``
+
+     The corresponding :any:`SymbolAttributes` object can be created as
+
+     .. code-block::
+
+        SymbolAttributes(BasicType.INTEGER, kind=Literal(4), intent='inout', shape=(Literal(10),))
+
+* The :any:`SymbolAttributes` object is stored in the relevant :any:`TypeTable`
+  and queried from there by all expression nodes that represent use of the
+  associated symbol. This means, changing the declared attributes of a symbol
+  applies this change for all instances of this symbol.
+
+  .. warning::
+     Changing symbol attributes can lead to invalid states.
+
+     For example, removing the ``shape`` property from the :any:`SymbolAttributes`
+     object in a symbol table converts the corresponding :any:`Array` to
+     a :any:`Scalar` variable. But at this point all expression tree nodes will
+     still be :any:`Array`, possibly also with subscript operations (represented
+     by the ``dimensions`` property).
+
+     For plain :any:`Array` nodes (without subscript), rebuilding the IR will
+     automatically take care of instantiating these objects as :any:`Scalar` but
+     removing ``dimensions`` properties must be done explicitly.
+
+* Every object that defines a new scope (e.g., :any:`Subroutine`,
+  :any:`Module`, implementing :any:`Scope`) has an associated symbol table
+  (:any:`TypeTable`). The :any:`SymbolAttributes` of a symbol declared or
+  imported in a scope are stored in the symbol table of that scope.
+* The symbol tables/scopes are organized in a hierarchical fashion, i.e., they
+  are aware of their enclosing scope and allow to recursively look-up entries.
+* The overall schematics of the scope and type representation are depicted in the
+  following diagram:
+
+  .. code-block:: none
+
+        Subroutine | Module | TypeDef | ...
+                \      |      /
+                 \     |     /   <is>
+                  \    |    /
+                     Scope
+                       |
+                       | <has>
+                       |
+                  SymbolTable  - - - - - - - - - - - - TypedSymbol
+                       |
+                       |  <has entries>
+                       |
+                SymbolAttributes
+             /     |       |      \
+            /      |       |       \  <has properties>
+           /       |       |        \
+     DataType | (kind) | (intent) | (...)
+
+* The :any:`DataType` of a symbol can be one of
+
+  * :any:`BasicType`: intrinsic types, such as ``INTEGER``, ``REAL``, etc.
+  * :any:`DerivedType`: derived types defined somewhere
+  * :any:`ProcedureType`: any subroutines or functions declared or imported
+
+  Note that this is different from the understanding of types in the Fortran
+  standard, where only intrinsic types and derived types are considered a
+  type. Treating also procedures as types allows us to treat them uniformly
+  when considering external subprograms, procedure pointers and type bound
+  procedures.
+
+  .. code-block:: none
+
+     BasicType | DerivedType | ProcedureType
+              \       |       /
+               \      |      /    <implements>
+                \     |     /
+                   DataType
+
+* Derived type definitions (via :any:`TypeDef`) also create entries in the
+  symbol table to make the type definition available to declarations.
+* For imported symbols (via :any:`Import`) the source module may not be
+  available and thus no information about the symbol. This is indicated by
+  :any:`BasicType.DEFERRED`.
 """
 
-from abc import ABC
 import weakref
 from enum import IntEnum
 from collections import OrderedDict
@@ -46,8 +113,7 @@ from loki.tools import flatten, as_tuple
 
 __all__ = [
     'DataType', 'BasicType', 'DerivedType', 'ProcedureType',
-    'SymbolType', 'AllocatedName', 'DeclaredName', 'ImportedName', 'UnknownName',
-    'TypeTable', 'Scope'
+    'SymbolAttributes', 'TypeTable', 'Scope'
 ]
 
 
@@ -55,6 +121,13 @@ class DataType:
     """
     Base class for data types a symbol may have
     """
+
+    def __init__(self, *args): # pylint:disable=unused-argument
+        # Make sure we always instantiate one of the subclasses
+        # Note that we cannot use ABC for that as this would cause a
+        # metaclass clash with IntEnum, which is used to represent
+        # intrinsic types in BasicType
+        assert self.__class__ is not DataType
 
 
 class BasicType(DataType, IntEnum):
@@ -143,6 +216,7 @@ class DerivedType(DataType):
     """
 
     def __init__(self, name=None, typedef=None):
+        super().__init__()
         assert name or typedef
         self._name = name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED
@@ -172,6 +246,7 @@ class ProcedureType(DataType):
     """
 
     def __init__(self, name=None, is_function=False, procedure=None):
+        super().__init__()
         assert name or procedure
         self._name = name
         self._is_function = is_function
@@ -200,13 +275,13 @@ class ProcedureType(DataType):
         return '<ProcedureType {}>'.format(self.name)
 
 
-class SymbolType(ABC):
+class SymbolAttributes:
     """
-    Abstract base class for the representation of a symbol's data type
-    and attributes.
+    Representation of a symbol's attributes, such as data type and declared
+    properties
 
-    It has a fixed :any:`DataType` associated with, available as property
-    :attr:`SymbolType.dtype`.
+    It has a fixed :any:`DataType` associated with it, available as property
+    :attr:`SymbolAttributes.dtype`.
 
     Any other properties can be attached on-the-fly, thus allowing to store
     arbitrary metadata for a symbol, e.g., declaration attributes such as
@@ -257,7 +332,7 @@ class SymbolType(ABC):
                 if v:
                     parameters += [str(k)]
             elif k == 'parent' and v is not None:
-                parameters += ['parent=%s(%s)' % ('Type' if isinstance(v, SymbolType)
+                parameters += ['parent=%s(%s)' % ('Type' if isinstance(v, SymbolAttributes)
                                                   else 'Variable', v.name)]
             else:
                 parameters += ['%s=%s' % (k, str(v))]
@@ -271,13 +346,9 @@ class SymbolType(ABC):
             args += [(k, v)]
         return tuple(args)
 
-    @property
-    def name(self):
-        return self.dtype.name
-
     def clone(self, **kwargs):
         """
-        Clone the :any:`SymbolType`, optionally overwriting any attributes
+        Clone the :any:`SymbolAttributes`, optionally overwriting any attributes
 
         Attributes that should be removed should simply be given as `None`.
         """
@@ -288,11 +359,11 @@ class SymbolType(ABC):
 
     def compare(self, other, ignore=None):
         """
-        Compare :any:`SymbolType` objects while ignoring a set of select attributes.
+        Compare :any:`SymbolAttributes` objects while ignoring a set of select attributes.
 
         Parameters
         ----------
-        other : :any:`SymbolType`
+        other : :any:`SymbolAttributes`
             The object to compare with
         ignore : iterable, optional
             Names of attributes to ignore while comparing.
@@ -307,40 +378,9 @@ class SymbolType(ABC):
                    for k in keys if k not in ignore_attrs)
 
 
-class AllocatedName(SymbolType):
-    """
-    The symbol type for allocated symbols
-
-    This applies, e.g., to :any:`Scalar` or :any:`Array`.
-    """
-
-
-class DeclaredName(SymbolType):
-    """
-    The symbol type for locally declared symbols
-
-    This applies, e.g., to :any:`ProcedureSymbol` or :any:`TypeSymbol`.
-    """
-
-
-class ImportedName(SymbolType):
-    """
-    The symbol type for imported symbols
-
-    This can apply to any :any:`TypedSymbol` imported in :any:`Import` node.
-    """
-
-class UnknownName(SymbolType):
-    """
-    The fallback symbol type for symbols without type information
-
-    This indicates an incomplete state.
-    """
-
-
 class TypeTable(dict):
     """
-    Lookup table for symbol types that maps symbol names to :any:`SymbolType`
+    Lookup table for symbol types that maps symbol names to :any:`SymbolAttributes`
 
     It is used to store types for declared variables, defined types or imported
     symbols within their respective scope. If its associated scope is nested
@@ -407,7 +447,7 @@ class TypeTable(dict):
         return value if value is not None else default
 
     def __setitem__(self, key, value):
-        assert isinstance(value, SymbolType)
+        assert isinstance(value, SymbolAttributes)
         name_parts = self.format_lookup_name(key)
         super().__setitem__(name_parts, value)
 
@@ -426,7 +466,7 @@ class Scope:
     Scoping object that manages type caching and derivation for typed symbols.
 
     The ``Scope`` provides two key tables:
-     * ``scope.symbols`` uniquely maps each variables name to a ``SymbolType``
+     * ``scope.symbols`` uniquely maps each variables name to a ``SymbolAttributes``
      * ``scope.types`` uniquely maps derived and procedure type names to
        their respective data type objects and definitions.
 

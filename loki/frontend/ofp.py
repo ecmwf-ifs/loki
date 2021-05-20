@@ -22,7 +22,7 @@ from loki.tools import (
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG
-from loki.types import BasicType, DerivedType, ProcedureType, Scope, AllocatedName, DeclaredName
+from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -393,7 +393,7 @@ class OFP2IR(GenericVisitor):
                                      label=label, source=source)
 
                 # Now make the typedef known in its scope's type table
-                self.scope.types[name] = DeclaredName(DerivedType(name=name, typedef=typedef))
+                self.scope.types[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
 
                 return typedef
 
@@ -420,8 +420,8 @@ class OFP2IR(GenericVisitor):
             if o.find('type').attrib['type'] == 'intrinsic':
                 # Create a basic variable type
                 # TODO: Character length attribute
-                stype = AllocatedName(BasicType.from_fortran_type(typename), kind=kind,
-                                      shape=dimensions, source=source, **type_attrs)
+                stype = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind,
+                                         shape=dimensions, source=source, **type_attrs)
             else:
                 # Create the local variant of the derived type
                 dtype = self.scope.types.lookup(typename, recursive=True)
@@ -430,7 +430,7 @@ class OFP2IR(GenericVisitor):
                 else:
                     dtype = dtype.dtype
 
-                stype = AllocatedName(dtype, source=source, **type_attrs)
+                stype = SymbolAttributes(dtype, source=source, **type_attrs)
 
             variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
                          for v in o.findall('variables/variable')]
@@ -438,9 +438,15 @@ class OFP2IR(GenericVisitor):
             return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
                                   label=label, source=source)
         if o.attrib['type'] == 'external':
-            variables = [self.visit(v) for v in o.findall('names/name')]
-            for v in variables:
-                v.type.external = True
+            variables = []
+            for v in o.findall('names/name'):
+                var = self.visit(v)
+                if var.type.dtype is BasicType.DEFERRED:
+                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=False), external=True)
+                else:
+                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=True), external=True,
+                                           return_type=var.type.dtype)
+                variables += [var.clone(type=_type)]
             return ir.Declaration(variables=variables, external=True, label=label, source=source)
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -671,9 +677,19 @@ class OFP2IR(GenericVisitor):
             _type = _type.clone(shape=dimensions, initial=initial)
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
+
         external = kwargs.get('external')
         if external:
-            _type.external = external
+            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
+            # variable declaration but declares a procedure symbol. Depending on whether
+            # we have a data type for that symbol or not, we can deduce it to be a
+            # function or subroutine
+            if _type.dtype is BasicType.DEFERRED:
+                _type = _type.clone(dtype=ProcedureType(name=name, is_function=False), external=external)
+            else:
+                _type = _type.clone(dtype=ProcedureType(name=name, is_function=True),
+                                    external=external, return_type=_type.dtype)
+
         return sym.Variable(name=name, scope=self.scope, dimensions=dimensions,
                             type=_type, source=source)
 
@@ -832,7 +848,7 @@ class OFP2IR(GenericVisitor):
 
         # We have an intrinsic Fortran type
         if t.attrib['type'] == 'intrinsic':
-            stype = AllocatedName(BasicType.from_fortran_type(typename), kind=kind,
+            stype = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind,
                                   source=t_source, **type_attrs)
         else:
             # This is a derived type. Let's see if we know it already
@@ -841,7 +857,7 @@ class OFP2IR(GenericVisitor):
                 dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
             else:
                 dtype = dtype.dtype
-            stype = AllocatedName(dtype, kind=kind, variables=OrderedDict(), source=t_source, **type_attrs)
+            stype = SymbolAttributes(dtype, kind=kind, variables=OrderedDict(), source=t_source, **type_attrs)
 
         # Derive variables for this declaration entry
         variables = []

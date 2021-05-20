@@ -12,7 +12,7 @@ from conftest import (
 from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType,
+    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum
 )
 from loki.expression import symbols
@@ -736,14 +736,14 @@ def test_string_compare():
     """
     # Utility objects for manual expression creation
     scope = Scope()
-    type_int = SymbolType(dtype=BasicType.INTEGER)
-    type_real = SymbolType(dtype=BasicType.REAL)
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    type_real = SymbolAttributes(dtype=BasicType.REAL)
 
     i = Variable(name='i', scope=scope, type=type_int)
     j = Variable(name='j', scope=scope, type=type_int)
 
     # Test a scalar variable
-    u = Variable(name='u', scope=scope, type=SymbolType(dtype=BasicType.REAL))
+    u = Variable(name='u', scope=scope, type=SymbolAttributes(dtype=BasicType.REAL))
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 

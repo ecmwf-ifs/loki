@@ -48,6 +48,8 @@ class LokiStringifyMapper(StringifyMapper):
             return self.format('%s%%%s', parent, expr.basename)
         return expr.name
 
+    map_deferred_type_symbol = map_scalar
+
     def map_array(self, expr, enclosing_prec, *args, **kwargs):
         dims, parent = '', ''
         if expr.dimensions:
@@ -174,6 +176,8 @@ class ExpressionRetriever(WalkMapper):
             return
         self.post_visit(expr, *args, **kwargs)
 
+    map_deferred_type_symbol = map_scalar
+
     def map_array(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
@@ -275,6 +279,9 @@ class ExpressionDimensionsMapper(Mapper):
     map_intrinsic_literal = map_algebraic_leaf
     map_scalar = map_algebraic_leaf
 
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
+        raise ValueError('Symbol with deferred type encountered: {}'.format(expr))
+
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions is None:
             # We have the full array
@@ -332,6 +339,7 @@ class ExpressionCallbackMapper(CombineMapper):
 
     map_variable = map_constant
     map_scalar = map_constant
+    map_deferred_type_symbol = map_constant
 
     def map_array(self, expr, *args, **kwargs):
         rec_results = (self.callback(expr, *args, **kwargs), )
@@ -405,8 +413,9 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        return expr.__class__(name=expr.name, scope=expr.scope, type=expr.type, parent=parent,
-                              source=expr.source)
+        return expr.clone(parent=parent)
+
+    map_deferred_type_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
@@ -414,8 +423,12 @@ class LokiIdentityMapper(IdentityMapper):
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        return expr.__class__(name=expr.name, scope=expr.scope, type=expr.type, parent=parent,
-                              dimensions=dimensions, source=expr.source)
+        if expr.shape:
+            shape = self.rec(expr.shape, *args, **kwargs)
+            _type = expr.type.clone(shape=shape)
+        else:
+            _type = expr.type
+        return expr.clone(parent=parent, dimensions=dimensions, type=_type)
 
     def map_array_subscript(self, expr, *args, **kwargs):
         return expr.__class__(self.rec(expr.index, *args, **kwargs))

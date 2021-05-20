@@ -10,7 +10,7 @@ from loki.tools import flatten, as_tuple
 from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
-    StringLiteral, IntrinsicLiteral
+    StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
 )
 
 __all__ = [
@@ -139,13 +139,15 @@ class FindTypedSymbols(ExpressionFinder):
 
 class FindVariables(ExpressionFinder):
     """
-    A visitor to collect all variables (:class:`pymbolic.primitives.Variable`, which includes
-    :class:`loki.Scalar` and :class:`loki.Array`) symbols used in an IR tree.
+    A visitor to collect all variables used in an IR tree
 
-    See :class:`ExpressionFinder`
+    This refers to expression tree nodes :any:`Scalar`, :any:`Array` and also
+    :any:`DeferredTypeSymbol`.
+
+    See :class:`ExpressionFinder` for further details
     """
     retrieval_function = staticmethod(
-        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (Scalar, Array))))
+        lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol))))
 
 
 class FindInlineCalls(ExpressionFinder):

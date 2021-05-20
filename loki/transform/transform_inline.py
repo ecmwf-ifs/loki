@@ -8,7 +8,7 @@ from loki.expression import (
     SubstituteExpressions, LokiIdentityMapper
 )
 from loki.ir import Import, Comment, Assignment
-from loki.types import BasicType, ImportedName
+from loki.types import BasicType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -165,6 +165,6 @@ def inline_elemental_functions(routine):
     # Remove all module imports that have become obsolete now
     import_map = {}
     for im in FindNodes(Import).visit(routine.spec):
-        if all(isinstance(s, ImportedName) and s.dtype in removed_functions for s in im.symbols):
+        if all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)
