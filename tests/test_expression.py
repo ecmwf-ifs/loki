@@ -13,7 +13,7 @@ from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
-    parse_fparser_expression, Sum
+    parse_fparser_expression, Sum, DerivedType, ProcedureType
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -800,3 +800,57 @@ def test_parse_fparser_expression(source, ref):
     ir = parse_fparser_expression(source, scope)
     assert isinstance(ir, pmbl.Expression)
     assert str(ir) == ref
+
+
+@pytest.mark.parametrize('kwargs,reftype', [
+    ({}, symbols.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.DEFERRED)}, symbols.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.INTEGER)}, symbols.Scalar),
+    ({'type': SymbolAttributes(BasicType.REAL)}, symbols.Scalar),
+    ({'type': SymbolAttributes(DerivedType('t'))}, symbols.Scalar),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),))}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)),
+      'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.DEFERRED), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(ProcedureType('routine'))}, symbols.ProcedureSymbol),
+])
+def test_variable_factory(kwargs, reftype):
+    """
+    Test the factory class :any:`Variable` and the dispatch to correct classes.
+    """
+    scope = Scope()
+    assert isinstance(symbols.Variable(name='var', scope=scope, **kwargs), reftype)
+
+
+@pytest.mark.parametrize('kwargs,exception', [
+    ({'name': 'var'}, KeyError),  # no scope
+    ({'scope': Scope()}, KeyError),  # no name
+])
+def test_variable_factory_invalid(kwargs, exception):
+    """
+    Test invalid variable instantiations
+    """
+    with pytest.raises(exception):
+        _ = symbols.Variable(**kwargs)
+
+
+@pytest.mark.parametrize('stype,reftype', [
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.REAL), symbols.Scalar),
+    (SymbolAttributes(DerivedType('t')), symbols.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
+    (SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+])
+def test_variable_rebuild(stype, reftype):
+    """
+    Test that rebuilding a variable object changes class according to symmbol type
+    """
+    scope = Scope()
+    var = symbols.Variable(name='var', scope=scope, type=SymbolAttributes(BasicType.DEFERRED))
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    scope.symbols['var'] = stype
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    var = var.clone()
+    assert isinstance(var, reftype)

@@ -344,12 +344,22 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
 
 class Variable:
     """
-    Factory class for :any:`Scalar` and :any:`Array`.
+    Factory class for :any:`TypedSymbol` classes
 
     This is a convenience constructor to provide a uniform interface for
-    instantiating both scalar and array variables. Depending on the shape
-    in :data:`type` or a given :data:`dimensions`, this creates a
-    :any:`Array` or :any:`Scalar` object.
+    instantiating different symbol types. It checks the symbol's type
+    (either the provided :data:`type` or via a lookup in :data:`scope`)
+    and :data:`dimensions` and dispatches the relevant class constructor.
+
+    The tier algorithm is as follows:
+
+    1. `type.dtype` is :any:`ProcedureType`: Instantiate a
+       :any:`ProcedureSymbol`;
+    2. :data:`dimensions` is not `None` or `type.shape` is not `None`:
+       Instantiate an :any:`Array`;
+    3. `type.dtype` is not :any:`BasicType.DEFERRED`:
+       Instantiate a :any:`Scalar`;
+    4. None of the above: Instantiate a :any:`DeferredTypeSymbol`
 
     Parameters
     ----------
@@ -366,19 +376,18 @@ class Variable:
     """
 
     def __new__(cls, **kwargs):
-        """
-        1st-level variables creation with name injection via the object class
-        """
         name = kwargs['name']
         scope = kwargs['scope']
         _type = kwargs.setdefault('type', scope.symbols.lookup(name))
 
-        dimensions = kwargs.pop('dimensions', None)
+        if _type and isinstance(_type.dtype, ProcedureType):
+            return ProcedureSymbol(**kwargs)
 
-        if dimensions is not None or (_type and _type.shape):
-            obj = Array(dimensions=dimensions, **kwargs)
-        elif _type and isinstance(_type.dtype, ProcedureType):
-            obj = ProcedureSymbol(**kwargs)
+        if 'dimensions' in kwargs and kwargs['dimensions'] is None:
+            kwargs.pop('dimensions')
+
+        if kwargs.get('dimensions') is not None or (_type and _type.shape):
+            obj = Array(**kwargs)
         elif _type and _type.dtype is not BasicType.DEFERRED:
             obj = Scalar(**kwargs)
         else:
