@@ -457,6 +457,22 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
 
     mapper_method = intern('map_procedure_symbol')
 
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        # Add existing meta-info to the clone arguments, only if we have them.
+        if self.name and 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if self.scope and 'scope' not in kwargs:
+            kwargs['scope'] = self.scope
+        if self.type and 'type' not in kwargs:
+            kwargs['type'] = self.type
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+
+        return ProcedureSymbol(**kwargs)
+
 
 class _Literal(pmbl.Leaf):
     """
