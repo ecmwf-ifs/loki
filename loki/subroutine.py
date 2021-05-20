@@ -47,7 +47,7 @@ class Subroutine:
         Flag to indicate this is a function instead of subroutine
         (in the Fortran sense). Defaults to `False`.
     scope : :any:`Scope`, optional
-        The container that manages :any:`TypeTable` objects that cache type
+        The container that manages the symbol table that caches type
         information for all symbols defined within this subroutine's scope.
         If not provided an empty scope is created.
     parent_scope : :any:`Scope`, optional
