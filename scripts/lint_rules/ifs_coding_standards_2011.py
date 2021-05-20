@@ -116,7 +116,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
         cond = None
         for node in reversed(ast) if is_reversed else ast:
             if isinstance(node, ir.Conditional):
-                if isinstance(node.condition, sym.Scalar) and node.condition == 'LHOOK':
+                if node.condition == 'LHOOK':
                     cond = node
                     break
             elif not isinstance(node, cls.non_exec_nodes):
