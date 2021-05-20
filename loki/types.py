@@ -465,14 +465,16 @@ class Scope:
     """
     Scoping object that manages type caching and derivation for typed symbols.
 
-    The ``Scope`` provides two key tables:
-     * ``scope.symbols`` uniquely maps each variables name to a ``SymbolAttributes``
-     * ``scope.types`` uniquely maps derived and procedure type names to
-       their respective data type objects and definitions.
+    The :any:`Scope` provides a symbol table that uniquely maps a symbol's name
+    to its :any:`SymbolAttributes` or, for a derived type definition, directly
+    to its :any:`DerivedType`.
 
-    Note that derived and procedure type definitions may be markes as
-    ``BasicType.DEFERRED``, in which case the ``Scope`` may be able to
-    map them to concrete definitions at a later stage.
+    See :any:`TypeTable` for more details on how to look-up symbols.
+
+    Parameters
+    ----------
+    parent : :any:`Scope`, optional
+        The enclosing scope, thus allowing recursive look-ups
     """
 
     def __init__(self, parent=None):
@@ -480,9 +482,6 @@ class Scope:
 
         parent_symbols = self.parent.symbols if self.parent is not None else None
         self.symbols = TypeTable(parent=parent_symbols)
-
-        parent_types = self.parent.types if self.parent is not None else None
-        self.types = TypeTable(parent=parent_types)
 
         # Potential link-back to the owner that can be used to
         # traverse the dependency chain upwards.
@@ -498,7 +497,7 @@ class Scope:
     @property
     def defined_by(self):
         """
-        Object that owns this `Scope` and defines the types and symbols it connects
+        Object that owns this :any:`Scope` and defines the types and symbols it connects
         """
         return self._defined_by() if self._defined_by is not None else None
 

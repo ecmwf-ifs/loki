@@ -451,6 +451,7 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
 
     def __init__(self, name, scope, type=None, parent=None, **kwargs):
         # pylint: disable=redefined-builtin
+        assert type is None or isinstance(type.dtype, ProcedureType)
         super().__init__(name=name, scope=scope, type=type, **kwargs)
 
         self.parent = parent

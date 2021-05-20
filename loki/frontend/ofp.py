@@ -393,7 +393,7 @@ class OFP2IR(GenericVisitor):
                                      label=label, source=source)
 
                 # Now make the typedef known in its scope's type table
-                self.scope.types[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
+                self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
 
                 return typedef
 
@@ -424,8 +424,8 @@ class OFP2IR(GenericVisitor):
                                          shape=dimensions, source=source, **type_attrs)
             else:
                 # Create the local variant of the derived type
-                dtype = self.scope.types.lookup(typename, recursive=True)
-                if dtype is None:
+                dtype = self.scope.symbols.lookup(typename, recursive=True)
+                if dtype is None or dtype.dtype is BasicType.DEFERRED:
                     dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
                 else:
                     dtype = dtype.dtype
@@ -611,14 +611,6 @@ class OFP2IR(GenericVisitor):
             if _type and isinstance(_type.dtype, ProcedureType):
                 fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
                 return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
-
-            # No previous type declaration known for this symbol,
-            # see if it's a function call to a known procedure
-            if not _type or _type.dtype == BasicType.DEFERRED:
-                _type = scope.types.lookup(vname)
-                if _type:
-                    fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
-                    return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
 
             # If the (possibly external) struct definitions exist
             # try to derive the type from it.
@@ -852,7 +844,7 @@ class OFP2IR(GenericVisitor):
                                   source=t_source, **type_attrs)
         else:
             # This is a derived type. Let's see if we know it already
-            dtype = self.scope.types.lookup(typename, recursive=True)
+            dtype = self.scope.symbols.lookup(typename, recursive=True)
             if dtype is None:
                 dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
             else:

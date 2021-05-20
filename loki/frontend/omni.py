@@ -274,7 +274,7 @@ class OMNI2IR(GenericVisitor):
         typedef = ir.TypeDef(name=name.text, body=as_tuple(declarations), scope=typedef_scope)
 
         # Now make the typedef known in its scope's type table
-        self.scope.types[name.text] = SymbolAttributes(DerivedType(name=name.text, typedef=typedef))
+        self.scope.symbols[name.text] = SymbolAttributes(DerivedType(name=name.text, typedef=typedef))
 
         return typedef
 
@@ -306,7 +306,7 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        dtype = self.scope.types.lookup(name, recursive=True)
+        dtype = self.scope.symbols.lookup(name, recursive=True)
         if dtype is None:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:
@@ -532,10 +532,6 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we're dealing with a previously known function call
         stype = self.scope.symbols.lookup(name, recursive=True)
-        if not stype:
-            # No previous type declaration known for this symbol,
-            # see if it's a function call to a known procedure
-            stype = self.scope.types.lookup(name, recursive=True)
         if stype and isinstance(stype.dtype, ProcedureType) and stype.dtype.is_function:
             fct_symbol = sym.ProcedureSymbol(name, type=stype, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)

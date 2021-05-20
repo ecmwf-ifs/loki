@@ -91,7 +91,7 @@ class Subroutine:
 
         # Register this procedure in the parent scope
         if self.scope.parent:
-            self.scope.parent.types[self.name] = SymbolAttributes(ProcedureType(procedure=self))
+            self.scope.parent.symbols[self.name] = SymbolAttributes(ProcedureType(procedure=self))
 
         with pragmas_attached(self, Declaration):
             self.spec = process_dimension_pragmas(self.spec)
@@ -465,10 +465,6 @@ class Subroutine:
         Enclosing object, as defined by the propagation of types via `Scope` objects
         """
         return self.scope.parent.defined_by if self.scope.parent else None
-
-    @property
-    def types(self):
-        return self.scope.types
 
     def to_fortran(self, conservative=False):
         return fgen(self, conservative=conservative)
