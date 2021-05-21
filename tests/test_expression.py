@@ -823,16 +823,12 @@ def test_variable_factory(kwargs, reftype):
     assert isinstance(symbols.Variable(name='var', scope=scope, **kwargs), reftype)
 
 
-@pytest.mark.parametrize('kwargs,exception', [
-    ({'name': 'var'}, KeyError),  # no scope
-    ({'scope': Scope()}, KeyError),  # no name
-])
-def test_variable_factory_invalid(kwargs, exception):
+def test_variable_factory_invalid():
     """
     Test invalid variable instantiations
     """
-    with pytest.raises(exception):
-        _ = symbols.Variable(**kwargs)
+    with pytest.raises(KeyError):
+        _ = symbols.Variable()
 
 
 @pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
@@ -941,3 +937,52 @@ def test_variable_clone(initype, inireftype, newtype, newreftype):
     assert 'var' in scope.symbols
     var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
+
+
+def test_variable_without_scope():
+    """
+    Test that creating variables without scope works and scopes can be
+    attached and detached
+    """
+    # Create a plain variable without type or scope
+    var = symbols.Variable(name='var')
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type and var.type.dtype is BasicType.DEFERRED
+    # Attach a scope with a data type for this variable
+    scope = Scope()
+    scope.symbols['var'] = SymbolAttributes(BasicType.INTEGER)
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type and var.type.dtype is BasicType.DEFERRED
+    var.scope = scope
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type.dtype is BasicType.INTEGER
+    # Rebuild the variable
+    var = var.clone()
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.INTEGER
+    # Change the data type
+    var.type = SymbolAttributes(BasicType.REAL)
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.REAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Detach the scope
+    var.scope = None
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.DEFERRED
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Rebuild the variable
+    var = var.clone()
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type.dtype is BasicType.DEFERRED
+    # Assign a data type locally
+    var.type = SymbolAttributes(BasicType.LOGICAL)
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type.dtype is BasicType.LOGICAL
+    # Rebuild the variable
+    var = var.clone()
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    # Re-attach the scope
+    var.scope = scope
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.REAL

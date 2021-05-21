@@ -112,15 +112,14 @@ class TypedSymbol:
     """
 
     def __init__(self, *args, **kwargs):
-        self.name = kwargs.get('name')
+        self.name = kwargs['name']
         self.parent = kwargs.pop('parent', None)
-        scope = kwargs.pop('scope')
-        _type = kwargs.pop('type', None)
 
-        super().__init__(*args, **kwargs)
+        assert self.parent is None or isinstance(self.parent, TypedSymbol)
+        self.scope = kwargs.pop('scope', None)
 
-        assert isinstance(scope, Scope)
-        self._scope = weakref.ref(scope)
+        self._type = None
+        _type = kwargs.pop('type', None) or self.type
 
         if _type is None:
             # Insert the deferred type in the type table only if it does not exist
@@ -135,6 +134,8 @@ class TypedSymbol:
                 # entries for variables inherited from a parent scope
                 self.type = _type.clone()
 
+        super().__init__(*args, **kwargs)
+
     def __getinitargs__(self):
         args = [self.name, ('scope', self.scope)]
         return tuple(args)
@@ -142,20 +143,32 @@ class TypedSymbol:
     @property
     def scope(self):
         """
-        The object corresponding to the symbols scope.
+        The object corresponding to the symbol's scope.
         """
+        if self._scope is None:
+            return None
         return self._scope()
+
+    @scope.setter
+    def scope(self, new_scope):
+        assert new_scope is None or isinstance(new_scope, Scope)
+        self._scope = None if new_scope is None else weakref.ref(new_scope)
 
     @property
     def type(self):
         """
         Internal representation of the declared data type.
         """
+        if self._scope is None:
+            return self._type or SymbolAttributes(BasicType.DEFERRED)
         return self.scope.symbols.lookup(self.name)
 
     @type.setter
     def type(self, value):
-        self.scope.symbols[self.name] = value
+        if self._scope is None:
+            self._type = value
+        else:
+            self.scope.symbols[self.name] = value
 
     @property
     def basename(self):
@@ -201,7 +214,7 @@ class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.V
         The scope in which the symbol is declared
     """
 
-    def __init__(self, name, scope, **kwargs):
+    def __init__(self, name, scope=None, **kwargs):
         if kwargs.get('type') is None:
             kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
         assert kwargs['type'].dtype is BasicType.DEFERRED
@@ -224,7 +237,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  #
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     """
 
-    def __init__(self, name, scope, type=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
@@ -273,7 +286,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
         The array subscript expression.
     """
 
-    def __init__(self, name, scope, type=None, dimensions=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
@@ -377,8 +390,8 @@ class Variable:
 
     def __new__(cls, **kwargs):
         name = kwargs['name']
-        scope = kwargs['scope']
-        _type = kwargs.setdefault('type', scope.symbols.lookup(name))
+        scope = kwargs.get('scope')
+        _type = kwargs.get('type', scope.symbols.lookup(name) if scope is not None else None)
 
         if _type and isinstance(_type.dtype, ProcedureType):
             return ProcedureSymbol(**kwargs)
@@ -447,7 +460,7 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     """
 
-    def __init__(self, name, scope, type=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, **kwargs):
         # pylint: disable=redefined-builtin
         assert type is None or isinstance(type.dtype, ProcedureType) or type.dtype is BasicType.DEFERRED
         super().__init__(name=name, scope=scope, type=type, **kwargs)
