@@ -158,8 +158,12 @@ class Node:
         """
         Pretty-print the node hierachy under this node.
         """
-        from loki.visitors import pprint  # pylint: disable=import-outside-toplevel
-        return pprint(self)
+        # pylint: disable=import-outside-toplevel
+        from io import StringIO
+        from loki.visitors import pprint
+        stream = StringIO()
+        pprint(self, stream=stream)
+        return stream.getvalue()
 
     @property
     def live_symbols(self):

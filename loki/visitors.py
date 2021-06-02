@@ -4,6 +4,7 @@ Visitor classes that allow traversing the tree of control flow nodes.
 
 import inspect
 from itertools import groupby
+from sys import stdout
 
 from loki.ir import Node, Conditional
 from loki.tools import flatten, is_iterable, as_tuple, JoinableStringList
@@ -1137,8 +1138,17 @@ class Stringifier(Visitor):
         return self.join_lines(header, *body)
 
 
-def pprint(ir):
+def pprint(ir, stream=None):
     """
     Pretty-print the given IR using :any:`Stringifier`.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        The IR node starting from which to print the tree
+    stream : optional
+        If given, call :any:`write` on this stream instead of :any:`sys.stdout`
     """
-    print(Stringifier().visit(ir))
+    if stream is None:
+        stream = stdout
+    stream.write(Stringifier().visit(ir))
