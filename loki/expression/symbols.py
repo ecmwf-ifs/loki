@@ -63,6 +63,11 @@ class ExprMetadataMixin:
     def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument,missing-function-docstring
         return LokiStringifyMapper()
 
+    def clone(self, **kwargs):
+        if self.source and 'source' not in kwargs:
+            kwargs['source'] = self.source
+        return super().clone(**kwargs)
+
 
 class StrCompareMixin:
     """
@@ -391,12 +396,28 @@ class Variable:
     def __new__(cls, **kwargs):
         name = kwargs['name']
         scope = kwargs.get('scope')
-        _type = kwargs.get('type', scope.symbols.lookup(name) if scope is not None else None)
+        _type = kwargs.get('type')
+
+        if not _type or _type.dtype is BasicType.DEFERRED:
+            # Try to determine type information
+            if scope is not None:
+                kwargs['type'] = scope.symbols.lookup(name) if scope else None
+                _type = kwargs['type']
 
         if _type and isinstance(_type.dtype, ProcedureType):
+            # This is the name in a function/subroutine call
             return ProcedureSymbol(**kwargs)
 
+        if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
+            # This is a constructor call
+            return ProcedureSymbol(**kwargs)
+
+        if _type and _type.shape == (IntLiteral(1),):
+            # Convenience: This way we can construct Scalar variables with `shape=(1,)`
+            _type = _type.clone(shape=None)
+
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
+            # Convenience: This way we can construct Scalar variables with `dimensions=None`
             kwargs.pop('dimensions')
 
         if kwargs.get('dimensions') is not None or (_type and _type.shape):

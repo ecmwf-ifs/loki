@@ -234,7 +234,7 @@ end subroutine test_type_module_imports
 
     # Ensure local variable info is correct, as far as known
     arg_a, arg_b = routine.variables
-    assert arg_a.type.kind.type == routine.symbols['a_kind']
+    assert arg_a.type.kind.type.compare(routine.symbols['a_kind'], ignore=('imported'))
     assert arg_a.dimensions.index_tuple[0].type == routine.symbols['a_dim']
     assert isinstance(arg_b.type.dtype, DerivedType)
     assert arg_b.type.dtype.typedef == BasicType.DEFERRED
