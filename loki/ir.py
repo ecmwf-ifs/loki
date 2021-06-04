@@ -1146,8 +1146,8 @@ class MultiConditional(LeafNode):
     ----------
     expr : :any:`pymbolic.primitives.Expression`
         The expression that is evaluated to choose the appropriate case.
-    values : tuple of :any:`pymbolic.primitives.Expression`
-        The list of values, one for each case.
+    values : tuple of tuple of :any:`pymbolic.primitives.Expression`
+        The list of values, a tuple for each case.
     bodies : tuple of tuple
         The corresponding bodies for each case.
     else_body : tuple
@@ -1164,8 +1164,9 @@ class MultiConditional(LeafNode):
         super().__init__(**kwargs)
 
         assert isinstance(expr, Expression)
-        assert is_iterable(values) and all(isinstance(v, Expression) for v in flatten(values))
-        assert is_iterable(bodies)
+        assert is_iterable(values) and all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
+                                           for v in values)
+        assert is_iterable(bodies) and all(isinstance(b, tuple) for b in bodies)
         assert is_iterable(else_body)
 
         self.expr = expr
