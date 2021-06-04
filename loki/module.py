@@ -147,11 +147,11 @@ class Module:
         scope = Scope()
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = []
         if spec_ast is not None:
             spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=scope,
                                      pp_info=pp_info, raw_source=raw_source)
-            spec = Section(body=spec)
+        else:
+            spec = Section(body=())
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None

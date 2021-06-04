@@ -15,7 +15,7 @@ from loki.logging import warning, debug
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import Scope, ProcedureType, SymbolAttributes
+from loki.types import Scope, BasicType, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Subroutine']
@@ -299,16 +299,16 @@ class Subroutine:
             spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
                                      scope=scope, raw_source=raw_source)
         else:
-            spec = ()
-        spec = Section(body=flatten(spec))
+            spec = Section(body=())
+        #spec = Section(body=flatten(spec))
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
-            body = as_tuple(parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
-                                              scope=scope, raw_source=raw_source))
+            body = parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
+                                     scope=scope, raw_source=raw_source)
         else:
-            body = ()
-        body = Section(body=flatten(body))
+            body = Section(body=())
+        #body = Section(body=flatten(body))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -342,7 +342,8 @@ class Subroutine:
                        for s in walk(contains_ast, routine_types)]
 
         return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
-                   members=members, scope=scope, is_function=is_function, source=source)
+                   members=members, scope=scope, is_function=is_function, source=source,
+                   rescope_variables=True)
 
     @property
     def variables(self):
@@ -542,14 +543,18 @@ class Subroutine:
             (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
         )
 
-        # Check for all variables that they are associated with one of the
-        # scopes in the hierarchy
-        rescope_map = {}
-        for var in FindTypedSymbols().visit(self.ir):
+        def check_and_rescope_var(var):
+            """
+            Helper function that takes care of checking a variable's scope and,
+            if necessary, attaching the correct scope
+            """
+            parent = None if var.parent is None else check_and_rescope_var(var.parent)
+
             if (var.name in variable_map or var.name in imports_map) and var.scope is not self.scope:
                 # This takes care of all local variables or imported symbols
-                rescope_map[var] = var.clone(scope=self.scope)
-            elif var.scope not in scope_hierarchy and var not in rescope_map:
+                return var.clone(scope=self.scope, parent=parent)
+
+            if var.scope not in scope_hierarchy:
                 # This is the fallback for any symbols from parent scopes.
                 # We need to run through the scope hierarchy manually because we
                 # not only need to know the stored type (if any) but also in which
@@ -559,22 +564,38 @@ class Subroutine:
                     # existing type information
                     _type = s.symbols.lookup(var.name, recursive=False)
                     if _type:
-                        if _type != var.type:
+                        if _type != var.type and var.type.dtype is not BasicType.DEFERRED:
                             warning('Subroutine.rescope_variables: type for %s does not match stored type.',
                                     var.name)
-                        rescope_map[var] = var.clone(scope=s, type=_type)
-                        break
-                else:
-                    # Variable does not exist in any scope so we put this in the local
-                    # scope just to be on the safe side
-                    debug('Subroutine.rescope_variables: type for %s not found in any scope.', var.name)
-                    rescope_map[var] = var.clone(scope=self.scope)
+                            import pdb; pdb.set_trace()
+                        return var.clone(scope=s, type=_type, parent=parent)
+
+                # Variable does not exist in any scope so we put this in the local
+                # scope just to be on the safe side
+                debug('Subroutine.rescope_variables: type for %s not found in any scope.', var.name)
+                return var.clone(scope=self.scope, parent=parent)
+
+            if parent is not None:
+                # Had only to rescope the parent
+                return var.clone(parent=parent)
+
+            # Nothing had to be done
+            return None
+
+        # Check for all variables that they are associated with one of the
+        # scopes in the hierarchy
+        rescope_map = {}
+        for var in FindTypedSymbols().visit(self.ir):
+            if var not in rescope_map:
+                rescoped_var = check_and_rescope_var(var)
+                if rescoped_var is not None:
+                    rescope_map[var] = rescoped_var
 
         # Now apply the rescoping map
         if rescope_map and self.spec:
-            self.spec = SubstituteExpressions(rescope_map).visit(self.spec)
+            self.spec = SubstituteExpressions(rescope_map, invalidate_source=False).visit(self.spec)
         if rescope_map and self.body:
-            self.body = SubstituteExpressions(rescope_map).visit(self.body)
+            self.body = SubstituteExpressions(rescope_map, invalidate_source=False).visit(self.body)
 
     def clone(self, **kwargs):
         """
