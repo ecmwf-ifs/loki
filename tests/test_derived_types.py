@@ -5,7 +5,7 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
-    RangeIndex, Scalar, BasicType, DeferredTypeSymbol
+    RangeIndex, BasicType, DeferredTypeSymbol, Scalar, Array
 )
 
 
@@ -407,11 +407,11 @@ end module
     routine = module['associates']
     variables = FindVariables().visit(routine.body)
     if frontend == OMNI:
-        assert all([v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
-                    for v in variables if v.name in ['vector', 'vector2']])
+        assert all(v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
+                   for v in variables if v.name in ['vector', 'vector2'])
     else:
-        assert all([v.shape == (IntLiteral(3),)
-                    for v in variables if v.name in ['vector', 'vector2']])
+        assert all(v.shape == (IntLiteral(3),)
+                   for v in variables if v.name in ['vector', 'vector2'])
 
     # Test the generated module
     filepath = here/('derived_types_associates_%s.f90' % frontend)
@@ -456,6 +456,54 @@ END SUBROUTINE
     assert isinstance(some_var, DeferredTypeSymbol)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_associates_expr(here, frontend):
+    """
+    Verify that associates with expressions are supported
+    """
+    fcode = """
+subroutine associates_expr(in, out)
+  implicit none
+  integer, intent(in) :: in(3)
+  integer, intent(out) :: out(3)
+
+  out(:) = 0
+  
+  associate(a=>1+3)
+    out(:) = out(:) + a
+  end associate
+
+  associate(b=>2*in(:) + in(:))
+    out(:) = out(:) + b(:)
+  end associate
+end subroutine associates_expr
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    variables = {v.name: v for v in FindVariables().visit(routine.body)}
+    assert len(variables) == 4
+    if frontend == OMNI:  # OMNI figures out the type from the expression for us
+        assert isinstance(variables['a'], Scalar)
+        assert variables['a'].type.dtype is BasicType.INTEGER
+        assert isinstance(variables['b'], Array)
+        assert variables['b'].type.dtype is BasicType.INTEGER
+        assert variables['b'].type.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
+    else:
+        assert isinstance(variables['a'], DeferredTypeSymbol)
+        assert variables['a'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+        assert isinstance(variables['b'], Array)  # Note: this is an array because we have a shape
+        assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+        assert variables['b'].type.shape == (IntLiteral(3),)
+
+    filepath = here/('associates_expr_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    a = np.array([1, 2, 3], dtype='i')
+    b = np.zeros(3, dtype='i')
+    function(a, b)
+    assert np.all(b == [7, 10, 13])
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
