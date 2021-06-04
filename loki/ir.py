@@ -718,12 +718,12 @@ class CallStatement(LeafNode):
     def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
-        # TODO: Currently, also simple strings are allowed as arguments. This should be expressions
-        arg_types = (Expression, str)
-        assert is_iterable(arguments) and all(isinstance(arg, arg_types) for arg in arguments)
+        assert isinstance(name, Expression)
+        assert is_iterable(arguments) and all(isinstance(arg, Expression) for arg in arguments)
         assert kwarguments is None or (
             is_iterable(kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
-                                             isinstance(a[1], arg_types) for a in kwarguments))
+                                             isinstance(a[1], Expression) for a in kwarguments)
+        )
 
         self.name = name
         self.arguments = as_tuple(arguments)

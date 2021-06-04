@@ -504,10 +504,11 @@ class FortranCodegen(Stringifier):
           CALL <name>(<args>)
         """
         pragma = self.visit(o.pragma, **kwargs)
+        name = self.visit(o.name, **kwargs)
         args = self.visit_all(o.arguments, **kwargs)
         if o.kwarguments:
             args += tuple('{}={}'.format(*self.visit_all(arg, **kwargs)) for arg in o.kwarguments)
-        call = self.format_line('CALL ', o.name, '(', self.join_items(args), ')')
+        call = self.format_line('CALL ', name, '(', self.join_items(args), ')')
         return self.join_lines(pragma, call)
 
     def visit_Allocation(self, o, **kwargs):

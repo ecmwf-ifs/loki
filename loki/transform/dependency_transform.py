@@ -107,8 +107,9 @@ class DependencyTransformation(Transformation):
             targets = [str(t).upper() for t in as_tuple(targets)]
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if targets is None or call.name.upper() in targets:
-                call._update(name='{}{}'.format(call.name, self.suffix))
+            if targets is None or str(call.name).upper() in targets:
+                name = call.name.clone(name='{}{}'.format(call.name, self.suffix))
+                call._update(name=name)
 
     def rename_imports(self, source, imports, **kwargs):
         """

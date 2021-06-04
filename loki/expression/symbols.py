@@ -446,7 +446,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
         super().__init__()
 
 
-class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
+class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):
     """
     Internal representation of a callable subroutine or function.
 
@@ -462,7 +462,8 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
 
     def __init__(self, name, scope=None, type=None, **kwargs):
         # pylint: disable=redefined-builtin
-        assert type is None or isinstance(type.dtype, ProcedureType) or type.dtype is BasicType.DEFERRED
+        assert type is None or isinstance(type.dtype, ProcedureType) or \
+                (isinstance(type.dtype, DerivedType) and name.lower() == type.dtype.name.lower())
         super().__init__(name=name, scope=scope, type=type, **kwargs)
 
     mapper_method = intern('map_procedure_symbol')

@@ -405,9 +405,9 @@ class FortranMaxTransformation(Transformation):
         for var in max_kernel.arguments:
             if var.type.intent.lower() in ('inout', 'out'):
                 if isinstance(var, sym.Array) or var.type.dfestream:
-                    name = 'io.output'
+                    name = sym.Variable(name='io.output')
                 else:
-                    name = 'io.scalarOutput'
+                    name = sym.Variable(name='io.scalarOutput')
                 parameters = (sym.StringLiteral('"{}"'.format(var.name)),
                               var.clone(dimensions=()), init_type(var.type))
                 stmt = ir.CallStatement(name, arguments=parameters)
@@ -438,7 +438,7 @@ class FortranMaxTransformation(Transformation):
         arg_type = SymbolAttributes(DerivedType('KernelParameters'), intent='in')
         arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.scope)
         max_kernel.arguments = as_tuple(arg)
-        max_kernel.spec.prepend(ir.CallStatement('super', arguments=(arg,)))
+        max_kernel.spec.prepend(ir.CallStatement(sym.Variable(name='super'), arguments=(arg,)))
 
         # Add kernel to wrapper module
         max_module.routines = as_tuple(max_kernel)
@@ -510,8 +510,8 @@ class FortranMaxTransformation(Transformation):
         constructor = Subroutine(name=manager.name, parent_scope=manager.scope, spec=ir.Section(body=()))
         params_type = SymbolAttributes(DerivedType('EngineParameters'), intent='in')
         params = sym.Variable(name='params', type=params_type, scope=constructor.scope)
-        body = [ir.CallStatement('super', arguments=(params,)),
-                ir.CallStatement('setup', arguments=())]
+        body = [ir.CallStatement(sym.Variable(name='super'), arguments=(params,)),
+                ir.CallStatement(sym.Variable(name='setup'), arguments=())]
         constructor.arguments = as_tuple(params)
         constructor.body = ir.Section(body=body)
 
@@ -531,7 +531,7 @@ class FortranMaxTransformation(Transformation):
                 sym.ProcedureSymbol('new {}'.format(manager.name), scope=main.scope), parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main.scope)
         main.variables += as_tuple([params, mgr])
-        body = [ir.CallStatement('manager.build', arguments=())]
+        body = [ir.CallStatement(sym.Variable(name='manager.build'), arguments=())]
         main.body = ir.Section(body=body)
 
         # Insert functions into manager class

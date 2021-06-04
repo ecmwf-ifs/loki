@@ -167,9 +167,9 @@ class FortranCTransformation(Transformation):
                 casts_out += [Assignment(lhs=arg, rhs=cast_out)]
                 local_arg_map[arg.name] = cvar
 
-        arguments = [local_arg_map[a] if a in local_arg_map else a for a in routine.argnames]
+        arguments = [local_arg_map[a] if a in local_arg_map else Variable(name=a) for a in routine.argnames]
         wrapper_body = casts_in
-        wrapper_body += [CallStatement(name=interface.body[0].name, arguments=arguments)]
+        wrapper_body += [CallStatement(name=Variable(name=interface.body[0].name), arguments=arguments)]
         wrapper_body += casts_out
         wrapper_body = Section(body=wrapper_body)
         wrapper = Subroutine(name='%s_fc' % routine.name, spec=wrapper_spec, body=wrapper_body,

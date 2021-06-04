@@ -132,7 +132,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
             # iterable but a single node (e.g., CallStatement)
             body = reversed(as_tuple(cond.body)) if is_reversed else as_tuple(cond.body)
             for node in body:
-                if isinstance(node, ir.CallStatement) and node.name.upper() == 'DR_HOOK':
+                if isinstance(node, ir.CallStatement) and node.name == 'DR_HOOK':
                     call = node
                 elif not isinstance(node, cls.non_exec_nodes):
                     # Break if executable statement encountered
@@ -169,8 +169,7 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
                 fmt_string = 'Second argument to DR_HOOK call should be "{}".'
                 msg = fmt_string.format(second_arg[pos])
                 rule_report.add(msg, call)
-            if not (len(call.arguments) > 2 and isinstance(call.arguments[2], sym.Scalar) and
-                    call.arguments[2].name.upper() == 'ZHOOK_HANDLE'):
+            if not (len(call.arguments) > 2 and call.arguments[2] == 'ZHOOK_HANDLE'):
                 msg = 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".'
                 rule_report.add(msg, call)
 
@@ -277,7 +276,7 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check all calls to MPL subroutines for a CDSTRING.'''
         for call in FindNodes(ir.CallStatement).visit(subroutine.ir):
-            if call.name.upper().startswith('MPL_'):
+            if str(call.name).upper().startswith('MPL_'):
                 for kw, _ in call.kwarguments:
                     if kw.upper() == 'CDSTRING':
                         break

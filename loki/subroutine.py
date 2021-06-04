@@ -430,11 +430,11 @@ class Subroutine:
 
         with pragmas_attached(self, CallStatement, attach_pragma_post=False):
             for call in FindNodes(CallStatement).visit(self.body):
-                if call.name.upper() in routine_map:
+                name = str(call.name).upper()
+                if name in routine_map:
                     # Calls marked as 'reference' are inactive and thus skipped
                     active = not is_loki_pragma(call.pragma, starts_with='reference')
-                    context = CallContext(routine=routine_map[call.name.upper()],
-                                          active=active)
+                    context = CallContext(routine=routine_map[name], active=active)
                     call._update(context=context)
 
         # TODO: Could extend this to module and header imports to

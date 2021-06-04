@@ -221,7 +221,7 @@ class Item:
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        children = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
 
         # Filter out local members and disabled sub-branches
         children = [c for c in children if c not in members]
@@ -243,14 +243,13 @@ class Item:
         ignored = as_tuple(str(b).lower() for b in self.ignore)
 
         # Base definition of child is a procedure call
-        targets = as_tuple(call.name.lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        targets = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
 
         # Filter out blocked and ignored children
         targets = [c for c in targets if c not in disabled]
         targets = [t for t in targets if t not in blocked]
         targets = [t for t in targets if t not in ignored]
         return as_tuple(targets)
-
 
 
 class Scheduler:

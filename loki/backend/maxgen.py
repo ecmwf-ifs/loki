@@ -318,9 +318,10 @@ class MaxjCodegen(Stringifier):
         Format call statement as
           <name>(<args>)
         """
+        name = self.visit(o.name, **kwargs)
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
-        return self.format_line(o.name, '(', self.join_items(args), ');')
+        return self.format_line(name, '(', self.join_items(args), ');')
 
     def visit_Import(self, o, **kwargs):
         """
