@@ -173,6 +173,12 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     variables = [v for v in variables if v.shape is not None]
     variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
 
+    # Filter out variables that we will pass down the call tree
+    calls = FindNodes(CallStatement).visit(routine.body)
+    call_args = flatten(call.arguments for call in calls)
+    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
+    variables = [v for v in variables if v.name not in call_args]
+
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
 
@@ -185,7 +191,8 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
         if old_shape and old_shape[0] in horizontal.size_expressions:
             new_type = v.type.clone(shape=new_shape)
             if len(old_shape) > 1:
-                vmap[v] = v.clone(dimensions=v.dimensions[1:], type=new_type)
+                new_dims = v.dimensions[1:] if v.dimensions else None
+                vmap[v] = v.clone(dimensions=new_dims, type=new_type)
             else:
                 vmap[v] = Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
 
@@ -322,7 +329,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             self.process_driver(routine, targets=targets)
 
         if role == 'kernel':
-            self.process_kernel(routine)
+            self.process_kernel(routine, targets=targets)
 
     def get_column_locals(self, routine):
         """
@@ -341,7 +348,7 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         return variables
 
-    def process_kernel(self, routine):
+    def process_kernel(self, routine, targets=None):
         """
         Remove all vector loops that match the stored ``horizontal``
         and promote the index variable to an argument, leaving fully
