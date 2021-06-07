@@ -199,7 +199,8 @@ class Subroutine:
             members = as_tuple(members)
 
         return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
-                   members=members, scope=scope, is_function=is_function, source=source)
+                   members=members, scope=scope, is_function=is_function, source=source,
+                   rescope_variables=True)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, definitions=None, name=None, symbol_map=None,

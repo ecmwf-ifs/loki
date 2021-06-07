@@ -542,11 +542,7 @@ end subroutine nested_call_inline_call
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_character_concat(here, frontend):
     """
     Concatenation operator ``//``
