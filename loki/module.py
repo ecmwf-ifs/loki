@@ -130,7 +130,6 @@ class Module:
         # Generate spec, filter out external declarations and insert `implicit none`
         spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
                               definitions=definitions, raw_source=raw_source, scope=scope)
-        spec = Section(body=spec)
 
         # Parse member functions
         routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,

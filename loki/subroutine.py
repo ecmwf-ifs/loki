@@ -234,9 +234,7 @@ class Subroutine:
         if not is_function:
             mapper = {d: None for d in FindNodes(Declaration).visit(spec)
                       if d.variables[0].name == name}
-            spec = Section(body=Transformer(mapper, invalidate_source=False).visit(spec))
-        else:
-            spec = Section(body=spec)
+            spec = Transformer(mapper, invalidate_source=False).visit(spec)
 
         # Hack: We remove comments from the beginning of the spec to get the docstring
         comment_map = {}
@@ -266,8 +264,8 @@ class Subroutine:
             ast.find('body').remove(contains)
 
         # Convert the core kernel to IR
-        body = as_tuple(parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
-                                       symbol_map=symbol_map, raw_source=raw_source, scope=scope))
+        body = parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
+                              symbol_map=symbol_map, raw_source=raw_source, scope=scope)
         body = Section(body=body)
 
         # Big, but necessary hack:
@@ -276,7 +274,8 @@ class Subroutine:
         spec, body = cls._infer_allocatable_shapes(spec, body)
 
         return cls(name=name, args=args, docstring=docs, spec=spec, body=body, ast=ast,
-                   members=members, scope=scope, is_function=is_function, source=source)
+                   members=members, scope=scope, is_function=is_function, source=source,
+                   rescope_variables=True)
 
     @classmethod
     def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None,
@@ -301,7 +300,6 @@ class Subroutine:
                                      scope=scope, raw_source=raw_source)
         else:
             spec = Section(body=())
-        #spec = Section(body=flatten(spec))
 
         body_ast = get_child(ast, Fortran2003.Execution_Part)
         if body_ast:
@@ -309,7 +307,6 @@ class Subroutine:
                                      scope=scope, raw_source=raw_source)
         else:
             body = Section(body=())
-        #body = Section(body=flatten(body))
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual

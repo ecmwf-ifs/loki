@@ -5,7 +5,7 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
-    RangeIndex, BasicType, DeferredTypeSymbol, Scalar, Array
+    RangeIndex, BasicType, DeferredTypeSymbol, Array
 )
 
 
@@ -470,7 +470,7 @@ subroutine associates_expr(in, out)
   integer, intent(out) :: out(3)
 
   out(:) = 0
-  
+
   associate(a=>1+3)
     out(:) = out(:) + a
   end associate
@@ -484,18 +484,11 @@ end subroutine associates_expr
 
     variables = {v.name: v for v in FindVariables().visit(routine.body)}
     assert len(variables) == 4
-    if frontend == OMNI:  # OMNI figures out the type from the expression for us
-        assert isinstance(variables['a'], Scalar)
-        assert variables['a'].type.dtype is BasicType.INTEGER
-        assert isinstance(variables['b'], Array)
-        assert variables['b'].type.dtype is BasicType.INTEGER
-        assert variables['b'].type.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
-    else:
-        assert isinstance(variables['a'], DeferredTypeSymbol)
-        assert variables['a'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
-        assert isinstance(variables['b'], Array)  # Note: this is an array because we have a shape
-        assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
-        assert variables['b'].type.shape == (IntLiteral(3),)
+    assert isinstance(variables['a'], DeferredTypeSymbol)
+    assert variables['a'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+    assert isinstance(variables['b'], Array)  # Note: this is an array because we have a shape
+    assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+    assert variables['b'].type.shape == (IntLiteral(3),)
 
     filepath = here/('associates_expr_%s.f90' % frontend)
     function = jit_compile(routine, filepath=filepath, objname=routine.name)

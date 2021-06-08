@@ -330,7 +330,6 @@ end subroutine parenthesis
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
-    # assert str(stmt.expr) == '1.3*(v1**1.23) + (1 - v2**1.26)'
     assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v2**1.26_jprb)'
 
     # Now perform a simple substitutions on the expression
@@ -338,7 +337,6 @@ end subroutine parenthesis
     v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
     v4 = v2.clone(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
-    # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
 
 
@@ -360,7 +358,6 @@ end subroutine commutativity
     routine = Subroutine.from_source(fcode, frontend=frontend)
     stmt = FindNodes(Assignment).visit(routine.body)[0]
 
-    # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
                           'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
 
@@ -569,7 +566,7 @@ end subroutine character_concat
 
 @pytest.mark.parametrize('frontend', [
     pytest.param(OFP, marks=pytest.mark.xfail(reason='Inline WHERE not implemented')),
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
     FP
 ])
 def test_masked_statements(here, frontend):
@@ -658,11 +655,7 @@ end subroutine data_declaration
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_pointer_nullify(here, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
@@ -932,6 +925,7 @@ def test_variable_without_scope():
     Test that creating variables without scope works and scopes can be
     attached and detached
     """
+    # pylint: disable=no-member
     # Create a plain variable without type or scope
     var = symbols.Variable(name='var')
     assert isinstance(var, symbols.DeferredTypeSymbol)
