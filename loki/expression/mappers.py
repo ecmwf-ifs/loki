@@ -199,6 +199,8 @@ class ExpressionRetriever(WalkMapper):
     def map_float_literal(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
+        if expr.kind:
+            self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_int_literal = map_float_literal

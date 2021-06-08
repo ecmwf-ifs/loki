@@ -592,7 +592,12 @@ end subroutine routine_not_okay
     config = {'ExplicitKindRule': {'constant_types': ['REAL', 'INTEGER']}}
     _ = run_linter(source, [rules.ExplicitKindRule], config=config, handlers=[handler])
 
-    assert len(messages) == 11
+    # Note: This creates one message too many, namely the literal '4' in the constant
+    # 6._4. This is because we represent the kind parameter as an expression (which can be
+    # an imported name, for example). Since '4' (or any other literals) are not allowed kind
+    # values in IFS this should not be a problem in practice: it will simply create an
+    # additional spurious error in that case
+    assert len(messages) == 12
     assert all('[4.7]' in msg for msg in messages)
     assert all('ExplicitKindRule' in msg for msg in messages)
 
@@ -603,7 +608,7 @@ end subroutine routine_not_okay
         ('i', '16', None), ('j', '17', '1'), ('a(3)', '18', None), ('b', '19', '8'),
         # Literals
         ('1', '21', None), ('7', '21', None), ('2', '22', None), ('3e0', '23', None),
-        ('4.0', '24', None), ('5d0', '24', None), ('6._4', '24', '4')
+        ('4.0', '24', None), ('5d0', '24', None), ('4', '24', None), ('6._4', '24', '4')
     )
     for keys, msg in zip(keywords, messages):
         assert all(kw in msg for kw in keys if kw is not None)
