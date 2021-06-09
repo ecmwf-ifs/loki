@@ -373,8 +373,8 @@ class SymbolAttributes:
         bool
         """
         ignore_attrs = as_tuple(ignore)
-        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(self.__dict__.keys()))
-        return all(self.__dict__[k] == other.__dict__[k]
+        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(other.__dict__.keys()))
+        return all(self.__dict__.get(k) == other.__dict__.get(k)
                    for k in keys if k not in ignore_attrs)
 
 
@@ -459,6 +459,13 @@ class SymbolTable(dict):
 
     def setdefault(self, key, default=None):
         super().setdefault(self.format_lookup_name(key), default)
+
+    def update(self, other):
+        if isinstance(other, dict):
+            other = {self.format_lookup_name(k): v for k, v in other.items()}
+        else:
+            other = {self.format_lookup_name(k): v for k, v in other}
+        super().update(other)
 
 
 class Scope:
