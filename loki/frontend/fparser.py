@@ -456,7 +456,8 @@ class FParser2IR(GenericVisitor):
             * keyword 'TYPE' or 'CLASS' (str)
             * :class:`fparser.two.Fortran2003.Derived_Type_Spec`
         """
-        if o.children[0].upper() == 'TYPE':
+        if o.children[0].upper() in ('TYPE', 'CLASS'):
+            # TODO: record if `TYPE` or `CLASS` is used
             dtype = self.visit(o.children[1], **kwargs)
 
             # Look for a previous definition of this type
@@ -467,8 +468,6 @@ class FParser2IR(GenericVisitor):
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
-        if o.children[0].upper() == 'CLASS':
-            raise NotImplementedError
         raise NotImplementedError
 
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
@@ -756,6 +755,9 @@ class FParser2IR(GenericVisitor):
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
 
+        # TODO: type-bound procedures are currently stored flat as Intrinsic in the body.
+        # These should become declarations and TypeDef should probably store them separately
+
         # Infer any additional shape information from `!$loki dimension` pragmas
         # Note that this needs to be done before we create `dtype` below, to allow
         # propagation of type info through multiple typedefs in the same module.
@@ -810,6 +812,35 @@ class FParser2IR(GenericVisitor):
         A procedure declaration in a derived type definition
         """
         raise NotImplementedError
+
+    def visit_Type_Bound_Procedure_Part(self, o, **kwargs):
+        """
+        Procedure definitions part in a derived type definition
+
+        :class:`fparser.two.Fortran2003.Type_Bound_Procedure_Part` starts with
+        the contains-stmt (:class:`fparser.two.Fortran2003.Contains_Stmt`) followed
+        by (optionally) :class:`fparser.two.Fortran2003.Binding_Private_Stmt` and
+        a sequence of :class:`fparser.two.Fortran2003.Proc_Binding_Stmt`
+        """
+        return tuple(self.visit(c, **kwargs) for c in o.children)
+
+    def visit_Specific_Binding(self, o, **kwargs):
+        """
+        A specific binding for a type-bound procedure in a derived type
+
+        :class:`fparser.two.Fortran2003.Specific_Binding` has five children:
+            * interface name :class:`fparser.two.Fortran2003.Interface_Name`
+            * binding attr list :class:`fparser.two.Fortran2003.Binding_Attr_List`
+            * '::' (`str`) or `None`
+            * name :class:`fparser.two.Fortran2003.Binding_Name`
+            * procedure name :class:`fparser.two.Fortran2003.Procedure_Name`
+        """
+        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+
+    visit_Contains_Stmt = visit_Specific_Binding
+    visit_Binding_Private_Stmt = visit_Specific_Binding
+    visit_Generic_Binding = visit_Specific_Binding
+    visit_Final_Binding = visit_Specific_Binding
 
     #
     # ASSOCIATE blocks
@@ -1305,7 +1336,7 @@ class FParser2IR(GenericVisitor):
         A ``CALL`` statement
 
         :class:`fparser.two.Fortran2003.Call_Stmt` has two children:
-            * the subroutine name :class:`fparser.two.Fortran2003.ProcedureDesignator`
+            * the subroutine name :class:`fparser.two.Fortran2003.Procedure_Designator`
             * the argument list :class:`fparser.two.Fortran2003.Actual_Arg_Spec_List`
         """
         name = self.visit(o.children[0], **kwargs)
@@ -1317,6 +1348,24 @@ class FParser2IR(GenericVisitor):
             arguments, kwarguments = (), ()
         return ir.CallStatement(name=name, arguments=arguments, kwarguments=kwarguments,
                                 label=kwargs.get('label'), source=kwargs.get('source'))
+
+    def visit_Procedure_Designator(self, o, **kwargs):
+        """
+        The function or subroutine designator
+
+        This appears only when a type-bound procedure is called (as otherwise Fparser
+        hands through the relevant names directly).
+
+        :class:`fparser.two.Fortran2003.Procedure_Designator` has three children:
+            * Parent name :class:`fparser.two.Fortran2003.Data_Ref`
+            * '%' (`str`)
+            * procedure name :class:`fparser.two.Fortran2003.Binding_Name`
+        """
+        assert o.children[1] == '%'
+        parent = self.visit(o.children[0], **kwargs)
+        name = self.visit(o.children[2], **kwargs)
+        name = name.clone(name='{}%{}'.format(parent.name, name.name), parent=parent)
+        return name
 
     visit_Actual_Arg_Spec_List = visit_List
 

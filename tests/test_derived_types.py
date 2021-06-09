@@ -5,7 +5,7 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
-    RangeIndex, BasicType, DeferredTypeSymbol, Array
+    RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef
 )
 
 
@@ -611,3 +611,73 @@ end module
     mod.free_deferred(item2)
 
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_derived_type_procedure_designator(frontend):
+    mcode = """
+module derived_type_procedure_designator_mod
+  implicit none
+  type some_type
+    integer :: val
+  contains
+    procedure :: SOME_PROC => some_TYPE_some_proc
+    PROCEDURE :: some_FUNC => some_type_SOME_func
+  end type some_type
+
+  TYPE other_type
+    real :: val
+  END TYPE other_type
+contains
+  subroutine some_type_some_proc(self, val)
+    class(some_type) :: self
+    integer, intent(in) :: val
+    self%val = val
+  end subroutine some_type_some_proc
+
+  function some_type_some_func(self)
+    integer :: some_type_some_func
+    CLASS(SOME_TYPE) :: self
+    some_type_some_func = self%val
+  end function some_type_some_func
+end module derived_type_procedure_designator_mod
+    """.strip()
+
+    fcode = """
+subroutine derived_type_procedure_designator(val)
+  use derived_type_procedure_designator_mod
+  implicit none
+  integer, intent(out) :: val
+  type(some_type) :: tp
+
+  call tp%some_proc(3)
+  val = tp%some_func()
+end subroutine derived_type_procedure_designator
+    """.strip()
+
+    module = Module.from_source(mcode, frontend=frontend)
+    assert 'some_type' in module.typedefs
+    assert 'other_type' in module.typedefs
+    assert 'some_type' in module.symbols
+    assert 'other_type' in module.symbols
+
+    # First, without external definitions
+    if frontend != OMNI:
+        routine = Subroutine.from_source(fcode, frontend=frontend)
+        assert 'some_type' not in routine.symbols
+        assert 'other_type' not in routine.symbols
+        assert isinstance(routine.symbols['tp'].dtype, DerivedType)
+        assert routine.symbols['tp'].dtype.typedef == BasicType.DEFERRED
+
+    # Now with external definitions
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module])
+
+    for name in ('some_type', 'other_type'):
+        assert name in routine.symbols
+        assert routine.symbols[name].imported is True
+        assert isinstance(routine.symbols[name].dtype, DerivedType)
+        assert isinstance(routine.symbols[name].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbols['tp'].dtype, DerivedType)
+    assert isinstance(routine.symbols['tp'].dtype.typedef, TypeDef)
+
+    # TODO: actually verify representation of type-bound procedures
