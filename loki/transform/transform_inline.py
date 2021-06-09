@@ -20,15 +20,19 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
     An expression mapper that defines symbolic substitution for inlining.
     """
 
+    def map_algebraic_leaf(self, expr, *args, **kwargs):
+        raise NotImplementedError
+
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
 
-        scope = kwargs.get('scope', None) or expr.scope
-        stype = expr.type
+        scope = kwargs.get('scope') or expr.scope
         # We're re-scoping an imported symbol
         if expr.scope != scope:
-            stype = expr.type.clone()
-        return  expr.__class__(expr.name, scope=scope, type=stype, parent=parent, source=expr.source)
+            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
+        return expr.clone(parent=parent)
+
+    map_deferred_type_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         if expr.dimensions:
@@ -37,20 +41,20 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             dimensions = None
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
 
-        scope = kwargs.get('scope', None) or expr.scope
-        stype = expr.type
+        scope = kwargs.get('scope') or expr.scope
         # We're re-scoping an imported symbol
         if expr.scope != scope:
-            stype = expr.type.clone()
-        return expr.__class__(expr.name, scope=scope, type=stype, parent=parent,
-                              dimensions=dimensions, source=expr.source)
+            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent, dimensions=dimensions)
+        return expr.clone(parent=parent, dimensions=dimensions)
 
-    def map_procedure_symbol(self, expr, *args, **kwargs):  # pylint: disable=no-self-use,unused-argument
-        scope = kwargs.get('scope', None) or expr.scope
-        stype = expr.type
+    def map_procedure_symbol(self, expr, *args, **kwargs):
+        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+
+        scope = kwargs.get('scope') or expr.scope
+        # We're re-scoping an imported symbol
         if expr.scope != scope:
-            stype = expr.type.clone()
-        return expr.__class__(expr.name, scope=scope, type=stype, source=expr.source)
+            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
+        return expr.clone(parent=parent)
 
     def map_inline_call(self, expr, *args, **kwargs):
         if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED:
@@ -58,7 +62,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)
 
-        function = expr.procedure_type.procedure.clone()
+        function = expr.procedure_type.procedure
         v_result = [v for v in function.variables if v == function.name][0]
 
         # Substitute all arguments through the elemental body
@@ -68,9 +72,8 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         # Extract the RHS of the final result variable assignment
         stmts = [s for s in FindNodes(Assignment).visit(fbody) if s.lhs == v_result]
         assert len(stmts) == 1
-        rhs = stmts[0].rhs
-
-        return self.rec(rhs, *args, **kwargs)
+        rhs = self.rec(stmts[0].rhs, *args, **kwargs)
+        return rhs
 
 
 def inline_constant_parameters(routine, external_only=True):
@@ -150,7 +153,7 @@ def inline_elemental_functions(routine):
     for call in FindInlineCalls().visit(routine.body):
         if call.procedure_type is not BasicType.DEFERRED:
             # Map each call to its substitutions, as defined by the
-            # recursive inline stubstitution mapper
+            # recursive inline substitution mapper
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine.scope)
 
             # Mark function as removed for later cleanup
