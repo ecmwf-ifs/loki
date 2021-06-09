@@ -562,7 +562,14 @@ class Subroutine:
                     # existing type information
                     _type = s.symbols.lookup(var.name, recursive=False)
                     if _type:
-                        if _type != var.type and var.type.dtype is not BasicType.DEFERRED:
+                        # TODO: comparing derived type member types really should become a bit easier..
+                        is_equal = _type.compare(var.type, ignore='parent')
+                        if is_equal and (_type.parent or var.type.parent):
+                            parent_equal = _type.parent and var.type.parent and \
+                                str(_type.parent) == str(var.type.parent) and \
+                                _type.parent.type.compare(var.type.parent.type)
+                            is_equal &= parent_equal
+                        if not is_equal and var.type.dtype is not BasicType.DEFERRED:
                             warning('Subroutine.rescope_variables: type for %s does not match stored type.',
                                     var.name)
                             import pdb; pdb.set_trace()
