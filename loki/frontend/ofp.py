@@ -164,10 +164,10 @@ class OFP2IR(GenericVisitor):
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
-    def visit_specification(self, o, source=None, **kwargs):
-        body = tuple(self.visit(c, **kwargs) for c in o)
+    def visit_specification(self, o, label=None, source=None):
+        body = tuple(self.visit(c) for c in o)
         body = tuple(c for c in body if c is not None)
-        return ir.Section(body=body, source=source)
+        return ir.Section(body=body, label=label, source=source)
 
     def visit_body(self, o, source=None, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
@@ -338,12 +338,6 @@ class OFP2IR(GenericVisitor):
         rhs = self.visit(o.find('value'))
         return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=label, source=source)
 
-    def visit_specification(self, o, label=None, source=None):
-        body = tuple(self.visit(c) for c in o)
-        body = tuple(c for c in body if c is not None)
-        # Wrap spec area into a separate Scope
-        return ir.Section(body=body, label=label, source=source)
-
     def visit_type(self, o, label=None, source=None):
         if o.attrib['type'] == 'intrinsic':
             _type = self.visit(o.find('intrinsic-type-spec'))
@@ -447,7 +441,7 @@ class OFP2IR(GenericVisitor):
                             type=_type, source=source)
 
     def visit_derived_type_stmt(self, o, label=None, source=None):
-        if o.attrib['keyword'] != 'type':
+        if o.attrib['keyword'].lower() != 'type':
             raise NotImplementedError
         if o.attrib['hasTypeAttrSpecList'] != 'false':
             raise NotImplementedError
@@ -803,13 +797,39 @@ class OFP2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, label=label, source=source)
 
     def visit_use(self, o, label=None, source=None):
-        name = o.attrib['name']
-        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
-        symbols = None
-        if len(symbol_names) > 0:
-            module = self.definitions.get(name, None)
-            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
+        name, module = self.visit(o.find('use-stmt'))
+        scope = self.scope
+        if o.find('only') is not None:
+            symbols = self.visit(o.find('only'))
+            if module is None:
+                scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
+            else:
+                scope.symbols.update({s.name: module.symbols[s.name].clone(imported=True, module=module)
+                                      for s in symbols})
+            symbols = tuple(s.clone(scope=scope) for s in symbols)
+        else:
+            # No ONLY list
+            symbols = None
+            # Import all symbols
+            if module is not None:
+                scope.symbols.update({k: v.clone(imported=True, module=module) for k, v in module.symbols.items()})
+#        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
+#        symbols = None
+#        if len(symbol_names) > 0:
+#            module = self.definitions.get(name, None)
+#            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
         return ir.Import(module=name, symbols=symbols, label=label, source=source)
+
+    def visit_only(self, o, label=None, source=None):
+        return tuple(self.visit(c) for c in o.findall('name'))
+
+    def visit_use_stmt(self, o, label=None, source=None):
+        name = o.attrib['id']
+        if o.attrib['hasModuleNature'] != 'false':
+            raise NotImplementedError
+        if o.attrib['hasRenameList'] != 'false':
+            raise NotImplementedError
+        return name, self.definitions.get(name)
 
     def visit_directive(self, o, label=None, source=None):
         if '#include' in o.attrib['text']:
@@ -902,7 +922,7 @@ class OFP2IR(GenericVisitor):
             if o.find('range/step') is not None:
                 step = self.visit(o.find('range/step'))
             return sym.RangeIndex((lower, upper, step), source=source)
-        import pdb; pdb.set_trace()
+        raise NotImplementedError
         if o.find('name'):
             return self.visit(o.find('name'))
         if o.find('literal'):
@@ -925,8 +945,8 @@ class OFP2IR(GenericVisitor):
         return tuple(self.visit(c) for c in o.findall('name'))
 
     def visit_name(self, o, label=None, source=None, **kwargs):
-        if o.find('generic-name-list-part') is not None:
-            # From an external stmt
+        if o.find('generic-name-list-part') is not None or o.find('generic_spec') is not None:
+            # From an external-stmt or use-stmt
             return sym.Variable(name=o.attrib['id'], source=source)
 
         num_part_ref = int(o.find('data-ref').attrib['numPartRef'])
@@ -939,13 +959,29 @@ class OFP2IR(GenericVisitor):
 
             if part_ref.attrib['hasSectionSubscriptList'] == 'true':
                 if i < num_part_ref - 1 or o.attrib['type'] == 'variable':
-                    arguments = subscripts.pop(0)
-                    kwarguments = tuple(arg for arg in arguments if isinstance(arg, tuple))
-                    assert not kwarguments
-                    name = name.clone(dimensions=arguments)
+                    if subscripts[0]:  # If there are no subscripts it cannot be an array but must
+                                       # be a function call
+                        arguments = subscripts.pop(0)
+                        kwarguments = tuple(arg for arg in arguments if isinstance(arg, tuple))
+                        assert not kwarguments
+                        name = name.clone(dimensions=arguments)
 
-        # Check for leftover subscripts and unpack into positional and keyword args
+        # Check for leftover subscripts
         assert len(subscripts) <= 1
+
+        if not 'type' in o.attrib or o.attrib['type'] == 'variable':
+            # name is just used as an identifier or without any subscripts
+            assert not subscripts
+            return name
+
+        if o.attrib['type'] == 'procedure':
+            return name, subscripts[0] if subscripts else ()
+
+        if subscripts and not subscripts[0]:
+            # Function call with no arguments (gaaawwddd...)
+            return sym.InlineCall(name, parameters=(), source=source)
+
+        # unpack into positional and keyword args
         subscripts = subscripts[0] if subscripts else ()
         kwarguments = tuple(arg for arg in subscripts if isinstance(arg, tuple))
         arguments = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
@@ -968,14 +1004,6 @@ class OFP2IR(GenericVisitor):
         #    arguments = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
         #    kwarguments = tuple(arg for arg in subscripts if isinstance(arg, tuple))
 
-        if not 'type' in o.attrib or o.attrib['type'] == 'variable':
-            # name is just used as an identifier or without any subscripts
-            assert not arguments and not kwarguments
-            return name
-
-        if o.attrib['type'] == 'procedure':
-            return name, subscripts
-
         cast_names = ('REAL', 'INT')
         if str(name).upper() in cast_names:
             assert arguments
@@ -995,7 +1023,6 @@ class OFP2IR(GenericVisitor):
         _type = self.scope.symbols.lookup(name.name)
         if str(name).upper() in intrinsic_calls or kwarguments or (_type and isinstance(_type.dtype, ProcedureType)):
             return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
-
 
         # We end up here if it is ambiguous (i.e., OFP did not know what the symbol is)
         # which is either a function call, an array with subscript or a name without anything further
@@ -1204,7 +1231,7 @@ class OFP2IR(GenericVisitor):
         # Derive variables for this declaration entry
         variables = []
         for v in comps.findall('component'):
-            if len(v.attrib) == 0:
+            if not v.attrib:
                 continue
             if 'DIMENSION' in attrs:
                 # Dimensions are provided via `dimension` keyword
@@ -1226,7 +1253,7 @@ class OFP2IR(GenericVisitor):
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
 
-            variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                       scope=scope, source=v_source)]
+            scope.symbols[v_name] = v_type
+            variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
         return ir.Declaration(variables=variables, source=source)

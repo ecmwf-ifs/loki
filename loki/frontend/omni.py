@@ -419,7 +419,7 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we know that type already
         dtype = self.scope.symbols.lookup(name, recursive=True)
-        if dtype is None:
+        if dtype is None or dtype.dtype == BasicType.DEFERRED:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:
             dtype = dtype.dtype
@@ -718,6 +718,8 @@ class OMNI2IR(GenericVisitor):
     def visit_functionCall(self, o, source=None):
         if o.find('name') is not None:
             name = self.visit(o.find('name'))
+        elif o.find('FmemberRef') is not None:
+            name = self.visit(o.find('FmemberRef'))
         else:
             raise ValueError
 
