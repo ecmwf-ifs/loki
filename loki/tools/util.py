@@ -3,6 +3,7 @@ import operator as op
 from functools import wraps
 from collections import OrderedDict
 from collections.abc import Sequence
+from shlex import split
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from contextlib import contextmanager
 from fastcache import clru_cache
@@ -210,7 +211,7 @@ def execute(command, silent=True, **kwargs):
     if isinstance(command, list):
         command = ' '.join(command)
     if isinstance(command, str):
-        command = command.split(' ')
+        command = split(command, posix=False)
 
     debug('[Loki] Executing: %s', ' '.join(command))
     try:
