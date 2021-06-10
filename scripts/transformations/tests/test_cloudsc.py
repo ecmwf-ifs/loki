@@ -44,7 +44,7 @@ index 887a9e4..acefd85 100644
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cloudsc(here, frontend):
     build_cmd = [
-        './cloudsc-bundle', 'build', '--verbose',# '--clean',
+        './cloudsc-bundle', 'build', '--verbose', '--clean',
         '--with-loki', '--loki-frontend=' + str(frontend),
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
         '--cmake="ENABLE_ACC=OFF"'
