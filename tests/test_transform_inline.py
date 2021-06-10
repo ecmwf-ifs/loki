@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 
 from conftest import jit_compile_lib
-from loki import Builder, Module, Subroutine, OFP, OMNI, FP, FindNodes, Import
+from loki import Builder, Module, Subroutine, OFP, OMNI, FP, FindNodes, Import, FindVariables
 from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
 
 
@@ -63,6 +63,9 @@ end subroutine transform_inline_elemental_functions
     # Now inline elemental functions
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
     inline_elemental_functions(routine)
+
+    # Verify correct scope of inlined elements
+    assert all(v.scope is routine.scope for v in FindVariables().visit(routine.body))
 
     # Hack: rename routine to use a different filename in the build
     routine.name = '%s_' % routine.name

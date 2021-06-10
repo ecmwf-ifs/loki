@@ -13,7 +13,8 @@ from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
-    parse_fparser_expression, Sum, DerivedType, ProcedureType
+    parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
+    DeferredTypeSymbol, Module
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -537,6 +538,47 @@ end subroutine nested_call_inline_call
     assert v2 == 8.
     assert v3 == 40
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_no_arg_inline_call(frontend):
+    """
+    Make sure that no-argument function calls are recognized as such,
+    especially when their implementation is unknown.
+    """
+    fcode_mod = """
+module external_mod
+  implicit none
+contains
+  function my_func()
+    integer :: my_func
+    my_func = 2
+  end function my_func
+end module external_mod
+    """.strip()
+
+    fcode_routine = """
+subroutine my_routine(var)
+  use external_mod, only: my_func
+  implicit none
+  integer, intent(out) :: var
+  var = my_func()
+end subroutine my_routine
+    """
+
+    if frontend != OMNI:
+        routine = Subroutine.from_source(fcode_routine, frontend=frontend)
+        assert routine.symbols['my_func'].dtype is BasicType.DEFERRED
+        assignment = FindNodes(Assignment).visit(routine.body)[0]
+        assert assignment.lhs == 'var'
+        assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, DeferredTypeSymbol)
+
+    module = Module.from_source(fcode_mod, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module)
+    assert isinstance(routine.symbols['my_func'].dtype, ProcedureType)
+    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assert assignment.lhs == 'var'
+    assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])

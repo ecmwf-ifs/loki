@@ -113,9 +113,20 @@ module external_mod
 end module external_mod
 """
 
+    fcode_other = """
+module other_mod
+  integer, parameter :: z = 4
+
+  type other_type
+    real :: vector(z)
+  end type other_type
+end module other_mod
+    """.strip()
+
     fcode_module = """
 module a_module
   use external_mod, only: ext_type
+  use other_mod
   implicit none
 
   type nested_type
@@ -127,15 +138,42 @@ contains
     type(nested_type) :: pt
     pt%ext%array(:,:) = 42.0
   end subroutine my_routine
+
+  subroutine other_routine(pt)
+    type(other_type) :: pt
+    pt%vector(:) = 13.37
+  end subroutine other_routine
 end module a_module
 """
 
     external = Module.from_source(fcode_external, frontend=frontend)
     assert 'ext_type' in external.typedefs
 
-    module = Module.from_source(fcode_module, frontend=frontend, definitions=external)
+    other = Module.from_source(fcode_other, frontend=frontend)
+    assert 'other_type' in other.typedefs
+
+    if frontend != OMNI:  # OMNI needs to know imported modules
+        module = Module.from_source(fcode_module, frontend=frontend)
+        assert 'ext_type' in module.symbols
+        assert module.symbols['ext_type'].dtype is BasicType.DEFERRED
+        assert 'other_type' not in module.symbols
+        assert 'other_type' not in module['other_routine'].symbols
+        assert module['other_routine'].symbols['pt'].dtype.typedef is BasicType.DEFERRED
+
+    module = Module.from_source(fcode_module, frontend=frontend, definitions=[external, other])
     nested = module.typedefs['nested_type']
     ext = nested.variables[0]
+
+    # Verify correct attachment of type information
+    assert 'ext_type' in module.symbols
+    assert isinstance(module.symbols['ext_type'].dtype.typedef, TypeDef)
+    assert isinstance(nested.symbols['ext'].dtype.typedef, TypeDef)
+    assert isinstance(module['my_routine'].symbols['pt'].dtype.typedef, TypeDef)
+    assert isinstance(module['my_routine'].symbols['pt%ext'].dtype.typedef, TypeDef)
+    assert 'other_type' in module.symbols
+    assert 'other_type' not in module['other_routine'].symbols
+    assert isinstance(module.symbols['other_type'].dtype.typedef, TypeDef)
+    assert isinstance(module['other_routine'].symbols['pt'].dtype.typedef, TypeDef)
 
     # OMNI resolves explicit shape parameters in the frontend parser
     exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
