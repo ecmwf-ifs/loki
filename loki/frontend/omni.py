@@ -2,10 +2,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from loki.frontend.source import Source
-from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, import_external_symbols
-)
-from loki.visitors import GenericVisitor
+from loki.frontend.util import inline_comments, cluster_comments, inline_labels
+from loki.visitors import GenericVisitor, FindNodes, Transformer
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat, FindTypedSymbols, SubstituteExpressions
@@ -203,8 +201,37 @@ class OMNI2IR(GenericVisitor):
         # in the frontend, as we cannot yet create `Subroutine` objects
         # cleanly here. So for now we skip this, but we should start
         # moving the `Subroutine` constructors into the frontend.
-        spec = [self.visit(c) for c in o if c.tag != 'FfunctionDecl']
-        return ir.Interface(spec=spec, body=(), source=source)
+        spec = None
+        body = tuple(self.visit(c) for c in o)
+        return ir.Interface(spec=spec, body=body, source=source)
+
+    def visit_FfunctionDecl(self, o, source=None):
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+
+        # Create a scope
+        scope = Scope(parent=self.scope)
+
+        # Name and dummy args
+        name = o.find('name').text
+        ftype = self.type_map[o.find('name').attrib['type']]
+        is_function = ftype.attrib['return_type'] != 'Fvoid'
+        args = tuple(a.text for a in ftype.findall('params/name'))
+
+        # Generate spec
+        # HACK: temporarily replace the scope property until we pass down scopes properly
+        parent_scope, self.scope = self.scope, scope
+        spec = self.visit(o.find('declarations'))
+        self.scope = parent_scope
+
+        # Filter out the declaration for the subroutine name but keep it for functions (since
+        # this declares the return type)
+        if not is_function:
+            mapper = {d: None for d in FindNodes(ir.Declaration).visit(spec)
+                      if d.variables[0].name == name}
+            spec = Transformer(mapper, invalidate_source=False).visit(spec)
+
+        return Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, is_function=is_function,
+                          source=source)
 
     def visit_declarations(self, o, source=None, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
