@@ -55,6 +55,10 @@ def test_cloudsc(here, frontend):
 
     execute(build_cmd, cwd=here, silent=False)
 
+    # For some reason, the 'data' dir symlink is not created???
+    os.symlink(here/'data', here/'build/data')
+
+    # Run the produced binaries
     binaries = [
         'dwarf-cloudsc-loki-claw-cpu', 'dwarf-cloudsc-loki-claw-gpu',
         'dwarf-cloudsc-loki-idem', 'dwarf-cloudsc-loki-sca'
