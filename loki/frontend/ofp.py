@@ -9,8 +9,7 @@ import open_fortran_parser
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP,
-    combine_multiline_pragmas
+    inline_comments, cluster_comments, inline_labels, OFP, combine_multiline_pragmas
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
@@ -158,6 +157,7 @@ class OFP2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
+        #import pdb; pdb.set_trace()
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
@@ -455,7 +455,14 @@ class OFP2IR(GenericVisitor):
         if not 'type' in o.attrib:
             if o.find('access-spec') is not None or o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.attrib.get('type') in ('implicit', 'intrinsic', 'parameter'):
+            if o.find('interface') is not None:
+                return self.visit(o.find('interface'))
+            if o.find('subroutine') is not None:
+                return self.visit(o.find('subroutine'))
+            if o.find('function') is not None:
+                return self.visit(o.find('function'))
+            raise NotImplementedError
+        if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
 
         if o.attrib['type'] == 'external':
@@ -731,6 +738,50 @@ class OFP2IR(GenericVisitor):
 
         raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
+    def visit_interface(self, o, label=None, source=None):
+        spec = self.visit(o.find('interface-stmt'))
+        body = self.visit(o.find('body'))
+        return ir.Interface(spec=spec, body=body, label=label, source=source)
+
+    def visit_interface_stmt(self, o, label=None, source=None):
+        if o.attrib['abstract_token']:
+            return o.attrib['abstract_token']
+        if o.attrib['hasGenericSpec'] == 'true':
+            raise NotImplementedError
+        return None
+
+    def visit_subroutine(self, o, label=None, source=None):
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+
+        # Create a scope
+        scope = Scope(parent=self.scope)
+
+        # Name and dummy args
+        name = o.attrib['name']
+        if o.tag == 'function':
+            is_function = True
+            args = [a.attrib['id'].upper() for a in o.findall('header/names/name')]
+            bind = None
+        else:
+            is_function = False
+            args = [a.attrib['name'].upper() for a in o.findall('header/arguments/argument')]
+            bind = None
+            if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
+                raise NotImplementedError
+
+        # Spec
+        # HACK: temporarily replace the scope property until we pass down scopes properly
+        parent_scope, self.scope = self.scope, scope
+        spec = self.visit(o.find('body/specification'))
+        self.scope = parent_scope
+
+        # Note: the Subroutine constructor registers itself in the parent scope
+        routine = Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, bind=bind,
+                             is_function=is_function, source=source)
+        return routine
+
+    visit_function = visit_subroutine
+
     def visit_association(self, o, label=None, source=None):
         return sym.Variable(name=o.attrib['associate-name'])
 
@@ -985,24 +1036,6 @@ class OFP2IR(GenericVisitor):
         subscripts = subscripts[0] if subscripts else ()
         kwarguments = tuple(arg for arg in subscripts if isinstance(arg, tuple))
         arguments = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
-        #parent = None
-        #for part_ref in o.findall('part-ref'):
-        #    name = self.visit(part_ref)
-        #    name = name.clone(parent=parent)
-        #    parent = name
-
-        #if len(o.findall('part-ref')) > 1:
-        #    import pdb; pdb.set_trace()
-
-        #if not 'type' in o.attrib:
-        #    # name is used just as an identifier
-        #    return name
-
-        #arguments, kwarguments = None, None
-        #if o.attrib['hasSubscripts'] == 'true':
-        #    subscripts = self.visit(o.find('subscripts'))
-        #    arguments = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
-        #    kwarguments = tuple(arg for arg in subscripts if isinstance(arg, tuple))
 
         cast_names = ('REAL', 'INT')
         if str(name).upper() in cast_names:
@@ -1016,13 +1049,18 @@ class OFP2IR(GenericVisitor):
                 kind = arguments[1] if len(arguments) > 1 else None
             return sym.Cast(name, expr, kind=kind, source=source)
 
-        intrinsic_calls = (
-            'MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD', 'SELECTED_INT_KIND',
-            'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT', 'SIGN', 'EPSILON', 'NULL'
-        )
-        _type = self.scope.symbols.lookup(name.name)
-        if str(name).upper() in intrinsic_calls or kwarguments or (_type and isinstance(_type.dtype, ProcedureType)):
-            return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+        if subscripts:
+            # This may potentially be an inline call
+            intrinsic_calls = (
+                'MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD', 'SELECTED_INT_KIND',
+                'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT', 'SIGN', 'EPSILON', 'NULL'
+            )
+            if str(name).upper() in intrinsic_calls or kwarguments:
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
+
+            _type = self.scope.symbols.lookup(name.name)
+            if subscripts and _type and isinstance(_type.dtype, ProcedureType):
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
         # We end up here if it is ambiguous (i.e., OFP did not know what the symbol is)
         # which is either a function call, an array with subscript or a name without anything further

@@ -1014,9 +1014,9 @@ class FParser2IR(GenericVisitor):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
         # Find start and end of construct
-        subroutine_stmt = get_child(o, Fortran2003.Subroutine_Stmt)
+        subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
         subroutine_stmt_index = o.children.index(subroutine_stmt)
-        end_subroutine_stmt = get_child(o, Fortran2003.End_Subroutine_Stmt)
+        end_subroutine_stmt = get_child(o, (Fortran2003.End_Subroutine_Stmt, Fortran2003.End_Function_Stmt))
         end_subroutine_stmt_index = o.children.index(end_subroutine_stmt)
 
         # Everything before the construct
@@ -1069,8 +1069,11 @@ class FParser2IR(GenericVisitor):
         name = self.visit(o.children[1], **kwargs)
         name = name.name
 
-        dummy_arg_list = self.visit(o.children[2], **kwargs)
-        args = tuple(str(arg) for arg in dummy_arg_list)
+        if o.children[2] is None:
+            args = ()
+        else:
+            dummy_arg_list = self.visit(o.children[2], **kwargs)
+            args = tuple(str(arg) for arg in dummy_arg_list)
 
         bind = None if o.children[3] is None else o.children[3].tostr()
 

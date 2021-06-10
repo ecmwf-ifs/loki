@@ -180,10 +180,10 @@ class Module:
     @property
     def typedefs(self):
         """
-        Map of names and :class:`DerivedType`s defined in this module.
+        Map of names and :any:`DerivedType` defined in this module.
         """
         types = FindNodes(TypeDef).visit(self.spec)
-        return {td.name.lower(): td for td in types}
+        return CaseInsensitiveDict((td.name, td) for td in types)
 
     @property
     def variables(self):
@@ -221,7 +221,7 @@ class Module:
     @property
     def variable_map(self):
         """
-        Map of variable names to `Variable` objects
+        Map of variable names to :any:`Variable` objects
         """
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
