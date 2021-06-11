@@ -131,8 +131,7 @@ class FortranMaxTransformation(Transformation):
                 else:
                     out_map[decl] = None
             elif arg.type.intent is not None:
-                arg.type.dfevar = True
-                arguments += [arg]
+                arguments += [arg.clone(type=arg.type.clone(dfevar=True))]
             else:
                 arguments += [arg]
 
@@ -161,9 +160,8 @@ class FortranMaxTransformation(Transformation):
         """
         Force pointer on reference-passed arguments (i.e., all except input scalars).
         """
-        for arg in routine.arguments:
-            if not (arg.type.intent.lower() == 'in' and isinstance(arg, sym.Scalar)):
-                arg.type.pointer = True
+        routine.arguments = [arg if arg.type.intent.lower() == 'in' and isinstance(arg, sym.Scalar)
+                             else arg.clone(type=arg.type.clone(pointer=True)) for arg in routine.arguments]
         return routine
 
     def _generate_dfe_kernel(self, routine, **kwargs):  # pylint: disable=unused-argument
@@ -263,7 +261,8 @@ class FortranMaxTransformation(Transformation):
         for stmt in FindNodes(tuple(node_fields.keys())).visit(max_kernel.body):
             is_dfe = any(dfevar_mapper(getattr(stmt, attr)).pop()
                          for attr in node_fields[stmt.__class__])
-            stmt.lhs.type.dfevar = stmt.lhs.type.dfevar or is_dfe
+            if not stmt.lhs.type.dfevar and is_dfe:
+                max_kernel.symbols[stmt.lhs.name] = stmt.lhs.type.clone(dfevar=is_dfe)
 
         # Replace array access by stream inflow
         if dataflow_indices:

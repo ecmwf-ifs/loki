@@ -977,36 +977,42 @@ def test_variable_without_scope():
     scope.symbols['var'] = SymbolAttributes(BasicType.INTEGER)
     assert isinstance(var, symbols.DeferredTypeSymbol)
     assert var.type and var.type.dtype is BasicType.DEFERRED
-    var.scope = scope
-    assert isinstance(var, symbols.DeferredTypeSymbol)
-    assert var.type.dtype is BasicType.INTEGER
-    # Rebuild the variable
-    var = var.clone()
+    var = var.clone(scope=scope)
+    assert var.scope is scope
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.INTEGER
-    # Change the data type
-    var.type = SymbolAttributes(BasicType.REAL)
+    # Change the data type via constructor
+    var = var.clone(type=SymbolAttributes(BasicType.REAL))
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbols['var'].dtype is BasicType.REAL
-    # Detach the scope
-    var.scope = None
+    # Detach the scope (type remains)
+    var = var.clone(scope=None)
+    assert var.scope is None
     assert isinstance(var, symbols.Scalar)
-    assert var.type.dtype is BasicType.DEFERRED
+    assert var.type.dtype is BasicType.REAL
     assert scope.symbols['var'].dtype is BasicType.REAL
-    # Rebuild the variable
-    var = var.clone()
-    assert isinstance(var, symbols.DeferredTypeSymbol)
-    assert var.type.dtype is BasicType.DEFERRED
     # Assign a data type locally
-    var.type = SymbolAttributes(BasicType.LOGICAL)
-    assert isinstance(var, symbols.DeferredTypeSymbol)
-    assert var.type.dtype is BasicType.LOGICAL
-    # Rebuild the variable
-    var = var.clone()
+    var = var.clone(type=SymbolAttributes(BasicType.LOGICAL))
+    assert var.scope is None
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
-    # Re-attach the scope
-    var.scope = scope
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Re-attach the scope without specifying type
+    var = var.clone(scope=scope, type=None)
+    assert var.scope is scope
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.REAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Detach the scope and specify new type
+    var = var.clone(scope=None, type=SymbolAttributes(BasicType.LOGICAL))
+    assert var.scope is None
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Re-attach the scope (overwrites scope-stored type with local type)
+    var = var.clone(scope=scope)
+    assert var.scope is scope
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    assert scope.symbols['var'].dtype is BasicType.LOGICAL

@@ -92,12 +92,20 @@ class StrCompareMixin:
 
 class TypedSymbol:
     """
-    Base class for symbols that carry type information from an associated scope.
+    Base class for symbols that carry type information.
 
-    Every :any:`TypedSymbol` is associated with a specific scope in which type
-    information is cached. The scope itself is owned by the corresponding
-    container class in which it is declared (such as :any:`Module` or
-    :any:`Subroutine`).
+    :class:`TypedSymbol` can be associated with a specific :any:`Scope` in
+    which it is declared. In that case, all type information is cached in that
+    scope's :any:`SymbolTable`. Creating :class:`TypedSymbol` without attaching
+    it to a scope stores the type information locally.
+
+    .. note::
+        Providing :attr:`scope` and :attr:`type` overwrites the corresponding
+        entry in the scope's symbol table. To not modify the type information
+        omit :attr:`type` or use ``type=None``.
+
+    Objects should always be created via the factory class :any:`Variable`.
+
 
     Parameters
     ----------
@@ -109,35 +117,36 @@ class TypedSymbol:
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     parent : :any:`Scalar` or :any:`Array`, optional
         The derived type variable this variable belongs to.
-
-    .. note::
-        Providing a type overwrites the corresponding entry in the scope's
-        symbol table. This is due to the assumption that the type of a symbol
-        is only explicitly specified when it should be updated.
+    *args : optional
+        Any other positional arguments for other parent classes
+    **kwargs : optional
+        Any other keyword arguments for other parent classes
     """
 
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
+
         self.parent = kwargs.pop('parent', None)
-
         assert self.parent is None or isinstance(self.parent, TypedSymbol)
-        self.scope = kwargs.pop('scope', None)
 
+        scope = kwargs.pop('scope', None)
+        assert scope is None or isinstance(scope, Scope)
+        self._scope = None if scope is None else weakref.ref(scope)
+
+        # Use provided type or try to determine from scope
         self._type = None
         _type = kwargs.pop('type', None) or self.type
 
-        if _type is None:
-            # Insert the deferred type in the type table only if it does not exist
-            # yet (necessary for deferred type definitions, e.g., derived types in header or
-            # parameters from other modules)
-            self.scope.symbols.setdefault(self.name, SymbolAttributes(BasicType.DEFERRED))
-        else:
-            lookup_type = self.scope.symbols.lookup(self.name)
-            if not lookup_type or (_type.dtype is not BasicType.DEFERRED and _type is not lookup_type):
-                # If the type information does already exist and is identical (not just
-                # equal) we don't update it. This makes sure that we don't create double
-                # entries for variables inherited from a parent scope
-                self.type = _type.clone()
+        # Update the stored type information
+        if self._scope is None:
+            # Store locally if not attached to a scope
+            self._type = _type
+        elif _type is None:
+            # Store deferred type if unknown
+            self.scope.symbols[self.name] = SymbolAttributes(BasicType.DEFERRED)
+        elif _type is not self.type:
+            # Update type if differs from stored type
+            self.scope.symbols[self.name] = _type
 
         super().__init__(*args, **kwargs)
 
@@ -154,11 +163,6 @@ class TypedSymbol:
             return None
         return self._scope()
 
-    @scope.setter
-    def scope(self, new_scope):
-        assert new_scope is None or isinstance(new_scope, Scope)
-        self._scope = None if new_scope is None else weakref.ref(new_scope)
-
     @property
     def type(self):
         """
@@ -167,13 +171,6 @@ class TypedSymbol:
         if self._scope is None:
             return self._type or SymbolAttributes(BasicType.DEFERRED)
         return self.scope.symbols.lookup(self.name)
-
-    @type.setter
-    def type(self, value):
-        if self._scope is None:
-            self._type = value
-        else:
-            self.scope.symbols[self.name] = value
 
     @property
     def basename(self):
@@ -378,6 +375,26 @@ class Variable:
     3. `type.dtype` is not :any:`BasicType.DEFERRED`:
        Instantiate a :any:`Scalar`;
     4. None of the above: Instantiate a :any:`DeferredTypeSymbol`
+
+    All objects created by this factory implement :class:`TypedSymbol`. A
+    :class:`TypedSymbol` object can be associated with a specific :any:`Scope` in
+    which it is declared. In that case, all type information is cached in that
+    scope's :any:`SymbolTable`. Creating :class:`TypedSymbol` without attaching
+    it to a scope stores the type information locally.
+
+    .. note::
+        Providing :attr:`scope` and :attr:`type` overwrites the corresponding
+        entry in the scope's symbol table. To not modify the type information
+        omit :attr:`type` or use ``type=None``.
+
+    Note that all :class:`TypedSymbol` classes are intentionally quasi-immutable:
+    Changing any of their attributes, including attaching them to a scope or
+    modifying their type, should always be done via the :meth:`clone` method:
+
+    .. codeblock::
+        var = Variable(name='foo')
+        var = var.clone(scope=scope, type=SymbolAttributes(BasicType.INTEGER))
+        var = var.clone(type=var.type.clone(dtype=BasicType.REAL))
 
     Parameters
     ----------
