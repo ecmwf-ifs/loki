@@ -825,7 +825,7 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
-        assert isinstance(function, ProcedureSymbol)
+        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol))
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 

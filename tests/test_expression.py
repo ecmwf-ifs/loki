@@ -882,7 +882,7 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     assert 'var' in scope.symbols
     scope.symbols['var'] = newtype
     assert isinstance(var, inireftype)
-    var = var.clone()
+    var = var.clone()  # pylint: disable=no-member
     assert isinstance(var, newreftype)
 
 
@@ -939,5 +939,5 @@ def test_variable_clone(initype, inireftype, newtype, newreftype):
     var = symbols.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
     assert 'var' in scope.symbols
-    var = var.clone(type=newtype)
+    var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
