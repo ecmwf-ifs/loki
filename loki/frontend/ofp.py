@@ -2,7 +2,6 @@ from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
 import re
-import xml.etree.ElementTree as ET
 
 import open_fortran_parser
 
@@ -410,36 +409,6 @@ class OFP2IR(GenericVisitor):
 
         return var
 
-        if 'id' not in o.attrib and 'name' not in o.attrib:
-            return None
-        name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
-        if o.find('dimensions') is not None:
-            dimensions = tuple(self.visit(d) for d in o.find('dimensions'))
-            dimensions = tuple(d for d in dimensions if d is not None)
-        else:
-            dimensions = kwargs.get('dimensions', None)
-        _type = kwargs.get('type', None)
-        initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        if _type is not None:
-            _type = _type.clone(shape=dimensions, initial=initial)
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-
-        external = kwargs.get('external')
-        if external:
-            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
-            # variable declaration but declares a procedure symbol. Depending on whether
-            # we have a data type for that symbol or not, we can deduce it to be a
-            # function or subroutine
-            if _type.dtype is BasicType.DEFERRED:
-                _type = _type.clone(dtype=ProcedureType(name=name, is_function=False), external=external)
-            else:
-                _type = _type.clone(dtype=ProcedureType(name=name, is_function=True),
-                                    external=external, return_type=_type.dtype)
-
-        return sym.Variable(name=name, scope=self.scope, dimensions=dimensions,
-                            type=_type, source=source)
-
     def visit_derived_type_stmt(self, o, label=None, source=None):
         if o.attrib['keyword'].lower() != 'type':
             raise NotImplementedError
@@ -605,138 +574,6 @@ class OFP2IR(GenericVisitor):
         variables = tuple(v.clone(scope=scope) for v in variables)
         return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
                               source=source, label=label)
-
-        if len(o.attrib) == 0:
-            return None  # Empty element, skip
-        if o.find('save-stmt') is not None:
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.find('access-spec') is not None:
-            # PUBLIC or PRIVATE declarations
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.attrib['type'] == 'variable':
-            if o.find('end-type-stmt') is not None:
-                # We are dealing with a derived type
-                name = o.find('end-type-stmt').attrib['id']
-
-                # Initialize a local scope for typedef objects
-                typedef_scope = Scope(parent=self.scope)
-
-                # This is still ugly, but better than before! In order to
-                # process certain tag combinations (groups) into declaration
-                # objects, we first group them in place, while also allowing
-                # comments/pragmas through here. We then explicitly process
-                # them into the intended nodes in the order we found them.
-                grouped_elems = match_tag_sequence(o, [
-                    ('type', 'attributes', 'components'),
-                    ('type', 'components'),
-                    ('comment', ),
-                ])
-
-                body = []
-                for group in grouped_elems:
-                    if len(group) == 1:
-                        # Process indidividual comments/pragmas
-                        body.append(self.visit(group[0]))
-
-                    elif len(group) == 2:
-                        # Process declarations without attributes
-                        decl = self.create_typedef_declaration(t=group[0], comps=group[1],
-                                                               scope=typedef_scope, source=source)
-                        body.append(decl)
-
-                    elif len(group) == 3:
-                        # Process declarations with attributes
-                        decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
-                                                               scope=typedef_scope, source=source)
-                        body.append(decl)
-
-                    else:
-                        raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
-
-                # Infer any additional shape information from `!$loki dimension` pragmas
-                body = attach_pragmas(body, ir.Declaration)
-                body = process_dimension_pragmas(body)
-                body = detach_pragmas(body, ir.Declaration)
-                typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=typedef_scope,
-                                     label=label, source=source)
-
-                # Now make the typedef known in its scope's type table
-                self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
-
-                return typedef
-
-            # We are dealing with a single declaration, so we retrieve
-            # all the declaration-level information first.
-            typename = o.find('type').attrib['name']
-            kind = o.find('type/kind')
-            if kind is not None:
-                kind = self.visit(kind)
-
-            type_attrs = {
-                'intent': o.find('intent').attrib['type'] if o.find('intent') else None,
-                'parameter': o.find('attribute-parameter') is not None,
-                'optional': o.find('attribute-optional') is not None,
-                'allocatable': o.find('attribute-allocatable') is not None,
-                'pointer': o.find('attribute-pointer') is not None,
-                'target': o.find('attribute-target') is not None,
-            }
-
-            external = o.find('attribute-external') is not None
-            dims = o.find('dimensions')
-            dimensions = None if dims is None else as_tuple(self.visit(dims))
-
-            if o.find('type').attrib['type'] == 'intrinsic':
-                # Create a basic variable type
-                # TODO: Character length attribute
-                stype = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind,
-                                         shape=dimensions, source=source, **type_attrs)
-            else:
-                # Create the local variant of the derived type
-                dtype = self.scope.symbols.lookup(typename, recursive=True)
-                if dtype is None or dtype.dtype is BasicType.DEFERRED:
-                    dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-                else:
-                    dtype = dtype.dtype
-
-                stype = SymbolAttributes(dtype, source=source, **type_attrs)
-
-            variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
-                         for v in o.findall('variables/variable')]
-            variables = [v for v in variables if v is not None]
-            return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
-                                  label=label, source=source)
-        if o.attrib['type'] == 'external':
-            variables = []
-            for v in o.findall('names/name'):
-                var = self.visit(v)
-                if var.type.dtype is BasicType.DEFERRED:
-                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=False), external=True)
-                else:
-                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=True), external=True,
-                                           return_type=var.type.dtype)
-                variables += [var.clone(type=_type)]
-            return ir.Declaration(variables=variables, external=True, label=label, source=source)
-        if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.attrib['type'] == 'data':
-            # Data declaration blocks
-            declarations = []
-            for variables, values in zip(o.findall('variables'), o.findall('values')):
-                # TODO: actually parse the statements
-                variable = source.string[5:source.string.index('/')].strip()
-                # variable = self.visit(variables)
-                # Lists of literal values are again nested, so extract
-                # them recursively.
-                lit = values.find('literal')  # We explicitly recurse on l
-                vals = []
-                while lit.find('literal') is not None:
-                    vals += [self.visit(lit)]
-                    lit = lit.find('literal')
-                vals += [self.visit(lit)]
-                declarations += [ir.DataDeclaration(variable=variable, values=vals, label=label, source=source)]
-            return as_tuple(declarations)
-
-        raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
 
     def visit_interface(self, o, label=None, source=None):
         spec = self.visit(o.find('interface-stmt'))
@@ -974,15 +811,6 @@ class OFP2IR(GenericVisitor):
                 step = self.visit(o.find('range/step'))
             return sym.RangeIndex((lower, upper, step), source=source)
         raise NotImplementedError
-        if o.find('name'):
-            return self.visit(o.find('name'))
-        if o.find('literal'):
-            return self.visit(o.find('literal'))
-        if o.find('operation'):
-            return self.visit(o.find('operation'))
-        if o.find('array-constructor-values'):
-            return self.visit(o.find('array-constructor-values'))
-        return sym.RangeIndex((None, None, None), source=source)
 
     def visit_dimensions(self, o, label=None, source=None):
         return tuple(self.visit(c) for c in o.findall('dimension'))
@@ -1067,86 +895,6 @@ class OFP2IR(GenericVisitor):
         assert o.attrib['type'] == 'ambiguous' and not getattr(name, 'dimensions', None)
         assert not kwarguments
         return name.clone(dimensions=arguments or None)
-
-        def generate_variable(vname, indices, kwargs, parent, source, scope, attrib_type):
-            if attrib_type == 'procedure':
-                return sym.ProcedureSymbol(vname, scope=scope, source=source)
-            if attrib_type == 'variable':
-                if indices:
-                    indices = sym.ArraySubscript(indices, source=source)
-                if parent is not None:
-                    basename = vname
-                    vname = '%s%%%s' % (parent.name, vname)
-                return sym.Variable(name=vname, dimensions=indices, parent=parent, scope=scope, source=source)
-
-
-            if attrib_type not in ('procedure', 'ambiguous', 'variable', None):
-                import pdb; pdb.set_trace()
-            if vname.upper() == 'RESHAPE':
-                # return reshape(indices[0], shape=indices[1])
-                raise NotImplementedError()
-            if vname.upper() in intrinsic_call_names:
-                fct_symbol = sym.ProcedureSymbol(vname, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
-            if vname.upper() in ['REAL', 'INT']:
-                kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
-                return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
-            if indices is not None and len(indices) == 0:
-                # HACK: We (most likely) found a call out to a C routine
-                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=scope, source=source)
-                assert not kwargs
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
-
-            if parent is not None:
-                basename = vname
-                vname = '%s%%%s' % (parent.name, vname)
-
-            _type = scope.symbols.lookup(vname, recursive=True)
-            if _type and isinstance(_type.dtype, ProcedureType):
-                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
-
-            # If the (possibly external) struct definitions exist
-            # try to derive the type from it.
-            if _type is None and parent is not None and parent.type is not None:
-                if isinstance(parent.type.dtype, DerivedType) \
-                   and parent.type.dtype.typedef is not BasicType.DEFERRED:
-                    _type = parent.type.dtype.typedef.variables.get(basename)
-
-            if indices:
-                indices = sym.ArraySubscript(indices, source=source)
-
-            var = sym.Variable(name=vname, dimensions=indices, parent=parent,
-                               type=_type, scope=scope, source=source)
-            return var
-
-        # Creating compound variables is a bit tricky, so let's first
-        # process all our children and shove them into a deque
-        _children = deque(self.visit(c) for c in o)
-        _children = deque(c for c in _children if c is not None)
-
-        attrib_type = o.attrib.get('type')
-
-        # Hack: find kwargs for Casts and InlineCalls
-        kw_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
-                   for i in o.findall('subscripts/argument')}
-
-        # Now we nest variables, dimensions and sub-variables by
-        # walking through our queue of nested symbols
-        variable = None
-        while len(_children) > 0:
-            # Indices sit on the left of their base symbol
-            if len(_children) > 0 and isinstance(_children[0], tuple):
-                indices = _children.popleft()
-            else:
-                indices = None
-
-            item = _children.popleft()
-            variable = generate_variable(vname=item, indices=indices, kwargs=kw_args,
-                                         parent=variable, source=source,
-                                         scope=kwargs.get('scope', self.scope),
-                                         attrib_type=attrib_type)
-        return variable
 
     def visit_part_ref(self, o, label=None, source=None):
         return sym.Variable(name=o.attrib['id'], source=source)
