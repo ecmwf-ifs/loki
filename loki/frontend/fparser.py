@@ -1,12 +1,7 @@
-from collections import OrderedDict
 import re
 
 from fparser.two.parser import ParserFactory
 from fparser.two.utils import get_child, BlockBase
-try:
-    from fparser.two.utils import walk
-except ImportError:
-    from fparser.two.utils import walk_ast as walk
 from fparser.two import Fortran2003
 from fparser.common.readfortran import FortranStringReader
 
@@ -14,7 +9,7 @@ from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, read_file, import_external_symbols, FP,
+    inline_comments, cluster_comments, read_file, FP,
     combine_multiline_pragmas
 )
 import loki.ir as ir
@@ -22,7 +17,7 @@ import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions
-from loki.logging import DEBUG
+from loki.logging import DEBUG, warning
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
@@ -208,8 +203,6 @@ class FParser2IR(GenericVisitor):
         kwargs['label'] = self.get_label(o)
         kwargs.setdefault('scope', self.scope)
         return super().visit(o, **kwargs)
-
-    ### scratchpad: re-written visit functions ###
 
     def visit_List(self, o, **kwargs):
         """
@@ -589,9 +582,6 @@ class FParser2IR(GenericVisitor):
                 _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
             else:
                 _type = _type.clone(external=True)
-                #return_type = None if _type.dtype is BasicType.DEFERRED else _type.dtype
-                #dtype = ProcedureType(var.name, is_function=return_type is not None)
-                #type_kwargs = {'dtype': dtype, 'external': True, 'return_type': None}
             scope.symbols[var.name] = _type
 
         variables = tuple(v.clone(scope=scope) for v in variables)
@@ -1161,6 +1151,19 @@ class FParser2IR(GenericVisitor):
 
     visit_Else_If_Stmt = visit_If_Then_Stmt
 
+    def visit_If_Stmt(self, o, **kwargs):
+        """
+        An inline ``IF`` statement with a single statement as body
+
+        :class:`fparser.two.Fortran2003.If_Stmt` has two children:
+            * the condition expression
+            * the body
+        """
+        cond = self.visit(o.items[0], **kwargs)
+        body = as_tuple(self.visit(o.items[1], **kwargs))
+        return ir.Conditional(condition=cond, body=body, else_body=(), inline=True,
+                              label=kwargs.get('label'), source=kwargs.get('source'))
+
     #
     # SELECT CASE constructs
     #
@@ -1317,6 +1320,8 @@ class FParser2IR(GenericVisitor):
     visit_Allocate_Shape_Spec_List = visit_List
 
     visit_Alloc_Opt_List = visit_List
+    visit_Dealloc_Opt_List = visit_List
+    visit_Allocate_Object_List = visit_List
 
     def visit_Alloc_Opt(self, o, **kwargs):
         """
@@ -1329,6 +1334,20 @@ class FParser2IR(GenericVisitor):
         if o.children[0].lower() == 'source':
             return 'source', self.visit(o.children[1], **kwargs)
         raise NotImplementedError
+
+    def visit_Deallocate_Stmt(self, o, **kwargs):
+        """
+        A call to ``DEALLOCATE``
+
+        :class:`fparser.two.Fortran2003.Deallocate_Stmt has two children:
+            * the list of objects :class:`fparser.two.Fortran2003.Allocate_Object_List`
+            * list of options :class:`fparser.two.Fortran2003.Dealloc_Opt_list`
+        """
+        variables = self.visit(o.children[0], **kwargs)
+        if o.children[1] is not None:
+            raise NotImplementedError
+        return ir.Deallocation(variables=variables, source=kwargs.get('source'),
+                               label=kwargs.get('label'))
 
     #
     # Subroutine and function calls
@@ -1458,13 +1477,13 @@ class FParser2IR(GenericVisitor):
     visit_Component_Spec = visit_Actual_Arg_Spec
     visit_Component_Spec_List = visit_List
 
-    ### end scratchpad : re-written visit functions ###
+    ### Below functions have not yet been revisited ###
 
     def visit_Base(self, o, **kwargs):
         """
         Universal default for ``Base`` FParser-AST nodes
         """
-        import pdb; pdb.set_trace()
+        warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -1474,84 +1493,12 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``BlockBase`` FParser-AST nodes
         """
-        import pdb; pdb.set_trace()
+        warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
-
-    #visit_Assumed_Shape_Spec_List = visit_List
-    #visit_Deferred_Shape_Spec_List = visit_List
-    #visit_Allocate_Shape_Spec_List = visit_List
-    #visit_Ac_Value_List = visit_List
-    #visit_Section_Subscript_List = visit_List
-
-    def old_visit_Actual_Arg_Spec_List(self, o, **kwargs):
-        """
-        Needs special treatment to avoid flattening key-value-pair tuples.
-        """
-        return as_tuple(self.visit(i, **kwargs) for i in o.items)
-
-    def old_visit_Name(self, o, **kwargs):
-        # This one is evil, as it is used flat in expressions,
-        # forcing us to generate ``Variable`` objects, and in
-        # declarations, where none of the metadata is available
-        # at this low level!
-        vname = o.tostr()
-
-        # Careful! Mind the many ways in which this can get called with
-        # outside information (either in kwargs or maps stored on self).
-        dimensions = kwargs.get('dimensions')
-        external = kwargs.get('external')
-        dtype = kwargs.get('dtype')
-        parent = kwargs.get('parent')
-        shape = kwargs.get('shape')
-        initial = kwargs.get('initial')
-        scope = kwargs.get('scope', self.scope)
-
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-
-        if parent is not None:
-            basename = vname
-            vname = '%s%%%s' % (parent.name, vname)
-
-        # Try to find the symbol in the symbol tables
-        if dtype is None and scope is not None:
-            dtype = self.scope.symbols.lookup(vname, recursive=True)
-
-        # If a parent variable is given, try to infer type from the
-        # derived type definition
-        if parent is not None and dtype is None:
-            if parent.type is not None and isinstance(parent.type.dtype, DerivedType):
-                if parent.type.variables is not None and \
-                        basename in parent.type.variables:
-                    dtype = parent.type.variables[basename].type
-
-        if shape is not None and dtype is not None and dtype.shape != shape:
-            dtype = dtype.clone(shape=shape)
-
-        if initial is not None :
-            dtype = dtype.clone(initial=initial)
-
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions)
-
-        if external:
-            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
-            # variable declaration but declares a procedure symbol. Depending on whether
-            # we have a data type for that symbol or not, we can deduce it to be a
-            # function or subroutine
-            if dtype is None:
-                dtype = SymbolAttributes(dtype=ProcedureType(name=vname, is_function=False), external=external)
-            else:
-                dtype = dtype.clone(dtype=ProcedureType(name=vname, is_function=True),
-                                    external=external, return_type=dtype.dtype)
-
-        return sym.Variable(name=vname, dimensions=dimensions, type=dtype,
-                            scope=scope, parent=parent, source=source)
 
     def visit_literal(self, o, _type, kind=None, **kwargs):
         source = kwargs.get('source')
@@ -1600,34 +1547,6 @@ class FParser2IR(GenericVisitor):
     visit_Octal_Constant = visit_Complex_Literal_Constant
     visit_Hex_Constant = visit_Complex_Literal_Constant
 
-    def old_visit_Dimension_Attr_Spec(self, o, **kwargs):
-        return self.visit(o.items[1], **kwargs)
-
-    def old_visit_Component_Attr_Spec(self, o, **kwargs):
-        return o.tostr()
-
-    def old_visit_Intent_Attr_Spec(self, o, **kwargs):
-        return o.tostr()
-
-    def old_visit_Attr_Spec(self, o, **kwargs):
-        return o.tostr()
-
-    def old_visit_Specification_Part(self, o, **kwargs):
-        children = tuple(self.visit(c, **kwargs) for c in o.content)
-        children = tuple(c for c in children if c is not None)
-        return list(children)
-
-    def old_visit_Use_Stmt(self, o, **kwargs):
-        name = o.items[2].tostr()
-        only_list = get_child(o, Fortran2003.Only_List)  # pylint: disable=no-member
-        symbols = None
-        if only_list:
-            symbol_names = tuple(item.tostr() for item in only_list.items)
-            module = self.definitions.get(name, None)
-            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
-        return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'),
-                         label=kwargs.get('label'))
-
     def visit_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
         return ir.Import(module=fname, f_include=True, source=kwargs.get('source'),
@@ -1653,156 +1572,6 @@ class FParser2IR(GenericVisitor):
             return ir.Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
         return ir.Comment(text=o.tostr(), source=source)
 
-    def old_visit_Entity_Decl(self, o, **kwargs):
-        # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
-        dims = get_child(o, Fortran2003.Explicit_Shape_Spec_List)
-        dims = get_child(o, Fortran2003.Assumed_Shape_Spec_List) if dims is None else dims
-        if dims is not None:
-            kwargs['dimensions'] = self.visit(dims)
-
-        init = get_child(o, Fortran2003.Initialization)
-        if init is not None:
-            kwargs['initial'] = self.visit(init)
-
-        # We know that this is a declaration, so the ``dimensions``
-        # here also define the shape of the variable symbol within the
-        # currently cached context.
-        kwargs['shape'] = kwargs.get('dimensions', None)
-
-        return self.visit(o.items[0], **kwargs)
-
-    def old_visit_Component_Decl(self, o, **kwargs):
-        # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
-        dims = get_child(o, Fortran2003.Explicit_Shape_Spec_List)
-        dims = get_child(o, Fortran2003.Assumed_Shape_Spec_List) if dims is None else dims
-        dims = get_child(o, Fortran2003.Deferred_Shape_Spec_List) if dims is None else dims
-        if dims is not None:
-            dims = self.visit(dims)
-            # We know that this is a declaration, so the ``dimensions``
-            # here also define the shape of the variable symbol within the
-            # currently cached context.
-            kwargs['dimensions'] = dims
-            kwargs['shape'] = dims
-
-        return self.visit(o.items[0], **kwargs)
-
-    def old_visit_Subscript_Triplet(self, o, **kwargs):
-        children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-        return sym.RangeIndex(children, source=source)
-
-    #visit_Assumed_Shape_Spec = visit_Subscript_Triplet
-    #visit_Deferred_Shape_Spec = visit_Subscript_Triplet
-
-    def old_visit_Explicit_Shape_Spec(self, o, **kwargs):
-        children = tuple(self.visit(i, **kwargs) if i is not None else None for i in o.items)
-        if children[0] is None:
-            return children[1]
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-        return sym.RangeIndex(children, source=source)
-
-    #visit_Allocate_Shape_Spec = visit_Explicit_Shape_Spec
-
-    def old_visit_Allocation(self, o, **kwargs):
-        dimensions = self.visit(o.items[1])
-        kwargs['dimensions'] = dimensions
-        kwargs['shape'] = dimensions
-        return self.visit(o.items[0], **kwargs)
-
-    def old_visit_Allocate_Stmt(self, o, **kwargs):
-        # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
-        kw_args = {arg.items[0].lower(): self.visit(arg.items[1], **kwargs)
-                   for arg in walk(o, Fortran2003.Alloc_Opt)}
-        allocations = get_child(o, Fortran2003.Allocation_List)
-        variables = tuple(self.visit(a, **kwargs) for a in allocations.items)
-        return ir.Allocation(variables=variables, source=kwargs.get('source'),
-                             data_source=kw_args.get('source'), label=kwargs.get('label'))
-
-    def visit_Deallocate_Stmt(self, o, **kwargs):
-        # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
-        deallocations = get_child(o, Fortran2003.Allocate_Object_List)
-        variables = tuple(self.visit(a, **kwargs) for a in deallocations.items)
-        return ir.Deallocation(variables=variables, source=kwargs.get('source'),
-                               label=kwargs.get('label'))
-
-    def old_visit_Intrinsic_Type_Spec(self, o, **kwargs):
-        dtype = o.items[0]
-        kind = get_child(o, Fortran2003.Kind_Selector)
-        if kind is not None:
-            kind = self.visit(kind.items[1], **kwargs)
-        length = get_child(o, Fortran2003.Length_Selector)
-        if length is not None:
-            length = length.items[1].tostr()
-        return dtype, kind, length
-
-    def old_visit_Intrinsic_Name(self, o, **kwargs):
-        return o.tostr()
-
-    def old_visit_Array_Constructor(self, o, **kwargs):
-        values = self.visit(o.items[1], **kwargs)
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-        return sym.LiteralList(values=values, source=source)
-
-    def old_visit_Ac_Implied_Do(self, o, **kwargs):
-        # TODO: Implement this properly!
-        return o.tostr()
-
-    def old_visit_Intrinsic_Function_Reference(self, o, **kwargs):
-        # pylint: disable=no-member  # *_List are autogenerated and not found by pylint
-        # Do not recurse here to avoid treating function names as variables
-        name = o.items[0].tostr()  # self.visit(o.items[0], **kwargs)
-
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-
-        scope = kwargs.get('scope', self.scope)
-        fct_symbol = sym.ProcedureSymbol(name, scope=scope, source=source)
-
-        if name.upper() in ('REAL', 'INT'):
-            args = walk(o.items, (Fortran2003.Actual_Arg_Spec_List,))[0]
-            expr = self.visit(args.items[0])
-            if len(args.items) > 1:
-                # Do not recurse here to avoid treating kind names as variables
-                kind = walk(o.items, (Fortran2003.Actual_Arg_Spec,))
-                # If kind is not specified as named argument, simply take the second argument
-                kind = kind[0].items[1] if kind else args.items[1]
-                kind = self.visit(kind, **kwargs)
-            else:
-                kind = None
-            return sym.Cast(fct_symbol, expr, kind=kind, source=source)
-
-        args = self.visit(o.items[1], **kwargs) if o.items[1] else None
-        if args:
-            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-            arguments = tuple(a for a in args if not isinstance(a, tuple))
-        else:
-            arguments = None
-            kwarguments = None
-        return sym.InlineCall(fct_symbol, parameters=arguments,
-                              kw_parameters=kwarguments, source=source)
-
-    #visit_Function_Reference = visit_Intrinsic_Function_Reference
-
-    def old_visit_Actual_Arg_Spec(self, o, **kwargs):
-        key = o.items[0].tostr()
-        value = self.visit(o.items[1], **kwargs)
-        return (key, value)
-
-    def old_visit_Data_Ref(self, o, **kwargs):
-        v = self.visit(o.items[0], source=kwargs.get('source'))
-        for i in o.items[1:-1]:
-            # Careful not to propagate type or dims here
-            v = self.visit(i, parent=v, source=kwargs.get('source'))
-        # Attach types and dims to final leaf variable
-        return self.visit(o.items[-1], parent=v, **kwargs)
-
     def visit_Data_Pointer_Object(self, o, **kwargs):
         v = self.visit(o.items[0], source=kwargs.get('source'))
         for i in o.items[1:-1]:
@@ -1813,65 +1582,6 @@ class FParser2IR(GenericVisitor):
         # Attach types and dims to final leaf variable
         return self.visit(o.items[-1], parent=v, **kwargs)
 
-    def old_visit_Part_Ref(self, o, **kwargs):
-        # WARNING: Due to fparser's lack of a symbol table, it is not always possible to
-        # distinguish between array subscript and function call. This employs a heuristic
-        # identifying only intrinsic function calls and calls with keyword parameters as
-        # a function call.
-        name = o.items[0].tostr()
-        parent = kwargs.get('parent', None)
-        if parent:
-            name = '%s%%%s' % (parent, name)
-        args = as_tuple(self.visit(o.items[1])) if o.items[1] else None
-        if args:
-            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        else:
-            arguments = None
-            kwarguments = None
-
-        source = kwargs.get('source')
-        if source:
-            source = source.clone_with_string(o.string)
-
-        fct_type = self.scope.symbols.lookup(name)
-        if fct_type and isinstance(fct_type.dtype, ProcedureType):
-            # We know this function from out own type table
-            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
-                                  source=source)
-
-        if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
-            # This is (presumably) a function call
-            fct_type = ProcedureType('name')
-            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
-                                  source=source)
-
-        # This is an array access and the arguments define the dimension.
-        kwargs['dimensions'] = args
-        # Recurse down to visit_Name
-        return self.visit(o.items[0], **kwargs)
-
-    def old_visit_Structure_Constructor(self, o, **kwargs):
-        # TODO: fparser wrongfully parses calls to functions without arguments as this type.
-        # This means this routine also produces inline calls for actual inline calls...
-        name = get_child(o, Fortran2003.Type_Name).tostr()
-        component_specs = get_child(o, Fortran2003.Component_Spec_List)  # pylint: disable=no-member
-        if component_specs:
-            args = as_tuple(self.visit(component_specs, **kwargs))
-            kwarguments = {a[0]: a[1] for a in args if isinstance(a, tuple)}
-            arguments = as_tuple(a for a in args if not isinstance(a, tuple))
-        else:
-            arguments = None
-            kwarguments = None
-
-        source = kwargs.get('source')
-        fct_type = self.scope.symbols.lookup(name)
-        fct_symbol = sym.Variable(name=name, type=fct_type, scope=self.scope, source=source)
-        return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
-                              source=source)
-
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
@@ -1880,121 +1590,6 @@ class FParser2IR(GenericVisitor):
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))
         return self.visit(o.items[-1], parent=v, **kwargs)
-
-    def old_visit_Array_Section(self, o, **kwargs):
-        kwargs['dimensions'] = as_tuple(self.visit(o.items[1]))
-        return self.visit(o.items[0], **kwargs)
-
-    #visit_Substring_Range = visit_Subscript_Triplet
-
-    def old_visit_Type_Declaration_Stmt(self, o, **kwargs):
-        """
-        Declaration statement in the spec of a module/routine. This function is also called
-        for declarations of members of a derived type.
-        """
-        # Super-hacky, this fecking DIMENSION keyword will be my undoing one day!
-        dimensions = [self.visit(a, **kwargs)
-                      for a in walk(o.items, (Fortran2003.Dimension_Component_Attr_Spec,
-                                              Fortran2003.Dimension_Attr_Spec))]
-        if dimensions:
-            if isinstance(o, Fortran2003.Data_Component_Def_Stmt):
-                dimensions = dimensions[0][1]
-            else:
-                dimensions = dimensions[0]
-        else:
-            dimensions = None
-
-        # First, pick out parameters, including explicit DIMENSIONs and EXTERNAL
-        attrs = as_tuple(str(self.visit(a)).lower().strip()
-                         for a in walk(o.items, (
-                             Fortran2003.Attr_Spec, Fortran2003.Component_Attr_Spec,
-                             Fortran2003.Intent_Attr_Spec)))
-        intent = None
-        if 'intent(in)' in attrs:
-            intent = 'in'
-        elif 'intent(inout)' in attrs:
-            intent = 'inout'
-        elif 'intent(out)' in attrs:
-            intent = 'out'
-
-        external = 'external' in attrs
-
-        # All the declared attributes that we retain
-        type_attrs = {
-            'intent': intent,
-            'parameter': 'parameter' in attrs,
-            'optional': 'optional' in attrs,
-            'allocatable': 'allocatable' in attrs,
-            'pointer': 'pointer' in attrs,
-            'contiguous': 'contiguous' in attrs,
-            'target': 'target' in attrs,
-            'shape': dimensions,
-        }
-
-        # Next, figure out the type we're declaring
-        stype = None
-        basetype_ast = get_child(o, Fortran2003.Intrinsic_Type_Spec)
-        if basetype_ast is not None:
-            dtype, kind, length = self.visit(basetype_ast)
-            stype = SymbolAttributes(BasicType.from_fortran_type(dtype), kind=kind, length=length, **type_attrs)
-
-        derived_type_ast = get_child(o, Fortran2003.Declaration_Type_Spec)
-        if derived_type_ast is not None:
-            typename = derived_type_ast.items[1].tostr().lower()
-            dtype = self.scope.symbols.lookup(typename, recursive=True)
-            if dtype is None or dtype.dtype is BasicType.DEFERRED:
-                dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-            else:
-                dtype = dtype.dtype
-            stype = SymbolAttributes(dtype, **type_attrs)
-
-        assert stype is not None
-
-        # Now create the actual variables declared in this statement
-        # (and provide them with the type and dimension information)
-        kwargs['dimensions'] = dimensions
-        kwargs['external'] = external
-        kwargs['dtype'] = stype
-        variables = as_tuple(self.visit(o.items[2], **kwargs))
-        return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
-                              source=kwargs.get('source'), label=kwargs.get('label'))
-
-    def old_visit_External_Stmt(self, o, **kwargs):
-        # pylint: disable=no-member
-        kwargs['external'] = True
-        variables = as_tuple(self.visit(get_child(o, Fortran2003.External_Name_List), **kwargs))
-        return ir.Declaration(variables=variables, external=True, source=kwargs.get('source'),
-                              label=kwargs.get('label'))
-
-    def old_visit_Derived_Type_Def(self, o, **kwargs):
-        name = get_child(o, Fortran2003.Derived_Type_Stmt).items[1].tostr().lower()
-        source = kwargs.get('source')
-
-        # Initialize a local scope for typedef objects
-        typedef_scope = Scope(parent=self.scope)
-
-        # Create declarations and update the parent typedef
-        component_nodes = (Fortran2003.Component_Part, Fortran2003.Comment)
-        body_kwargs = kwargs.copy()
-        body_kwargs['scope'] = typedef_scope
-        body = flatten([self.visit(i, **body_kwargs)
-                        for i in walk(o.content, component_nodes)])
-        # Infer any additional shape information from `!$loki dimension` pragmas
-        # Note that this needs to be done before we create `dtype` below, to allow
-        # propagation of type info through multiple typedefs in the same module.
-        body = attach_pragmas(body, ir.Declaration)
-        body = process_dimension_pragmas(body)
-        body = detach_pragmas(body, ir.Declaration)
-        typedef = ir.TypeDef(name=name, body=body, scope=typedef_scope,
-                             source=source, label=kwargs.get('label'))
-
-        # Now make the typedef known in its scope's type table
-        self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
-
-        return typedef
-
-    def old_visit_Component_Part(self, o, **kwargs):
-        return as_tuple(flatten(self.visit(a, **kwargs) for a in o.content))
 
     def visit_Block_Nonlabel_Do_Construct(self, o, **kwargs):
         do_stmt_types = (Fortran2003.Nonlabel_Do_Stmt, Fortran2003.Label_Do_Stmt)
@@ -2046,80 +1641,6 @@ class FParser2IR(GenericVisitor):
         return variable, bounds
 
     visit_Label_Do_Stmt = visit_Nonlabel_Do_Stmt
-
-    def old_visit_If_Construct(self, o, **kwargs):
-        # The banter before the construct...
-        banter = []
-        for ch in o.content:
-            if isinstance(ch, Fortran2003.If_Then_Stmt):
-                if_then_stmt = ch
-                break
-            banter += [self.visit(ch, **kwargs)]
-        else:
-            if_then_stmt = get_child(o, Fortran2003.If_Then_Stmt)
-        # Identifiers
-        end_if_stmt = rget_child(o, Fortran2003.End_If_Stmt)
-        construct_name = if_then_stmt.item.name
-        # Start with the condition that is always there
-        conditions = [self.visit(if_then_stmt, **kwargs)]
-        labels = [self.get_label(if_then_stmt)]
-        # Walk throught the if construct and collect statements for the if branch
-        # Pick up any ELSE IF along the way and collect their statements as well
-        bodies, source = [], []
-        body = []
-        for child in node_sublist(o.content, Fortran2003.If_Then_Stmt, Fortran2003.Else_Stmt):
-            if isinstance(child, Fortran2003.End_If_Stmt):
-                # Skip this explicitly (only there in case it has a construct name)
-                continue
-            node = self.visit(child, **kwargs)
-            if isinstance(child, Fortran2003.Else_If_Stmt):
-                bodies.append(as_tuple(flatten(body)))
-                source.append(self.get_block_source(if_then_stmt, end_if_stmt))
-                conditions.append(node)
-                labels.append(self.get_label(child))
-                if_then_stmt = child
-                body = []
-            else:
-                body.append(node)
-        bodies.append(as_tuple(flatten(body)))
-        source.append(self.get_block_source(if_then_stmt, end_if_stmt))
-        assert len(conditions) == len(bodies) and len(source) == len(bodies)
-        # Take care of the else branch
-        else_ast = node_sublist(o.content, Fortran2003.Else_Stmt, Fortran2003.End_If_Stmt)
-        else_body = as_tuple(flatten(self.visit(a, **kwargs) for a in as_tuple(else_ast)))
-        # Now build IR nodes backwards, using else-if branch as else body
-        node = ir.Conditional(condition=conditions[-1], body=bodies[-1], else_body=else_body, inline=False,
-                              has_elseif=False, label=labels[-1], source=source[-1])
-        for idx in reversed(range(len(conditions)-1)):
-            name = construct_name if idx == 0 else None
-            node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=(node,), inline=False,
-                                  has_elseif=True, label=labels[idx], name=name, source=source[idx])
-        return (*banter, node)
-
-    def old_visit_If_Then_Stmt(self, o, **kwargs):
-        return self.visit(o.items[0], **kwargs)
-
-    #visit_Else_If_Stmt = visit_If_Then_Stmt
-
-    def visit_If_Stmt(self, o, **kwargs):
-        cond = self.visit(o.items[0], **kwargs)
-        body = as_tuple(self.visit(o.items[1], **kwargs))
-        return ir.Conditional(condition=cond, body=body, else_body=(), inline=True,
-                              label=kwargs.get('label'), source=kwargs.get('source'))
-
-    def old_visit_Call_Stmt(self, o, **kwargs):
-        name = o.items[0].tostr()
-        # FParser inserts annoying spaces, so remove them!
-        name = name.replace(' ', '')
-        args = self.visit(o.items[1], **kwargs) if o.items[1] else None
-        if args:
-            kw_args = tuple(arg for arg in args if isinstance(arg, tuple))
-            args = tuple(arg for arg in args if not isinstance(arg, tuple))
-        else:
-            args = ()
-            kw_args = ()
-        return ir.CallStatement(name=name, arguments=args, kwarguments=kw_args,
-                                label=kwargs.get('label'), source=kwargs.get('source'))
 
     def visit_Loop_Control(self, o, **kwargs):
         if o.items[0]:
@@ -2240,31 +1761,6 @@ class FParser2IR(GenericVisitor):
             expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
         return expression
 
-    def old_visit_Associate_Construct(self, o, **kwargs):
-        children = [self.visit(c, **kwargs) for c in o.content]
-        children = as_tuple(flatten(c for c in children if c is not None))
-        # Search for the ASSOCIATE statement and add all following items as its body
-        assoc_index = [isinstance(ch, ir.Associate) for ch in children].index(True)
-        # Extract source for the entire scope
-        lines = (children[assoc_index].source.lines[0], children[-1].source.lines[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        children[assoc_index]._update(body=children[assoc_index + 1:],
-                                      source=Source(lines=lines, string=string))
-        return children[:assoc_index + 1]
-
-    def old_visit_Associate_Stmt(self, o, **kwargs):
-        associations = OrderedDict()
-        for assoc in get_child(o, Fortran2003.Association_List).items:  # pylint: disable=no-member
-            var = self.visit(assoc.items[2], **kwargs)
-            if isinstance(var, sym.Array):
-                shape = ExpressionDimensionsMapper()(var)
-            else:
-                shape = None
-            dtype = var.type.clone(name=None, parent=None, shape=shape)
-            associations[var] = self.visit(assoc.items[0], dtype=dtype, **kwargs)
-        return ir.Associate(associations=associations, label=kwargs.get('label'),
-                            source=kwargs.get('source'))
-
     def visit_Intrinsic_Stmt(self, o, **kwargs):
         return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
 
@@ -2341,64 +1837,6 @@ class FParser2IR(GenericVisitor):
         return ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
                                   source=kwargs.get('source'))
 
-    def old_visit_Case_Construct(self, o, **kwargs):
-        # The banter before the construct...
-        banter = []
-        for ch in o.content:
-            if isinstance(ch, Fortran2003.Select_Case_Stmt):
-                select_stmt = ch
-                break
-            banter += [self.visit(ch, **kwargs)]
-        else:
-            select_stmt = get_child(o, Fortran2003.Select_Case_Stmt)
-        # Extract source by looking at everything between SELECT and END SELECT
-        end_select_stmt = rget_child(o, Fortran2003.End_Select_Stmt)
-        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
-        label = self.get_label(select_stmt)
-        construct_name = select_stmt.item.name
-
-        # The SELECT argument
-        expr = self.visit(select_stmt, **kwargs)
-        body_ast = node_sublist(o.children, Fortran2003.Select_Case_Stmt,
-                                Fortran2003.End_Select_Stmt)
-        values = []
-        bodies = []
-        body = []
-        is_else_body = False
-        else_body = ()
-        for child in body_ast:
-            node = self.visit(child, **kwargs)
-            if isinstance(child, Fortran2003.Case_Stmt):
-                if is_else_body:
-                    else_body = as_tuple(body)
-                    is_else_body = False
-                elif values:  # Avoid appending empty body before first Case_Stmt
-                    bodies.append(as_tuple(body))
-                body = []
-                if node is None:  # default case
-                    is_else_body = True
-                else:
-                    values.append(node)
-            else:
-                body.append(node)
-        if is_else_body:
-            else_body = body
-        else:
-            bodies.append(as_tuple(body))
-        assert len(values) == len(bodies)
-        return (*banter, ir.MultiConditional(expr, values, bodies, else_body, label=label,
-                                             name=construct_name, source=source))
-
-    def old_visit_Select_Case_Stmt(self, o, **kwargs):
-        return self.visit(o.items[0], **kwargs)
-
-    def old_visit_Case_Stmt(self, o, **kwargs):
-        return self.visit(o.items[0], **kwargs)
-
-    #visit_Case_Value_Range = visit_Subscript_Triplet
-
     def visit_Select_Type_Construct(self, o, **kwargs):
         # The banter before the construct...
         banter = []
@@ -2418,37 +1856,9 @@ class FParser2IR(GenericVisitor):
         # TODO: Treat this with a dedicated IR node (LOKI-33)
         return (*banter, ir.Intrinsic(text=string, label=label, source=source))
 
-    def old_visit_Data_Stmt_Set(self, o, **kwargs):
-        # TODO: actually parse the statements
-        # pylint: disable=no-member
-        variable = self.visit(get_child(o, Fortran2003.Data_Stmt_Object_List), **kwargs)
-        values = as_tuple(self.visit(get_child(o, Fortran2003.Data_Stmt_Value_List), **kwargs))
-        return ir.DataDeclaration(variable=variable, values=values, label=kwargs.get('label'),
-                                  source=kwargs.get('source'))
-
-    def old_visit_Data_Stmt_Value(self, o, **kwargs):
-        exprs = as_tuple(flatten(self.visit(c) for c in o.items))
-        return self.create_operation('*', exprs, source=kwargs.get('source'))
-
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:
             return ()
         variables = as_tuple(flatten(self.visit(v, **kwargs) for v in o.items[1].items))
         return ir.Nullify(variables=variables, label=kwargs.get('label'),
                           source=kwargs.get('source'))
-
-    def old_visit_Interface_Block(self, o, **kwargs):
-        spec = get_child(o, Fortran2003.Interface_Stmt).items[0]
-        if spec:
-            spec = spec if isinstance(spec, str) else spec.tostr()
-        body_ast = node_sublist(o.children, Fortran2003.Interface_Stmt,
-                                Fortran2003.End_Interface_Stmt)
-        body = as_tuple(flatten(self.visit(ch, **kwargs) for ch in body_ast))
-        return ir.Interface(spec=spec, body=body, label=kwargs.get('label'),
-                            source=kwargs.get('source'))
-
-    def old_visit_Function_Stmt(self, o, **kwargs):
-        # TODO: not implemented
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
-
-    #visit_Subroutine_Stmt = visit_Function_Stmt
