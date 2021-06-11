@@ -89,8 +89,7 @@ def process_dimension_pragmas(ir):
                     if d.isnumeric():
                         shape += [sym.Literal(value=int(d), type=BasicType.INTEGER)]
                     else:
-                        _type = SymbolType(BasicType.INTEGER)
-                        shape += [sym.Variable(name=d, scope=v.scope, type=_type)]
+                        shape += [sym.Variable(name=d, scope=v.scope)]
                 v.type = v.type.clone(shape=as_tuple(shape))
     return ir
 

@@ -124,11 +124,13 @@ class TypedSymbol:
             # yet (necessary for deferred type definitions, e.g., derived types in header or
             # parameters from other modules)
             self.scope.symbols.setdefault(self.name, SymbolType(BasicType.DEFERRED))
-        elif _type is not self.scope.symbols.lookup(self.name):
-            # If the type information does already exist and is identical (not just
-            # equal) we don't update it. This makes sure that we don't create double
-            # entries for variables inherited from a parent scope
-            self.type = _type.clone()
+        else:
+            lookup_type = self.scope.symbols.lookup(self.name)
+            if not lookup_type or (_type.dtype is not BasicType.DEFERRED and _type is not lookup_type):
+                # If the type information does already exist and is identical (not just
+                # equal) we don't update it. This makes sure that we don't create double
+                # entries for variables inherited from a parent scope
+                self.type = _type.clone()
 
     def __getinitargs__(self):
         args = [self.name, ('scope', self.scope)]
@@ -438,11 +440,15 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         The scope in which the symbol is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    parent : :any:`Scalar` or :any:`Array`, optional
+        The derived type variable this variable belongs to.
     """
 
-    def __init__(self, name, scope, type=None, **kwargs):
+    def __init__(self, name, scope, type=None, parent=None, **kwargs):
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+        self.parent = parent
 
     mapper_method = intern('map_procedure_symbol')
 
