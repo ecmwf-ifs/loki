@@ -7,7 +7,7 @@ from loki.visitors import GenericVisitor, FindNodes, Transformer
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat, FindTypedSymbols, SubstituteExpressions
-from loki.logging import info, debug, DEBUG
+from loki.logging import info, debug, DEBUG, warning
 from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
@@ -164,7 +164,7 @@ class OMNI2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
-        import pdb; pdb.set_trace()
+        warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
@@ -305,66 +305,6 @@ class OMNI2IR(GenericVisitor):
         scope.symbols[variable.name] = _type
         variables = (variable.clone(scope=scope),)
         return ir.Declaration(variables=variables, external=_type.external is True, source=source)
-
-        external = False
-        if name.attrib['type'] in self.type_map:
-            tast = self.type_map[name.attrib['type']]
-            _type = self.visit(tast)
-
-            if _type is None:
-                if tast.attrib['return_type'] == 'Fvoid':
-                    dtype = BasicType.DEFERRED
-                    _type = SymbolAttributes(dtype)
-                elif tast.attrib['return_type'] in self.type_map:
-                    _type = self.visit(self.type_map[tast.attrib['return_type']])
-                else:
-                    t = self._omni_types[tast.attrib['return_type']]
-                    dtype = BasicType.from_fortran_type(t)
-                    _type = SymbolAttributes(dtype)
-
-            if tast.attrib.get('is_external') == 'true':
-                # This is an external declaration
-                external = True
-
-            # If the type definition comes back as deferred, then we have to unwrap an
-            # abundance of .attrib['ref'] cross-references and chase them in the type_table
-            # until we end up at a hash that actually points to an entry in the symbol_table
-            # which contains the name of the derived type. Yes, it's as stupid as it sounds...
-            if _type.dtype == BasicType.DEFERRED and 'ref' in tast.attrib:
-                type_ref = self.type_map[tast.attrib['ref']]
-                while 'ref' in type_ref.attrib:
-                    type_ref = self.type_map[type_ref.attrib['ref']]
-                type_symbol = self.symbol_map[type_ref.attrib['type']]
-                _type = _type.clone(dtype=DerivedType(type_symbol.find('name').text))
-
-            # If the type node has ranges, create dimensions
-            dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
-            dimensions = None if len(dimensions) == 0 else dimensions
-        else:
-            t = self._omni_types[name.attrib['type']]
-            _type = SymbolAttributes(BasicType.from_fortran_type(t))
-            dimensions = None
-
-        if _type is not None:
-            _type.shape = dimensions
-        value = self.visit(o.find('value')) if o.find('value') is not None else None
-        if value:
-            _type.initial = value
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        if external:
-            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
-            # variable declaration but declares a procedure symbol. Depending on whether
-            # we have a data type for that symbol or not, we can deduce it to be a
-            # function or subroutine
-            if _type.dtype is BasicType.DEFERRED:
-                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=False), external=external)
-            else:
-                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=True),
-                                    external=external, return_type=_type.dtype)
-        variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
-                                scope=self.scope, source=source)
-        return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
@@ -617,75 +557,11 @@ class OMNI2IR(GenericVisitor):
         name = '{}%{}'.format(parent.name, o.attrib['member'])
         variable = sym.Variable(name=name, parent=parent)
         return variable
-        vname = o.attrib['member']
-        t = o.attrib['type']
-        parent = self.visit(o.find('varRef'))
-
-        source = kwargs.get('source', None)
-        shape = kwargs.get('shape', None)
-        dimensions = kwargs.get('dimensions', None)
-
-        vtype = None
-        if parent is not None:
-            basename = vname
-            vname = '%s%%%s' % (parent.name, vname)
-
-        vtype = self.scope.symbols.lookup(vname, recursive=True)
-
-        # If we have a parent with a type, use that
-        if vtype is None and parent is not None and isinstance(parent.type.dtype, DerivedType):
-            vtype = parent.type.dtype.variable_map.get(basename, vtype)
-        if vtype is None and t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-        if vtype is None:
-            if t in self._omni_types:
-                typename = self._omni_types[t]
-                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-            else:
-                # If we truly cannot determine the type, we defer
-                vtype = SymbolAttributes(BasicType.DEFERRED)
-
-        if shape is not None and vtype is not None and vtype.shape != shape:
-            # We need to create a clone of that type as other instances of that
-            # derived type might have a different allocation size
-            vtype = vtype.clone(shape=shape)
-
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, parent=parent, scope=self.scope,
-                            dimensions=dimensions, source=source)
 
     def visit_name(self, o, **kwargs):
         return sym.Variable(name=o.text, source=kwargs.get('source'))
 
     visit_Var = visit_name
-
-    def old_visit_Var(self, o, **kwargs):
-        vname = o.text
-        t = o.attrib.get('type')
-
-        source = kwargs.get('source', None)
-        dimensions = kwargs.get('dimensions', None)
-        shape = kwargs.get('shape', None)
-
-        vtype = self.scope.symbols.lookup(vname, recursive=True)
-
-        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-
-        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self._omni_types:
-            typename = self._omni_types.get(t, t)
-            vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-
-        if shape is not None and vtype is not None and vtype.shape != shape:
-            # We need to create a clone of that type as other instances of that
-            # derived type might have a different allocation size
-            vtype = vtype.clone(shape=shape)
-
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, scope=self.scope,
-                            dimensions=dimensions, source=source)
 
     def visit_FarrayRef(self, o, source=None):
         var = self.visit(o.find('varRef'))
@@ -775,40 +651,6 @@ class OMNI2IR(GenericVisitor):
             return sym.Cast(name, expr, kind=kind, source=source)
 
         return sym.InlineCall(name, parameters=args, kw_parameters=kwargs, source=source)
-
-        if o[0].tag == 'FmemberRef':
-            # TODO: Super-hacky for now!
-            # We need to deal with member function (type-bound procedures)
-            # and integrate FfunctionType into our own IR hierachy.
-            var = self.visit(o[0][0])
-            name = '%s%%%s' % (var.name, o[0].attrib['member'])
-        else:
-            raise RuntimeError('Could not determine name of function call')
-
-        # Check if we're dealing with a previously known function call
-        if name.type and name.type.dtype.is_function:
-            return sym.InlineCall(name, parameters=args, kw_parameters=kwargs, source=source)
-        #stype = self.scope.symbols.lookup(name, recursive=True)
-        #if stype and isinstance(stype.dtype, ProcedureType) and stype.dtype.is_function:
-        #    fct_symbol = sym.ProcedureSymbol(name, type=stype, scope=self.scope, source=source)
-        #    return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
-
-        # Slightly hacky: inlining is decided based on return type
-        # TODO: Unify the two call types?
-        if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            if o.find('name') is not None and o.find('name').text in ['real', 'int']:
-                args = o.find('arguments')
-                expr = self.visit(args[0])
-                if len(args) > 1:
-                    kind = self.visit(args[1])
-                    if isinstance(kind, tuple):
-                        kind = kind[1]  # Yuckk!
-                else:
-                    kind = None
-                return sym.Cast(o.find('name').text, expression=expr, kind=kind, source=source)
-            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
-        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
         # TODO: do-construct-name is not preserved
