@@ -356,14 +356,6 @@ class OFP2IR(GenericVisitor):
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
-        #    # This is a derived type. Let's see if we know it already
-        #    dtype = self.scope.symbols.lookup(typename, recursive=True)
-        #    if dtype is None:
-        #        dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-        #    else:
-        #        dtype = dtype.dtype
-        #    stype = SymbolAttributes(dtype, kind=kind, variables=OrderedDict(), source=t_source, **type_attrs)
-
         raise NotImplementedError
 
     def visit_intrinsic_type_spec(self, o, label=None, source=None):
@@ -654,23 +646,6 @@ class OFP2IR(GenericVisitor):
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
             scope.symbols[name.name] = _type
 
-        #for a in o.findall('header/keyword-arguments/keyword-argument'):
-        #    expr = self.visit(a[0])
-        #    if isinstance(expr, sym.TypedSymbol):
-        #        # Use the type of the associated variable
-        #        _type = expr.type.clone()
-        #        if isinstance(expr, sym.Array) and expr.dimensions is not None:
-        #            shape = ExpressionDimensionsMapper()(expr)
-        #            _type = _type.clone(shape=shape)
-        #    else:
-        #        # TODO: Handle data type and shape of complex expressions
-        #        shape = ExpressionDimensionsMapper()(expr)
-        #        _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-
-        #    assoc_name = a.find('association').attrib['associate-name']
-        #    self.scope.symbols[assoc_name] = _type
-        #    associations[expr] = sym.Variable(name=assoc_name, scope=self.scope, source=source)
-
         body = as_tuple(self.visit(o.find('body')))
         return ir.Associate(body=body, associations=associations, label=label, source=source)
 
@@ -701,11 +676,6 @@ class OFP2IR(GenericVisitor):
             # Import all symbols
             if module is not None:
                 scope.symbols.update({k: v.clone(imported=True, module=module) for k, v in module.symbols.items()})
-#        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
-#        symbols = None
-#        if len(symbol_names) > 0:
-#            module = self.definitions.get(name, None)
-#            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
         return ir.Import(module=name, symbols=symbols, label=label, source=source)
 
     def visit_only(self, o, label=None, source=None):

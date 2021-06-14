@@ -5,9 +5,6 @@ import codecs
 from loki.visitors import NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic, Pragma
 from loki.frontend.source import Source
-from loki.expression import Variable, DeferredTypeSymbol
-from loki.tools import as_tuple
-from loki.types import DerivedType
 from loki.logging import warning
 
 __all__ = [
@@ -122,32 +119,6 @@ def read_file(file_path):
         with codecs.open(filepath, **kwargs) as f:
             source = f.read()
     return source
-
-
-def import_external_symbols(module, symbol_names, scope):
-    """
-    Import variable and type symbols from an external definition in :data:`module:`
-
-    This ensures that all symbols are copied over to the local scope, in order
-    to ensure correct variable and type derivation.
-    """
-    symbols = []
-    for name in symbol_names:
-        symbol = None
-        if module and name in module.symbols:
-            _type = module.symbols[name]
-
-            if isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
-                # This entry corresponds to a derived type definition
-                scope.symbols[name] = _type
-                symbol = _type.dtype
-            else:
-                symbol = Variable(name=name, type=module.symbols[name], scope=scope)
-        else:
-            symbol = DeferredTypeSymbol(name=name, scope=scope)
-        symbols.append(symbol)
-
-    return as_tuple(symbols)
 
 
 def combine_multiline_pragmas(ir):
