@@ -14,7 +14,8 @@ from loki.expression import FindTypedSymbols, SubstituteExpressions
 from loki.logging import debug
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
-from loki.types import Scope, ProcedureType, SymbolAttributes
+from loki.types import ProcedureType, SymbolAttributes
+from loki.scope import Scope
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 

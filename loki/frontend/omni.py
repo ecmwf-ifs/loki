@@ -12,7 +12,8 @@ from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 )
-from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.scope import Scope
 
 
 __all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']

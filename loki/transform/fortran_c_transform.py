@@ -26,7 +26,8 @@ from loki.expression import (
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType, Scope, SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes
+from loki.scope import Scope
 
 
 __all__ = ['FortranCTransformation']

@@ -15,7 +15,8 @@ from loki.logging import warning, debug
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import Scope, BasicType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.scope import Scope
 
 
 __all__ = ['Subroutine']

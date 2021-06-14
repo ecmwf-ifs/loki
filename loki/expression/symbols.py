@@ -7,7 +7,8 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.scope import Scope
 from loki.expression.mappers import LokiStringifyMapper
 
 

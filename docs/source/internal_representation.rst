@@ -258,18 +258,134 @@ Mix-ins
 Type information and scopes
 ===========================
 
-.. warning::
-   A conceptual overhaul of the representation of scopes and the way how a
-   typed symbol is associated with a scope is planned for the near future.
-   For that reason this section is intentionally left empty for now and will
-   be added as soon as this work has been carried out.
+Every symbol in an expressions tree (:any:`TypedSymbol`, such as :any:`Scalar`,
+:any:`Array`, :any:`ProcedureSymbol`) has a type (represented by a
+:any:`DataType`) and, possibly, other attributes associated with it.
+Type and attributes are stored together in a :any:`SymbolAttributes`
+object, which is essentially a `dict`.
 
-See :mod:`loki.types` for a rough outline of the current type system.
+.. note::
+   *Example:* An array variable ``VAR`` may be declared in Fortran as a subroutine
+   argument in the following way:
+
+   .. code-block:: none
+
+      INTEGER(4), INTENT(INOUT) :: VAR(10)
+
+   This variable has type :any:`BasicType.INTEGER` and the following
+   additional attributes:
+
+   * ``KIND=4``
+   * ``INTENT=INOUT``
+   * ``SHAPE=(10,)``
+
+   The corresponding :any:`SymbolAttributes` object can be created as
+
+   .. code-block::
+
+      SymbolAttributes(BasicType.INTEGER, kind=Literal(4), intent='inout', shape=(Literal(10),))
+
+If the variable object is associated with a :any:`Scope`, then its
+:any:`SymbolAttributes` object is stored in the relevant :any:`SymbolTable`.
+From there, all expression nodes that represent use of the associated symbol
+(i.e., the variable object and any others with the same name) query the type
+information from there. This means, changing the declared attributes of a symbol
+applies this change for all instances of this symbol.
+
+If the variable is not associated with a :any:`Scope`, then its
+:any:`SymbolAttributes` object is stored locally and not shared by any other
+variable objects.
+
+.. warning::
+   Loki allows to apply changes very freely, which means changing symbol
+   attributes can lead to invalid states.
+
+   For example, removing the ``shape`` property from the :any:`SymbolAttributes`
+   object in a symbol table converts the corresponding :any:`Array` to
+   a :any:`Scalar` variable. But at this point all expression tree nodes will
+   still be :any:`Array`, possibly also with subscript operations (represented
+   by the ``dimensions`` property).
+
+   For plain :any:`Array` nodes (without subscript), rebuilding the IR will
+   automatically take care of instantiating these objects as :any:`Scalar` but
+   removing ``dimensions`` properties must be done explicitly.
+
+Every object that defines a new scope (e.g., :any:`Subroutine`,
+:any:`Module`, implementing :any:`Scope`) has an associated symbol table
+(:any:`SymbolTable`). The :any:`SymbolAttributes` of a symbol declared or
+imported in a scope are stored in the symbol table of that scope.
+These symbol tables/scopes are organized in a hierarchical fashion, i.e., they
+are aware of their enclosing scope and allow to recursively look-up entries.
+
+The overall schematics of the scope and type representation are depicted in the
+following diagram:
+
+.. code-block:: none
+
+      Subroutine | Module | TypeDef | ...
+              \      |      /
+               \     |     /   <is>
+                \    |    /
+                   Scope
+                     |
+                     | <has>
+                     |
+                SymbolTable  - - - - - - - - - - - - TypedSymbol
+                     |
+                     |  <has entries>
+                     |
+              SymbolAttributes
+           /     |       |      \
+          /      |       |       \  <has properties>
+         /       |       |        \
+   DataType | (kind) | (intent) | (...)
+
+
+Available data types
+--------------------
+
+The :any:`DataType` of a symbol can be one of
+
+* :any:`BasicType`: intrinsic types, such as ``INTEGER``, ``REAL``, etc.
+* :any:`DerivedType`: derived types defined somewhere
+* :any:`ProcedureType`: any subroutines or functions declared or imported
+
+Note that this is different from the understanding of types in the Fortran
+standard, where only intrinsic types and derived types are considered a
+type. Treating also procedures as types allows us to treat them uniformly
+when considering external subprograms, procedure pointers and type bound
+procedures.
+
+.. code-block:: none
+
+   BasicType | DerivedType | ProcedureType
+            \       |       /
+             \      |      /    <implements>
+              \     |     /
+                 DataType
+
+
+Derived types
+-------------
+
+Derived type definitions (via :any:`TypeDef`) create entries in the scope's
+symbol table in which they are defined to make the type definition available
+to declarations.
+
+Imports and deferred type
+-------------------------
+
+For imported symbols (via :any:`Import`) the source module may not be
+available and thus no information about the symbol. This is indicated by
+:any:`BasicType.DEFERRED`. This is also applied to any variable that is
+instantiated without providing a type and where no type information can
+be found in the scope's symbol table (either because no information has
+been provided previously or because no scope is attached).
 
 .. autosummary::
 
-   loki.types.Scope
-   loki.types.SymbolTable
+   loki.scope.Scope
+   loki.scope.SymbolTable
    loki.types.SymbolAttributes
    loki.types.DataType
    loki.types.BasicType

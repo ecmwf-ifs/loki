@@ -10,7 +10,8 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import Scope, DataType
+from loki.types import DataType
+from loki.scope import Scope
 
 
 __all__ = [
