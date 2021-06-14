@@ -214,21 +214,16 @@ class OMNI2IR(GenericVisitor):
                 # This is an external declaration
                 external = True
 
-            # If the type definition comes back as deferred, carry out the definition here
-            # (this is due to not knowing to which variable instance the type definition
-            # belongs further down the tree, which makes scoping hard...)
-            if _type.dtype == BasicType.DEFERRED and _type.name in self.type_map:
-                tname = self.symbol_map[_type.name].find('name').text
-                variables = self._struct_type_variables(
-                    self.type_map[_type.name], scope=self.scope, parent=name.text, source=source)
-
-                typedef = ir.TypeDef(name=name.text, body=[])
-
-                declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
-                typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
-
-                # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
-                _type = _type.clone(SymbolAttributes(DerivedType(name=tname, typedef=typedef)))
+            # If the type definition comes back as deferred, then we have to unwrap an
+            # abundance of .attrib['ref'] cross-references and chase them in the type_table
+            # until we end up at a hash that actually points to an entry in the symbol_table
+            # which contains the name of the derived type. Yes, it's as stupid as it sounds...
+            if _type.dtype == BasicType.DEFERRED and 'ref' in tast.attrib:
+                type_ref = self.type_map[tast.attrib['ref']]
+                while 'ref' in type_ref.attrib:
+                    type_ref = self.type_map[type_ref.attrib['ref']]
+                type_symbol = self.symbol_map[type_ref.attrib['type']]
+                _type = _type.clone(dtype=DerivedType(type_symbol.find('name').text))
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
