@@ -445,34 +445,14 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         The scope in which the symbol is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
-    parent : :any:`Scalar` or :any:`Array`, optional
-        The derived type variable this variable belongs to.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, **kwargs):
+    def __init__(self, name, scope, type=None, **kwargs):
         # pylint: disable=redefined-builtin
-        assert type is None or isinstance(type.dtype, ProcedureType)
+        assert type is None or isinstance(type.dtype, ProcedureType) or type.dtype is BasicType.DEFERRED
         super().__init__(name=name, scope=scope, type=type, **kwargs)
 
-        self.parent = parent
-
     mapper_method = intern('map_procedure_symbol')
-
-    def clone(self, **kwargs):
-        """
-        Replicate the object with the provided overrides.
-        """
-        # Add existing meta-info to the clone arguments, only if we have them.
-        if self.name and 'name' not in kwargs:
-            kwargs['name'] = self.name
-        if self.scope and 'scope' not in kwargs:
-            kwargs['scope'] = self.scope
-        if self.type and 'type' not in kwargs:
-            kwargs['type'] = self.type
-        if self.parent and 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-
-        return ProcedureSymbol(**kwargs)
 
 
 class _Literal(pmbl.Leaf):
