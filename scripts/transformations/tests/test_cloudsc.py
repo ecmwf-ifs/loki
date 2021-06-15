@@ -60,14 +60,16 @@ def test_cloudsc(here, frontend):
 
     # Run the produced binaries
     binaries = [
-        'dwarf-cloudsc-loki-claw-cpu', 'dwarf-cloudsc-loki-claw-gpu',
-        'dwarf-cloudsc-loki-idem', 'dwarf-cloudsc-loki-sca'
+        ('dwarf-cloudsc-loki-claw-cpu', '2', '16000', '64'),
+        ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
+        ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-sca', '2', '16000', '32'),
     ]
 
     failures = {}
-    for binary in binaries:
+    for binary, *args in binaries:
         # TODO: figure out how to source env.sh
-        run_cmd = 'bin/{}'.format(binary)
+        run_cmd = ['bin/{}'.format(binary), *args]
         output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False)
         results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
         no_errors = results['AbsMaxErr'].astype('float') == 0
