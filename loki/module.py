@@ -189,7 +189,7 @@ class Module:
     @property
     def variables(self):
         """
-        Return the variables (including arguments) declared in this module
+        Return the variables declared in this module
         """
         return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
 
