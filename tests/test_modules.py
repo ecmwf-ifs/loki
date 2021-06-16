@@ -2,7 +2,8 @@ import pytest
 
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
-    BasicType, Assignment, FindNodes, FindInlineCalls
+    BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
+    Transformer, fgen, SymbolType, Variable
 )
 
 
@@ -347,3 +348,148 @@ end module
     assert inline_calls[0].function.name == 'util_fct'
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_module_variables_add_remove(frontend):
+    """
+    Test local variable addition and removal.
+    """
+    fcode = """
+module module_variables_add_remove
+  implicit none
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer :: x, y
+  real(kind=jprb), allocatable :: vector(:)
+end module module_variables_add_remove
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+    module_vars = [str(arg) for arg in module.variables]
+    assert module_vars == ['jprb', 'x', 'y', 'vector(:)']
+
+    # Create a new set of variables and add to local routine variables
+    x = module.variable_map['x']  # That's the symbol for variable 'x'
+    real_type = SymbolType('real', kind=module.variable_map['jprb'])
+    int_type = SymbolType('integer')
+    a = Variable(name='a', type=real_type, scope=module.scope)
+    b = Variable(name='b', dimensions=(x, ), type=real_type, scope=module.scope)
+    c = Variable(name='c', type=int_type, scope=module.scope)
+
+    # Add new variables and check that they are all in the module spec
+    module.variables += (a, b, c)
+    if frontend == OMNI:
+        # OMNI frontend inserts a few peculiarities
+        assert fgen(module.spec).lower() == """
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer :: x
+integer :: y
+real(kind=selected_real_kind(13, 300)), allocatable :: vector(:)
+real(kind=jprb) :: a
+real(kind=jprb) :: b(x)
+integer :: c
+""".strip().lower()
+
+    else:
+        assert fgen(module.spec).lower() == """
+implicit none
+integer, parameter :: jprb = selected_real_kind(13, 300)
+integer :: x, y
+real(kind=jprb), allocatable :: vector(:)
+real(kind=jprb) :: a
+real(kind=jprb) :: b(x)
+integer :: c
+""".strip().lower()
+
+    # Now remove the `vector` variable and make sure it's gone
+    module.variables = [v for v in module.variables if v.name != 'vector']
+    assert 'vector' not in fgen(module.spec).lower()
+    module_vars = [str(arg) for arg in module.variables]
+    assert module_vars == ['jprb', 'x', 'y', 'a', 'b(x)', 'c']
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_module_rescope_variables(frontend):
+    """
+    Test the rescoping of variables.
+    """
+    fcode = """
+module test_module_rescope
+  use some_mod, only: ext1
+  implicit none
+  integer :: a, b, c
+end module test_module_rescope
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(module)
+
+    # Create a copy of the module with rescoping and make sure all symbols are in the right scope
+    spec = Transformer().visit(module.spec)
+    module_copy = Module(name=module.name, spec=spec, rescope_variables=True)
+
+    for var in FindTypedSymbols().visit(module_copy.spec):
+        assert var.scope is module_copy.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    spec = Transformer().visit(module.spec)
+    other_module_copy = Module(name=module.name, spec=spec)
+
+    # Explicitly throw away type information from original module
+    module.scope.symbols.clear()
+    module.scope.types.clear()
+    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.scope is not None for var in other_module_copy.variables)
+
+    # fgen of the rescoped copy should work
+    assert fgen(module_copy) == ref_fgen
+
+    # fgen of the not rescoped copy should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_module_copy)
+
+
+@pytest.mark.parametrize('frontend', [
+    OFP,
+    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
+    FP
+])
+def test_module_rescope_clone(frontend):
+    """
+    Test the rescoping of variables in clone.
+    """
+    fcode = """
+module test_module_rescope_clone
+  use some_mod, only: ext1
+  implicit none
+  integer :: a, b, c
+end module test_module_rescope_clone
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    ref_fgen = fgen(module)
+
+    # Create a copy of the module with rescoping and make sure all symbols are in the right scope
+    module_copy = module.clone()
+
+    for var in FindTypedSymbols().visit(module_copy.spec):
+        assert var.scope is module_copy.scope
+
+    # Create another copy of the nested subroutine without rescoping
+    other_module_copy = module.clone(rescope_variables=False)
+
+    # Explicitly throw away type information from original module
+    module.scope.symbols.clear()
+    module.scope.types.clear()
+    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.scope is not None for var in other_module_copy.variables)
+
+    # fgen of the rescoped copy should work
+    assert fgen(module_copy) == ref_fgen
+
+    # fgen of the not rescoped copy should fail because the scope of the variables went away
+    with pytest.raises(AttributeError):
+        fgen(other_module_copy)

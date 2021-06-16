@@ -5,6 +5,7 @@ from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.visitors import FindNodes, Transformer
 from loki.ir import CallStatement, Import
+from loki.expression import Variable
 from loki.backend import fgen
 from loki.tools import as_tuple
 
@@ -136,7 +137,7 @@ class DependencyTransformation(Transformation):
                     else:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(im.module.split('.')[0])
-                        new_symbol = '{}{}'.format(target_symbol, self.suffix)
+                        new_symbol = Variable(name='{}{}'.format(target_symbol, self.suffix), scope=source.scope)
                         new_import = im.clone(module=new_module, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
 
@@ -147,8 +148,8 @@ class DependencyTransformation(Transformation):
                 # Modify module import if it imports any targets
                 if targets is not None and any(str(s).upper() in targets for s in im.symbols):
                     # Append suffix to all target symbols
-                    symbols = as_tuple('{}{}'.format(s, self.suffix) if str(s).upper() in targets else s
-                                       for s in im.symbols)
+                    symbols = as_tuple(s.clone(name='{}{}'.format(s.name, self.suffix))
+                                       if str(s).upper() in targets else s for s in im.symbols)
                     module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)
 
