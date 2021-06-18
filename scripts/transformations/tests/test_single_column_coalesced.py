@@ -602,3 +602,97 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert len(inner_kernel_pragmas) == 1
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct handling of an outer loop that breaks scoping.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk, niter
+    LOGICAL :: maybe
+    REAL :: c
+
+    if (maybe)  call logger()
+
+    c = 5.345
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + 3.0
+    END DO
+
+    DO niter = 1, 3
+
+      DO JL = START, END
+        Q(JL, NZ) = Q(JL, NZ) + 1.0
+      END DO
+
+      call update_q(start, end, nlon, nz, q, c)
+
+    END DO
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+
+    IF (.not. maybe) THEN
+      call update_q(start, end, nlon, nz, q, c)
+    END IF
+
+    DO JL = START, END
+      Q(JL, NZ) = Q(JL, NZ) + C * 3.
+    END DO
+
+    IF (maybe)  call logger()
+
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Test SCC transform for kernel with scope-splitting outer loop
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        hoist_column_arrays=False, directive='openacc'
+    )
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure that we capture vector loops outside the outer vertical
+    # loop, as well as the one vector loop inside it.
+    with pragmas_attached(kernel, Loop):
+        kernel_loops = FindNodes(Loop).visit(kernel.body)
+        assert len(kernel_loops) == 5
+        assert kernel_loops[2] in kernel_loops[1].body
+
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'start:end'
+        assert kernel_loops[0].pragma[0].keyword == 'acc'
+        assert kernel_loops[0].pragma[0].content == 'loop vector'
+        assert kernel_loops[1].variable == 'niter'
+        assert kernel_loops[1].bounds == '1:3'
+        assert kernel_loops[1].pragma[0].keyword == 'acc'
+        assert kernel_loops[1].pragma[0].content == 'loop seq'
+        assert kernel_loops[2].variable == 'jl'
+        assert kernel_loops[2].bounds == 'start:end'
+        assert kernel_loops[2].pragma[0].keyword == 'acc'
+        assert kernel_loops[2].pragma[0].content == 'loop vector'
+        assert kernel_loops[3].variable == 'jl'
+        assert kernel_loops[3].bounds == 'start:end'
+        assert kernel_loops[3].pragma[0].keyword == 'acc'
+        assert kernel_loops[3].pragma[0].content == 'loop vector'
+        assert kernel_loops[4].variable == 'jl'
+        assert kernel_loops[4].bounds == 'start:end'
+        assert kernel_loops[4].pragma[0].keyword == 'acc'
+        assert kernel_loops[4].pragma[0].content == 'loop vector'
+
+        # Ensure we still have a call, but only in the outer counter loop
+        assert len(FindNodes(CallStatement).visit(kernel_loops[0])) == 0
+        assert len(FindNodes(CallStatement).visit(kernel_loops[1])) == 1
+        assert len(FindNodes(CallStatement).visit(kernel_loops[2])) == 0
+        assert len(FindNodes(CallStatement).visit(kernel_loops[3])) == 0
+        assert len(FindNodes(CallStatement).visit(kernel_loops[4])) == 0
+        assert len(FindNodes(CallStatement).visit(kernel.body)) == 4

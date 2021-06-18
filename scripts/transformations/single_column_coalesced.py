@@ -5,8 +5,8 @@ from loki import (
     SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached,
-    JoinableStringList, FindScopes, Comment, MaskedTransformer,
-    flatten, resolve_associates
+    JoinableStringList, FindScopes, Comment, NestedMaskedTransformer,
+    flatten, resolve_associates, Assignment, Conditional
 )
 
 
@@ -69,22 +69,70 @@ def kernel_promote_vector_loops(routine, horizontal):
         # Ensure we clone all body nodes, to avoid recursion issues
         return Loop(variable=index, bounds=bounds, body=Transformer().visit(body))
 
+    def _sections_from_nodes(nodes, section):
+        nodes = [None, *nodes, None]
+        sections = []
+        for start, stop in pairwise(nodes):
+            t = NestedMaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
+            sec = as_tuple(t.visit(section))
+            if start is not None:
+                sec = sec[1:]  # Strip `start` node
+            sections.append(sec)
+        return sections
+
+    if horizontal.bounds[0] not in routine.variable_map:
+        raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
+    if horizontal.bounds[1] not in routine.variable_map:
+        raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
+
+    mapper = {}
+
     # Create a list of sections between calls and create wrapping vector loops
-    call_map = {}
     calls = FindNodes(CallStatement).visit(routine.body)
-    sections = [None, *calls, None]
-    for start, stop in pairwise(sections):
-        t = MaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
-        sec = as_tuple(flatten(t.visit(routine.body.body)))
-        if start is not None:
-            sec = sec[1:]  # Strip `start` node
 
-        # Add a comment before the pragma-annotated loop to ensure
-        # not overlap with neighbouring pragmas
-        vector_loop = _construct_loop(sec)
-        call_map[sec] = (Comment(''), vector_loop)
+    # If any outer loops span recursive calls, we cannot promote vector
+    # loops past those. So, we find those constraining loops, and deal
+    # with them separately.
 
-    routine.body = Transformer(call_map).visit(routine.body)
+    # Note: Once we have proper dependency ananlysis in Loki, we can do this
+    # much cleaner and safer.
+
+    def _wrap_local_section(section, mapper):
+        # Wrap vector loops around calls that we cannot promot around
+        calls = FindNodes(CallStatement).visit(section)
+        for s in _sections_from_nodes(calls, section):
+            if len(s) > 0 and len(FindNodes(Assignment).visit(s)) > 0:
+                # Add a comment before the pragma-annotated loop to ensure
+                # not overlap with neighbouring pragmas
+                vector_loop = _construct_loop(s)
+                mapper[s] = (Comment(''), vector_loop)
+
+    # Identify outer sections (loops/conditionals) constrained by recursive routine calls
+    outer_scopes = []
+    for call in calls:
+        ancestors = flatten(FindScopes(call).visit(routine.body))
+        ancestor_loops = [a for a in ancestors if isinstance(a, (Loop, Conditional))]
+        if len(ancestor_loops) > 0:
+            outer_scopes.append(ancestor_loops[-1])
+
+    # Insert outer vector loops around call-free sections outside of
+    # the constrained sections.
+    outer_sections = _sections_from_nodes(outer_scopes, routine.body.body)
+    for section in outer_sections:
+        # Apply wrapping around the unbroken outer sections
+        _wrap_local_section(section, mapper)
+
+    # Now deal with constrained sections explicitly by applying the
+    # same mechanism to the loop or conditional body.
+    for scope in outer_scopes:
+        if isinstance(scope, Loop):
+            _wrap_local_section(scope.body, mapper)
+
+        if isinstance(scope, Conditional):
+            _wrap_local_section(scope.body, mapper)
+            _wrap_local_section(scope.else_body, mapper)
+
+    routine.body = Transformer(mapper).visit(routine.body)
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
