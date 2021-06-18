@@ -182,7 +182,7 @@ class TypedSymbol:
         return Variable(**kwargs)
 
 
-class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
+class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
     Internal representation of symbols with deferred type
 
@@ -210,7 +210,7 @@ class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.V
     mapper_method = intern('map_deferred_type_symbol')
 
 
-class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
+class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
     Expression node for scalar variables.
 
@@ -252,7 +252,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
         return LokiStringifyMapper()
 
 
-class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):
+class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
     Expression node for array variables.
 

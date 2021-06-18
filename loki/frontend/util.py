@@ -7,7 +7,7 @@ from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrin
 from loki.frontend.source import Source
 from loki.expression import Variable, DeferredTypeSymbol
 from loki.tools import as_tuple
-from loki.types import SymbolAttributes, ProcedureType
+from loki.types import ProcedureType
 from loki.logging import warning
 
 __all__ = [

@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from loki.expression import symbols as sym
 from loki.ir import Declaration, Pragma, PragmaRegion
 from loki.tools.util import as_tuple, flatten
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType
 from loki.visitors import FindNodes, Visitor, Transformer, MaskedTransformer
 
 
