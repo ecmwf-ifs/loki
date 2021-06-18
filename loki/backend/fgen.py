@@ -5,7 +5,7 @@ from pymbolic.mapper.stringifier import (
 from loki.visitors import Stringifier
 from loki.tools import as_tuple
 from loki.expression import LokiStringifyMapper
-from loki.types import BasicType, DerivedType
+from loki.types import BasicType, DerivedType, ProcedureType
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -252,11 +252,15 @@ class FortranCodegen(Stringifier):
         attributes = []
         assert len(o.variables) > 0
         types = [v.type for v in o.variables]
+
         # Ensure all variable types are equal, except for shape and dimension
         # TODO: Should extend to deeper recursion of `variables` if
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
+        if o.external:
+            ignore += ['dtype']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
+
         dtype = self.visit(types[0], dimensions=o.dimensions, **kwargs)
         if str(dtype):
             attributes += [dtype]
@@ -268,9 +272,9 @@ class FortranCodegen(Stringifier):
             # array dimensions from the internal representation of the variable.
             var = self.visit(v, **kwargs) if o.dimensions is None else v.basename
             initial = ''
-            if v.initial is not None:
+            if v.type.initial is not None:
                 initial = ' {} {}'.format('=>' if v.type.pointer else '=',
-                                          self.visit(v.initial, **kwargs))
+                                          self.visit(v.type.initial, **kwargs))
             variables += ['{}{}'.format(var, initial)]
         comment = None
         if o.comment:
@@ -532,19 +536,21 @@ class FortranCodegen(Stringifier):
         items = self.visit_all(o.variables, **kwargs)
         return self.format_line('NULLIFY (', self.join_items(items), ')')
 
-    def visit_SymbolType(self, o, **kwargs):
+    def visit_SymbolAttributes(self, o, **kwargs):
         """
-        Format declaration type as
+        Format declaration attributes as
           <typename>[(<spec>)] [, <attributes>]
         """
         dimensions = kwargs.pop('dimensions', None)
         attributes = []
-        if isinstance(o.dtype, DerivedType):
+        type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
+                    BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
+                    BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
+        if isinstance(o.dtype, ProcedureType) and o.external:
+            typename = type_map.get(o.return_type)
+        elif isinstance(o.dtype, DerivedType):
             typename = 'TYPE({})'.format(o.dtype.name)
         else:
-            type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
-                        BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
-                        BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
             typename = type_map[o.dtype]
         if o.length:
             typename += '(LEN={})'.format(self.visit(o.length, **kwargs))

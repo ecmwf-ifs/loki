@@ -12,8 +12,8 @@ from conftest import (
 from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
-    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolType,
-    parse_fparser_expression, Sum
+    FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
+    parse_fparser_expression, Sum, DerivedType, ProcedureType
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -736,14 +736,14 @@ def test_string_compare():
     """
     # Utility objects for manual expression creation
     scope = Scope()
-    type_int = SymbolType(dtype=BasicType.INTEGER)
-    type_real = SymbolType(dtype=BasicType.REAL)
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    type_real = SymbolAttributes(dtype=BasicType.REAL)
 
     i = Variable(name='i', scope=scope, type=type_int)
     j = Variable(name='j', scope=scope, type=type_int)
 
     # Test a scalar variable
-    u = Variable(name='u', scope=scope, type=SymbolType(dtype=BasicType.REAL))
+    u = Variable(name='u', scope=scope, type=SymbolAttributes(dtype=BasicType.REAL))
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 
@@ -800,3 +800,144 @@ def test_parse_fparser_expression(source, ref):
     ir = parse_fparser_expression(source, scope)
     assert isinstance(ir, pmbl.Expression)
     assert str(ir) == ref
+
+
+@pytest.mark.parametrize('kwargs,reftype', [
+    ({}, symbols.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.DEFERRED)}, symbols.DeferredTypeSymbol),
+    ({'type': SymbolAttributes(BasicType.INTEGER)}, symbols.Scalar),
+    ({'type': SymbolAttributes(BasicType.REAL)}, symbols.Scalar),
+    ({'type': SymbolAttributes(DerivedType('t'))}, symbols.Scalar),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),))}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)),
+      'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.INTEGER), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(BasicType.DEFERRED), 'dimensions': (symbols.Literal(1),)}, symbols.Array),
+    ({'type': SymbolAttributes(ProcedureType('routine'))}, symbols.ProcedureSymbol),
+])
+def test_variable_factory(kwargs, reftype):
+    """
+    Test the factory class :any:`Variable` and the dispatch to correct classes.
+    """
+    scope = Scope()
+    assert isinstance(symbols.Variable(name='var', scope=scope, **kwargs), reftype)
+
+
+@pytest.mark.parametrize('kwargs,exception', [
+    ({'name': 'var'}, KeyError),  # no scope
+    ({'scope': Scope()}, KeyError),  # no name
+])
+def test_variable_factory_invalid(kwargs, exception):
+    """
+    Test invalid variable instantiations
+    """
+    with pytest.raises(exception):
+        _ = symbols.Variable(**kwargs)
+
+
+@pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
+    # From deferred type to other type
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    # From Scalar to other type
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From Array to other type
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From ProcedureSymbol to other type
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
+])
+def test_variable_rebuild(initype, inireftype, newtype, newreftype):
+    """
+    Test that rebuilding a variable object changes class according to symmbol type
+    """
+    scope = Scope()
+    var = symbols.Variable(name='var', scope=scope, type=initype)
+    assert isinstance(var, inireftype)
+    assert 'var' in scope.symbols
+    scope.symbols['var'] = newtype
+    assert isinstance(var, inireftype)
+    var = var.clone()  # pylint: disable=no-member
+    assert isinstance(var, newreftype)
+
+
+@pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
+    # From deferred type to other type
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.REAL), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(DerivedType('t')), symbols.Scalar),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array),
+    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
+     SymbolAttributes(ProcedureType('routine')), symbols.ProcedureSymbol),
+    (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    # From Scalar to other type
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
+    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From Array to other type
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
+     SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
+    # From ProcedureSymbol to other type
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     None, symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
+    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
+     SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(5),)), symbols.Array),
+])
+def test_variable_clone(initype, inireftype, newtype, newreftype):
+    """
+    Test that cloning a variable object changes class according to symbol type
+    """
+    scope = Scope()
+    var = symbols.Variable(name='var', scope=scope, type=initype)
+    assert isinstance(var, inireftype)
+    assert 'var' in scope.symbols
+    var = var.clone(type=newtype)  # pylint: disable=no-member
+    assert isinstance(var, newreftype)

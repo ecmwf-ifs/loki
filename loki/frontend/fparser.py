@@ -25,7 +25,7 @@ from loki.expression import ExpressionDimensionsMapper
 from loki.logging import DEBUG
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
-from loki.types import BasicType, DerivedType, SymbolType, Scope
+from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast',
@@ -293,9 +293,15 @@ class FParser2IR(GenericVisitor):
             dimensions = sym.ArraySubscript(dimensions)
 
         if external:
+            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
+            # variable declaration but declares a procedure symbol. Depending on whether
+            # we have a data type for that symbol or not, we can deduce it to be a
+            # function or subroutine
             if dtype is None:
-                dtype = SymbolType(BasicType.DEFERRED)
-            dtype.external = external
+                dtype = SymbolAttributes(dtype=ProcedureType(name=vname, is_function=False), external=external)
+            else:
+                dtype = dtype.clone(dtype=ProcedureType(name=vname, is_function=True),
+                                    external=external, return_type=dtype.dtype)
 
         return sym.Variable(name=vname, dimensions=dimensions, type=dtype,
                             scope=scope, parent=parent, source=source)
@@ -587,8 +593,7 @@ class FParser2IR(GenericVisitor):
         fct_type = self.scope.types.lookup(name)
         if fct_type:
             # We know this function from out own type table
-            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(fct_type),
-                                             scope=self.scope, source=source)
+            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                                   source=source)
 
@@ -620,10 +625,9 @@ class FParser2IR(GenericVisitor):
         fct_type = self.scope.types.lookup(name)
         if fct_type:
             # We know this function from out own type table
-            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(fct_type),
-                                             scope=self.scope, source=source)
+            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
         else:
-            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope)
+            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
         return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                               source=source)
 
@@ -674,16 +678,24 @@ class FParser2IR(GenericVisitor):
 
         external = 'external' in attrs
 
+        # All the declared attributes that we retain
+        type_attrs = {
+            'intent': intent,
+            'parameter': 'parameter' in attrs,
+            'optional': 'optional' in attrs,
+            'allocatable': 'allocatable' in attrs,
+            'pointer': 'pointer' in attrs,
+            'contiguous': 'contiguous' in attrs,
+            'target': 'target' in attrs,
+            'shape': dimensions,
+        }
+
         # Next, figure out the type we're declaring
         stype = None
         basetype_ast = get_child(o, Fortran2003.Intrinsic_Type_Spec)
         if basetype_ast is not None:
             dtype, kind, length = self.visit(basetype_ast)
-            stype = SymbolType(BasicType.from_fortran_type(dtype), kind=kind, intent=intent,
-                               parameter='parameter' in attrs, optional='optional' in attrs,
-                               allocatable='allocatable' in attrs, pointer='pointer' in attrs,
-                               contiguous='contiguous' in attrs, target='target' in attrs,
-                               shape=dimensions, length=length)
+            stype = SymbolAttributes(BasicType.from_fortran_type(dtype), kind=kind, length=length, **type_attrs)
 
         derived_type_ast = get_child(o, Fortran2003.Declaration_Type_Spec)
         if derived_type_ast is not None:
@@ -691,10 +703,11 @@ class FParser2IR(GenericVisitor):
             dtype = self.scope.types.lookup(typename, recursive=True)
             if dtype is None:
                 dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-            stype = SymbolType(dtype, intent=intent, allocatable='allocatable' in attrs,
-                               pointer='pointer' in attrs, optional='optional' in attrs,
-                               parameter='parameter' in attrs, target='target' in attrs,
-                               contiguous='contiguous' in attrs, shape=dimensions)
+            else:
+                dtype = dtype.dtype
+            stype = SymbolAttributes(dtype, **type_attrs)
+
+        assert stype is not None
 
         # Now create the actual variables declared in this statement
         # (and provide them with the type and dimension information)
@@ -733,7 +746,7 @@ class FParser2IR(GenericVisitor):
                              source=source, label=kwargs.get('label'))
 
         # Now make the typedef known in its scope's type table
-        self.scope.types[name] = DerivedType(name=name, typedef=typedef)
+        self.scope.types[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
 
         return typedef
 

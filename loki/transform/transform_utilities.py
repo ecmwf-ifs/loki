@@ -13,7 +13,7 @@ from loki.expression import (
 from loki.ir import Associate, Import, TypeDef
 from loki.visitors import Transformer, FindNodes
 from loki.tools import CaseInsensitiveDict, as_tuple
-from loki.types import SymbolType, BasicType, DerivedType, ProcedureType
+from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 
 
 __all__ = [
@@ -110,11 +110,10 @@ def used_names_from_symbol(symbol, modifier=str.lower):
     if isinstance(symbol, sym.TypedSymbol):
         return {modifier(symbol.name)} | used_names_from_symbol(symbol.type, modifier=modifier)
 
-    if isinstance(symbol, SymbolType):
-        if isinstance(symbol.dtype, DerivedType):
-            return {modifier(symbol.dtype.name)}
+    if isinstance(symbol, SymbolAttributes):
         if isinstance(symbol.dtype, BasicType) and symbol.kind is not None:
             return {modifier(str(symbol.kind))}
+        return used_names_from_symbol(symbol.dtype, modifier=modifier)
 
     if isinstance(symbol, (DerivedType, ProcedureType)):
         return {modifier(symbol.name)}
@@ -130,7 +129,7 @@ def eliminate_unused_imports(module_or_routine, used_symbols):
     imports = FindNodes(Import).visit(module_or_routine.spec)
     imported_symbols = [s for im in imports for s in im.symbols or []]
 
-    redundant_symbols = {s for s in imported_symbols if str(s).lower() not in used_symbols}
+    redundant_symbols = {s for s in imported_symbols if s.name.lower() not in used_symbols}
 
     if redundant_symbols:
         imprt_map = {}

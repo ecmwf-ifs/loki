@@ -2,7 +2,7 @@ from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
 from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.visitors import Stringifier
-from loki.types import BasicType, SymbolType
+from loki.types import BasicType, SymbolAttributes
 
 
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
@@ -37,7 +37,7 @@ class PyCodeMapper(LokiStringifyMapper):
     map_int_literal = map_float_literal
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        _type = SymbolType(BasicType.from_fortran_type(expr.name), kind=expr.kind)
+        _type = SymbolAttributes(BasicType.from_fortran_type(expr.name), kind=expr.kind)
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
@@ -266,7 +266,7 @@ class PyCodegen(Stringifier):
         kw_args = ['{}={}'.format(kw, self.visit(arg, **kwargs)) for kw, arg in o.kwarguments]
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
-    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
+    def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         return numpy_type(o)
 
 

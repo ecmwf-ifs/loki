@@ -147,7 +147,7 @@ def inline_elemental_functions(routine):
     """
 
     # Keep track of removed symbols
-    removed_functions = []
+    removed_functions = set()
 
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
@@ -157,7 +157,7 @@ def inline_elemental_functions(routine):
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine.scope)
 
             # Mark function as removed for later cleanup
-            removed_functions.append(call.procedure_type)
+            removed_functions.add(call.procedure_type)
 
     # Apply expression-level substitution to routine
     routine.body = SubstituteExpressions(exprmap).visit(routine.body)
@@ -165,6 +165,6 @@ def inline_elemental_functions(routine):
     # Remove all module imports that have become obsolete now
     import_map = {}
     for im in FindNodes(Import).visit(routine.spec):
-        if all(s in removed_functions for s in im.symbols):
+        if all(hasattr(s, 'type') and s.type.dtype in removed_functions for s in im.symbols):
             import_map[im] = None
     routine.spec = Transformer(import_map).visit(routine.spec)

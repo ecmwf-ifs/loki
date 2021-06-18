@@ -5,7 +5,7 @@ from pymbolic.mapper.stringifier import (
 from loki.visitors import Stringifier, FindNodes
 from loki.ir import Import
 from loki.expression import LokiStringifyMapper, Array
-from loki.types import BasicType, SymbolType, DerivedType
+from loki.types import BasicType, SymbolAttributes, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper']
 
@@ -30,7 +30,7 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            _type = SymbolType(BasicType.REAL, kind=expr.kind)
+            _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
             result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
             result = str(expr.value)
@@ -41,7 +41,7 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            _type = SymbolType(BasicType.INTEGER, kind=expr.kind)
+            _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
             result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         else:
             result = str(expr.value)
@@ -54,7 +54,7 @@ class CCodeMapper(LokiStringifyMapper):
         return '"%s"' % expr.value
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
-        _type = SymbolType(BasicType.from_fortran_type(expr.name), kind=expr.kind)
+        _type = SymbolAttributes(BasicType.from_fortran_type(expr.name), kind=expr.kind)
         expression = self.parenthesize_if_needed(
             self.join_rec('', expr.parameters, PREC_NONE, *args, **kwargs),
             PREC_CALL, PREC_NONE)
@@ -364,7 +364,7 @@ class CCodegen(Stringifier):
         assert not o.kwarguments
         return self.format_line(o.name, '(', self.join_items(args), ');')
 
-    def visit_SymbolType(self, o, **kwargs):  # pylint: disable=unused-argument
+    def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
             return 'struct %s' % o.dtype.name
         return c_intrinsic_type(o)

@@ -6,8 +6,8 @@ from conftest import jit_compile, clean_test
 from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolType, StringLiteral, fgen, fexprgen, Declaration,
-    Transformer, FindTypedSymbols
+    SymbolAttributes, StringLiteral, fgen, fexprgen, Declaration,
+    Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType
 )
 
 
@@ -382,8 +382,8 @@ end subroutine routine_variables_add_remove
 
     # Create a new set of variables and add to local routine variables
     x = routine.variable_map['x']  # That's the symbol for variable 'x'
-    real_type = SymbolType('real', kind=routine.variable_map['jprb'])
-    int_type = SymbolType('integer')
+    real_type = SymbolAttributes('real', kind=routine.variable_map['jprb'])
+    int_type = SymbolAttributes('integer')
     a = Scalar(name='a', type=real_type, scope=routine.scope)
     b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)
     c = Variable(name='c', type=int_type, scope=routine.scope)
@@ -1115,12 +1115,16 @@ end subroutine routine_call_external_stmt
         assert decl.external
         for v in decl.variables:
             # Are procedure names represented as Scalar objects?
-            assert isinstance(v, Scalar)
+            assert isinstance(v, ProcedureSymbol)
+            assert isinstance(v.type.dtype, ProcedureType)
             assert v.type.external is True
+            assert v.type.dtype.procedure == BasicType.DEFERRED
             if 'sub' in v.name:
-                assert v.type.dtype == BasicType.DEFERRED
+                assert not v.type.dtype.is_function
+                assert v.type.return_type is None
             else:
-                assert v.type.dtype == BasicType.INTEGER
+                assert v.type.dtype.is_function
+                assert v.type.return_type == BasicType.INTEGER
 
     # Generate code, compile and load
     filepath = here/('subroutine_routine_external_stmt_%s.f90' % frontend)

@@ -3,7 +3,7 @@ import pytest
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
-    Transformer, fgen, SymbolType, Variable
+    Transformer, fgen, SymbolAttributes, Variable
 )
 
 
@@ -299,8 +299,8 @@ end module
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
 
-    assert isinstance(module.types['util_fct'].procedure, Subroutine)
-    assert module.types['util_fct'].is_function
+    assert isinstance(module.types['util_fct'].dtype.procedure, Subroutine)
+    assert module.types['util_fct'].dtype.is_function
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -369,8 +369,8 @@ end module module_variables_add_remove
 
     # Create a new set of variables and add to local routine variables
     x = module.variable_map['x']  # That's the symbol for variable 'x'
-    real_type = SymbolType('real', kind=module.variable_map['jprb'])
-    int_type = SymbolType('integer')
+    real_type = SymbolAttributes('real', kind=module.variable_map['jprb'])
+    int_type = SymbolAttributes('integer')
     a = Variable(name='a', type=real_type, scope=module.scope)
     b = Variable(name='b', dimensions=(x, ), type=real_type, scope=module.scope)
     c = Variable(name='c', type=int_type, scope=module.scope)

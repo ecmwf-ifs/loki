@@ -16,7 +16,7 @@ from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 )
-from loki.types import BasicType, SymbolType, DerivedType, ProcedureType, Scope
+from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
 
 
 __all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -136,7 +136,7 @@ class OMNI2IR(GenericVisitor):
                     vtype = vtype.clone(shape=dimensions)
             else:
                 typename = self._omni_types.get(t, t)
-                vtype = SymbolType(BasicType.from_fortran_type(typename))
+                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
 
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source)
@@ -202,13 +202,13 @@ class OMNI2IR(GenericVisitor):
             if _type is None:
                 if tast.attrib['return_type'] == 'Fvoid':
                     dtype = BasicType.DEFERRED
-                    _type = SymbolType(dtype)
+                    _type = SymbolAttributes(dtype)
                 elif tast.attrib['return_type'] in self.type_map:
                     _type = self.visit(self.type_map[tast.attrib['return_type']])
                 else:
                     t = self._omni_types[tast.attrib['return_type']]
                     dtype = BasicType.from_fortran_type(t)
-                    _type = SymbolType(dtype)
+                    _type = SymbolAttributes(dtype)
 
             if tast.attrib.get('is_external') == 'true':
                 # This is an external declaration
@@ -228,14 +228,14 @@ class OMNI2IR(GenericVisitor):
                 typedef._update(body=as_tuple(declarations), symbols=typedef.symbols)
 
                 # Use the previous _type to keep other attributes (like allocatable, pointer, ...)
-                _type = _type.clone(SymbolType(DerivedType(name=tname, typedef=typedef)))
+                _type = _type.clone(SymbolAttributes(DerivedType(name=tname, typedef=typedef)))
 
             # If the type node has ranges, create dimensions
             dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
             dimensions = None if len(dimensions) == 0 else dimensions
         else:
             t = self._omni_types[name.attrib['type']]
-            _type = SymbolType(BasicType.from_fortran_type(t))
+            _type = SymbolAttributes(BasicType.from_fortran_type(t))
             dimensions = None
 
         if _type is not None:
@@ -246,7 +246,15 @@ class OMNI2IR(GenericVisitor):
         if dimensions:
             dimensions = sym.ArraySubscript(dimensions, source=source)
         if external:
-            _type.external = external
+            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
+            # variable declaration but declares a procedure symbol. Depending on whether
+            # we have a data type for that symbol or not, we can deduce it to be a
+            # function or subroutine
+            if _type.dtype is BasicType.DEFERRED:
+                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=False), external=external)
+            else:
+                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=True),
+                                    external=external, return_type=_type.dtype)
         variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
                                 scope=self.scope, source=source)
         return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
@@ -266,7 +274,7 @@ class OMNI2IR(GenericVisitor):
         typedef = ir.TypeDef(name=name.text, body=as_tuple(declarations), scope=typedef_scope)
 
         # Now make the typedef known in its scope's type table
-        self.scope.types[name.text] = DerivedType(name=name.text, typedef=typedef)
+        self.scope.types[name.text] = SymbolAttributes(DerivedType(name=name.text, typedef=typedef))
 
         return typedef
 
@@ -278,7 +286,7 @@ class OMNI2IR(GenericVisitor):
             typename = self._omni_types[ref]
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
             length = self.visit(o.find('len')) if o.find('len') is not None else None
-            _type = SymbolType(BasicType.from_fortran_type(typename), kind=kind, length=length)
+            _type = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind, length=length)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -301,8 +309,10 @@ class OMNI2IR(GenericVisitor):
         dtype = self.scope.types.lookup(name, recursive=True)
         if dtype is None:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
+        else:
+            dtype = dtype.dtype
 
-        return SymbolType(dtype)
+        return SymbolAttributes(dtype)
 
     def visit_associateStatement(self, o, source=None):
         associations = OrderedDict()
@@ -415,10 +425,10 @@ class OMNI2IR(GenericVisitor):
         if vtype is None:
             if t in self._omni_types:
                 typename = self._omni_types[t]
-                vtype = SymbolType(BasicType.from_fortran_type(typename))
+                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
             else:
                 # If we truly cannot determine the type, we defer
-                vtype = SymbolType(BasicType.DEFERRED)
+                vtype = SymbolAttributes(BasicType.DEFERRED)
 
         if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
@@ -445,7 +455,7 @@ class OMNI2IR(GenericVisitor):
 
         if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self._omni_types:
             typename = self._omni_types.get(t, t)
-            vtype = SymbolType(BasicType.from_fortran_type(typename))
+            vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
 
         if shape is not None and vtype is not None and vtype.shape != shape:
             # We need to create a clone of that type as other instances of that
@@ -522,15 +532,12 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we're dealing with a previously known function call
         stype = self.scope.symbols.lookup(name, recursive=True)
-        if stype and isinstance(stype.dtype, ProcedureType):
+        if not stype:
+            # No previous type declaration known for this symbol,
+            # see if it's a function call to a known procedure
+            stype = self.scope.types.lookup(name, recursive=True)
+        if stype and isinstance(stype.dtype, ProcedureType) and stype.dtype.is_function:
             fct_symbol = sym.ProcedureSymbol(name, type=stype, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
-
-        # No previous type declaration known for this symbol,
-        # see if it's a function call to a known procedure
-        dtype = self.scope.types.lookup(name, recursive=True)
-        if dtype and dtype.is_function:
-            fct_symbol = sym.ProcedureSymbol(name, type=SymbolType(dtype), scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
 
         # Slightly hacky: inlining is decided based on return type

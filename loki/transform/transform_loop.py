@@ -8,7 +8,8 @@ import numpy as np
 
 from loki.expression import (
     symbols as sym, SubstituteExpressions, FindVariables,
-    accumulate_polynomial_terms, simplify, is_constant, symbolic_op
+    accumulate_polynomial_terms, simplify, is_constant, symbolic_op,
+    TypedSymbol
 )
 from loki.frontend.fparser import parse_fparser_expression
 from loki.ir import Loop, Conditional, Comment, Pragma
@@ -64,7 +65,7 @@ class Polyhedron:
     def variable_to_index(self, variable):
         if self.variable_names is None:
             raise RuntimeError('No variables list associated with polyhedron.')
-        if isinstance(variable, (sym.Array, sym.Scalar)):
+        if isinstance(variable, TypedSymbol):
             variable = variable.name.lower()
         assert isinstance(variable, str)
         return self.variable_names.index(variable)

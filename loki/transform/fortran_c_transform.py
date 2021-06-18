@@ -26,7 +26,7 @@ from loki.expression import (
 )
 from loki.visitors import Transformer, FindNodes
 from loki.tools import as_tuple
-from loki.types import BasicType, SymbolType, DerivedType, Scope
+from loki.types import BasicType, DerivedType, Scope, SymbolAttributes
 
 
 __all__ = ['FortranCTransformation']
@@ -156,7 +156,7 @@ class FortranCTransformation(Transformation):
         casts_out = []
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                ctype = SymbolType(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
+                ctype = SymbolAttributes(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
                 cvar = Variable(name='%s_c' % arg.name, type=ctype, scope=wrapper_scope)
                 cast_in = InlineCall(ProcedureSymbol('transfer', scope=wrapper_scope),
                                      parameters=(arg,), kw_parameters={'mold': cvar})
@@ -211,7 +211,7 @@ class FortranCTransformation(Transformation):
                 getter_scope = Scope(parent=module_scope)
 
                 getterspec = Section(body=[Import(module=module.name, symbols=[v.clone(scope=module_scope)])])
-                isoctype = SymbolType(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter_scope))
+                isoctype = SymbolAttributes(v.type.dtype, kind=cls.iso_c_intrinsic_kind(v.type, getter_scope))
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getterspec.append(Import(module='iso_c_binding', symbols=[isoctype.kind]))
                 getterbody = Section(body=[
@@ -235,8 +235,8 @@ class FortranCTransformation(Transformation):
                     # Only scalar, intent(in) arguments are pass by value
                     # Pass by reference for array types
                     value = isinstance(arg, Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
-                    ctype = SymbolType(arg.type.dtype, value=value,
-                                       kind=cls.iso_c_intrinsic_kind(arg.type, intf_fct.scope))
+                    kind = cls.iso_c_intrinsic_kind(arg.type, intf_fct.scope)
+                    ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
                     dimensions = arg.dimensions if isinstance(arg, Array) else None
                     var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                                    scope=intf_fct.scope)
@@ -272,13 +272,13 @@ class FortranCTransformation(Transformation):
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
                 struct_name = c_structs[arg.type.dtype.name.lower()].name
-                ctype = SymbolType(DerivedType(name=struct_name), shape=arg.type.shape)
+                ctype = SymbolAttributes(DerivedType(name=struct_name), shape=arg.type.shape)
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
                 value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
-                ctype = SymbolType(arg.type.dtype, value=value,
-                                   kind=cls.iso_c_intrinsic_kind(arg.type, intf_routine.scope))
+                kind = cls.iso_c_intrinsic_kind(arg.type, intf_routine.scope)
+                ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
             dimensions = arg.dimensions if isinstance(arg, Array) else None
             var = Variable(name=arg.name, dimensions=dimensions, type=ctype,
                            scope=intf_routine.scope)

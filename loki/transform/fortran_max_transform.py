@@ -18,7 +18,7 @@ import loki.ir as ir
 from loki import Module, Subroutine, Sourcefile
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.tools import as_tuple, flatten
-from loki.types import SymbolType, BasicType, DerivedType
+from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.visitors import Transformer, FindNodes
 
 
@@ -204,7 +204,7 @@ class FortranMaxTransformation(Transformation):
         # Replace conditionals by conditional statements
         # TODO: This does not handle nested conditionals!
         cond_map = {}
-        cond_type = SymbolType(BasicType.LOGICAL)
+        cond_type = SymbolAttributes(BasicType.LOGICAL)
         for cnt, cond in enumerate(FindNodes(ir.Conditional).visit(max_kernel.body)):
             body = []
 
@@ -435,7 +435,7 @@ class FortranMaxTransformation(Transformation):
         max_kernel = kernel.clone(parent_scope=max_module.scope)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
-        arg_type = SymbolType(BasicType.DEFERRED, name='KernelParameters', intent='in')
+        arg_type = SymbolAttributes(DerivedType('KernelParameters'), intent='in')
         arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.scope)
         max_kernel.arguments = as_tuple(arg)
         max_kernel.spec.prepend(ir.CallStatement('super', arguments=(arg,)))
@@ -508,7 +508,7 @@ class FortranMaxTransformation(Transformation):
 
         # Create the constructor
         constructor = Subroutine(name=manager.name, parent_scope=manager.scope, spec=ir.Section(body=()))
-        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters', intent='in')
+        params_type = SymbolAttributes(DerivedType('EngineParameters'), intent='in')
         params = sym.Variable(name='params', type=params_type, scope=constructor.scope)
         body = [ir.CallStatement('super', arguments=(params,)),
                 ir.CallStatement('setup', arguments=())]
@@ -518,19 +518,17 @@ class FortranMaxTransformation(Transformation):
         # Create the main function for maxJavaRun
         main = Subroutine(name='public static void main', parent_scope=manager.scope,
                           spec=ir.Section(body=()))
-        args_type = SymbolType(BasicType.DEFERRED, name='String[]', intent='in')
+        args_type = SymbolAttributes(DerivedType('String[]'), intent='in')
         args = sym.Variable(name='args', type=args_type, scope=main.scope)
         main.arguments = as_tuple(args)
 
-        params_type = SymbolType(BasicType.DEFERRED, name='EngineParameters',
-                                 initial=sym.InlineCall(sym.ProcedureSymbol('new EngineParameters',
-                                                                            scope=main.scope),
-                                                        parameters=(args,)))
+        params_type = SymbolAttributes(
+            DerivedType('EngineParameters'), initial=sym.InlineCall(
+                sym.ProcedureSymbol('new EngineParameters', scope=main.scope), parameters=(args,)))
         params = sym.Variable(name='params', type=params_type, scope=main.scope)
-        mgr_type = SymbolType(BasicType.DEFERRED, name='MAX5CManager',
-                              initial=sym.InlineCall(sym.ProcedureSymbol('new {}'.format(manager.name),
-                                                                         scope=main.scope),
-                                                     parameters=(params,)))
+        mgr_type = SymbolAttributes(
+            DerivedType('MAX5CManager'), initial=sym.InlineCall(
+                sym.ProcedureSymbol('new {}'.format(manager.name), scope=main.scope), parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main.scope)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement('manager.build', arguments=())]
@@ -549,7 +547,7 @@ class FortranMaxTransformation(Transformation):
         slic_routine = routine.clone(name='{}_c'.format(routine.name), body=None)
 
         # Add an argument for ticks
-        size_t_type = SymbolType(BasicType.INTEGER, intent='in')  # TODO: make this size_t
+        size_t_type = SymbolAttributes(BasicType.INTEGER, intent='in')  # TODO: make this size_t
         ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel.scope)
         arguments = (ticks_argument,) + slic_routine.arguments
 

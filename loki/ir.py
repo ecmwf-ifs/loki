@@ -10,7 +10,7 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import Scope, DerivedType, ProcedureType
+from loki.types import Scope, DataType
 
 
 __all__ = [
@@ -958,7 +958,7 @@ class Import(LeafNode):
     ----------
     module : str
         The name of the module or header file to import from.
-    symbols : tuple of :any:`pymbolic.primitives.Expression`, optional
+    symbols : tuple of :any:`Expression` or :any:`DataType`, optional
         The list of names imported. Can be empty when importing all.
     c_import : bool, optional
         Flag to indicate that this is a C-style include. Defaults to `False`.
@@ -976,7 +976,7 @@ class Import(LeafNode):
 
         self.module = module
         self.symbols = symbols or ()
-        assert all(isinstance(s, (Expression, DerivedType, ProcedureType)) for s in self.symbols)
+        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
         self.c_import = c_import
         self.f_include = f_include
 

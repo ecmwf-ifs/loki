@@ -8,7 +8,7 @@ from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
     Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
-    SymbolType, BasicType, CaseInsensitiveDict, as_tuple, warning
+    SymbolAttributes, BasicType, CaseInsensitiveDict, as_tuple, warning
 )
 
 
@@ -207,7 +207,7 @@ class ExtractSCATransformation(Transformation):
         # Finally, we add the declaration of the loop variable
         if wrap and self.horizontal.index not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
-            dtype = SymbolType(BasicType.INTEGER, kind='JPIM')
+            dtype = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
             caller.variables += (Variable(name=self.horizontal.index, type=dtype, scope=caller.scope),)
 
 
