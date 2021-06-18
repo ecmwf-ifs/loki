@@ -7,7 +7,7 @@ from loki.ir import Assignment, Comment, CommentBlock, Declaration, Loop, Intrin
 from loki.frontend.source import Source
 from loki.expression import Variable, DeferredTypeSymbol
 from loki.tools import as_tuple
-from loki.types import ProcedureType
+from loki.types import DerivedType
 from loki.logging import warning
 
 __all__ = [
@@ -135,14 +135,14 @@ def import_external_symbols(module, symbol_names, scope):
     for name in symbol_names:
         symbol = None
         if module and name in module.symbols:
-            symbol = Variable(name=name, type=module.symbols[name], scope=scope)
+            _type = module.symbols[name]
 
-        elif module and name in module.types:
-            if isinstance(module.types[name].dtype, ProcedureType):
-                symbol = Variable(name=name, type=module.types[name], scope=scope)
+            if isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
+                # This entry corresponds to a derived type definition
+                scope.symbols[name] = _type
+                symbol = _type.dtype
             else:
-                symbol = module.types[name].dtype
-            scope.types[name] = module.types[name]
+                symbol = Variable(name=name, type=module.symbols[name], scope=scope)
         else:
             symbol = DeferredTypeSymbol(name=name, scope=scope)
         symbols.append(symbol)

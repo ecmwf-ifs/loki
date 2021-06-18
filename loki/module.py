@@ -110,7 +110,7 @@ class Module:
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
             for routine_ast in routine_asts:
                 fname = routine_ast.attrib['name']
-                scope.types[fname] = SymbolAttributes(ProcedureType(fname, is_function=routine_ast.tag == 'function'))
+                scope.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=routine_ast.tag == 'function'))
 
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent_scope=scope, pp_info=pp_info)
@@ -168,7 +168,7 @@ class Module:
                 else:
                     routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
                     fname = routine_stmt.get_name().string
-                scope.types[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                scope.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
 
             # Now create the actual Subroutine objects
             routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent_scope=scope,
@@ -240,10 +240,6 @@ class Module:
     @property
     def symbols(self):
         return self.scope.symbols
-
-    @property
-    def types(self):
-        return self.scope.types
 
     @property
     def source(self):

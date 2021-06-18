@@ -228,6 +228,7 @@ Typed symbol nodes
 
    loki.expression.symbols.TypedSymbol
    loki.expression.symbols.Variable
+   loki.expression.symbols.DeferredTypeSymbol
    loki.expression.symbols.Scalar
    loki.expression.symbols.Array
    loki.expression.symbols.ProcedureSymbol
@@ -268,8 +269,9 @@ See :mod:`loki.types` for a rough outline of the current type system.
 .. autosummary::
 
    loki.types.Scope
-   loki.types.TypeTable
-   loki.types.SymbolType
+   loki.types.SymbolTable
+   loki.types.SymbolAttributes
+   loki.types.DataType
    loki.types.BasicType
    loki.types.DerivedType
    loki.types.ProcedureType

@@ -299,8 +299,8 @@ end module
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
 
-    assert isinstance(module.types['util_fct'].dtype.procedure, Subroutine)
-    assert module.types['util_fct'].dtype.is_function
+    assert isinstance(module.symbols['util_fct'].dtype.procedure, Subroutine)
+    assert module.symbols['util_fct'].dtype.is_function
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -440,7 +440,6 @@ end module test_module_rescope
 
     # Explicitly throw away type information from original module
     module.scope.symbols.clear()
-    module.scope.types.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
@@ -483,7 +482,6 @@ end module test_module_rescope_clone
 
     # Explicitly throw away type information from original module
     module.scope.symbols.clear()
-    module.scope.types.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 

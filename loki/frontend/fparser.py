@@ -590,8 +590,8 @@ class FParser2IR(GenericVisitor):
         if source:
             source = source.clone_with_string(o.string)
 
-        fct_type = self.scope.types.lookup(name)
-        if fct_type:
+        fct_type = self.scope.symbols.lookup(name)
+        if fct_type and isinstance(fct_type.dtype, ProcedureType):
             # We know this function from out own type table
             fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
@@ -599,7 +599,8 @@ class FParser2IR(GenericVisitor):
 
         if name.lower() in Fortran2003.Intrinsic_Name.function_names or kwarguments:
             # This is (presumably) a function call
-            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
+            fct_type = ProcedureType('name')
+            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
             return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                                   source=source)
 
@@ -622,12 +623,8 @@ class FParser2IR(GenericVisitor):
             kwarguments = None
 
         source = kwargs.get('source')
-        fct_type = self.scope.types.lookup(name)
-        if fct_type:
-            # We know this function from out own type table
-            fct_symbol = sym.ProcedureSymbol(name, type=fct_type, scope=self.scope, source=source)
-        else:
-            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
+        fct_type = self.scope.symbols.lookup(name)
+        fct_symbol = sym.Variable(name=name, type=fct_type, scope=self.scope, source=source)
         return sym.InlineCall(fct_symbol, parameters=arguments, kw_parameters=kwarguments,
                               source=source)
 
@@ -700,8 +697,8 @@ class FParser2IR(GenericVisitor):
         derived_type_ast = get_child(o, Fortran2003.Declaration_Type_Spec)
         if derived_type_ast is not None:
             typename = derived_type_ast.items[1].tostr().lower()
-            dtype = self.scope.types.lookup(typename, recursive=True)
-            if dtype is None:
+            dtype = self.scope.symbols.lookup(typename, recursive=True)
+            if dtype is None or dtype.dtype is BasicType.DEFERRED:
                 dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
             else:
                 dtype = dtype.dtype
@@ -746,7 +743,7 @@ class FParser2IR(GenericVisitor):
                              source=source, label=kwargs.get('label'))
 
         # Now make the typedef known in its scope's type table
-        self.scope.types[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
+        self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
 
         return typedef
 

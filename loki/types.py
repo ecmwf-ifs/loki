@@ -31,7 +31,7 @@ The key ideas of Loki's type system are:
 
         SymbolAttributes(BasicType.INTEGER, kind=Literal(4), intent='inout', shape=(Literal(10),))
 
-* The :any:`SymbolAttributes` object is stored in the relevant :any:`TypeTable`
+* The :any:`SymbolAttributes` object is stored in the relevant :any:`SymbolTable`
   and queried from there by all expression nodes that represent use of the
   associated symbol. This means, changing the declared attributes of a symbol
   applies this change for all instances of this symbol.
@@ -51,7 +51,7 @@ The key ideas of Loki's type system are:
 
 * Every object that defines a new scope (e.g., :any:`Subroutine`,
   :any:`Module`, implementing :any:`Scope`) has an associated symbol table
-  (:any:`TypeTable`). The :any:`SymbolAttributes` of a symbol declared or
+  (:any:`SymbolTable`). The :any:`SymbolAttributes` of a symbol declared or
   imported in a scope are stored in the symbol table of that scope.
 * The symbol tables/scopes are organized in a hierarchical fashion, i.e., they
   are aware of their enclosing scope and allow to recursively look-up entries.
@@ -113,7 +113,7 @@ from loki.tools import flatten, as_tuple
 
 __all__ = [
     'DataType', 'BasicType', 'DerivedType', 'ProcedureType',
-    'SymbolAttributes', 'TypeTable', 'Scope'
+    'SymbolAttributes', 'SymbolTable', 'Scope'
 ]
 
 
@@ -378,7 +378,7 @@ class SymbolAttributes:
                    for k in keys if k not in ignore_attrs)
 
 
-class TypeTable(dict):
+class SymbolTable(dict):
     """
     Lookup table for symbol types that maps symbol names to :any:`SymbolAttributes`
 
@@ -391,7 +391,7 @@ class TypeTable(dict):
 
     Parameters
     ----------
-    parent : :any:`TypeTable`, optional
+    parent : :any:`SymbolTable`, optional
         The symbol table of the parent scope for recursive look-ups.
     case_sensitive : bool, optional
         Respect the case of symbol names in lookups (default: `False`).
@@ -455,7 +455,7 @@ class TypeTable(dict):
         return hash(tuple(self.keys()))
 
     def __repr__(self):
-        return '<loki.types.TypeTable object at %s>' % hex(id(self))
+        return '<loki.types.SymbolTable object at %s>' % hex(id(self))
 
     def setdefault(self, key, default=None):
         super().setdefault(self.format_lookup_name(key), default)
@@ -465,24 +465,23 @@ class Scope:
     """
     Scoping object that manages type caching and derivation for typed symbols.
 
-    The ``Scope`` provides two key tables:
-     * ``scope.symbols`` uniquely maps each variables name to a ``SymbolAttributes``
-     * ``scope.types`` uniquely maps derived and procedure type names to
-       their respective data type objects and definitions.
+    The :any:`Scope` provides a symbol table that uniquely maps a symbol's name
+    to its :any:`SymbolAttributes` or, for a derived type definition, directly
+    to its :any:`DerivedType`.
 
-    Note that derived and procedure type definitions may be markes as
-    ``BasicType.DEFERRED``, in which case the ``Scope`` may be able to
-    map them to concrete definitions at a later stage.
+    See :any:`SymbolTable` for more details on how to look-up symbols.
+
+    Parameters
+    ----------
+    parent : :any:`Scope`, optional
+        The enclosing scope, thus allowing recursive look-ups
     """
 
     def __init__(self, parent=None):
         self._parent = weakref.ref(parent) if parent is not None else None
 
         parent_symbols = self.parent.symbols if self.parent is not None else None
-        self.symbols = TypeTable(parent=parent_symbols)
-
-        parent_types = self.parent.types if self.parent is not None else None
-        self.types = TypeTable(parent=parent_types)
+        self.symbols = SymbolTable(parent=parent_symbols)
 
         # Potential link-back to the owner that can be used to
         # traverse the dependency chain upwards.
@@ -498,7 +497,7 @@ class Scope:
     @property
     def defined_by(self):
         """
-        Object that owns this `Scope` and defines the types and symbols it connects
+        Object that owns this :any:`Scope` and defines the types and symbols it connects
         """
         return self._defined_by() if self._defined_by is not None else None
 

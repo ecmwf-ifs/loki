@@ -445,15 +445,12 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         The scope in which the symbol is declared.
     type : optional
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
-    parent : :any:`Scalar` or :any:`Array`, optional
-        The derived type variable this variable belongs to.
     """
 
-    def __init__(self, name, scope, type=None, parent=None, **kwargs):
+    def __init__(self, name, scope, type=None, **kwargs):
         # pylint: disable=redefined-builtin
+        assert type is None or isinstance(type.dtype, ProcedureType) or type.dtype is BasicType.DEFERRED
         super().__init__(name=name, scope=scope, type=type, **kwargs)
-
-        self.parent = parent
 
     mapper_method = intern('map_procedure_symbol')
 

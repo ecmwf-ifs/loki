@@ -1274,8 +1274,6 @@ end subroutine test_subroutine_rescope
     routine.members[0].scope._parent = None
     routine.members[0].scope.symbols.clear()
     routine.members[0].scope.symbols._parent = None
-    routine.members[0].scope.types.clear()
-    routine.members[0].scope.types._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
@@ -1358,8 +1356,6 @@ end subroutine test_subroutine_rescope_clone
     routine.members[0].scope._parent = None
     routine.members[0].scope.symbols.clear()
     routine.members[0].scope.symbols._parent = None
-    routine.members[0].scope.types.clear()
-    routine.members[0].scope.types._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
