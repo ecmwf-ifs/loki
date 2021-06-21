@@ -16,6 +16,13 @@ __all__ = ['SingleColumnCoalescedTransformation']
 def get_integer_variable(routine, name):
     """
     Find a local variable in the routine, or create an integer-typed one.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find the variable
+    name : string
+        Name of the variable to find the in the routine.
     """
     if name in routine.variable_map:
         v_index = routine.variable_map[name]
@@ -23,6 +30,178 @@ def get_integer_variable(routine, name):
         dtype = SymbolAttributes(BasicType.INTEGER)
         v_index = Variable(name=name, type=dtype, scope=routine)
     return v_index
+
+
+def kernel_remove_vector_loops(routine, horizontal):
+    """
+    Remove all vector loops over the specified dimension.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal : :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    loop_map = {}
+    for loop in FindNodes(Loop).visit(routine.body):
+        if loop.variable == horizontal.index:
+            loop_map[loop] = loop.body
+    routine.body = Transformer(loop_map).visit(routine.body)
+
+
+def kernel_promote_vector_loops(routine, horizontal):
+    """
+    Promote vector loops to be the outermost loop in the kernel.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    def _construct_loop(body):
+        v_start = routine.variable_map[horizontal.bounds[0]]
+        v_end = routine.variable_map[horizontal.bounds[1]]
+        bounds = LoopRange((v_start, v_end))
+        index = get_integer_variable(routine, horizontal.index)
+        # Ensure we clone all body nodes, to avoid recursion issues
+        return Loop(variable=index, bounds=bounds, body=Transformer().visit(body))
+
+    # Create a list of sections between calls and create wrapping vector loops
+    call_map = {}
+    calls = FindNodes(CallStatement).visit(routine.body)
+    sections = [None, *calls, None]
+    for start, stop in pairwise(sections):
+        t = MaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
+        sec = as_tuple(flatten(t.visit(routine.body.body)))
+        if start is not None:
+            sec = sec[1:]  # Strip `start` node
+
+        # Add a comment before the pragma-annotated loop to ensure
+        # not overlap with neighbouring pragmas
+        vector_loop = _construct_loop(sec)
+        call_map[sec] = (Comment(''), vector_loop)
+
+    routine.body = Transformer(call_map).visit(routine.body)
+
+
+def kernel_demote_private_locals(routine, horizontal, vertical):
+    """
+    Demotes all local variables that can be privatized at the `acc loop vector`
+    level.
+
+    Array variables whose dimensions include only the vector dimension
+    or known (short) constant dimensions (eg. local vector or matrix arrays)
+    can be privatized without requiring shared GPU memory. Array variables
+    with unknown (at compile time) dimensions (eg. the vertical dimension)
+    cannot be privatized at the vector loop level and should therefore not
+    be demoted here.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension object specifying the horizontal vector dimension
+    vertical: :any:`Dimension`
+        The dimension object specifying the vertical loop dimension
+    """
+
+    # Establish the new dimensions and shapes first, before cloning the variables
+    # The reason for this is that shapes of all variable instances are linked
+    # via caching, meaning we can easily void the shape of an unprocessed variable.
+    variables = list(routine.variables)
+    variables += list(FindVariables(unique=False).visit(routine.body))
+
+    # Filter out purely local array variables
+    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+    variables = [v for v in variables if not v.name in argument_map]
+    variables = [v for v in variables if isinstance(v, Array)]
+
+    # Find all arrays with shapes that do not include the vertical
+    # dimension and can thus be privatized.
+    variables = [v for v in variables if v.shape is not None]
+    variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
+
+    # Record original array shapes
+    shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
+
+    # Demote private local variables
+    vmap = {}
+    for v in variables:
+        old_shape = shape_map[v.name]
+        new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
+
+        if old_shape and old_shape[0] in horizontal.size_expressions:
+            new_type = v.type.clone(shape=new_shape)
+            if len(old_shape) > 1:
+                vmap[v] = v.clone(dimensions=v.dimensions[1:], type=new_type)
+            else:
+                vmap[v] = Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
+
+    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
+
+
+def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
+    """
+    Insert ``!$acc loop vector`` annotations around horizontal vector
+    loops, including the necessary private variable declarations.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension object specifying the horizontal vector dimension
+    vertical: :any:`Dimension`
+        The dimension object specifying the vertical loop dimension
+    """
+
+    # Find any local arrays that need explicitly privatization
+    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+    private_arrays = [v for v in routine.variables if not v.name in argument_map]
+    private_arrays = [v for v in private_arrays if isinstance(v, Array)]
+    private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
+
+    with pragmas_attached(routine, Loop):
+        mapper = {}
+        for loop in FindNodes(Loop).visit(routine.body):
+            if loop.variable == horizontal.index:
+                # Construct pragma and wrap entire body in vector loop
+                private_arrs = ', '.join(v.name for v in private_arrays)
+                pragma = None
+                private_clause = '' if not private_arrays else ' private({})'.format(private_arrs)
+                pragma = Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
+                mapper[loop] = loop.clone(pragma=pragma)
+
+        routine.body = Transformer(mapper).visit(routine.body)
+
+
+def kernel_annotate_sequential_loops_openacc(routine, horizontal):
+    """
+    Insert ``!$acc loop seq`` annotations around all loops that
+    are not horizontal vector loops.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension object specifying the horizontal vector dimension
+    """
+    with pragmas_attached(routine, Loop):
+
+        for loop in FindNodes(Loop).visit(routine.body):
+            # Skip loops explicitly marked with `!$loki/claw nodep`
+            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                continue
+
+            if loop.variable != horizontal.index:
+                # Perform pragma addition in place to avoid nested loop replacements
+                loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
 
 class SingleColumnCoalescedTransformation(Transformation):
@@ -134,14 +313,14 @@ class SingleColumnCoalescedTransformation(Transformation):
         v_index = get_integer_variable(routine, name=self.horizontal.index)
 
         # Remove all vector loops over the specified dimension
-        loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.body):
-            if loop.variable == self.horizontal.index:
-                loop_map[loop] = loop.body
-        routine.body = Transformer(loop_map).visit(routine.body)
+        kernel_remove_vector_loops(routine, self.horizontal)
+
+        if not self.hoist_column_arrays:
+            # Promote vector loops to be the outermost loop dimension in the kernel 
+            kernel_promote_vector_loops(routine, self.horizontal)
 
         # Demote all private local variables
-        self.demote_private_locals(routine)
+        kernel_demote_private_locals(routine, self.horizontal, self.vertical)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
@@ -156,36 +335,19 @@ class SingleColumnCoalescedTransformation(Transformation):
                 routine.arguments += as_tuple(v_index)
 
         if self.directive == 'openacc':
+            # Mark all non-parallel loops as `!$acc loop seq`
+            kernel_annotate_sequential_loops_openacc(routine, self.horizontal)
 
-            with pragmas_attached(routine, Loop):
-                # Mark all remaining loops as seq (in place)
-                for loop in FindNodes(Loop).visit(routine.body):
-                    # Skip loops explicitly marked with `!$loki/claw nodep`
-                    if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
-                        continue
+            # Mark all parallel vector loops as `!$acc loop vector`
+            kernel_annotate_vector_loops_openacc(routine, self.horizontal, self.vertical)
 
-                    if self.directive == 'openacc':
-                        loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
-
-
-        if not self.hoist_column_arrays:
-            # If we're not hoisting column arrays, the kernel remains mapped
-            # to the OpenACC "vector" level. For this, we insert an all-encompassing
-            # vector loop around the kernel and privatize all remaining local arrays
-            # (after domting the horizontal). This encompasses all arrays that are
-            # do not have vertical dimension.
-
-            # Add vector-level loops at the highest level in the kernel
-            with pragmas_attached(routine, Loop):
-                self.kernel_add_vector_loops(routine)
-
-        if self.directive == 'openacc':
-            if not self.hoist_column_arrays:
-                # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
-            else:
+            if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable
                 routine.body.prepend(Pragma(keyword='acc', content='routine seq'))
+
+            else:
+                # Mark routine as `!$acc routine vector` to make it device-callable
+                routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
@@ -302,113 +464,5 @@ class SingleColumnCoalescedTransformation(Transformation):
         bounds = LoopRange((v_start, v_end))
         vector_loop = Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
         call_map[call] = vector_loop
-
-        routine.body = Transformer(call_map).visit(routine.body)
-
-    def demote_private_locals(self, routine):
-        """
-        Demotes all local variables that can be privatized at the `acc loop vector`
-        level.
-
-        Array variables whose dimensions include only the vector dimension
-        or known (short) constant dimensions (eg. local vector or matrix arrays)
-        can be privatized without requiring shared GPU memory. Array variables
-        with unknown (at compile time) dimensions (eg. the vertical dimension)
-        cannot be privatized at the vector loop level and should therefore not
-        be demoted here.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        """
-
-        # Establish the new dimensions and shapes first, before cloning the variables
-        # The reason for this is that shapes of all variable instances are linked
-        # via caching, meaning we can easily void the shape of an unprocessed variable.
-        variables = list(routine.variables)
-        variables += list(FindVariables(unique=False).visit(routine.body))
-
-        # Filter out purely local array variables
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        variables = [v for v in variables if not v.name in argument_map]
-        variables = [v for v in variables if isinstance(v, Array)]
-
-        # Find all arrays with shapes that do not include the vertical
-        # dimension and can thus be privatized.
-        variables = [v for v in variables if v.shape is not None]
-        variables = [v for v in variables if not any(self.vertical.size in d for d in v.shape)]
-
-        # Record original array shapes
-        shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-
-        # Demote private local variables
-        vmap = {}
-        for v in variables:
-            old_shape = shape_map[v.name]
-            new_shape = as_tuple(s for s in old_shape if s not in self.horizontal.size_expressions)
-
-            if old_shape and old_shape[0] in self.horizontal.size_expressions:
-                new_type = v.type.clone(shape=new_shape)
-                if len(old_shape) > 1:
-                    vmap[v] = v.clone(dimensions=v.dimensions[1:], type=new_type)
-                else:
-                    vmap[v] = Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
-
-        routine.body = SubstituteExpressions(vmap).visit(routine.body)
-        routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
-
-    def kernel_add_vector_loops(self, routine):
-        """
-        Insert the "vector" loop in GPU format around the entire body
-        of the kernel routine. If directives are specified this also
-        derived the set of private local arrays and marks them in the
-        "vector"-level loop.
-
-        Note that this assumes that the body has no nested
-        vector-level kernel calls. For nested cases, we need to apply
-        this to all non-nested code chunks in a kernel routine
-        instead. **THIS IS NOT YET IMPLEMENTED!**
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        """
-        def _construct_loop_with_private_arrays(body):
-            # Find local arrays that need explicitly privatization
-            argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-            private_arrays = [v for v in routine.variables if not v.name in argument_map]
-            private_arrays = [v for v in private_arrays if isinstance(v, Array)]
-            private_arrays = [v for v in private_arrays if not any(self.vertical.size in d for d in v.shape)]
-
-            # Construct pragma and wrap entire body in vector loop
-            private_arrs = ', '.join(v.name for v in private_arrays)
-            pragma = None
-            if self.directive == 'openacc':
-                private_clause = '' if not private_arrays else ' private({})'.format(private_arrs)
-                pragma = Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
-
-            v_start = routine.variable_map[self.horizontal.bounds[0]]
-            v_end = routine.variable_map[self.horizontal.bounds[1]]
-            bounds = LoopRange((v_start, v_end))
-            index = get_integer_variable(routine, self.horizontal.index)
-            # Ensure we clone all body nodes, to avoid recursion issues
-            return Loop(variable=index, bounds=bounds, body=Transformer().visit(body), pragma=pragma)
-
-        # Create a list of sections between calls and create wrapping vector loops
-        call_map = {}
-        calls = FindNodes(CallStatement).visit(routine.body)
-        sections = [None, *calls, None]
-        for start, stop in pairwise(sections):
-            t = MaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
-            sec = as_tuple(flatten(t.visit(routine.body.body)))
-            if start is not None:
-                sec = sec[1:]  # Strip `start` node
-
-            # Add a comment before the pragma-annotated loop to ensure
-            # not overlap with neightbouring pragmas
-            vector_loop = _construct_loop_with_private_arrays(sec)
-            call_map[sec] = (Comment(''), vector_loop)
 
         routine.body = Transformer(call_map).visit(routine.body)
