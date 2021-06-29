@@ -62,6 +62,9 @@ def kernel_promote_vector_loops(routine, horizontal):
         The dimension specifying the horizontal vector dimension
     """
     def _construct_loop(body):
+        """
+        Create a single loop around the horizontal from a given body
+        """
         v_start = routine.variable_map[horizontal.bounds[0]]
         v_end = routine.variable_map[horizontal.bounds[1]]
         bounds = LoopRange((v_start, v_end))
@@ -70,6 +73,9 @@ def kernel_promote_vector_loops(routine, horizontal):
         return Loop(variable=index, bounds=bounds, body=Transformer().visit(body))
 
     def _sections_from_nodes(nodes, section):
+        """
+        Extract a list of code sub-sections from a section and separator nodes.
+        """
         nodes = [None, *nodes, None]
         sections = []
         for start, stop in pairwise(nodes):
@@ -80,25 +86,10 @@ def kernel_promote_vector_loops(routine, horizontal):
             sections.append(sec)
         return sections
 
-    if horizontal.bounds[0] not in routine.variable_map:
-        raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
-    if horizontal.bounds[1] not in routine.variable_map:
-        raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
-
-    mapper = {}
-
-    # Create a list of sections between calls and create wrapping vector loops
-    calls = FindNodes(CallStatement).visit(routine.body)
-
-    # If any outer loops span recursive calls, we cannot promote vector
-    # loops past those. So, we find those constraining loops, and deal
-    # with them separately.
-
-    # Note: Once we have proper dependency ananlysis in Loki, we can do this
-    # much cleaner and safer.
-
     def _wrap_local_section(section, mapper):
-        # Wrap vector loops around calls that we cannot promot around
+        """
+        Wrap vector loops around calls that we cannot promot around
+        """
         calls = FindNodes(CallStatement).visit(section)
         for s in _sections_from_nodes(calls, section):
             if len(s) > 0 and len(FindNodes(Assignment).visit(s)) > 0:
@@ -107,30 +98,53 @@ def kernel_promote_vector_loops(routine, horizontal):
                 vector_loop = _construct_loop(s)
                 mapper[s] = (Comment(''), vector_loop)
 
-    # Identify outer sections (loops/conditionals) constrained by recursive routine calls
-    outer_scopes = []
-    for call in calls:
-        ancestors = flatten(FindScopes(call).visit(routine.body))
-        ancestor_loops = [a for a in ancestors if isinstance(a, (Loop, Conditional))]
-        if len(ancestor_loops) > 0:
-            outer_scopes.append(ancestor_loops[-1])
+    def _process_outer_section(section, mapper):
+        """
+        For any nodes that define sections span that recursive calls,
+        we cannot promote vector loops past the section boundaries.
+        So, we need to find those constrained sections, and deal with
+        them separately, and recursively if they are nested.
+        """
 
-    # Insert outer vector loops around call-free sections outside of
-    # the constrained sections.
-    outer_sections = _sections_from_nodes(outer_scopes, routine.body.body)
-    for section in outer_sections:
-        # Apply wrapping around the unbroken outer sections
-        _wrap_local_section(section, mapper)
+        # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
+        outer_scopes = []
+        calls = FindNodes(CallStatement).visit(section)
+        for call in calls:
+            ancestors = flatten(FindScopes(call).visit(section))
+            ancestor_scopes = [a for a in ancestors if isinstance(a, (Loop, Conditional))]
+            if len(ancestor_scopes) > 0:
+                outer_scopes.append(ancestor_scopes[0])
 
-    # Now deal with constrained sections explicitly by applying the
-    # same mechanism to the loop or conditional body.
-    for scope in outer_scopes:
-        if isinstance(scope, Loop):
-            _wrap_local_section(scope.body, mapper)
+        # Insert outer vector loops around call-free sections outside of
+        # the constrained scopes.
+        outer_sections = _sections_from_nodes(outer_scopes, section)
+        for section in outer_sections:
+            # Apply wrapping around the unbroken outer sections
+            _wrap_local_section(section, mapper)
 
-        if isinstance(scope, Conditional):
-            _wrap_local_section(scope.body, mapper)
-            _wrap_local_section(scope.else_body, mapper)
+        # Now recursively deal with constrained scopes explicitly by
+        # applying the same mechanism to the loop or conditional body.
+        for scope in outer_scopes:
+            if isinstance(scope, Loop):
+                _process_outer_section(scope.body, mapper)
+
+            if isinstance(scope, Conditional):
+                _process_outer_section(scope.body, mapper)
+                _process_outer_section(scope.else_body, mapper)
+
+
+    if horizontal.bounds[0] not in routine.variable_map:
+        raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
+    if horizontal.bounds[1] not in routine.variable_map:
+        raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
+
+    mapper = {}
+
+    # Now re-wrap individual sections with vector loops at the
+    # appropriate level, as defined by "scope" nodes (loops,
+    # conditionals) that might be constrined by recursive function
+    # calls.
+    _process_outer_section(routine.body.body, mapper)
 
     routine.body = Transformer(mapper).visit(routine.body)
 
@@ -181,6 +195,11 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
 
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
+
+    # TODO: We need to ensure that we only demote things that we do not use
+    # to buffer things across two sections. With the extended loop promotion,
+    # we now need to check that we only demote in distinct vector loops, rather
+    # than across entire routines....
 
     # Demote private local variables
     vmap = {}
