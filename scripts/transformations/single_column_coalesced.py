@@ -361,13 +361,15 @@ class SingleColumnCoalescedTransformation(Transformation):
     """
 
     def __init__(self, horizontal, vertical=None, block_dim=None, directive=None,
-                 hoist_column_arrays=True):
+                 demote_local_arrays=True, hoist_column_arrays=True):
         self.horizontal = horizontal
         self.vertical = vertical
         self.block_dim = block_dim
 
         assert directive in [None, 'openacc']
         self.directive = directive
+
+        self.demote_local_arrays = demote_local_arrays
         self.hoist_column_arrays = hoist_column_arrays
 
     def transform_subroutine(self, routine, **kwargs):
@@ -446,7 +448,8 @@ class SingleColumnCoalescedTransformation(Transformation):
             kernel_promote_vector_loops(routine, self.horizontal)
 
         # Demote all private local variables
-        kernel_demote_private_locals(routine, self.horizontal, self.vertical)
+        if self.demote_local_arrays:
+            kernel_demote_private_locals(routine, self.horizontal, self.vertical)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
