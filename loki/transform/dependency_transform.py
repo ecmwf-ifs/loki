@@ -43,10 +43,12 @@ class DependencyTransformation(Transformation):
     dependency tree to the modified sub-tree.
     """
 
-    def __init__(self, suffix, mode='module', module_suffix=None, include_path=None):
+    def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,
+                 replace_ignore_items=True):
         self.suffix = suffix
         assert mode in ['strict', 'module']
         self.mode = mode
+        self.replace_ignore_items = replace_ignore_items
 
         self.module_suffix = module_suffix
         self.include_path = None if include_path is None else Path(include_path)
@@ -107,14 +109,15 @@ class DependencyTransformation(Transformation):
                         modify the corresponding calls.
         """
         targets = kwargs.get('targets', None)
-        if targets is not None:
-            # Normalize string casing
-            targets = [str(t).upper() for t in as_tuple(targets)]
+        targets = [str(t).upper() for t in as_tuple(targets)] if targets else []
+
+        if self.replace_ignore_items:
+            item = kwargs.get('item', None)
+            targets += [str(i).upper() for i in item.ignore] if item.ignore else []
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if targets is None or call.name in targets:
-                name = call.name.clone(name=f'{call.name}{self.suffix}')
-                call._update(name=name)
+                call.name = call.name.clone(name=f'{call.name}{self.suffix}')
 
     def rename_imports(self, source, imports, **kwargs):
         """
@@ -126,6 +129,10 @@ class DependencyTransformation(Transformation):
         targets = kwargs.get('targets', None)
         if targets is not None:
             targets = as_tuple(str(t).upper() for t in as_tuple(targets))
+
+        if self.replace_ignore_items:
+            item = kwargs.get('item', None)
+            targets += as_tuple(str(i).upper() for i in item.ignore) if item.ignore else ()
 
         # Transformer map to remove any outdated imports
         removal_map = {}
