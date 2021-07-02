@@ -474,6 +474,18 @@ class SingleColumnCoalescedTransformation(Transformation):
             in this call tree and should thus be processed accordingly.
         """
 
+        routine_pragmas = [p for p in FindNodes(ir.Pragma).visit(routine.body)
+                           if p.keyword.lower() == 'loki' and 'routine' in p.content.lower()]
+        seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
+        if seq_pragmas:
+            if self.directive == 'openacc':
+                # Mark routine as acc seq
+                mapper = {seq_pragmas[0]: ir.Pragma(keyword='acc', content='routine seq')}
+                routine.body = Transformer(mapper).visit(routine.body)
+
+            # Bail and leave sequential routines unchanged
+            return
+
         if self.horizontal.bounds[0] not in routine.variable_map:
             raise RuntimeError(f'No horizontal start variable found in {routine.name}')
         if self.horizontal.bounds[1] not in routine.variable_map:
