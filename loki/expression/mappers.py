@@ -126,6 +126,9 @@ class LokiStringifyMapper(StringifyMapper):
     def map_parenthesised_mul(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_product(expr, PREC_NONE, *args, **kwargs))
 
+    def map_parenthesised_div(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_quotient(expr, PREC_NONE, *args, **kwargs))
+
     def map_parenthesised_pow(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_power(expr, PREC_NONE, *args, **kwargs))
 
@@ -218,6 +221,7 @@ class LokiWalkMapper(WalkMapper):
 
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
+    map_parenthesised_div = WalkMapper.map_quotient
     map_parenthesised_pow = WalkMapper.map_power
     map_string_concat = WalkMapper.map_sum
 
@@ -395,6 +399,7 @@ class ExpressionCallbackMapper(CombineMapper):
 
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product
+    map_parenthesised_div = CombineMapper.map_quotient
     map_parenthesised_pow = CombineMapper.map_power
     map_string_concat = CombineMapper.map_sum
 
@@ -507,9 +512,14 @@ class LokiIdentityMapper(IdentityMapper):
             return expr
         return expr.__class__(children)
 
+    def map_quotient(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.numerator, *args, **kwargs),
+                              self.rec(expr.denominator, *args, **kwargs))
+
     map_parenthesised_add = map_sum
     map_product = map_sum
     map_parenthesised_mul = map_product
+    map_parenthesised_div = map_quotient
     map_parenthesised_pow = IdentityMapper.map_power
     map_string_concat = map_sum
 

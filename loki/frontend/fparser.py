@@ -16,7 +16,7 @@ from loki.frontend.util import (
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
-    StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+    StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
@@ -1803,6 +1803,8 @@ class FParser2IR(GenericVisitor):
             expression = ParenthesisedAdd(expression.children, source=source)
         if isinstance(expression, sym.Product):
             expression = ParenthesisedMul(expression.children, source=source)
+        if isinstance(expression, sym.Quotient):
+            expression = ParenthesisedDiv(expression.numerator, expression.denominator, source=source)
         if isinstance(expression, sym.Power):
             expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
         return expression
