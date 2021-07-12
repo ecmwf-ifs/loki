@@ -6,7 +6,9 @@ from loki import (
     Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
     CaseInsensitiveDict, as_tuple, pragmas_attached,
     JoinableStringList, FindScopes, Comment, NestedMaskedTransformer,
-    flatten, resolve_associates, Assignment, Conditional
+    flatten, resolve_associates, Assignment, Conditional,
+    FindExpressions, RangeIndex, MaskedStatement, RangeIndex,
+    LoopRange
 )
 
 
@@ -278,6 +280,49 @@ def kernel_annotate_sequential_loops_openacc(routine, horizontal):
                 loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
 
+def resolve_masked_stmts(routine, loop_variable):
+    """
+    Resolve :any:`MaskedStatement` (WHERE statement) objects to an
+    explicit combination of :any:`Loop` and :any:`Conditional` combination.
+    """
+    mapper = {}
+    for masked in FindNodes(MaskedStatement).visit(routine.body):
+        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, RangeIndex)]
+        exprmap = {r: loop_variable for r in ranges}
+        assert len(ranges) > 0
+        assert all(r == ranges[0] for r in ranges)
+        bounds = LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
+        cond = Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
+        loop = Loop(variable=loop_variable, bounds=bounds, body=cond)
+        # Substitute the loop ranges with the loop index and add to mapper
+        mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
+
+    routine.body = Transformer(mapper).visit(routine.body)
+
+
+def resolve_vector_dimension(routine, loop_variable, bounds):
+    """
+    Resolve vector notation for a given dimension only. The dimension
+    is defined by a loop variable and the bounds of the given range.
+
+    TODO: Consolidate this with the internal
+    `loki.transform.transform_array_indexing.resolve_vector_notation`.
+    """
+    bounds_str = '{}:{}'.format(bounds[0], bounds[1])
+
+    mapper = {}
+    for stmt in FindNodes(Assignment).visit(routine.body):
+        ranges = [e for e in FindExpressions().visit(stmt)
+                  if isinstance(e, RangeIndex) and e == bounds_str]
+        if ranges:
+            exprmap = {r: loop_variable for r in ranges}
+            loop = Loop(variable=loop_variable, bounds=LoopRange(bounds),
+                        body=SubstituteExpressions(exprmap).visit(stmt))
+            mapper[stmt] = loop
+
+    routine.body = Transformer(mapper).visit(routine.body)
+
+
 class SingleColumnCoalescedTransformation(Transformation):
     """
     Single Column Coalesced: Direct CPU-to-GPU trnasformation for
@@ -385,6 +430,13 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)
+
+        # Resolve WHERE clauses
+        lvar = Variable(name=self.horizontal.index, scope=routine)
+        resolve_masked_stmts(routine, loop_variable=lvar)
+
+        # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
+        resolve_vector_dimension(routine, loop_variable=lvar, bounds=self.horizontal.bounds)
 
         # Remove all vector loops over the specified dimension
         kernel_remove_vector_loops(routine, self.horizontal)
