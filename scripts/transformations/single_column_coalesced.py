@@ -8,7 +8,7 @@ from loki import (
     JoinableStringList, FindScopes, Comment, NestedMaskedTransformer,
     flatten, resolve_associates, Assignment, Conditional,
     FindExpressions, RangeIndex, MaskedStatement, RangeIndex,
-    LoopRange
+    LoopRange, DerivedType, pragma_regions_attached, PragmaRegion
 )
 
 
@@ -280,6 +280,25 @@ def kernel_annotate_sequential_loops_openacc(routine, horizontal):
                 loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
 
 
+def kernel_annotate_subroutine_present_openacc(routine):
+    """
+    Insert ``!$acc data present`` annotations around the body of a subroutine.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    """
+
+    # Get the names of all array and derived type arguments
+    args = [a for a in routine.arguments if isinstance(a, Array)]
+    args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
+    argnames = [str(a.name) for a in args]
+
+    routine.body.prepend(Pragma(keyword='acc', content='data present({})'.format(', '.join(argnames))))
+    routine.body.append(Pragma(keyword='acc', content='end data'))
+
+
 def resolve_masked_stmts(routine, loop_variable):
     """
     Resolve :any:`MaskedStatement` (WHERE statement) objects to an
@@ -469,6 +488,10 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             # Mark all parallel vector loops as `!$acc loop vector`
             kernel_annotate_vector_loops_openacc(routine, self.horizontal, self.vertical)
+
+            # Wrap the routine body in `!$acc data present` markers
+            # to ensure device-resident data is used for array and struct arguments.
+            kernel_annotate_subroutine_present_openacc(routine)
 
             if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable

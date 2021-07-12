@@ -353,9 +353,13 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
 
     # Ensure routine is anntoated at vector level
     pragmas = FindNodes(Pragma).visit(kernel.body)
-    assert len(pragmas) == 3
+    assert len(pragmas) == 5
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
+    assert pragmas[1].keyword == 'acc'
+    assert pragmas[1].content == 'data present(q)'
+    assert pragmas[-1].keyword == 'acc'
+    assert pragmas[-1].content == 'end data'
 
     # Ensure vector and seq loops are annotated, including
     # privatized variable `b`
@@ -442,9 +446,13 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
     with pragmas_attached(kernel, Loop):
         # Ensure routine is anntoated at vector level
         kernel_pragmas = FindNodes(Pragma).visit(kernel.body)
-        assert len(kernel_pragmas) == 1
+        assert len(kernel_pragmas) == 3
         assert kernel_pragmas[0].keyword == 'acc'
         assert kernel_pragmas[0].content == 'routine seq'
+        assert kernel_pragmas[1].keyword == 'acc'
+        assert kernel_pragmas[1].content == 'data present(q, t)'
+        assert kernel_pragmas[2].keyword == 'acc'
+        assert kernel_pragmas[2].content == 'end data'
 
         # Ensure only a single `seq` loop is left
         kernel_loops = FindNodes(Loop).visit(kernel.body)
@@ -579,9 +587,11 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
         # Ensure the routine has been marked properly
         outer_kernel_pragmas = FindNodes(Pragma).visit(outer_kernel.body)
-        assert len(outer_kernel_pragmas) == 1
+        assert len(outer_kernel_pragmas) == 2
         assert outer_kernel_pragmas[0].keyword == 'acc'
         assert outer_kernel_pragmas[0].content == 'routine vector'
+        assert outer_kernel_pragmas[1].keyword == 'acc'
+        assert outer_kernel_pragmas[1].content == 'data present(q)'
 
     # Ensure that the leaf kernel contains two nested loops
     with pragmas_attached(inner_kernel, Loop):
@@ -599,9 +609,11 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
 
         # Ensure the routine has been marked properly
         inner_kernel_pragmas = FindNodes(Pragma).visit(inner_kernel.body)
-        assert len(inner_kernel_pragmas) == 1
+        assert len(inner_kernel_pragmas) == 2
         assert inner_kernel_pragmas[0].keyword == 'acc'
         assert inner_kernel_pragmas[0].content == 'routine vector'
+        assert outer_kernel_pragmas[1].keyword == 'acc'
+        assert outer_kernel_pragmas[1].content == 'data present(q)'
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
