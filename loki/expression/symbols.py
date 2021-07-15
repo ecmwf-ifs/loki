@@ -429,9 +429,9 @@ class Variable:
             # This is a constructor call
             return ProcedureSymbol(**kwargs)
 
-        if _type and _type.shape == (IntLiteral(1),):
-            # Convenience: This way we can construct Scalar variables with `shape=(1,)`
-            _type = _type.clone(shape=None)
+        #if _type and _type.shape == (IntLiteral(1),):
+        #    # Convenience: This way we can construct Scalar variables with `shape=(1,)`
+        #    _type = _type.clone(shape=None)
 
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
@@ -484,7 +484,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
         super().__init__()
 
 
-class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):
+class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a callable subroutine or function.
 

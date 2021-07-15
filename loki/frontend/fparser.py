@@ -886,10 +886,16 @@ class FParser2IR(GenericVisitor):
                 _type = parent_scope.symbols.lookup(expr.name)
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
                     shape = ExpressionDimensionsMapper()(expr)
+                    if shape == (sym.IntLiteral(1),):
+                        # For a scalar expression, we remove the shape
+                        shape = None
                     _type = _type.clone(shape=shape)
             else:
                 # TODO: Handle data type and shape of complex expressions
                 shape = ExpressionDimensionsMapper()(expr)
+                if shape == (sym.IntLiteral(1),):
+                    # For a scalar expression, we remove the shape
+                    shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
             scope.symbols[name.name] = _type
 
