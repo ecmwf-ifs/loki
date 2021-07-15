@@ -107,7 +107,7 @@ class DependencyTransformation(Transformation):
             targets = [str(t).upper() for t in as_tuple(targets)]
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if targets is None or str(call.name).upper() in targets:
+            if targets is None or call.name in targets:
                 name = call.name.clone(name='{}{}'.format(call.name, self.suffix))
                 call._update(name=name)
 
@@ -147,10 +147,10 @@ class DependencyTransformation(Transformation):
 
             else:
                 # Modify module import if it imports any targets
-                if targets is not None and any(str(s).upper() in targets for s in im.symbols):
+                if targets is not None and any(s in targets for s in im.symbols):
                     # Append suffix to all target symbols
                     symbols = as_tuple(s.clone(name='{}{}'.format(s.name, self.suffix))
-                                       if str(s).upper() in targets else s for s in im.symbols)
+                                       if s in targets else s for s in im.symbols)
                     module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)
 

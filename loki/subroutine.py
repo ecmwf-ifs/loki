@@ -572,7 +572,6 @@ class Subroutine:
                         if not is_equal and var.type.dtype is not BasicType.DEFERRED:
                             warning('Subroutine.rescope_variables: type for %s does not match stored type.',
                                     var.name)
-                            import pdb; pdb.set_trace()
                         return var.clone(scope=s, type=_type, parent=parent)
 
                 # Variable does not exist in any scope so we put this in the local
