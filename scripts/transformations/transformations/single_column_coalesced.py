@@ -121,7 +121,7 @@ def extract_vector_sections(section, horizontal):
             # If the call is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(call).visit(section))
             ancestor_scopes = [a for a in ancestors if isinstance(a, (ir.Loop, ir.Conditional))]
-            if len(ancestor_scopes) > 0:
+            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                 separator_nodes.append(ancestor_scopes[0])
 
     subsections = kernel_sections_from_nodes(separator_nodes, section)
