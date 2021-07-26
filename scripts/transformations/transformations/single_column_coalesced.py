@@ -192,6 +192,9 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
     variables = [v for v in variables if v.name not in call_args]
 
+    # Only demote arrays that have one (the horizontal) dimension
+    variables = [v for v in variables if v.dimensions and len(v.dimensions) == 1]
+
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
 
