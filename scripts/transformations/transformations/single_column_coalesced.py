@@ -444,16 +444,18 @@ class SingleColumnCoalescedTransformation(Transformation):
             in this call tree and should thus be processed accordingly.
         """
 
-        role = kwargs.get('role')
+        role = kwargs['role']
+        item = kwargs['item']
         targets = kwargs.get('targets', None)
 
         if role == 'driver':
             self.process_driver(routine, targets=targets)
 
         if role == 'kernel':
-            self.process_kernel(routine, targets=targets)
+            demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
+            self.process_kernel(routine, targets=targets, demote_locals=demote_locals)
 
-    def process_kernel(self, routine, targets=None):
+    def process_kernel(self, routine, targets=None, demote_locals=True):
         """
         Applies the SCC loop layout transformation to a "kernel"
         subroutine. This will primarily strip the innermost vector
@@ -516,7 +518,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             routine.body = NestedTransformer(mapper).visit(routine.body)
 
         # Demote all private local variables
-        if self.demote_local_arrays:
+        if demote_locals:
             kernel_demote_private_locals(routine, self.horizontal, self.vertical)
 
         if self.hoist_column_arrays:
