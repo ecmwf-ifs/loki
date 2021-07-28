@@ -390,12 +390,12 @@ def get_matching_region_pragmas(pragmas):
 
     def _matches_starting_pragma(start, p):
         """ Definition of which pragmas match """
-        if 'end' not in p.content.lower():
+        stok = start.content.lower().split(' ')
+        ptok = p.content.lower().split(' ')
+        if 'end' not in ptok:
             return False
         if not start.keyword == p.keyword:
             return False
-        stok = start.content.lower().split(' ')
-        ptok = p.content.lower().split(' ')
         idx = ptok.index('end')
         return ptok[idx+1] == stok[idx]
 
