@@ -18,6 +18,7 @@ def test_sourcefile_properties(here, frontend):
     Test that all subroutines and functions are discovered
     and exposed via `subroutines` and `all_subroutines` properties.
     """
+    # pylint: disable=no-member
     filepath = here/'sources/sourcefile.f90'
     source = Sourcefile.from_file(filepath, frontend=frontend)
     assert len(source.subroutines) == 3
@@ -41,6 +42,7 @@ def test_sourcefile_from_source(frontend):
     """
     Test the `from_source` constructor for `Sourcefile` objects.
     """
+    # pylint: disable=no-member
 
     fcode = """
 subroutine routine_a

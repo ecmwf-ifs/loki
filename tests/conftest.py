@@ -26,7 +26,7 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
         module.name += '_%s_%s' % (routinename, frontend)
         for routine in source.all_subroutines:
             routine.name += '_%s' % frontend
-            for call in FindNodes(CallStatement).visit(routine.body):
+            for call in FindNodes(CallStatement).visit(routine.body):  # pylint: disable=no-member
                 call.name += '_%s' % frontend
         source.write(path=testname, source=fgen(module))
     else:

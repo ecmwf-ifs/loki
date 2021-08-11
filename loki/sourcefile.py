@@ -258,7 +258,7 @@ class Sourcefile:
         if name.lower() in module_map:
             return module_map[name.lower()]
 
-        subroutine_map = {s.name.lower(): s for s in self.all_subroutines}
+        subroutine_map = {s.name.lower(): s for s in self.all_subroutines}  # pylint: disable=no-member
         if name.lower() in subroutine_map:
             return subroutine_map[name.lower()]
 
