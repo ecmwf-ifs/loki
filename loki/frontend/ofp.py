@@ -11,7 +11,7 @@ from loki.frontend.util import (
     inline_comments, cluster_comments, inline_labels, OFP, combine_multiline_pragmas
 )
 from loki.visitors import GenericVisitor
-import loki.ir as ir
+from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
@@ -20,8 +20,9 @@ from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
-from loki.logging import info, debug, DEBUG
+from loki.logging import info, debug, DEBUG, error, warning
 from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+from loki.config import config
 
 
 __all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
@@ -107,6 +108,13 @@ class OFP2IR(GenericVisitor):
         self._raw_source = raw_source
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
+
+    @staticmethod
+    def warn_or_fail(msg):
+        if config['frontend-strict-mode']:
+            error(msg)
+            raise NotImplementedError
+        warning(msg)
 
     def lookup_method(self, instance):
         """
@@ -356,7 +364,7 @@ class OFP2IR(GenericVisitor):
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
-        raise NotImplementedError
+        raise ValueError('Unknown type {}'.format(o.attrib('type')))
 
     def visit_intrinsic_type_spec(self, o, label=None, source=None):
         dtype = BasicType.from_str(o.attrib['keyword1'])
@@ -403,11 +411,11 @@ class OFP2IR(GenericVisitor):
 
     def visit_derived_type_stmt(self, o, label=None, source=None):
         if o.attrib['keyword'].lower() != 'type':
-            raise NotImplementedError
+            self.warn_or_fail('Type keyword {} not implemented'.format(o.attrib['keyword']))
         if o.attrib['hasTypeAttrSpecList'] != 'false':
-            raise NotImplementedError
+            self.warn_or_fail('type-attr-spec-list not implemented')
         if o.attrib['hasGenericNameList'] != 'false':
-            raise NotImplementedError
+            self.warn_or_fail('generic-name-list not implemented')
         return o.attrib['id']
 
     def visit_declaration(self, o, label=None, source=None):
@@ -422,7 +430,7 @@ class OFP2IR(GenericVisitor):
                 return self.visit(o.find('subroutine'))
             if o.find('function') is not None:
                 return self.visit(o.find('function'))
-            raise NotImplementedError
+            raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
 
@@ -445,7 +453,8 @@ class OFP2IR(GenericVisitor):
             return declaration
 
         if o.attrib['type'] == 'data':
-            raise NotImplementedError
+            self.warn_or_fail('data declaration not implemented')
+            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
 
         if o.find('derived-type-stmt') is not None:
             # Derived type definition
@@ -576,7 +585,7 @@ class OFP2IR(GenericVisitor):
         if o.attrib['abstract_token']:
             return o.attrib['abstract_token']
         if o.attrib['hasGenericSpec'] == 'true':
-            raise NotImplementedError
+            self.warn_or_fail('interface with generic spec not implemented')
         return None
 
     def visit_subroutine(self, o, label=None, source=None):
@@ -596,7 +605,7 @@ class OFP2IR(GenericVisitor):
             args = [a.attrib['name'].upper() for a in o.findall('header/arguments/argument')]
             bind = None
             if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
-                raise NotImplementedError
+                self.warn_or_fail('binding-spec not implemented')
 
         # Spec
         # HACK: temporarily replace the scope property until we pass down scopes properly
@@ -690,9 +699,9 @@ class OFP2IR(GenericVisitor):
     def visit_use_stmt(self, o, label=None, source=None):
         name = o.attrib['id']
         if o.attrib['hasModuleNature'] != 'false':
-            raise NotImplementedError
+            self.warn_or_fail('module nature in USE statement not implemented')
         if o.attrib['hasRenameList'] != 'false':
-            raise NotImplementedError
+            self.warn_or_fail('rename-list in USE statement not implemented')
         return name, self.definitions.get(name)
 
     def visit_directive(self, o, label=None, source=None):
@@ -786,7 +795,7 @@ class OFP2IR(GenericVisitor):
             if o.find('range/step') is not None:
                 step = self.visit(o.find('range/step'))
             return sym.RangeIndex((lower, upper, step), source=source)
-        raise NotImplementedError
+        raise ValueError('Unknown subscript type')
 
     def visit_dimensions(self, o, label=None, source=None):
         return tuple(self.visit(c) for c in o.findall('dimension'))

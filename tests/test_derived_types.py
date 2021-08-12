@@ -5,13 +5,21 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
-    RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef
+    RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef,
+    config
 )
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(name='reset_frontend_mode')
+def fixture_reset_frontend_mode():
+    original_frontend_mode = config['frontend-strict-mode']
+    yield
+    config['frontend-strict-mode'] = original_frontend_mode
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -681,3 +689,29 @@ end subroutine derived_type_procedure_designator
     assert isinstance(routine.symbols['tp'].dtype.typedef, TypeDef)
 
     # TODO: actually verify representation of type-bound procedures
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_frontend_strict_mode(frontend, reset_frontend_mode):  # pylint: disable=unused-argument
+    """
+    Verify that frontends fail on unsupported features if strict mode is enabled
+    """
+    fcode = """
+module frontend_strict_mode
+  implicit none
+  type some_type
+    integer :: val
+  end type some_type
+  type, extends(some_type) :: other_type
+    integer :: foo
+  end type other_type
+end module frontend_strict_mode
+    """
+    config['frontend-strict-mode'] = True
+    with pytest.raises(NotImplementedError):
+        _ = Module.from_source(fcode, frontend=frontend)
+
+    config['frontend-strict-mode'] = False
+    module = Module.from_source(fcode, frontend=frontend)
+    assert 'some_type' in module.symbols
+    assert 'other_type' in module.symbols
