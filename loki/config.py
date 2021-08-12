@@ -6,18 +6,19 @@ class Configuration(OrderedDict):
     """
     Dictionary class that holds global configuration parameters.
 
-    In addition ato sanity checking this dict also allows callbacks
+    In addition to sanity checking this dict also allows callbacks
     to be used to propagate values to the relevant parts of the
     system.
 
     Example usage:
-    ```
-    config = Configuration('Loki')
-    config.register('log-level', 'INFO', env_variable='LOKI_LOGGING')
-    ...
 
-    config.initialize()
-    logging = config['log-level']
+    .. codeblock::
+        config = Configuration('Loki')
+        config.register('log-level', 'INFO', env_variable='LOKI_LOGGING')
+        ...
+
+        config.initialize()
+        logging = config['log-level']
     """
 
     def __init__(self, name=None):
@@ -47,14 +48,19 @@ class Configuration(OrderedDict):
         Register configuration option with optional default value
         and callback function.
 
-        Parameters:
-        ==========
-        * ``key``: Internal name of the configuration option
-        * ``default`: Default value if unspecified in environment
-        * ``env_variable``: Name of environment variable to check for value
-        * ``preprocess``: Optional preprocess function that turns string-based
-                          values into the correct format (eg. for env variables)
-        * ``callback``: Optional callback function to trigger on updates
+        Parameters
+        ----------
+        key : str
+            Internal name of the configuration option
+        default :
+            Default value if unspecified in environment
+        env_variable : str
+            Name of environment variable to check for value
+        preprocess :
+            Optional preprocess function that turns string-based
+            values into the correct format (eg. for env variables)
+        callback :
+            Optional callback function to trigger on updates
         """
         super().__setitem__(key, default)
 

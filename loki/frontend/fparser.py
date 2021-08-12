@@ -12,7 +12,7 @@ from loki.frontend.util import (
     inline_comments, cluster_comments, read_file, FP,
     combine_multiline_pragmas
 )
-import loki.ir as ir
+from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
@@ -30,7 +30,7 @@ __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fp
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
     """
-    Generate an internal IR from file via the fparser AST.
+    Generate a parse tree from file via fparser
     """
     fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
@@ -38,6 +38,9 @@ def parse_fparser_file(filename):
 
 @timeit(log_level=DEBUG)
 def parse_fparser_source(source):
+    """
+    Generate a parse tree from string
+    """
     reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
@@ -47,7 +50,26 @@ def parse_fparser_source(source):
 @timeit(log_level=DEBUG)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
-    Generate an internal IR from file via the fparser AST.
+    Generate an internal IR from fparser parse tree
+
+    Parameters
+    ----------
+    ast :
+        The fparser parse tree as created by :any:`parse_fparser_source` or :any:`parse_fparser_file`
+    raw_source : str
+        The raw source string from which :attr:`ast` was generated
+    pp_info : optional
+        Information from internal preprocessing step that was applied to work around
+        parser limitations and that should be re-inserted
+    definitions : list of :any:`Module`, optional
+        List of external module definitions to attach upon use
+    scope : :any:`Scope`
+        Scope object for which to parse the AST.
+
+    Returns
+    -------
+    :any:`Node`
+        The control flow tree
     """
 
     # Parse the raw FParser language AST into our internal IR
@@ -77,10 +99,17 @@ def parse_fparser_expression(source, scope):
     hierarchy by directly matching against a primary expression, thus this
     should be able to parse any syntactically correct Fortran expression.
 
-    :param str source: the expression as a string.
-    :param Scope scope: the scope to which symbol names inside the expression belong.
+    Parameters
+    ----------
+    source : str
+        The expression as a string
+    scope : :any:`Scope`
+        The scope to which symbol names inside the expression belong
 
-    :return: the expression tree.
+    Returns
+    -------
+    :any:`Expression`
+        The expression tree corresponding to the expression
     """
     _ = ParserFactory().create(std='f2008')
     # Wrap source in brackets to make sure it appears like a valid expression
@@ -134,7 +163,7 @@ def rget_child(node, node_type):
 
 def extract_fparser_source(node, raw_source):
     """
-    Extract the py:class:`Source` object for any py:class:`fparser.two.utils.BlockBase`
+    Extract the :any:`Source` object for any py:class:`fparser.two.utils.BlockBase`
     from the raw source string.
     """
     assert isinstance(node, BlockBase)
