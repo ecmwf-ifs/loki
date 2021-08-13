@@ -659,7 +659,7 @@ end subroutine masked_statements
 
 
 @pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
+    OFP,  # This "works" because OFP keeps it as Intrinsic with a warning
     pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
     pytest.param(FP, marks=pytest.mark.xfail(reason='Not implemented')),
 ])

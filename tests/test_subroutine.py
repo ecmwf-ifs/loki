@@ -962,10 +962,10 @@ end subroutine routine_member_procedures
     assert routine.members[0].name == 'member_procedure'
     assert routine.members[0].symbols.lookup('localvar', recursive=False) is None
     assert routine.members[0].symbols.lookup('localvar') is not None
-    assert routine.members[0].symbols.lookup('localvar') is routine.symbols.lookup('localvar')
+    assert routine.members[0].scope.get_symbol_scope('localvar') is routine.scope
     assert routine.members[0].symbols.lookup('in1') is not None
     assert routine.symbols.lookup('in1') is not None
-    assert routine.members[0].symbols.lookup('in1') is not routine.symbols.lookup('in1')
+    assert routine.members[0].scope.get_symbol_scope('in1') is routine.members[0].scope
 
     # Generate code, compile and load
     filepath = here/('routine_member_procedures_%s.f90' % frontend)
