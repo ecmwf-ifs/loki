@@ -781,10 +781,12 @@ class FParser2IR(GenericVisitor):
 
         # Name of the derived type
         name = self.visit(derived_type_stmt, **kwargs)
+        source = kwargs.get('source')
+        label = kwargs.get('label')
+        typedef = ir.TypeDef(name=name, body=(), source=source, label=label, parent=kwargs['scope'])
 
-        # Initialize a symbol table for the typedef
-        parent_scope = kwargs['scope']
-        kwargs['scope'] = Scope(parent=parent_scope)
+        # Pass down the typedef scope when building the body
+        parent_scope, kwargs['scope'] = kwargs['scope'], typedef
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
 
@@ -798,9 +800,7 @@ class FParser2IR(GenericVisitor):
         body = process_dimension_pragmas(body)
         body = detach_pragmas(body, ir.Declaration)
 
-        source = kwargs.get('source')
-        label = kwargs.get('label')
-        typedef = ir.TypeDef(name=name, body=body, scope=kwargs['scope'], source=source, label=label)
+        typedef._update(body=body, symbols=typedef.symbols)
 
         # Make the typedef known in the parent scope
         parent_scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
@@ -1066,27 +1066,21 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # Create a scope
-        parent_scope = kwargs['scope']
-        scope = Scope(parent=parent_scope)
-        kwargs['scope'] = scope
-
         # Name and dummy args
         name, args, bind = self.visit(subroutine_stmt, **kwargs)
         is_function = isinstance(subroutine_stmt, Fortran2003.Function_Stmt)
+        routine = Subroutine(name=name, ast=o, args=args, bind=bind, is_function=is_function,
+                             source=source, parent=kwargs['scope'])
 
         # Spec
+        kwargs['scope'] = routine
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         spec_ast_index = o.children.index(spec_ast)
-        spec = self.visit(spec_ast, **kwargs)
+        routine.spec = self.visit(spec_ast, **kwargs)
 
         # Make sure there is nothing else in there
         assert (subroutine_stmt_index, spec_ast_index, end_subroutine_stmt_index) == \
                 as_tuple(range(subroutine_stmt_index, len(o.children)))
-
-        # Note: the Subroutine constructor registers itself in the parent scope
-        routine = Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, bind=bind,
-                             is_function=is_function, source=source)
         return (*pre, routine)
 
     visit_Function_Body = visit_Subroutine_Body

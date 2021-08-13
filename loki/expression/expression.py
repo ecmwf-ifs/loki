@@ -7,7 +7,7 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
+from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions, AttachScopesMapper
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
     StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
@@ -16,7 +16,7 @@ from loki.expression.symbols import (
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
     'FindLiterals', 'FindExpressionRoot', 'SubstituteExpressions',
-    'ExpressionFinder'
+    'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -200,3 +200,83 @@ class SubstituteExpressions(Transformer):
 
     def visit_Expression(self, o, **kwargs):
         return self.expr_mapper(o)
+
+
+class AttachScopes(Visitor):
+
+    def __init__(self, fail=False):
+        super().__init__()
+        self.fail = fail
+        self.expr_mapper = AttachScopesMapper(fail=fail)
+
+    @staticmethod
+    def _update(o, children, **args):
+        args_frozen = o.args_frozen
+        args_frozen.update(args)
+        o._update(*children, **args_frozen)
+        return o
+
+    def visit_object(self, o, **kwargs):
+        """Return any foreign object unchanged."""
+        return o
+
+    def visit(self, o, *args, **kwargs):
+        kwargs.setdefault('scope', None)
+        return super().visit(o, *args, **kwargs)
+
+    def visit_Expression(self, o, **kwargs):
+        return self.expr_mapper(o, scope=kwargs['scope'])
+
+    def visit_list(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o)
+
+    visit_tuple = visit_list
+
+    def visit_Node(self, o, **kwargs):
+        children = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._update(o, children)
+
+    def visit_Scope(self, o, **kwargs):
+        kwargs['scope'] = o
+        children = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._update(o, children, symbols=o.symbols)
+
+    @staticmethod
+    def _update_symbol_table_with_decls_and_imports(o):
+        for v in o.variables:
+            o.symbols.setdefault(v.name, v.type)
+        for s in o.imported_symbols:
+            o.symbols.setdefault(s.name, s.type)
+
+    def visit_Subroutine(self, o, **kwargs):
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        o.spec = self.visit(o.spec, **kwargs)
+        o.body = self.visit(o.body, **kwargs)
+        o._members = self.visit(o.members, **kwargs)
+        return o
+
+    def visit_Module(self, o, **kwargs):
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        o.spec = self.visit(o.spec, **kwargs)
+        o.routines = self.visit(o.routines, **kwargs)
+        return o
+
+    def visit_TypeDef(self, o, **kwargs):
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        body = self.visit(o.body, **kwargs)
+        return self._update(o, (), body=body, symbols=o.symbols, rescope_variables=False)

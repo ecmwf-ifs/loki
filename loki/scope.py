@@ -217,7 +217,7 @@ class Scope:
         Use the given symbol table instead of instantiating a new
     """
 
-    def __init__(self, parent=None, symbols=None, **kwargs):
+    def __init__(self, parent=None, symbols=None, rescope_variables=False, **kwargs):
         super().__init__(**kwargs)
         assert parent is None or isinstance(parent, Scope)
         self._parent = weakref.ref(parent) if parent is not None else None
@@ -230,12 +230,23 @@ class Scope:
             symbols._parent = weakref.ref(parent_symbols) if parent_symbols is not None else None
             self.symbols = symbols
 
+        if rescope_variables:
+            self.rescope_variables()
+
     @property
     def parent(self):
         """
         Access the enclosing scope.
         """
         return self._parent() if self._parent is not None else None
+
+    def rescope_variables(self):
+        """
+        Make sure all variables declared and used inside this node belong
+        to a scope in the scope hierarchy
+        """
+        from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel
+        AttachScopes().visit(self)
 
     def clone(self, **kwargs):
         """
@@ -262,6 +273,10 @@ class Scope:
             kwargs['symbols'] = self.symbols.clone(parent=kwargs.get('parent'))
             kwargs['rescope_variables'] = True
 
+        if hasattr(self, '_rebuild'):
+            # When cloning IR nodes with a Scope mix-in we need to use the
+            # rebuild mechanism
+            return self._rebuild(**kwargs)  # pylint: disable=no-member
         return type(self)(**kwargs)
 
     def get_symbol_scope(self, name):

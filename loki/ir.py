@@ -12,6 +12,7 @@ from pymbolic.primitives import Expression
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
 from loki.types import DataType
 from loki.scope import Scope
+from loki.tools import CaseInsensitiveDict
 
 
 __all__ = [
@@ -68,6 +69,7 @@ class Node:
         return obj
 
     def __init__(self, source=None, label=None):
+        super().__init__()
         self._source = source
         self._label = label
 
@@ -1069,7 +1071,7 @@ class DataDeclaration(LeafNode):
         return 'DataDeclaration:: {}'.format(str(self.variable))
 
 
-class TypeDef(LeafNode):
+class TypeDef(Scope, LeafNode):
     """
     Internal representation of a derived type definition.
 
@@ -1087,38 +1089,32 @@ class TypeDef(LeafNode):
         The body of the type definition.
     bind_c : bool, optional
         Flag to indicate that this contains a ``BIND(C)`` attribute.
-    scope : :any:`Scope`, optional
-        An existing scope to use for this type definition. Useful when
-        having inserted symbols into the scope already, e.g., while building
-        the body.
+    parent : :any:`Scope`, optional
+        The parent scope in which the type definition appears
+    symbols : :any:`SymbolTable`, optional
+        An existing symbol table to use
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, scope=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name, body, bind_c=False, parent=None, symbols=None, **kwargs):
         assert is_iterable(body)
 
+        # First, store the local properties
         self.name = name
         self.body = as_tuple(body)
         self.bind_c = bind_c
-        self._scope = Scope() if scope is None else scope
-        self.scope.defined_by = self
 
-    @property
-    def children(self):
-        # We do not traverse into the TypeDef.body at present
-        return ()
+        # Then, call the parent constructors to take care of any generic
+        # properties and handle the scope information
+        super().__init__(parent=parent, symbols=symbols, **kwargs)
 
-    @property
-    def scope(self):
-        return self._scope
-
-    @property
-    def symbols(self):
-        return self.scope.symbols
+#    @property
+#    def children(self):
+#        # We do not traverse into the TypeDef.body at present
+#        return ()
 
     @property
     def declarations(self):
@@ -1132,8 +1128,35 @@ class TypeDef(LeafNode):
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
 
+    @property
+    def imported_symbols(self):
+        """
+        Return the symbols imported in this typedef
+        """
+        return as_tuple(flatten(c.symbols for c in self.body if isinstance(c, Import)))
+
+    @property
+    def imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
     def __repr__(self):
         return 'TypeDef:: {}'.format(self.name)
+
+    def _update(self, *args, **kwargs):
+        if 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if 'symbols' not in kwargs:
+            kwargs['symbols'] = self.symbols
+        super()._update(*args, **kwargs)
+
+    def clone(self, **kwargs):
+        from loki.visitors import Transformer
+        if 'body' not in kwargs:
+            kwargs['body'] = Transformer().visit(self.body)
+        return super().clone(**kwargs)
 
 
 class MultiConditional(LeafNode):

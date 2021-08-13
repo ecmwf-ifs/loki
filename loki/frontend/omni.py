@@ -13,7 +13,6 @@ from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
 )
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
-from loki.scope import Scope
 
 
 __all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -216,30 +215,29 @@ class OMNI2IR(GenericVisitor):
     def visit_FfunctionDecl(self, o, source=None):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
-        # Create a scope
-        scope = Scope(parent=self.scope)
-
         # Name and dummy args
         name = o.find('name').text
         ftype = self.type_map[o.find('name').attrib['type']]
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
 
+        routine = Subroutine(name=name, args=args, ast=o, is_function=is_function,
+                             source=source, parent=self.scope)
+
         # Generate spec
         # HACK: temporarily replace the scope property until we pass down scopes properly
-        parent_scope, self.scope = self.scope, scope
-        spec = self.visit(o.find('declarations'))
+        parent_scope, self.scope = self.scope, routine
+        routine.spec = self.visit(o.find('declarations'))
         self.scope = parent_scope
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(ir.Declaration).visit(spec)
+            mapper = {d: None for d in FindNodes(ir.Declaration).visit(routine.spec)
                       if d.variables[0].name == name}
-            spec = Transformer(mapper, invalidate_source=False).visit(spec)
+            routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
 
-        return Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, is_function=is_function,
-                          source=source)
+        return routine
 
     def visit_declarations(self, o, source=None, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
@@ -316,20 +314,18 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
-
-        # Initialize a local scope for typedef objects
-        typedef_scope = Scope(parent=self.scope)
+        typedef = ir.TypeDef(name=name.text, body=(), parent=self.scope)
 
         # Built the list of derived type members
         struct_type = self.type_map[name.attrib['type']]
-        variables = self._struct_type_variables(struct_type, scope=typedef_scope)
+        variables = self._struct_type_variables(struct_type, scope=typedef)
 
         if 'extends' in struct_type.attrib:
             self.warn_or_fail('extends attribute for derived types not implemented')
 
         # Build individual declarations for each member
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
-        typedef = ir.TypeDef(name=name.text, body=as_tuple(declarations), scope=typedef_scope)
+        typedef._update(body=declarations, symbols=typedef.symbols)
 
         # Now make the typedef known in its scope's type table
         self.scope.symbols[name.text] = SymbolAttributes(DerivedType(name=name.text, typedef=typedef))

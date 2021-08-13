@@ -460,7 +460,7 @@ class OFP2IR(GenericVisitor):
         if o.find('derived-type-stmt') is not None:
             # Derived type definition
             name = self.visit(o.find('derived-type-stmt'))
-            scope = Scope(parent=self.scope)
+            typedef = ir.TypeDef(name=name, body=(), label=label, source=source, parent=self.scope)
 
             # This is still ugly, but better than before! In order to
             # process certain tag combinations (groups) into declaration
@@ -482,13 +482,13 @@ class OFP2IR(GenericVisitor):
                 elif len(group) == 2:
                     # Process declarations without attributes
                     decl = self.create_typedef_declaration(t=group[0], comps=group[1],
-                                                           scope=scope, source=source)
+                                                           scope=typedef, source=source)
                     body.append(decl)
 
                 elif len(group) == 3:
                     # Process declarations with attributes
                     decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
-                                                           scope=scope, source=source)
+                                                           scope=typedef, source=source)
                     body.append(decl)
 
                 else:
@@ -498,8 +498,7 @@ class OFP2IR(GenericVisitor):
             body = attach_pragmas(body, ir.Declaration)
             body = process_dimension_pragmas(body)
             body = detach_pragmas(body, ir.Declaration)
-            typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=scope,
-                                 label=label, source=source)
+            typedef._update(body=as_tuple(body), symbols=typedef.symbols)
 
             # Now make the typedef known in its scope's type table
             self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
@@ -592,9 +591,6 @@ class OFP2IR(GenericVisitor):
     def visit_subroutine(self, o, label=None, source=None):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
-        # Create a scope
-        scope = Scope(parent=self.scope)
-
         # Name and dummy args
         name = o.attrib['name']
         if o.tag == 'function':
@@ -608,15 +604,15 @@ class OFP2IR(GenericVisitor):
             if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
+        routine = Subroutine(name=name, args=args, ast=o, bind=bind, is_function=is_function,
+                             source=source, parent=self.scope)
+
         # Spec
         # HACK: temporarily replace the scope property until we pass down scopes properly
-        parent_scope, self.scope = self.scope, scope
-        spec = self.visit(o.find('body/specification'))
+        parent_scope, self.scope = self.scope, routine
+        routine.spec = self.visit(o.find('body/specification'))
         self.scope = parent_scope
 
-        # Note: the Subroutine constructor registers itself in the parent scope
-        routine = Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, bind=bind,
-                             is_function=is_function, source=source)
         return routine
 
     visit_function = visit_subroutine

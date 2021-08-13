@@ -109,6 +109,11 @@ class Transformer(Visitor):
         """Return the object unchanged."""
         return o
 
+#    def visit_Expression(self, o, **kwargs):
+#        from loki.expression import LokiIdentityMapper
+#        mapper = LokiIdentityMapper(invalidate_source=False)
+#        return mapper(o)
+
     def _inject_tuple_mapping(self, o):
         """
         Utility method for one-to-many mappings to insert iterables for

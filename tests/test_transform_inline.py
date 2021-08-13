@@ -65,7 +65,7 @@ end subroutine transform_inline_elemental_functions
     inline_elemental_functions(routine)
 
     # Verify correct scope of inlined elements
-    assert all(v.scope is routine.scope for v in FindVariables().visit(routine.body))
+    assert all(v.scope is routine for v in FindVariables().visit(routine.body))
 
     # Hack: rename routine to use a different filename in the build
     routine.name = '%s_' % routine.name

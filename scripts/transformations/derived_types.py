@@ -135,8 +135,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                                             intent=arg.type.intent, shape=type_var.type.shape)
                 new_name = '%s_%s' % (arg.name, type_var.basename)
                 new_dimensions = ArraySubscript(new_type.shape) if new_type.shape else None
-                new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions,
-                                   scope=routine.scope)
+                new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions, scope=routine)
                 new_vars += [new_var]
 
             # Replace variable in subroutine argument list

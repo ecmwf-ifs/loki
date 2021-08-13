@@ -214,9 +214,9 @@ end subroutine routine_arguments_add_remove
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
     real_type = routine.symbols['scalar']  # Type of variable 'maximum'
-    a = Scalar(name='a', type=real_type, scope=routine.scope)
-    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)
-    c = Variable(name='c', type=x.type, scope=routine.scope)
+    a = Scalar(name='a', type=real_type, scope=routine)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine)
+    c = Variable(name='c', type=x.type, scope=routine)
 
     # Add new arguments and check that they are all in the routine spec
     routine.arguments += (a, b, c)
@@ -384,9 +384,9 @@ end subroutine routine_variables_add_remove
     x = routine.variable_map['x']  # That's the symbol for variable 'x'
     real_type = SymbolAttributes('real', kind=routine.variable_map['jprb'])
     int_type = SymbolAttributes('integer')
-    a = Scalar(name='a', type=real_type, scope=routine.scope)
-    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine.scope)
-    c = Variable(name='c', type=int_type, scope=routine.scope)
+    a = Scalar(name='a', type=real_type, scope=routine)
+    b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine)
+    c = Variable(name='c', type=int_type, scope=routine)
 
     # Add new variables and check that they are all in the routine spec
     routine.variables += (a, b, c)
@@ -928,8 +928,7 @@ subroutine routine_member_procedures(in1, in2, out1, out2)
   localvar = in2
 
   call member_procedure(in1, out1)
-  ! out2 = member_function(out1)
-  out2 = 3 * out1 + 2
+  out2 = member_function(out1)
 contains
   subroutine member_procedure(in1, out1)
     ! This member procedure shadows some variables and uses
@@ -945,27 +944,34 @@ contains
   ! symbol to the public, which causes double defined symbols
   ! upon compilation.
 
-  ! function member_function(a) result(b)
-  !   ! This function is just included to test that functions
-  !   ! are also possible
-  !   implicit none
-  !   integer, intent(in) :: a
-  !   integer :: b
+  function member_function(in2)
+    ! This function is just included to test that functions
+    ! are also possible
+    implicit none
+    integer, intent(in) :: in2
+    integer :: member_function
 
-  !   b = 3 * a + 2
-  ! end function member_function
+    member_function = 3 * in2 + 2
+  end function member_function
 end subroutine routine_member_procedures
 """
     # Check that member procedures are parsed correctly
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert len(routine.members) == 1
+    assert len(routine.members) == 2
+
     assert routine.members[0].name == 'member_procedure'
     assert routine.members[0].symbols.lookup('localvar', recursive=False) is None
     assert routine.members[0].symbols.lookup('localvar') is not None
-    assert routine.members[0].scope.get_symbol_scope('localvar') is routine.scope
+    assert routine.members[0].get_symbol_scope('localvar') is routine
     assert routine.members[0].symbols.lookup('in1') is not None
     assert routine.symbols.lookup('in1') is not None
-    assert routine.members[0].scope.get_symbol_scope('in1') is routine.members[0].scope
+    assert routine.members[0].get_symbol_scope('in1') is routine.members[0]
+
+    assert routine.members[1].name == 'member_function'
+    assert routine.members[1].symbols.lookup('in2') is not None
+    assert routine.members[1].get_symbol_scope('in2') is routine.members[1]
+    assert routine.symbols.lookup('in2') is not None
+    assert routine.get_symbol_scope('in2') is routine
 
     # Generate code, compile and load
     filepath = here/('routine_member_procedures_%s.f90' % frontend)
@@ -1019,9 +1025,7 @@ end subroutine
 
     # Check that the scopes are linked correctly
     assert routine.members[0].parent == routine
-    assert routine.members[0].scope.parent == routine.scope
     assert new_routine.members[0].parent == new_routine
-    assert new_routine.members[0].scope.parent == new_routine.scope
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -1262,25 +1266,25 @@ end subroutine test_subroutine_rescope
     nested_spec = Transformer().visit(routine.members[0].spec)
     nested_body = Transformer().visit(routine.members[0].body)
     nested_routine = Subroutine(name=routine.members[0].name, args=routine.members[0]._dummies,
-                                spec=nested_spec, body=nested_body, parent_scope=routine.scope,
+                                spec=nested_spec, body=nested_body, parent=routine,
                                 rescope_variables=True)
 
     for var in FindTypedSymbols().visit(nested_routine.ir):
         if var.name == 'ext1':
-            assert var.scope is routine.scope
+            assert var.scope is routine
         else:
-            assert var.scope is nested_routine.scope
+            assert var.scope is nested_routine
 
     # Create another copy of the nested subroutine without rescoping
     nested_spec = Transformer().visit(routine.members[0].spec)
     nested_body = Transformer().visit(routine.members[0].body)
     other_routine = Subroutine(name=routine.members[0].name, args=routine.members[0].argnames,
-                               spec=nested_spec, body=nested_body, parent_scope=routine.scope)
+                               spec=nested_spec, body=nested_body, parent=routine)
 
     # Explicitly throw away type information from original nested routine
-    routine.members[0].scope._parent = None
-    routine.members[0].scope.symbols.clear()
-    routine.members[0].scope.symbols._parent = None
+    routine.members[0]._parent = None
+    routine.members[0].symbols.clear()
+    routine.members[0].symbols._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
@@ -1352,17 +1356,18 @@ end subroutine test_subroutine_rescope_clone
 
     for var in FindTypedSymbols().visit(nested_routine.ir):
         if var.name == 'ext1':
-            assert var.scope is routine.scope
+            assert var.scope is routine
         else:
-            assert var.scope is nested_routine.scope
+            assert var.scope is nested_routine
 
-    # Create another copy of the nested subroutine without rescoping
-    other_routine = routine.members[0].clone(rescope_variables=False)
+    # Create another copy of the nested subroutine without rescoping (this breaks
+    # things on purpose and should never be done in practice, but hey, for the lolz)
+    other_routine = routine.members[0].clone(symbols=routine.symbols.clone(), rescope_variables=False)
 
     # Explicitly throw away type information from original nested routine
-    routine.members[0].scope._parent = None
-    routine.members[0].scope.symbols.clear()
-    routine.members[0].scope.symbols._parent = None
+    routine.members[0]._parent = None
+    routine.members[0].symbols.clear()
+    routine.members[0].symbols._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 

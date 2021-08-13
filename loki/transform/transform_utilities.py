@@ -68,10 +68,10 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None):
         cname = c.name.lower()
 
         if cname in symbol_map:
-            callmap[c] = sym.Variable(name=symbol_map[cname], scope=routine.scope)
+            callmap[c] = sym.Variable(name=symbol_map[cname], scope=routine)
 
         if cname in function_map:
-            fct_symbol = sym.ProcedureSymbol(function_map[cname], scope=routine.scope)
+            fct_symbol = sym.ProcedureSymbol(function_map[cname], scope=routine)
             callmap[c] = sym.InlineCall(fct_symbol, parameters=c.parameters,
                                         kw_parameters=c.kw_parameters)
 
@@ -326,7 +326,7 @@ def replace_selected_kind(routine):
     calls += [literal.kind for literal in FindLiterals().visit(routine.ir)
               if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
 
-    map_call = {call: mapper.map_call(call, routine.scope) for call in calls}
+    map_call = {call: mapper.map_call(call, routine) for call in calls}
 
     # Flush mapping through spec and body
     routine.spec = SubstituteExpressions(map_call).visit(routine.spec)
@@ -335,17 +335,17 @@ def replace_selected_kind(routine):
     # Replace calls and literals hidden in variable kinds and inits
     for variable in routine.variables:
         if variable.type.kind is not None and mapper.is_selected_kind_call(variable.type.kind):
-            kind = mapper.map_call(variable.type.kind, routine.scope)
+            kind = mapper.map_call(variable.type.kind, routine)
             routine.symbols[variable.name] = variable.type.clone(kind=kind)
         if variable.type.initial is not None:
             if mapper.is_selected_kind_call(variable.type.initial):
-                initial = mapper.map_call(variable.type.initial, routine.scope)
+                initial = mapper.map_call(variable.type.initial, routine)
                 routine.symbols[variable.name] = variable.type.clone(initial=initial)
             else:
                 init_calls = [literal.kind for literal in FindLiterals().visit(variable.type.initial)
                               if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
                 if init_calls:
-                    init_map = {call: mapper.map_call(call, routine.scope) for call in init_calls}
+                    init_map = {call: mapper.map_call(call, routine) for call in init_calls}
                     initial = SubstituteExpressions(init_map).visit(variable.type.initial)
                     routine.symbols[variable.name] = variable.type.clone(initial=initial)
 

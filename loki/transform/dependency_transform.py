@@ -138,7 +138,7 @@ class DependencyTransformation(Transformation):
                     else:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(im.module.split('.')[0])
-                        new_symbol = Variable(name='{}{}'.format(target_symbol, self.suffix), scope=source.scope)
+                        new_symbol = Variable(name='{}{}'.format(target_symbol, self.suffix), scope=source)
                         new_import = im.clone(module=new_module, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
 

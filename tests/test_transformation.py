@@ -5,7 +5,7 @@ from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen,
-    Scope, Assignment, IntLiteral, Module
+    Assignment, IntLiteral, Module
 )
 from loki.transform import Transformation, DependencyTransformation, replace_selected_kind
 
@@ -426,18 +426,18 @@ def test_transformation_post_apply_subroutine(here, frontend):
 
     #### Test that rescoping is applied and effective ####
 
-    tmp_scope = Scope()
+    tmp_routine = Subroutine('some_routine')
     class ScopingErrorTransformation(Transformation):
         """Intentionally idiotic transformation that introduces a scoping error."""
 
         def transform_subroutine(self, routine, **kwargs):
             i = routine.variable_map['i']
-            j = i.clone(name='j', scope=tmp_scope, type=i.type.clone(intent=None))
+            j = i.clone(name='j', scope=tmp_routine, type=i.type.clone(intent=None))
             routine.variables += (j,)
             routine.body.append(Assignment(lhs=j, rhs=IntLiteral(2)))
             routine.body.append(Assignment(lhs=i, rhs=j))
             routine.name += '_transformed'
-            assert routine.variable_map['j'].scope is tmp_scope
+            assert routine.variable_map['j'].scope is tmp_routine
 
     fcode = """
 subroutine transformation_post_apply(i)
@@ -455,9 +455,9 @@ end subroutine transformation_post_apply
     i = function()
     assert i == 1
 
-    # Apply transformation
+    # Apply transformation and make sure variable scope is correct
     routine.apply(ScopingErrorTransformation())
-    assert routine.variable_map['j'].scope is routine.scope
+    assert routine.variable_map['j'].scope is routine
 
     new_filepath = here/('%s_%s.f90' % (routine.name, frontend))
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
@@ -475,7 +475,7 @@ def test_transformation_post_apply_module(here, frontend):
 
     #### Test that rescoping is applied and effective ####
 
-    tmp_scope = Scope()
+    tmp_scope = Module('some_module')
     class ScopingErrorTransformation(Transformation):
         """Intentionally idiotic transformation that introduces a scoping error."""
 
@@ -512,7 +512,7 @@ end module transformation_module_post_apply
 
     # Apply transformation
     module.apply(ScopingErrorTransformation())
-    assert module.variable_map['j'].scope is module.scope
+    assert module.variable_map['j'].scope is module
 
     new_filepath = here/('%s_%s.f90' % (module.name, frontend))
     new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)

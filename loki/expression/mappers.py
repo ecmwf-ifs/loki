@@ -9,11 +9,12 @@ from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
 )
 
+from loki.logging import warning
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions',
-           'LokiIdentityMapper']
+           'LokiIdentityMapper', 'AttachScopesMapper']
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -431,6 +432,7 @@ class LokiIdentityMapper(IdentityMapper):
         return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_scalar
+    map_procedure_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
@@ -472,7 +474,6 @@ class LokiIdentityMapper(IdentityMapper):
     map_range = IdentityMapper.map_slice
     map_range_index = IdentityMapper.map_slice
     map_loop_range = IdentityMapper.map_slice
-    map_procedure_symbol = IdentityMapper.map_function_symbol
 
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
@@ -505,3 +506,26 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         expr = self.expr_map.get(expr, expr)
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
+
+
+class AttachScopesMapper(LokiIdentityMapper):
+
+    def __init__(self, fail=False):
+        super().__init__(invalidate_source=False)
+        self.fail = fail
+
+    def __call__(self, expr, *args, **kwargs):
+        from loki.expression.symbols import TypedSymbol
+        if isinstance(expr, TypedSymbol):
+            scope = kwargs['scope']
+            symbol_scope = scope.get_symbol_scope(expr.name)
+            if symbol_scope is not None:
+                if symbol_scope is not expr.scope:
+                    expr = expr.clone(scope=symbol_scope)
+            elif self.fail:
+                raise RuntimeError('AttachScopesMapper: {} was not found in any scope'.format(str(expr)))
+            else:
+                warning('AttachScopesMapper: %s was not found in any scopes', str(expr))
+        return super().__call__(expr, *args, **kwargs)
+
+    rec = __call__

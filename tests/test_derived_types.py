@@ -6,7 +6,7 @@ from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
     RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef,
-    config
+    config, fgen
 )
 
 
@@ -715,3 +715,32 @@ end module frontend_strict_mode
     module = Module.from_source(fcode, frontend=frontend)
     assert 'some_type' in module.symbols
     assert 'other_type' in module.symbols
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_derived_type_clone(frontend):
+    """
+    Test cloning of derived types
+    """
+    fcode = """
+module derived_types_clone_mod
+  integer, parameter :: jprb = selected_real_kind(13,300)
+
+  type explicit
+    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
+    real(kind=jprb) :: red_herring
+  end type explicit
+end module
+"""
+    module = Module.from_source(fcode, frontend=frontend)
+
+    explicit = module.typedefs['explicit']
+    other = explicit.clone(name='other')
+
+    assert explicit.name == 'explicit'
+    assert other.name == 'other'
+    assert all(v.scope is other for v in other.variables)
+    assert all(v.scope is explicit for v in explicit.variables)
+
+    fcode = fgen(other)
+    assert fgen(explicit) == fcode.replace('other', 'explicit')
