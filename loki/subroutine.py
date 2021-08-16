@@ -10,12 +10,11 @@ from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef
 )
-from loki.expression import FindVariables, FindTypedSymbols, Array, SubstituteExpressions, AttachScopes
-from loki.logging import warning, debug
+from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.types import ProcedureType, SymbolAttributes
 from loki.scope import Scope
 
 
@@ -558,86 +557,6 @@ class Subroutine(Scope):
         String representation.
         """
         return '{}:: {}'.format('Function' if self.is_function else 'Subroutine', self.name)
-
-    def old_rescope_variables(self):
-        """
-        Verify that all :any:`TypedSymbol` objects in the IR are in the
-        subroutine's scope or in a parent scope.
-        """
-        AttachScopes().visit(self)
-        return
-        # Collect all scopes that we can access/are relevant in this routine
-        scope_hierarchy = []
-        scope = self
-        while scope is not None:
-            scope_hierarchy += [scope]
-            scope = scope.parent
-
-        # The local variable map. These really need to be in *this* scope.
-        variable_map = self.variable_map
-        imports_map = CaseInsensitiveDict(
-            (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
-        )
-
-        def check_and_rescope_var(var):
-            """
-            Helper function that takes care of checking a variable's scope and,
-            if necessary, attaching the correct scope
-            """
-            parent = None if var.parent is None else check_and_rescope_var(var.parent)
-
-            if (var.name in variable_map or var.name in imports_map) and var.scope is not self:
-                # This takes care of all local variables or imported symbols
-                return var.clone(scope=self, parent=parent)
-
-            if var.scope not in scope_hierarchy:
-                # This is the fallback for any symbols from parent scopes.
-                # We need to run through the scope hierarchy manually because we
-                # not only need to know the stored type (if any) but also in which
-                # scope it is stored
-                for scope in scope_hierarchy:
-                    # Here we try to be careful not to accidentally overwrite
-                    # existing type information
-                    _type = scope.symbols.lookup(var.name, recursive=False)
-                    if _type:
-                        # TODO: comparing derived type member types really should become a bit easier..
-                        is_equal = _type.compare(var.type, ignore='parent')
-                        if is_equal and (_type.parent or var.type.parent):
-                            parent_equal = _type.parent and var.type.parent and \
-                                str(_type.parent) == str(var.type.parent) and \
-                                _type.parent.type.compare(var.type.parent.type)
-                            is_equal &= parent_equal
-                        if not is_equal and var.type.dtype is not BasicType.DEFERRED:
-                            warning('Subroutine.rescope_variables: type for %s does not match stored type.',
-                                    var.name)
-                        return var.clone(scope=scope, type=_type, parent=parent)
-
-                # Variable does not exist in any scope so we put this in the local
-                # scope just to be on the safe side
-                debug('Subroutine.rescope_variables: type for %s not found in any scope.', var.name)
-                return var.clone(scope=self, parent=parent)
-
-            if parent is not None:
-                # Had only to rescope the parent
-                return var.clone(parent=parent)
-
-            # Nothing had to be done
-            return None
-
-        # Check for all variables that they are associated with one of the
-        # scopes in the hierarchy
-        rescope_map = {}
-        for var in FindTypedSymbols().visit(self.ir):
-            if var not in rescope_map:
-                rescoped_var = check_and_rescope_var(var)
-                if rescoped_var is not None:
-                    rescope_map[var] = rescoped_var
-
-        # Now apply the rescoping map
-        if rescope_map and self.spec:
-            self.spec = SubstituteExpressions(rescope_map, invalidate_source=False).visit(self.spec)
-        if rescope_map and self.body:
-            self.body = SubstituteExpressions(rescope_map, invalidate_source=False).visit(self.body)
 
     def clone(self, **kwargs):
         """

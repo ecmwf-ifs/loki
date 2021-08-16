@@ -10,8 +10,6 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import TypeDef, Section, Declaration, Import
-from loki.expression import FindTypedSymbols, SubstituteExpressions, AttachScopes
-from loki.logging import debug
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
 from loki.types import ProcedureType, SymbolAttributes
@@ -295,34 +293,6 @@ class Module(Scope):
         String representation.
         """
         return 'Module:: {}'.format(self.name)
-
-    def old_rescope_variables(self):
-        """
-        Verify that all :any:`TypedSymbol` objects in the IR are in the
-        module's scope.
-        """
-        AttachScopes().visit(self)
-        return
-        # The local variable map. These really need to be in *this* scope.
-        variable_map = self.variable_map
-        imports_map = CaseInsensitiveDict(
-            (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
-        )
-
-        # Check for all variables that they are associated with the scope
-        rescope_map = {}
-        for var in FindTypedSymbols().visit(self.spec):
-            if (var.name in variable_map or var.name in imports_map) and var.scope is not self:
-                # This takes care of all local variables or imported symbols
-                rescope_map[var] = var.clone(scope=self)
-            elif var not in rescope_map:
-                # Put this in the local scope just to be on the safe side
-                debug('Module.rescope_variables: type for %s not found in any scope.', var.name)
-                rescope_map[var] = var.clone(scope=self)
-
-        # Now apply the rescoping map
-        if rescope_map and self.spec:
-            self.spec = SubstituteExpressions(rescope_map).visit(self.spec)
 
     def clone(self, **kwargs):
         """
