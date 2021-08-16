@@ -10,7 +10,7 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import DataType
+from loki.types import DataType, DerivedType, SymbolAttributes
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict
 
@@ -1111,6 +1111,10 @@ class TypeDef(Scope, LeafNode):
         # properties and handle the scope information
         super().__init__(parent=parent, symbols=symbols, **kwargs)
 
+        # Finally, register this typedef in the parent scope
+        if self.parent:
+            self.parent.symbols[self.name] = SymbolAttributes(self.dtype)
+
 #    @property
 #    def children(self):
 #        # We do not traverse into the TypeDef.body at present
@@ -1142,6 +1146,13 @@ class TypeDef(Scope, LeafNode):
         """
         return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
 
+    @property
+    def dtype(self):
+        """
+        Return the :any:`DerivedType` representing this type
+        """
+        return DerivedType(name=self.name, typedef=self)
+
     def __repr__(self):
         return 'TypeDef:: {}'.format(self.name)
 
@@ -1152,8 +1163,16 @@ class TypeDef(Scope, LeafNode):
             kwargs['symbols'] = self.symbols
         super()._update(*args, **kwargs)
 
+    def _rebuild(self, *args, **kwargs):
+        if 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
+        if 'symbols' not in kwargs:
+            kwargs['symbols'] = self.symbols
+        kwargs['rescope_variables'] = True
+        return super()._rebuild(*args, **kwargs)
+
     def clone(self, **kwargs):
-        from loki.visitors import Transformer
+        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
         if 'body' not in kwargs:
             kwargs['body'] = Transformer().visit(self.body)
         return super().clone(**kwargs)

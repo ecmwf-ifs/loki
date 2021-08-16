@@ -8,7 +8,7 @@ from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extra
 from loki.backend.fgen import fgen
 from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma
+    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef
 )
 from loki.expression import FindVariables, FindTypedSymbols, Array, SubstituteExpressions, AttachScopes
 from loki.logging import warning, debug
@@ -398,12 +398,18 @@ class Subroutine(Scope):
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
+        typedef_decls = set(decl for typedef in FindNodes(TypeDef).visit(self.spec)
+                            for decl in typedef.declarations)
         for decl in FindNodes(Declaration).visit(self.spec):
+            if decl in typedef_decls:
+            # Slightly hacky: We need to exclude declarations inside TypeDef explicitly
+                continue
             new_vars = as_tuple(v for v in decl.variables if v in variables)
             if len(new_vars) > 0:
                 decl._update(variables=new_vars)
             else:
                 dmap[decl] = None  # Mark for removal
+
         # Remove all redundant declarations
         self.spec = Transformer(dmap).visit(self.spec)
 

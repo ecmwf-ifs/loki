@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 import re
 
 from fparser.two.parser import ParserFactory
@@ -21,7 +22,6 @@ from loki.logging import DEBUG, warning, error
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
-from loki.scope import Scope
 from loki.config import config
 
 
@@ -783,10 +783,14 @@ class FParser2IR(GenericVisitor):
         name = self.visit(derived_type_stmt, **kwargs)
         source = kwargs.get('source')
         label = kwargs.get('label')
+
+        # Instantiate the TypeDef without its body
+        # Note: This creates the symbol table for the declarations and
+        # the typedef object registers itself in the parent scope
         typedef = ir.TypeDef(name=name, body=(), source=source, label=label, parent=kwargs['scope'])
 
         # Pass down the typedef scope when building the body
-        parent_scope, kwargs['scope'] = kwargs['scope'], typedef
+        kwargs['scope'] = typedef
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
 
@@ -794,18 +798,13 @@ class FParser2IR(GenericVisitor):
         # These should become declarations and TypeDef should probably store them separately
 
         # Infer any additional shape information from `!$loki dimension` pragmas
-        # Note that this needs to be done before we create `dtype` below, to allow
-        # propagation of type info through multiple typedefs in the same module.
         body = attach_pragmas(body, ir.Declaration)
         body = process_dimension_pragmas(body)
         body = detach_pragmas(body, ir.Declaration)
 
-        typedef._update(body=body, symbols=typedef.symbols)
-
-        # Make the typedef known in the parent scope
-        parent_scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
+        # Finally: update the typedef with its body
+        typedef._update(body=body)
         return (*pre, typedef)
-
 
     def visit_Derived_Type_Stmt(self, o, **kwargs):
         """

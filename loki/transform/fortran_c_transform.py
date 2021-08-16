@@ -148,7 +148,7 @@ class FortranCTransformation(Transformation):
         # Generate the wrapper function
         wrapper_spec = Transformer().visit(routine.spec)
         wrapper_spec.prepend(cls.iso_c_intrinsic_import(wrapper))
-        wrapper_spec.append(c_structs.values())
+        wrapper_spec.append(struct.clone(parent=wrapper) for struct in c_structs.values())
         wrapper_spec.append(interface)
         wrapper.spec = wrapper_spec
 

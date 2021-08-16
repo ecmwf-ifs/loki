@@ -314,9 +314,13 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
+
+        # Instantiate the TypeDef without its body
+        # Note: This creates the symbol table for the declarations and
+        # the typedef object registers itself in the parent scope
         typedef = ir.TypeDef(name=name.text, body=(), parent=self.scope)
 
-        # Built the list of derived type members
+        # Build the list of derived type members
         struct_type = self.type_map[name.attrib['type']]
         variables = self._struct_type_variables(struct_type, scope=typedef)
 
@@ -325,11 +329,9 @@ class OMNI2IR(GenericVisitor):
 
         # Build individual declarations for each member
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
-        typedef._update(body=declarations, symbols=typedef.symbols)
 
-        # Now make the typedef known in its scope's type table
-        self.scope.symbols[name.text] = SymbolAttributes(DerivedType(name=name.text, typedef=typedef))
-
+        # Finally: update the typedef with its body
+        typedef._update(body=declarations)
         return typedef
 
     def visit_FdataDecl(self, o, source=None):

@@ -22,7 +22,6 @@ from loki.tools import (
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG, error, warning
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
-from loki.scope import Scope
 from loki.config import config
 
 
@@ -460,6 +459,10 @@ class OFP2IR(GenericVisitor):
         if o.find('derived-type-stmt') is not None:
             # Derived type definition
             name = self.visit(o.find('derived-type-stmt'))
+
+            # Instantiate the TypeDef without its body
+            # Note: This creates the symbol table for the declarations and
+            # the typedef object registers itself in the parent scope
             typedef = ir.TypeDef(name=name, body=(), label=label, source=source, parent=self.scope)
 
             # This is still ugly, but better than before! In order to
@@ -498,11 +501,9 @@ class OFP2IR(GenericVisitor):
             body = attach_pragmas(body, ir.Declaration)
             body = process_dimension_pragmas(body)
             body = detach_pragmas(body, ir.Declaration)
-            typedef._update(body=as_tuple(body), symbols=typedef.symbols)
 
-            # Now make the typedef known in its scope's type table
-            self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
-
+            # Finally: update the typedef with its body
+            typedef._update(body=body)
             return typedef
 
         # First, obtain data type and attributes
