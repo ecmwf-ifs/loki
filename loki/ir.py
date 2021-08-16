@@ -243,6 +243,31 @@ class LeafNode(Node):
         raise NotImplementedError
 
 
+# Mix-ins
+
+class ScopedNode(Scope):
+    """
+    Mix-in to attache a scope to an IR :any:`Node`
+
+    Additionally, this specializes the node's :meth:`_update` and
+    :meth:`_rebuild` methods to make sure that an existing symbol table
+    is carried over correctly.
+    """
+
+    def _update(self, *args, **kwargs):
+        if 'symbols' not in kwargs:
+            # Retain the symbol table (unless given explicitly)
+            kwargs['symbols'] = self.symbols
+        super()._update(*args, **kwargs)  # pylint: disable=no-member
+
+    def _rebuild(self, *args, **kwargs):
+        if 'symbols' not in kwargs:
+            # Retain the symbol table (unless given explicitly)
+            kwargs['symbols'] = self.symbols
+        kwargs['rescope_variables'] = True
+        return super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
+
+
 # Intermediate node types
 
 
@@ -1071,7 +1096,7 @@ class DataDeclaration(LeafNode):
         return 'DataDeclaration:: {}'.format(str(self.variable))
 
 
-class TypeDef(Scope, LeafNode):
+class TypeDef(ScopedNode, LeafNode):
     """
     Internal representation of a derived type definition.
 
@@ -1155,21 +1180,6 @@ class TypeDef(Scope, LeafNode):
 
     def __repr__(self):
         return 'TypeDef:: {}'.format(self.name)
-
-    def _update(self, *args, **kwargs):
-        if 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-        if 'symbols' not in kwargs:
-            kwargs['symbols'] = self.symbols
-        super()._update(*args, **kwargs)
-
-    def _rebuild(self, *args, **kwargs):
-        if 'parent' not in kwargs:
-            kwargs['parent'] = self.parent
-        if 'symbols' not in kwargs:
-            kwargs['symbols'] = self.symbols
-        kwargs['rescope_variables'] = True
-        return super()._rebuild(*args, **kwargs)
 
     def clone(self, **kwargs):
         from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
