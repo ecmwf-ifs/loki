@@ -196,9 +196,9 @@ end module test_type_derived_type_mod
     assert len(a.type.dtype.variables) == 2
     assert len(b.type.dtype.variables) == 2
     assert len(c.type.dtype.variables) == 2
-    assert all(v.scope == routine for v in a.type.dtype.variables)
-    assert all(v.scope == routine for v in b.type.dtype.variables)
-    assert all(v.scope == routine for v in c.type.dtype.variables)
+    assert all(v.scope is routine for v in a.type.dtype.variables)
+    assert all(v.scope is routine for v in b.type.dtype.variables)
+    assert all(v.scope is routine for v in c.type.dtype.variables)
 
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbols['a%a'].shape == (':',)
@@ -271,7 +271,8 @@ end module my_types_mod
     assert a.dimensions == '(:)'
     assert b.dimensions == '(:,:)'
     assert a.type.kind == b.type.kind == 'a_kind'
-    assert a.scope == b.scope == routine
+    assert a.scope is routine
+    assert b.scope is routine
 
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbols['arg_b%a'].shape == (':',)

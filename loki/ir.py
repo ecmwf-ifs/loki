@@ -1029,7 +1029,7 @@ class Declaration(LeafNode):
         The declared allocation size if given as part of the declaration
         attributes.
     external : bool, optional
-        ???
+        This is a Fortran ``EXTERNAL`` declaration.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1139,11 +1139,6 @@ class TypeDef(ScopedNode, LeafNode):
         # Finally, register this typedef in the parent scope
         if self.parent:
             self.parent.symbols[self.name] = SymbolAttributes(self.dtype)
-
-#    @property
-#    def children(self):
-#        # We do not traverse into the TypeDef.body at present
-#        return ()
 
     @property
     def declarations(self):
