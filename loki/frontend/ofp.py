@@ -152,11 +152,11 @@ class OFP2IR(GenericVisitor):
         try:
             kwargs['source'] = extract_source(o.attrib, self._raw_source, label=kwargs['label'])
         except KeyError:
-            pass
+            kwargs['source'] = None
         return super().visit(o, **kwargs)
 
-    def visit_tuple(self, o, label=None, source=None):
-        return as_tuple(flatten(self.visit(c) for c in o))
+    def visit_tuple(self, o, **kwargs):
+        return as_tuple(flatten(self.visit(c, **kwargs) for c in o))
 
     visit_list = visit_tuple
 
@@ -171,18 +171,18 @@ class OFP2IR(GenericVisitor):
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
-    def visit_specification(self, o, label=None, source=None):
-        body = tuple(self.visit(c) for c in o)
+    def visit_specification(self, o, **kwargs):
+        body = tuple(self.visit(c, **kwargs) for c in o)
         body = tuple(c for c in body if c is not None)
-        return ir.Section(body=body, label=label, source=source)
+        return ir.Section(body=body, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_body(self, o, source=None, **kwargs):
+    def visit_body(self, o, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
         body = tuple(c for c in body if c is not None)
         return body
 
-    def visit_loop(self, o, label=None, source=None):
-        body = as_tuple(self.visit(o.find('body')))
+    def visit_loop(self, o, **kwargs):
+        body = as_tuple(self.visit(o.find('body'), **kwargs))
         # Store full lines with loop body for easy replacement
         source = extract_source(o.attrib, self._raw_source, full_lines=True)
         # Extract loop label if any
@@ -201,27 +201,28 @@ class OFP2IR(GenericVisitor):
                 condition = None
             else:
                 # We are processing a while loop
-                condition = self.visit(o.find('header'))
+                condition = self.visit(o.find('header'), **kwargs)
             return ir.WhileLoop(condition=condition, body=body, loop_label=loop_label,
-                                label=label, name=construct_name, has_end_do=has_end_do,
-                                source=source)
+                                name=construct_name, has_end_do=has_end_do,
+                                label=label, source=source)
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
         variable = sym.Variable(name=vname, scope=self.scope, source=source)
-        lower = self.visit(o.find('header/index-variable/lower-bound'))
-        upper = self.visit(o.find('header/index-variable/upper-bound'))
+        lower = self.visit(o.find('header/index-variable/lower-bound'), **kwargs)
+        upper = self.visit(o.find('header/index-variable/upper-bound'), **kwargs)
         step = None
         if o.find('header/index-variable/step') is not None:
-            step = self.visit(o.find('header/index-variable/step'))
+            step = self.visit(o.find('header/index-variable/step'), **kwargs)
         bounds = sym.LoopRange((lower, upper, step), source=source)
         return ir.Loop(variable=variable, body=body, bounds=bounds, loop_label=loop_label,
-                       label=label, name=construct_name, has_end_do=has_end_do, source=source)
+                       label=label, name=construct_name, has_end_do=has_end_do,
+                       source=source)
 
-    def visit_if(self, o, label=None, source=None):
+    def visit_if(self, o, **kwargs):
         # process all conditions and bodies
-        conditions = [self.visit(h) for h in o.findall('header')]
-        bodies = [as_tuple(self.visit(b)) for b in o.findall('body')]
+        conditions = [self.visit(h, **kwargs) for h in o.findall('header')]
+        bodies = [as_tuple(self.visit(b, **kwargs)) for b in o.findall('body')]
         ncond = len(conditions)
         if len(bodies) > ncond:
             else_body = bodies[-1]
@@ -233,7 +234,8 @@ class OFP2IR(GenericVisitor):
         if o.find('if-then-stmt') is None:
             assert ncond == 1 and else_body is None
             return ir.Conditional(condition=conditions[0], body=bodies[0], else_body=(),
-                                  inline=True, has_elseif=False, label=label, source=source)
+                                  inline=True, has_elseif=False, label=kwargs['label'],
+                                  source=kwargs['source'])
         # extract labels, names and source
         lend, cend = int(o.attrib['line_end']), int(o.attrib['col_end'])
         names, labels, sources = [], [], []
@@ -244,21 +246,22 @@ class OFP2IR(GenericVisitor):
             sources += [extract_source_from_range((lstart, lend), (cstart, cend), self._raw_source, label=labels[-1])]
         names += [o.find('if-then-stmt').attrib['id'] or None]
         labels += [self.get_label(o.find('if-then-stmt'))]
-        sources += [source]
+        sources += [kwargs['source']]
         # build IR nodes from inside out, using else-if branches as else bodies
         conditions.reverse()
         bodies.reverse()
         node = ir.Conditional(condition=conditions[0], body=bodies[0], else_body=else_body,
-                              inline=False, has_elseif=False, label=label, name=names[0], source=sources[0])
+                              inline=False, has_elseif=False, label=kwargs['label'],
+                              name=names[0], source=sources[0])
         for idx in range(1, ncond):
             node = ir.Conditional(condition=conditions[idx], body=bodies[idx], else_body=(node,),
                                   inline=False, has_elseif=True, label=labels[idx], name=names[idx],
                                   source=sources[idx])
         return node
 
-    def visit_select(self, o, label=None, source=None):
-        expr = self.visit(o.find('header'))
-        cases = [self.visit(case) for case in o.findall('body/case')]
+    def visit_select(self, o, **kwargs):
+        expr = self.visit(o.find('header'), **kwargs)
+        cases = [self.visit(case, **kwargs) for case in o.findall('body/case')]
         values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)
@@ -270,36 +273,36 @@ class OFP2IR(GenericVisitor):
         construct_name = o.find('select-case-stmt').attrib['id'] or None
         label = self.get_label(o.find('select-case-stmt'))
         return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                   label=label, name=construct_name, source=source)
+                                   label=label, name=construct_name, source=kwargs['source'])
 
-    def visit_case(self, o, label=None, source=None):
-        value = self.visit(o.find('header'))
+    def visit_case(self, o, **kwargs):
+        value = self.visit(o.find('header'), **kwargs)
         if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
-            value = sym.RangeIndex(value, source=source)
-        body = self.visit(o.find('body'))
+            value = sym.RangeIndex(value, source=kwargs['source'])
+        body = self.visit(o.find('body'), **kwargs)
         return as_tuple(value) or None, as_tuple(body)
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
 
-    def visit_comment(self, o, label=None, source=None):
-        match_pragma = self._re_pragma.search(source.string)
+    def visit_comment(self, o, **kwargs):
+        match_pragma = self._re_pragma.search(kwargs['source'].string)
         if match_pragma:
             # Found pragma, generate this instead
             gd = match_pragma.groupdict()
-            return ir.Pragma(keyword=gd['keyword'], content=gd['content'], source=source)
-        return ir.Comment(text=o.attrib['text'], label=label, source=source)
+            return ir.Pragma(keyword=gd['keyword'], content=gd['content'], source=kwargs['source'])
+        return ir.Comment(text=o.attrib['text'], label=kwargs['label'], source=kwargs['source'])
 
-    def visit_statement(self, o, label=None, source=None):
+    def visit_statement(self, o, **kwargs):
         # TODO: Hacky pre-emption for special-case statements
         if o.find('name/nullify-stmt') is not None:
-            variable = self.visit(o.find('name'))
-            return ir.Nullify(variables=as_tuple(variable), label=label, source=source)
+            variable = self.visit(o.find('name'), **kwargs)
+            return ir.Nullify(variables=as_tuple(variable), label=kwargs['label'], source=kwargs['source'])
         if o.find('cycle') is not None:
-            return self.visit(o.find('cycle'))
+            return self.visit(o.find('cycle'), **kwargs)
         if o.find('where-construct-stmt') is not None:
             # Parse a WHERE statement(s)...
-            children = [self.visit(c) for c in o]
+            children = [self.visit(c, **kwargs) for c in o]
             children = [c for c in children if c is not None]
 
             stmts = []
@@ -317,44 +320,44 @@ class OFP2IR(GenericVisitor):
                     default = ()
 
                 stmts += [ir.MaskedStatement(condition=condition, body=body, default=default,
-                                             label=label, source=source)]
+                                             label=kwargs['label'], source=kwargs['source'])]
                 children = children[iend+1:]
 
             # TODO: Deal with alternative conditions (multiple ELSEWHERE)
             return as_tuple(stmts)
         if o.find('goto-stmt') is not None:
             target_label = o.find('goto-stmt').attrib['target_label']
-            return ir.Intrinsic(text='go to %s' % target_label, label=label, source=source)
-        return self.visit_Element(o, label=label, source=source)
+            return ir.Intrinsic(text='go to %s' % target_label, label=kwargs['label'], source=kwargs['source'])
+        return self.visit_Element(o, **kwargs)
 
-    def visit_elsewhere_stmt(self, o, label=None, source=None):
+    def visit_elsewhere_stmt(self, o, **kwargs):
         # Only used as a marker above
         return 'ELSEWHERE_CONSTRUCT'
 
-    def visit_end_where_stmt(self, o, label=None, source=None):
+    def visit_end_where_stmt(self, o, **kwargs):
         # Only used as a marker above
         return 'ENDWHERE_CONSTRUCT'
 
-    def visit_assignment(self, o, label=None, source=None):
-        lhs = self.visit(o.find('target'))
-        rhs = self.visit(o.find('value'))
-        return ir.Assignment(lhs=lhs, rhs=rhs, label=label, source=source)
+    def visit_assignment(self, o, **kwargs):
+        lhs = self.visit(o.find('target'), **kwargs)
+        rhs = self.visit(o.find('value'), **kwargs)
+        return ir.Assignment(lhs=lhs, rhs=rhs, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_pointer_assignment(self, o, label=None, source=None):
-        lhs = self.visit(o.find('target'))
-        rhs = self.visit(o.find('value'))
-        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=label, source=source)
+    def visit_pointer_assignment(self, o, **kwargs):
+        lhs = self.visit(o.find('target'), **kwargs)
+        rhs = self.visit(o.find('value'), **kwargs)
+        return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_type(self, o, label=None, source=None):
+    def visit_type(self, o, **kwargs):
         if o.attrib['type'] == 'intrinsic':
-            _type = self.visit(o.find('intrinsic-type-spec'))
+            _type = self.visit(o.find('intrinsic-type-spec'), **kwargs)
             if o.attrib['hasKind'] == 'true':
-                kind = self.visit(o.find('kind'))
+                kind = self.visit(o.find('kind'), **kwargs)
                 _type = _type.clone(kind=kind)
             return _type
 
         if o.attrib['type'] == 'derived':
-            dtype = self.visit(o.find('derived-type-spec'))
+            dtype = self.visit(o.find('derived-type-spec'), **kwargs)
 
             # Look for a previous definition of this type
             _type = self.scope.symbols.lookup(dtype.name)
@@ -366,50 +369,50 @@ class OFP2IR(GenericVisitor):
 
         raise ValueError('Unknown type {}'.format(o.attrib('type')))
 
-    def visit_intrinsic_type_spec(self, o, label=None, source=None):
+    def visit_intrinsic_type_spec(self, o, **kwargs):
         dtype = BasicType.from_str(o.attrib['keyword1'])
         return SymbolAttributes(dtype)
 
-    def visit_derived_type_spec(self, o, label=None, source=None):
+    def visit_derived_type_spec(self, o, **kwargs):
         dtype = DerivedType(o.attrib['typeName'])
         return dtype
 
-    def visit_kind(self, o, label=None, source=None):
-        return self.visit(o[0])
+    def visit_kind(self, o, **kwargs):
+        return self.visit(o[0], **kwargs)
 
-    def visit_attribute_parameter(self, o, label=None, source=None):
-        return self.visit(o.findall('attr-spec'))
+    def visit_attribute_parameter(self, o, **kwargs):
+        return self.visit(o.findall('attr-spec'), **kwargs)
 
     visit_attribute_pointer = visit_attribute_parameter
 
-    def visit_attr_spec(self, o, label=None, source=None):
+    def visit_attr_spec(self, o, **kwargs):
         return (o.attrib['attrKeyword'].lower(), True)
 
-    def visit_intent(self, o, label=None, source=None):
+    def visit_intent(self, o, **kwargs):
         return ('intent', o.attrib['type'].lower())
 
-    def visit_entity_decl(self, o, source=None, **kwargs):
-        return sym.Variable(name=o.attrib['id'], source=source)
+    def visit_entity_decl(self, o, **kwargs):
+        return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
 
-    def visit_variables(self, o, source=None, **kwargs):
+    def visit_variables(self, o, **kwargs):
         count = int(o.attrib['count'])
-        return self.visit(o.findall('variable')[:count])
+        return self.visit(o.findall('variable')[:count], **kwargs)
 
-    def visit_variable(self, o, source=None, **kwargs):
-        var = self.visit(o.find('entity-decl'))
+    def visit_variable(self, o, **kwargs):
+        var = self.visit(o.find('entity-decl'), **kwargs)
 
         if o.attrib['hasInitialValue'] == 'true':
-            init = self.visit(o.find('initial-value'))
+            init = self.visit(o.find('initial-value'), **kwargs)
             var = var.clone(type=var.type.clone(initial=init))
 
         dimensions = o.find('dimensions')
         if dimensions is not None:
-            dimensions = self.visit(dimensions)
+            dimensions = self.visit(dimensions, **kwargs)
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
 
         return var
 
-    def visit_derived_type_stmt(self, o, label=None, source=None):
+    def visit_derived_type_stmt(self, o, **kwargs):
         if o.attrib['keyword'].lower() != 'type':
             self.warn_or_fail('Type keyword {} not implemented'.format(o.attrib['keyword']))
         if o.attrib['hasTypeAttrSpecList'] != 'false':
@@ -418,18 +421,20 @@ class OFP2IR(GenericVisitor):
             self.warn_or_fail('generic-name-list not implemented')
         return o.attrib['id']
 
-    def visit_declaration(self, o, label=None, source=None):
+    def visit_declaration(self, o, **kwargs):
+        label = kwargs['label']
+        source = kwargs['source']
         if not o.attrib:
             return None  # Skip empty declarations
         if not 'type' in o.attrib:
             if o.find('access-spec') is not None or o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
             if o.find('interface') is not None:
-                return self.visit(o.find('interface'))
+                return self.visit(o.find('interface'), **kwargs)
             if o.find('subroutine') is not None:
-                return self.visit(o.find('subroutine'))
+                return self.visit(o.find('subroutine'), **kwargs)
             if o.find('function') is not None:
-                return self.visit(o.find('function'))
+                return self.visit(o.find('function'), **kwargs)
             raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -439,7 +444,7 @@ class OFP2IR(GenericVisitor):
             assert o.find('external-stmt') is not None
             assert o.find('type') is None
 
-            variables = self.visit(o.findall('names'))
+            variables = self.visit(o.findall('names'), **kwargs)
             for var in variables:
                 _type = self.scope.symbols.lookup(var.name)
                 if _type is None:
@@ -458,7 +463,7 @@ class OFP2IR(GenericVisitor):
 
         if o.find('derived-type-stmt') is not None:
             # Derived type definition
-            name = self.visit(o.find('derived-type-stmt'))
+            name = self.visit(o.find('derived-type-stmt'), **kwargs)
 
             # Instantiate the TypeDef without its body
             # Note: This creates the symbol table for the declarations and
@@ -480,7 +485,7 @@ class OFP2IR(GenericVisitor):
             for group in grouped_elems:
                 if len(group) == 1:
                     # Process indidividual comments/pragmas
-                    body.append(self.visit(group[0]))
+                    body.append(self.visit(group[0], **kwargs))
 
                 elif len(group) == 2:
                     # Process declarations without attributes
@@ -507,46 +512,46 @@ class OFP2IR(GenericVisitor):
             return typedef
 
         # First, obtain data type and attributes
-        _type = self.visit(o.find('type'))
+        _type = self.visit(o.find('type'), **kwargs)
 
         attrs = {}
         if o.find('intent') is not None:
-            intent = self.visit(o.find('intent'))
+            intent = self.visit(o.find('intent'), **kwargs)
             attrs.update((intent,))
 
         if o.find('attribute-parameter') is not None:
-            parameter = self.visit(o.find('attribute-parameter'))
+            parameter = self.visit(o.find('attribute-parameter'), **kwargs)
             attrs.update((parameter,))
 
         if o.find('attribute-optional') is not None:
-            optional = self.visit(o.find('attribute-optional'))
+            optional = self.visit(o.find('attribute-optional'), **kwargs)
             attrs.update((optional,))
 
         if o.find('attribute-allocatable') is not None:
-            allocatable = self.visit(o.find('attribute-allocatable'))
+            allocatable = self.visit(o.find('attribute-allocatable'), **kwargs)
             attrs.update((allocatable,))
 
         if o.find('attribute-pointer') is not None:
-            pointer = self.visit(o.find('attribute-pointer'))
+            pointer = self.visit(o.find('attribute-pointer'), **kwargs)
             attrs.update((pointer,))
 
         if o.find('attribute-target') is not None:
-            target = self.visit(o.find('attribute-target'))
+            target = self.visit(o.find('attribute-target'), **kwargs)
             attrs.update((target,))
 
         if _type.dtype == BasicType.CHARACTER and o.find('char-selector') is not None:
-            length = self.visit(o[0])
+            length = self.visit(o[0], **kwargs)
             attrs['length'] = length
 
         # Then, build the common symbol type for all variables
         _type = _type.clone(**attrs)
 
         # Last, instantiate declared variables
-        variables = as_tuple(self.visit(o.find('variables')))
+        variables = as_tuple(self.visit(o.find('variables'), **kwargs))
 
         # check if we have a dimensions keyword
         if o.find('dimensions') is not None:
-            dimensions = self.visit(o.find('dimensions'))
+            dimensions = self.visit(o.find('dimensions'), **kwargs)
             _type = _type.clone(shape=dimensions)
             # Attach dimension attribute to variable declaration for uniform
             # representation of variables in declarations
@@ -577,19 +582,19 @@ class OFP2IR(GenericVisitor):
         return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
                               source=source, label=label)
 
-    def visit_interface(self, o, label=None, source=None):
-        spec = self.visit(o.find('interface-stmt'))
-        body = self.visit(o.find('body'))
-        return ir.Interface(spec=spec, body=body, label=label, source=source)
+    def visit_interface(self, o, **kwargs):
+        spec = self.visit(o.find('interface-stmt'), **kwargs)
+        body = self.visit(o.find('body'), **kwargs)
+        return ir.Interface(spec=spec, body=body, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_interface_stmt(self, o, label=None, source=None):
+    def visit_interface_stmt(self, o, **kwargs):
         if o.attrib['abstract_token']:
             return o.attrib['abstract_token']
         if o.attrib['hasGenericSpec'] == 'true':
             self.warn_or_fail('interface with generic spec not implemented')
         return None
 
-    def visit_subroutine(self, o, label=None, source=None):
+    def visit_subroutine(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
         # Name and dummy args
@@ -606,24 +611,24 @@ class OFP2IR(GenericVisitor):
                 self.warn_or_fail('binding-spec not implemented')
 
         routine = Subroutine(name=name, args=args, ast=o, bind=bind, is_function=is_function,
-                             source=source, parent=self.scope)
+                             source=kwargs['source'], parent=self.scope)
 
         # Spec
         # HACK: temporarily replace the scope property until we pass down scopes properly
         parent_scope, self.scope = self.scope, routine
-        routine.spec = self.visit(o.find('body/specification'))
+        routine.spec = self.visit(o.find('body/specification'), **kwargs)
         self.scope = parent_scope
 
         return routine
 
     visit_function = visit_subroutine
 
-    def visit_association(self, o, label=None, source=None):
+    def visit_association(self, o, **kwargs):
         return sym.Variable(name=o.attrib['associate-name'])
 
-    def visit_associate(self, o, label=None, source=None):
+    def visit_associate(self, o, **kwargs):
         # Handle the associates
-        associations = [(self.visit(a[0]), self.visit(a.find('association')))
+        associations = [(self.visit(a[0], **kwargs), self.visit(a.find('association'), **kwargs))
                         for a in o.findall('header/keyword-arguments/keyword-argument')]
 
         # Create a scope for the associate
@@ -659,24 +664,25 @@ class OFP2IR(GenericVisitor):
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
             scope.symbols[name.name] = _type
 
-        body = as_tuple(self.visit(o.find('body')))
-        return ir.Associate(body=body, associations=associations, label=label, source=source)
+        body = as_tuple(self.visit(o.find('body'), **kwargs))
+        return ir.Associate(body=body, associations=associations, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_allocate(self, o, label=None, source=None):
-        variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        kw_args = {arg.attrib['name'].lower(): self.visit(arg)
+    def visit_allocate(self, o, **kwargs):
+        variables = as_tuple(self.visit(v, **kwargs) for v in o.findall('expressions/expression/name'))
+        kw_args = {arg.attrib['name'].lower(): self.visit(arg, **kwargs)
                    for arg in o.findall('keyword-arguments/keyword-argument')}
-        return ir.Allocation(variables=variables, label=label, source=source, data_source=kw_args.get('source'))
+        return ir.Allocation(variables=variables, label=kwargs['label'],
+                             source=kwargs['source'], data_source=kw_args.get('source'))
 
-    def visit_deallocate(self, o, label=None, source=None):
-        variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
-        return ir.Deallocation(variables=variables, label=label, source=source)
+    def visit_deallocate(self, o, **kwargs):
+        variables = as_tuple(self.visit(v, **kwargs) for v in o.findall('expressions/expression/name'))
+        return ir.Deallocation(variables=variables, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_use(self, o, label=None, source=None):
-        name, module = self.visit(o.find('use-stmt'))
+    def visit_use(self, o, **kwargs):
+        name, module = self.visit(o.find('use-stmt'), **kwargs)
         scope = self.scope
         if o.find('only') is not None:
-            symbols = self.visit(o.find('only'))
+            symbols = self.visit(o.find('only'), **kwargs)
             if module is None:
                 scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
             else:
@@ -689,12 +695,12 @@ class OFP2IR(GenericVisitor):
             # Import all symbols
             if module is not None:
                 scope.symbols.update({k: v.clone(imported=True, module=module) for k, v in module.symbols.items()})
-        return ir.Import(module=name, symbols=symbols, label=label, source=source)
+        return ir.Import(module=name, symbols=symbols, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_only(self, o, label=None, source=None):
-        return tuple(self.visit(c) for c in o.findall('name'))
+    def visit_only(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o.findall('name'))
 
-    def visit_use_stmt(self, o, label=None, source=None):
+    def visit_use_stmt(self, o, **kwargs):
         name = o.attrib['id']
         if o.attrib['hasModuleNature'] != 'false':
             self.warn_or_fail('module nature in USE statement not implemented')
@@ -702,7 +708,8 @@ class OFP2IR(GenericVisitor):
             self.warn_or_fail('rename-list in USE statement not implemented')
         return name, self.definitions.get(name)
 
-    def visit_directive(self, o, label=None, source=None):
+    def visit_directive(self, o, **kwargs):
+        source = kwargs['source']
         if '#include' in o.attrib['text']:
             # Straight pipe-through node for header includes (#include ...)
             match = re.search(r'#include\s[\'"](?P<module>.*)[\'"]', o.attrib['text'])
@@ -710,9 +717,9 @@ class OFP2IR(GenericVisitor):
             return ir.Import(module=module, c_import=True, source=source)
         return ir.PreprocessorDirective(text=source.string.strip(), source=source)
 
-    def visit_exit(self, o, label=None, source=None):
+    def visit_exit(self, o, **kwargs):
         stmt_tag = '{}-stmt'.format(o.tag)
-        stmt = self.visit(o.find(stmt_tag))
+        stmt = self.visit(o.find(stmt_tag), **kwargs)
         if o.find('label') is not None:
             stmt._update(label=o.find('label').attrib['lbl'])
         return stmt
@@ -727,95 +734,101 @@ class OFP2IR(GenericVisitor):
     visit_write = visit_exit
     visit_read = visit_exit
 
-    def create_intrinsic_from_source(self, o, attrib_name, label=None, source=None):
+    def create_intrinsic_from_source(self, o, attrib_name, **kwargs):
+        label = kwargs['label']
+        source = kwargs['source']
         cstart = source.string.lower().find(o.attrib[attrib_name].lower())
         assert cstart != -1
         return ir.Intrinsic(text=source.string[cstart:].strip(), label=label, source=source)
 
-    def visit_exit_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'exitKeyword', label=label, source=source)
+    def visit_exit_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'exitKeyword', **kwargs)
 
-    def visit_return_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'keyword', label=label, source=source)
+    def visit_return_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'keyword', **kwargs)
 
-    def visit_continue_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'continueKeyword', label=label, source=source)
+    def visit_continue_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'continueKeyword', **kwargs)
 
-    def visit_cycle_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'cycleKeyword', label=label, source=source)
+    def visit_cycle_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'cycleKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_format_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'formatKeyword', label=label, source=source)
+    def visit_format_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'formatKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_print_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'printKeyword', label=label, source=source)
+    def visit_print_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'printKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_open_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'openKeyword', label=label, source=source)
+    def visit_open_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'openKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_close_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'closeKeyword', label=label, source=source)
+    def visit_close_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'closeKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_write_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'writeKeyword', label=label, source=source)
+    def visit_write_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'writeKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_read_stmt(self, o, label=None, source=None):
-        return self.create_intrinsic_from_source(o, 'readKeyword', label=label, source=source)
+    def visit_read_stmt(self, o, **kwargs):
+        return self.create_intrinsic_from_source(o, 'readKeyword', label=kwargs['label'], source=kwargs['source'])
 
-    def visit_call(self, o, label=None, source=None):
-        name, subscripts = self.visit(o.find('name'))
+    def visit_call(self, o, **kwargs):
+        name, subscripts = self.visit(o.find('name'), **kwargs)
         args = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
-        kwargs = tuple(arg for arg in subscripts if isinstance(arg, tuple))
-        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, label=label, source=source)
+        kw_args = tuple(arg for arg in subscripts if isinstance(arg, tuple))
+        return ir.CallStatement(name=name, arguments=args, kwarguments=kw_args,
+                                label=kwargs['label'], source=kwargs['source'])
 
-    def visit_label(self, o, label=None, source=None):
-        assert label is not None
-        return ir.Comment('__STATEMENT_LABEL__', label=label, source=source)
+    def visit_label(self, o, **kwargs):
+        assert kwargs['label'] is not None
+        return ir.Comment('__STATEMENT_LABEL__', label=kwargs['label'], source=kwargs['source'])
 
     # Expression parsing below; maye move to its own parser..?
 
-    def visit_subscripts(self, o, label=None, source=None):
-        return tuple(self.visit(c) for c in o if c.tag in ('subscript', 'argument'))
+    def visit_subscripts(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o if c.tag in ('subscript', 'argument'))
 
-    def visit_subscript(self, o, label=None, source=None):
+    def visit_subscript(self, o, **kwargs):
+        source = kwargs['source']
         if o.attrib['type'] in ('empty', 'assumed-shape'):
             return sym.RangeIndex((None, None, None), source=source)
         if o.attrib['type'] == 'simple':
-            return self.visit(o[0])
+            return self.visit(o[0], **kwargs)
         if o.attrib['type'] == 'upper-bound-assumed-shape':
-            return sym.RangeIndex((self.visit(o[0]), None, None), source=source)
+            return sym.RangeIndex((self.visit(o[0], **kwargs), None, None), source=source)
         if o.attrib['type'] == 'range':
             lower, upper, step = None, None, None
             if o.find('range/lower-bound') is not None:
-                lower = self.visit(o.find('range/lower-bound'))
+                lower = self.visit(o.find('range/lower-bound'), **kwargs)
             if o.find('range/upper-bound') is not None:
-                upper = self.visit(o.find('range/upper-bound'))
+                upper = self.visit(o.find('range/upper-bound'), **kwargs)
             if o.find('range/step') is not None:
-                step = self.visit(o.find('range/step'))
+                step = self.visit(o.find('range/step'), **kwargs)
             return sym.RangeIndex((lower, upper, step), source=source)
         raise ValueError('Unknown subscript type')
 
-    def visit_dimensions(self, o, label=None, source=None):
-        return tuple(self.visit(c) for c in o.findall('dimension'))
+    def visit_dimensions(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o.findall('dimension'))
 
     visit_dimension = visit_subscript
 
-    def visit_argument(self, o, label=None, source=None):
-        return o.attrib['name'], self.visit(o[0])
+    def visit_argument(self, o, **kwargs):
+        return o.attrib['name'], self.visit(o[0], **kwargs)
 
-    def visit_names(self, o, label=None, source=None):
-        return tuple(self.visit(c) for c in o.findall('name'))
+    def visit_names(self, o, **kwargs):
+        return tuple(self.visit(c, **kwargs) for c in o.findall('name'))
 
-    def visit_name(self, o, label=None, source=None, **kwargs):
+    def visit_name(self, o, **kwargs):
+        source = kwargs['source']
+
         if o.find('generic-name-list-part') is not None or o.find('generic_spec') is not None:
             # From an external-stmt or use-stmt
             return sym.Variable(name=o.attrib['id'], source=source)
 
         num_part_ref = int(o.find('data-ref').attrib['numPartRef'])
-        subscripts = [self.visit(s) for s in o.findall('subscripts')]
+        subscripts = [self.visit(s, **kwargs) for s in o.findall('subscripts')]
         name = None
         for i, part_ref in enumerate(o.findall('part-ref')):
-            name, parent = self.visit(part_ref), name
+            name, parent = self.visit(part_ref, **kwargs), name
             if parent:
                 name = name.clone(name='{}%{}'.format(parent.name, name.name), parent=parent)
 
@@ -879,46 +892,48 @@ class OFP2IR(GenericVisitor):
         assert not kwarguments
         return name.clone(dimensions=arguments or None)
 
-    def visit_part_ref(self, o, label=None, source=None):
-        return sym.Variable(name=o.attrib['id'], source=source)
+    def visit_part_ref(self, o, **kwargs):
+        return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
 
-    def visit_literal(self, o, label=None, source=None):
+    def visit_literal(self, o, **kwargs):
+        source = kwargs['source']
         boz_literal = o.find('boz-literal-constant')
         if boz_literal is not None:
             return sym.IntrinsicLiteral(boz_literal.attrib['constant'], source=source)
 
-        kwargs = {'source': source}
+        kw_args = {'source': source}
         value = o.attrib['value']
         _type = o.attrib['type'] if 'type' in o.attrib else None
         if _type is not None:
             tmap = {'bool': BasicType.LOGICAL, 'int': BasicType.INTEGER,
                     'real': BasicType.REAL, 'char': BasicType.CHARACTER}
             _type = tmap[_type] if _type in tmap else BasicType.from_fortran_type(_type)
-            kwargs['type'] = _type
+            kw_args['type'] = _type
         kind_param = o.find('kind-param')
         if kind_param is not None:
             kind = kind_param.attrib['kind']
             if kind.isnumeric():
-                kwargs['kind'] = sym.Literal(value=int(kind))
+                kw_args['kind'] = sym.Literal(value=int(kind))
             else:
-                kwargs['kind'] = sym.Variable(name=kind, scope=self.scope)
-        return sym.Literal(value, **kwargs)
+                kw_args['kind'] = sym.Variable(name=kind, scope=self.scope)
+        return sym.Literal(value, **kw_args)
 
-    def visit_array_constructor_values(self, o, label=None, source=None):
-        values = [self.visit(v) for v in o.findall('value')]
+    def visit_array_constructor_values(self, o, **kwargs):
+        values = [self.visit(v, **kwargs) for v in o.findall('value')]
         values = [v for v in values if v is not None]  # Filter empy values
-        return sym.LiteralList(values=values, source=source)
+        return sym.LiteralList(values=values, source=kwargs['source'])
 
-    def visit_operation(self, o, label=None, source=None):
+    def visit_operation(self, o, **kwargs):
         """
         Construct expressions from individual operations, using left-recursion.
         """
-        ops = [self.visit(op) for op in o.findall('operator')]
+        ops = [self.visit(op, **kwargs) for op in o.findall('operator')]
         ops = [str(op).lower() for op in ops if op is not None]  # Filter empty ops
-        exprs = [self.visit(c) for c in o.findall('operand')]
+        exprs = [self.visit(c, **kwargs) for c in o.findall('operand')]
         exprs = [e for e in exprs if e is not None]  # Filter empty operands
 
         # Left-recurse on the list of operations and expressions
+        source = kwargs['source']
         exprs = deque(exprs)
         expression = exprs.popleft()
         for op in ops:
@@ -979,7 +994,7 @@ class OFP2IR(GenericVisitor):
         assert len(exprs) == 0
         return expression
 
-    def visit_operator(self, o, label=None, source=None):
+    def visit_operator(self, o, **kwargs):
         return o.attrib['operator']
 
     def create_typedef_declaration(self, t, comps, attr=None, scope=None, source=None):
