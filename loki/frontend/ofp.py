@@ -107,7 +107,7 @@ class OFP2IR(GenericVisitor):
 
         self._raw_source = raw_source
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
-        self.scope = scope
+        self.default_scope = scope
 
     @staticmethod
     def warn_or_fail(msg):
@@ -148,6 +148,7 @@ class OFP2IR(GenericVisitor):
             return super().visit(o, **kwargs)
 
         kwargs['label'] = self.get_label(o)
+        kwargs.setdefault('scope', self.default_scope)
 
         try:
             kwargs['source'] = extract_source(o.attrib, self._raw_source, label=kwargs['label'])
@@ -208,7 +209,7 @@ class OFP2IR(GenericVisitor):
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
-        variable = sym.Variable(name=vname, scope=self.scope, source=source)
+        variable = sym.Variable(name=vname, scope=kwargs['scope'], source=source)
         lower = self.visit(o.find('header/index-variable/lower-bound'), **kwargs)
         upper = self.visit(o.find('header/index-variable/upper-bound'), **kwargs)
         step = None
@@ -360,7 +361,7 @@ class OFP2IR(GenericVisitor):
             dtype = self.visit(o.find('derived-type-spec'), **kwargs)
 
             # Look for a previous definition of this type
-            _type = self.scope.symbols.lookup(dtype.name)
+            _type = kwargs['scope'].symbols.lookup(dtype.name)
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
 
@@ -446,14 +447,14 @@ class OFP2IR(GenericVisitor):
 
             variables = self.visit(o.findall('names'), **kwargs)
             for var in variables:
-                _type = self.scope.symbols.lookup(var.name)
+                _type = kwargs['scope'].symbols.lookup(var.name)
                 if _type is None:
                     _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
                 else:
                     _type = _type.clone(external=True)
-                self.scope.symbols[var.name] = _type
+                kwargs['scope'].symbols[var.name] = _type
 
-            variables = tuple(v.clone(scope=self.scope) for v in variables)
+            variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
             declaration = ir.Declaration(variables=variables, external=True, source=source, label=label)
             return declaration
 
@@ -468,7 +469,8 @@ class OFP2IR(GenericVisitor):
             # Instantiate the TypeDef without its body
             # Note: This creates the symbol table for the declarations and
             # the typedef object registers itself in the parent scope
-            typedef = ir.TypeDef(name=name, body=(), label=label, source=source, parent=self.scope)
+            typedef = ir.TypeDef(name=name, body=(), label=label, source=source, parent=kwargs['scope'])
+            kwargs['scope'] = typedef
 
             # This is still ugly, but better than before! In order to
             # process certain tag combinations (groups) into declaration
@@ -564,12 +566,12 @@ class OFP2IR(GenericVisitor):
             _type = _type.clone(return_type=return_type, external=True)
 
         # Make sure KIND (which can be a name) is in the right scope
-        scope = self.scope  # TODO: pass down scopes
         if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
             # TODO: put it in the right scope (Rescope Visitor)
-            _type = _type.clone(kind=_type.kind.clone(scope=scope))
+            _type = _type.clone(kind=_type.kind.clone(scope=kwargs['scope']))
 
         # Update symbol table entries
+        scope = kwargs['scope']
         for var in variables:
             if external:
                 type_kwargs = _type.__dict__.copy()
@@ -610,15 +612,13 @@ class OFP2IR(GenericVisitor):
             if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
+        parent_scope = kwargs['scope']
         routine = Subroutine(name=name, args=args, ast=o, bind=bind, is_function=is_function,
-                             source=kwargs['source'], parent=self.scope)
+                             source=kwargs['source'], parent=parent_scope)
+        kwargs['scope'] = routine
 
         # Spec
-        # HACK: temporarily replace the scope property until we pass down scopes properly
-        parent_scope, self.scope = self.scope, routine
         routine.spec = self.visit(o.find('body/specification'), **kwargs)
-        self.scope = parent_scope
-
         return routine
 
     visit_function = visit_subroutine
@@ -632,15 +632,17 @@ class OFP2IR(GenericVisitor):
                         for a in o.findall('header/keyword-arguments/keyword-argument')]
 
         # Create a scope for the associate
-        parent_scope = self.scope
-        scope = parent_scope  # TODO: actually create own scope
+        parent_scope = kwargs['scope']
+        associate = ir.Associate(associations=(), body=(), parent=parent_scope,
+                                 label=kwargs['label'], source=kwargs['source'])
+        kwargs['scope'] = associate
 
         # TODO: Apply some rescope-visitor here
         rescoped_associations = []
         for expr, name in associations:
             rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
             expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=scope)
+            name = name.clone(scope=associate)
             rescoped_associations += [(expr, name)]
         associations = as_tuple(rescoped_associations)
 
@@ -662,10 +664,11 @@ class OFP2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            scope.symbols[name.name] = _type
+            associate.symbols[name.name] = _type
 
         body = as_tuple(self.visit(o.find('body'), **kwargs))
-        return ir.Associate(body=body, associations=associations, label=kwargs['label'], source=kwargs['source'])
+        associate._update(associations=associations, body=body)
+        return associate
 
     def visit_allocate(self, o, **kwargs):
         variables = as_tuple(self.visit(v, **kwargs) for v in o.findall('expressions/expression/name'))
@@ -680,7 +683,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_use(self, o, **kwargs):
         name, module = self.visit(o.find('use-stmt'), **kwargs)
-        scope = self.scope
+        scope = kwargs['scope']
         if o.find('only') is not None:
             symbols = self.visit(o.find('only'), **kwargs)
             if module is None:
@@ -882,7 +885,7 @@ class OFP2IR(GenericVisitor):
             if str(name).upper() in intrinsic_calls or kwarguments:
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
-            _type = self.scope.symbols.lookup(name.name)
+            _type = kwargs['scope'].symbols.lookup(name.name)
             if subscripts and _type and isinstance(_type.dtype, ProcedureType):
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
@@ -915,7 +918,7 @@ class OFP2IR(GenericVisitor):
             if kind.isnumeric():
                 kw_args['kind'] = sym.Literal(value=int(kind))
             else:
-                kw_args['kind'] = sym.Variable(name=kind, scope=self.scope)
+                kw_args['kind'] = sym.Variable(name=kind, scope=kwargs['scope'])
         return sym.Literal(value, **kw_args)
 
     def visit_array_constructor_values(self, o, **kwargs):

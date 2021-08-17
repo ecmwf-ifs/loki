@@ -110,7 +110,7 @@ class OMNI2IR(GenericVisitor):
         self.type_map = type_map
         self.symbol_map = symbol_map
         self.raw_source = raw_source
-        self.scope = scope
+        self.default_scope = scope
 
     @staticmethod
     def warn_or_fail(msg):
@@ -165,6 +165,7 @@ class OMNI2IR(GenericVisitor):
         if lineno:
             lineno = int(lineno)
         kwargs['source'] = Source(lines=(lineno, lineno), file=file)
+        kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
 
     def visit_Element(self, o, **kwargs):
@@ -181,7 +182,7 @@ class OMNI2IR(GenericVisitor):
     def visit_FuseDecl(self, o, **kwargs):
         name = o.attrib['name']
         module = self.definitions.get(name, None)
-        scope = self.scope
+        scope = kwargs['scope']
         if module is not None:
             for k, v in module.symbols.items():
                 scope.symbols[k] = v.clone(imported=True, module=module)
@@ -191,7 +192,7 @@ class OMNI2IR(GenericVisitor):
         name = o.attrib['name']
         symbols = tuple(self.visit(c, **kwargs) for c in o.findall('renamable'))
         module = self.definitions.get(name, None)
-        scope = self.scope
+        scope = kwargs['scope']
         if module is None:
             scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
         else:
@@ -221,14 +222,11 @@ class OMNI2IR(GenericVisitor):
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
 
+        parent_scope = kwargs['scope']
         routine = Subroutine(name=name, args=args, ast=o, is_function=is_function,
-                             source=kwargs['source'], parent=self.scope)
-
-        # Generate spec
-        # HACK: temporarily replace the scope property until we pass down scopes properly
-        parent_scope, self.scope = self.scope, routine
+                             source=kwargs['source'], parent=parent_scope)
+        kwargs['scope'] = routine
         routine.spec = self.visit(o.find('declarations'), **kwargs)
-        self.scope = parent_scope
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
@@ -298,7 +296,7 @@ class OMNI2IR(GenericVisitor):
         else:
             raise ValueError
 
-        scope = self.scope
+        scope = kwargs['scope']
         if o.find('value') is not None:
             _type.initial = self.visit(o.find('value'), **kwargs)
             # TODO: Apply some rescope-visitor here
@@ -318,11 +316,12 @@ class OMNI2IR(GenericVisitor):
         # Instantiate the TypeDef without its body
         # Note: This creates the symbol table for the declarations and
         # the typedef object registers itself in the parent scope
-        typedef = ir.TypeDef(name=name.text, body=(), parent=self.scope)
+        typedef = ir.TypeDef(name=name.text, body=(), parent=kwargs['scope'])
+        kwargs['scope'] = typedef
 
         # Build the list of derived type members
         struct_type = self.type_map[name.attrib['type']]
-        variables = self._struct_type_variables(struct_type, scope=typedef, **kwargs)
+        variables = self._struct_type_variables(struct_type, **kwargs)
 
         if 'extends' in struct_type.attrib:
             self.warn_or_fail('extends attribute for derived types not implemented')
@@ -394,7 +393,7 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        dtype = self.scope.symbols.lookup(name, recursive=True)
+        dtype = kwargs['scope'].symbols.lookup(name, recursive=True)
         if dtype is None or dtype.dtype == BasicType.DEFERRED:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:
@@ -412,15 +411,16 @@ class OMNI2IR(GenericVisitor):
         associations = tuple(self.visit(c, **kwargs) for c in o.findall('symbols/id'))
 
         # Create a scope for the associate
-        parent_scope = self.scope
-        scope = parent_scope  # TODO: actually create own scope
+        parent_scope = kwargs['scope']
+        associate = ir.Associate(associations=(), body=(), parent=parent_scope, source=kwargs['source'])
+        kwargs['scope'] = associate
 
         # TODO: Apply some rescope-visitor here
         rescoped_associations = []
         for expr, name in associations:
             rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
             expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=scope)
+            name = name.clone(scope=associate)
             rescoped_associations += [(expr, name)]
         associations = as_tuple(rescoped_associations)
 
@@ -442,10 +442,11 @@ class OMNI2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            scope.symbols[name.name] = _type
+            associate.symbols[name.name] = _type
 
         body = self.visit(o.find('body'), **kwargs)
-        return ir.Associate(body=body, associations=associations, source=kwargs['source'])
+        associate._update(associations=associations, body=body)
+        return associate
 
     def visit_id(self, o, **kwargs):
         expr = self.visit(o.find('value'), **kwargs)

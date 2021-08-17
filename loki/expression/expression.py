@@ -280,3 +280,16 @@ class AttachScopes(Visitor):
         kwargs['scope'] = o
         body = self.visit(o.body, **kwargs)
         return self._update(o, (), body=body, symbols=o.symbols, rescope_variables=False)
+
+    def visit_Associate(self, o, **kwargs):
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        associations = tuple((self.visit(var, **kwargs), self.visit(expr, **kwargs))
+                             for var, expr in o.associations)
+        body = self.visit(o.body, **kwargs)
+        return self._update(o, (), associations=associations, body=body, symbols=o.symbols,
+                            rescope_variables=False)

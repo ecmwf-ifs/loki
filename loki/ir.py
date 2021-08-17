@@ -317,7 +317,7 @@ class Section(InternalNode):
         return 'Section::'
 
 
-class Associate(Section):
+class Associate(ScopedNode, Section):
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
@@ -329,25 +329,39 @@ class Associate(Section):
     associations : dict or OrderedDict
         The mapping of names to expressions or variables valid inside the
         associate's body.
+    parent : :any:`Scope`, optional
+        The parent scope in which the associate appears
+    symbols : :any:`SymbolTable`, optional
+        An existing symbol table to use
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body', 'associations']
 
-    def __init__(self, body=None, associations=None, **kwargs):
-        super().__init__(body=body, **kwargs)
-
+    def __init__(self, body=None, associations=None, parent=None, symbols=None, **kwargs):
         if not isinstance(associations, tuple):
             assert isinstance(associations, (dict, OrderedDict)) or associations is None
             self.associations = as_tuple(associations.items())
         else:
             self.associations = associations
 
+        super().__init__(body=body, parent=parent, symbols=symbols, **kwargs)
+
     @property
     def association_map(self):
         """
-        An ``OrderedDict`` of associated expressions.
+        An :any:`OrderedDict` of associated expressions.
         """
         return OrderedDict(self.associations)
+
+    @property
+    def variables(self):
+        return tuple(v for _, v in self.associations)
+
+    @property
+    def imported_symbols(self):
+        return ()
 
     def __repr__(self):
         if self.associations:

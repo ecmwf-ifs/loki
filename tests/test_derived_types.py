@@ -6,7 +6,7 @@ from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
     RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef,
-    config, fgen
+    config, fgen, FindNodes, Associate
 )
 
 
@@ -420,6 +420,13 @@ end module
     else:
         assert all(v.shape == (IntLiteral(3),)
                    for v in variables if v.name in ['vector', 'vector2'])
+
+    for assoc in FindNodes(Associate).visit(routine.body):
+        for var in FindVariables().visit(assoc.body):
+            if var.name in assoc.variables:
+                assert var.scope is assoc
+            else:
+                assert var.scope is routine
 
     # Test the generated module
     filepath = here/('derived_types_associates_%s.f90' % frontend)

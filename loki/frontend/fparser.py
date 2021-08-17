@@ -196,7 +196,7 @@ class FParser2IR(GenericVisitor):
         super().__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
-        self.scope = scope
+        self.default_scope = scope
 
     @staticmethod
     def warn_or_fail(msg):
@@ -239,7 +239,7 @@ class FParser2IR(GenericVisitor):
         """
         kwargs['source'] = self.get_source(o, kwargs.get('source'))
         kwargs['label'] = self.get_label(o)
-        kwargs.setdefault('scope', self.scope)
+        kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
 
     def visit_List(self, o, **kwargs):
@@ -909,15 +909,16 @@ class FParser2IR(GenericVisitor):
 
         # Create a scope for the associate
         parent_scope = kwargs['scope']
-        scope = parent_scope  # TODO: actually create own scope
-        kwargs['scope'] = scope
+        associate = ir.Associate(associations=(), body=(), parent=parent_scope,
+                                 label=kwargs.get('label'), source=source)
+        kwargs['scope'] = associate
 
         # TODO: Apply some rescope-visitor here
         rescoped_associations = []
         for expr, name in associations:
             rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
             expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=scope)
+            name = name.clone(scope=associate)
             rescoped_associations += [(expr, name)]
         associations = as_tuple(rescoped_associations)
 
@@ -939,11 +940,11 @@ class FParser2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            scope.symbols[name.name] = _type
+            associate.symbols[name.name] = _type
 
         # The body
         body = as_tuple(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index])
-        associate = ir.Associate(associations=associations, body=body, label=kwargs.get('label'), source=source)
+        associate._update(associations=associations, body=body)
 
         # Everything past the END ASSOCIATE (should be empty)
         assert not o.children[end_assoc_stmt_index+1:]
@@ -1555,8 +1556,7 @@ class FParser2IR(GenericVisitor):
             if kind.isdigit():
                 kind = sym.Literal(value=int(kind), source=source)
             else:
-                scope = kwargs.get('scope', self.scope)
-                kind = sym.Variable(name=kind, scope=scope, source=source)
+                kind = sym.Variable(name=kind, scope=kwargs['scope'], source=source)
             return sym.Literal(value=val, type=_type, kind=kind, source=source)
         return sym.Literal(value=val, type=_type, source=source)
 
@@ -1629,7 +1629,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = sym.Variable(name=pname, scope=self.scope)
+        v = sym.Variable(name=pname, scope=kwargs['scope'])
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))
