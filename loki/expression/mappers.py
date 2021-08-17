@@ -415,6 +415,7 @@ class LokiIdentityMapper(IdentityMapper):
 
     rec = __call__
 
+    map_algebraic_leaf = IdentityMapper.map_constant
     map_logic_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
     map_intrinsic_literal = IdentityMapper.map_constant
@@ -509,13 +510,24 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
 
 
 class AttachScopesMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree)
+    that determines the scope of :any:`TypedSymbol` nodes and updates its
+    :attr:`scope` pointer accordingly.
+
+    Parameters
+    ----------
+    fail : bool, optional
+        If `True`, the mapper raises :any:`RuntimeError` if the scope for a
+        symbol can not be found.
+    """
 
     def __init__(self, fail=False):
         super().__init__(invalidate_source=False)
         self.fail = fail
 
     def __call__(self, expr, *args, **kwargs):
-        from loki.expression.symbols import TypedSymbol
+        from loki.expression.symbols import TypedSymbol  # pylint: disable=import-outside-toplevel
         if isinstance(expr, TypedSymbol):
             scope = kwargs['scope']
             symbol_scope = scope.get_symbol_scope(expr.name)

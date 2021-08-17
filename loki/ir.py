@@ -359,10 +359,6 @@ class Associate(ScopedNode, Section):
     def variables(self):
         return tuple(v for _, v in self.associations)
 
-    @property
-    def imported_symbols(self):
-        return ()
-
     def __repr__(self):
         if self.associations:
             associations = ', '.join('{}={}'.format(str(var), str(expr))
