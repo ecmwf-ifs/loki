@@ -86,6 +86,21 @@ class FindNodes(Visitor):
             ret = self.visit(i, ret=ret, **kwargs)
         return ret or self.default_retval()
 
+    def visit_TypeDef(self, o, **kwargs):
+        """
+        Custom handler for :any:`TypeDef` nodes that does not traverse the
+        body (reason being that discovering nodes such as declarations from
+        inside the type definition would be unexpected if called on a
+        containing :any:`Subroutine` or :any:`Module`)
+        """
+        ret = kwargs.pop('ret', self.default_retval())
+        if self.rule(self.match, o):
+            ret.append(o)
+            if self.greedy:
+                return ret
+        # Do not traverse children (i.e., TypeDef's body)
+        return ret or self.default_retval()
+
 
 def is_child_of(node, other):
     """

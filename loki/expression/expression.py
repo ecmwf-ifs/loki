@@ -122,6 +122,14 @@ class ExpressionFinder(Visitor):
         expressions = [self.visit(c, **kwargs) for c in flatten(o.children)]
         return self._return(o, as_tuple(expressions))
 
+    def visit_TypeDef(self, o, **kwargs):
+        """
+        Custom handler for :any:`TypeDef` nodes that does not traverse the
+        body (reason being that discovering variables used or declared
+        inside the type definition would be unexpected if called on a
+        containing :any:`Subroutine` or :any:`Module`)
+        """
+        return self._return(o, ())
 
 class FindExpressions(ExpressionFinder):
     """
