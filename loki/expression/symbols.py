@@ -416,11 +416,16 @@ class Variable:
         scope = kwargs.get('scope')
         _type = kwargs.get('type')
 
-        if not _type or _type.dtype is BasicType.DEFERRED:
-            # Try to determine type information
-            if scope is not None:
-                kwargs['type'] = scope.symbols.lookup(name) if scope else None
-                _type = kwargs['type']
+        if scope is not None and (_type is None or _type.dtype is BasicType.DEFERRED):
+            # Try to determine stored type information if we have no or only deferred type
+            stored_type = scope.symbols.lookup(name)
+            if _type is None:
+                _type = stored_type
+            elif stored_type is not None:
+                if stored_type.dtype is not BasicType.DEFERRED or not _type.attributes:
+                    # If provided and stored are deferred but attributes given, we use provided
+                    _type = stored_type
+            kwargs['type'] = _type
 
         if _type and isinstance(_type.dtype, ProcedureType):
             # This is the name in a function/subroutine call
