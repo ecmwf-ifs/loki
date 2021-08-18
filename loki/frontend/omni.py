@@ -6,7 +6,7 @@ from loki.frontend.util import inline_comments, cluster_comments, inline_labels
 from loki.visitors import GenericVisitor, FindNodes, Transformer
 from loki import ir
 import loki.expression.symbols as sym
-from loki.expression import ExpressionDimensionsMapper, StringConcat, FindTypedSymbols, SubstituteExpressions
+from loki.expression import ExpressionDimensionsMapper, StringConcat, AttachScopesMapper
 from loki.logging import info, debug, DEBUG, warning, error
 from loki.config import config
 from loki.tools import (
@@ -298,13 +298,9 @@ class OMNI2IR(GenericVisitor):
 
         scope = kwargs['scope']
         if o.find('value') is not None:
-            _type.initial = self.visit(o.find('value'), **kwargs)
-            # TODO: Apply some rescope-visitor here
-            rescope_map = {var: var.clone(scope=scope) for var in FindTypedSymbols().visit(_type.initial)}
-            _type.initial = SubstituteExpressions(rescope_map).visit(_type.initial)
-        if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
-            # TODO: put it in the right scope (Rescope Visitor)
-            _type = _type.clone(kind=_type.kind.clone(scope=scope))
+            _type.initial = AttachScopesMapper()(self.visit(o.find('value'), **kwargs), scope=scope)
+        if _type.kind is not None:
+            _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
         scope.symbols[variable.name] = _type
         variables = (variable.clone(scope=scope),)
@@ -415,20 +411,16 @@ class OMNI2IR(GenericVisitor):
         associate = ir.Associate(associations=(), body=(), parent=parent_scope, source=kwargs['source'])
         kwargs['scope'] = associate
 
-        # TODO: Apply some rescope-visitor here
+        # Put associate expressions into the right scope and determine type of new symbols
         rescoped_associations = []
         for expr, name in associations:
-            rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
-            expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=associate)
-            rescoped_associations += [(expr, name)]
-        associations = as_tuple(rescoped_associations)
+            # Put symbols in associated expression into the right scope
+            expr = AttachScopesMapper()(expr, scope=parent_scope)
 
-        # Update symbol table for associates
-        for expr, name in associations:
+            # Determine type of new names
             if isinstance(expr, sym.TypedSymbol):
                 # Use the type of the associated variable
-                _type = parent_scope.symbols.lookup(expr.name)
+                _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
                     shape = ExpressionDimensionsMapper()(expr)
                     if shape == (sym.IntLiteral(1),):
@@ -442,7 +434,9 @@ class OMNI2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            associate.symbols[name.name] = _type
+            name = name.clone(scope=associate, type=_type)
+            rescoped_associations += [(expr, name)]
+        associations = as_tuple(rescoped_associations)
 
         body = self.visit(o.find('body'), **kwargs)
         associate._update(associations=associations, body=body)

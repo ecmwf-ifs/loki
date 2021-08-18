@@ -207,7 +207,7 @@ class ExtractSCATransformation(Transformation):
         # Finally, we add the declaration of the loop variable
         if wrap and self.horizontal.index not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
-            dtype = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
+            dtype = SymbolAttributes(BasicType.INTEGER, kind=Variable(name='JPIM'))
             caller.variables += (Variable(name=self.horizontal.index, type=dtype, scope=caller),)
 
 

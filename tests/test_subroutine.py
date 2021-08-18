@@ -1244,9 +1244,10 @@ contains
 
   subroutine nested_routine(a, n)
     use some_mod, only: ext2
+    integer, parameter :: jpim = selected_int_kind(4)
     integer, intent(inout) :: a
     integer, intent(in) :: n
-    integer :: j
+    integer(kind=jpim) :: j
 
     do j=1,n
       a(j) = a(j) + 1
@@ -1275,11 +1276,19 @@ end subroutine test_subroutine_rescope
         else:
             assert var.scope is nested_routine
 
+    # Make sure the KIND parameter symbol in the variable's type is also correctly rescoped
+    assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
+    assert nested_routine.variable_map['j'].type.kind.scope is nested_routine
+
     # Create another copy of the nested subroutine without rescoping
     nested_spec = Transformer().visit(routine.members[0].spec)
     nested_body = Transformer().visit(routine.members[0].body)
     other_routine = Subroutine(name=routine.members[0].name, args=routine.members[0].argnames,
                                spec=nested_spec, body=nested_body, parent=routine)
+
+    # Save the kind symbol for later
+    other_kind_var = other_routine.variable_map['j'].type.kind
+    assert other_kind_var.scope is routine.members[0]
 
     # Explicitly throw away type information from original nested routine
     routine.members[0]._parent = None
@@ -1298,6 +1307,13 @@ end subroutine test_subroutine_rescope
     # accessing any local type information should fail because either the scope got garbage
     # collected or its types are gonee
     assert all(var.scope is None or var.type is None for var in other_routine.variables)
+
+    # Make sure changes apply also to the KIND attribute
+    assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
+
+    # This points (weakly) to an entry in routine.members[0].symbols which may or may not
+    # have been garbage collected at this point
+    assert other_kind_var.scope is not other_routine
 
     # fgen of the not rescoped routine should fail because the scope of the variables went away
     with pytest.raises(AttributeError):

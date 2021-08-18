@@ -430,7 +430,11 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        return expr.clone(parent=parent)
+        _type = expr.type
+        if _type.kind:
+            kind = self.rec(_type.kind, *args, **kwargs)
+            _type = _type.clone(kind=kind)
+        return expr.clone(parent=parent, type=_type)
 
     map_deferred_type_symbol = map_scalar
     map_procedure_symbol = map_scalar
@@ -441,11 +445,13 @@ class LokiIdentityMapper(IdentityMapper):
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        if expr.shape:
-            shape = self.rec(expr.shape, *args, **kwargs)
-            _type = expr.type.clone(shape=shape)
-        else:
-            _type = expr.type
+        _type = expr.type
+        if _type.shape:
+            shape = self.rec(_type.shape, *args, **kwargs)
+            _type = _type.clone(shape=shape)
+        if _type.kind:
+            kind = self.rec(_type.kind, *args, **kwargs)
+            _type = _type.clone(kind=kind)
         return expr.clone(parent=parent, dimensions=dimensions, type=_type)
 
     def map_array_subscript(self, expr, *args, **kwargs):

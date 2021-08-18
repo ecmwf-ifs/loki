@@ -14,8 +14,9 @@ from loki.visitors import GenericVisitor
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
-    ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
-from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions
+    ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat
+)
+from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
@@ -209,7 +210,7 @@ class OFP2IR(GenericVisitor):
 
         # We are processing a regular for/do loop with bounds
         vname = o.find('header/index-variable').attrib['name']
-        variable = sym.Variable(name=vname, scope=kwargs['scope'], source=source)
+        variable = sym.Variable(name=vname, source=source)
         lower = self.visit(o.find('header/index-variable/lower-bound'), **kwargs)
         upper = self.visit(o.find('header/index-variable/upper-bound'), **kwargs)
         step = None
@@ -566,9 +567,9 @@ class OFP2IR(GenericVisitor):
             _type = _type.clone(return_type=return_type, external=True)
 
         # Make sure KIND (which can be a name) is in the right scope
-        if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
-            # TODO: put it in the right scope (Rescope Visitor)
-            _type = _type.clone(kind=_type.kind.clone(scope=kwargs['scope']))
+        if _type.kind is not None:
+            kind = AttachScopesMapper()(_type.kind, scope=kwargs['scope'])
+            _type = _type.clone(kind=kind)
 
         # Update symbol table entries
         scope = kwargs['scope']
@@ -637,20 +638,16 @@ class OFP2IR(GenericVisitor):
                                  label=kwargs['label'], source=kwargs['source'])
         kwargs['scope'] = associate
 
-        # TODO: Apply some rescope-visitor here
+        # Put associate expressions into the right scope and determine type of new symbols
         rescoped_associations = []
         for expr, name in associations:
-            rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
-            expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=associate)
-            rescoped_associations += [(expr, name)]
-        associations = as_tuple(rescoped_associations)
+            # Put symbols in associated expression into the right scope
+            expr = AttachScopesMapper()(expr, scope=parent_scope)
 
-        # Update symbol table for associates
-        for expr, name in associations:
+            # Determine type of new names
             if isinstance(expr, sym.TypedSymbol):
                 # Use the type of the associated variable
-                _type = parent_scope.symbols.lookup(expr.name)
+                _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
                     shape = ExpressionDimensionsMapper()(expr)
                     if shape == (sym.IntLiteral(1),):
@@ -664,7 +661,9 @@ class OFP2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            associate.symbols[name.name] = _type
+            name = name.clone(scope=associate, type=_type)
+            rescoped_associations += [(expr, name)]
+        associations = as_tuple(rescoped_associations)
 
         body = as_tuple(self.visit(o.find('body'), **kwargs))
         associate._update(associations=associations, body=body)
@@ -918,7 +917,7 @@ class OFP2IR(GenericVisitor):
             if kind.isnumeric():
                 kw_args['kind'] = sym.Literal(value=int(kind))
             else:
-                kw_args['kind'] = sym.Variable(name=kind, scope=kwargs['scope'])
+                kw_args['kind'] = AttachScopesMapper()(sym.Variable(name=kind), scope=kwargs['scope'])
         return sym.Literal(value, **kw_args)
 
     def visit_array_constructor_values(self, o, **kwargs):

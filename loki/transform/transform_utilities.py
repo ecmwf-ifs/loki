@@ -97,6 +97,7 @@ def resolve_associates(routine):
         assoc_map[assoc] = assoc.body
     routine.body = Transformer(assoc_map).visit(routine.body)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+    routine.rescope_variables()
 
 
 def used_names_from_symbol(symbol, modifier=str.lower):
