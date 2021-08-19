@@ -141,8 +141,6 @@ class OMNI2IR(GenericVisitor):
                 typename = self._omni_types.get(t, t)
                 vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
 
-            if dimensions:
-                dimensions = sym.ArraySubscript(dimensions, source=kwargs['source'])
             variables += [
                 sym.Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope, source=kwargs['source'])]
         return variables

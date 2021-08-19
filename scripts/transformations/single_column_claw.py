@@ -7,7 +7,7 @@ from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
-    Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
+    Array, Pragma, Declaration, LoopRange, RangeIndex,
     SymbolAttributes, BasicType, CaseInsensitiveDict, as_tuple, warning
 )
 
@@ -110,7 +110,7 @@ class ExtractSCATransformation(Transformation):
                                     if s not in size_expressions)
             else:
                 new_dims = ()
-            new_dims = None if len(new_dims) == 0 else ArraySubscript(new_dims)
+            new_dims = None if len(new_dims) == 0 else new_dims
             if len(old_shape) != len(new_shape):
                 new_type = v.type.clone(shape=new_shape)
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
@@ -171,7 +171,7 @@ class ExtractSCATransformation(Transformation):
                                          for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
-                        argmap[val] = val.clone(dimensions=ArraySubscript(new_dims))
+                        argmap[val] = val.clone(dimensions=new_dims)
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]
