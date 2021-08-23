@@ -106,7 +106,7 @@ class ExtractSCATransformation(Transformation):
             old_shape = shape_map[v.name]
             new_shape = as_tuple(s for s in old_shape if s not in size_expressions)
             if v.dimensions:
-                new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
+                new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
                                     if s not in size_expressions)
             else:
                 new_dims = ()
@@ -165,7 +165,7 @@ class ExtractSCATransformation(Transformation):
 
                     # Remove self.horizontal dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
+                        v_dims = val.dimensions if val.dimensions else new_dims
                         new_dims = tuple(Variable(name=self.horizontal.index, scope=caller)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))

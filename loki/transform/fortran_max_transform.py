@@ -278,9 +278,9 @@ class FortranMaxTransformation(Transformation):
 
                     # TODO: we can only handle 1D arrays for now
                     dim = dataflow_indices[0]
-                    if len(v.dimensions.index_tuple) > 1:
+                    if len(v.dimensions) > 1:
                         raise NotImplementedError('Can not handle >1 dataflow dimensions!')
-                    index = v.dimensions.index_tuple[0]
+                    index = v.dimensions[0]
 
                     # Make sure the stream for that array exists
                     assert v.name in arr_args
@@ -408,7 +408,7 @@ class FortranMaxTransformation(Transformation):
                 else:
                     name = sym.Variable(name='io.scalarOutput')
                 parameters = (sym.StringLiteral('"{}"'.format(var.name)),
-                              var.clone(dimensions=()), init_type(var.type))
+                              var.clone(dimensions=None), init_type(var.type))
                 stmt = ir.CallStatement(name, arguments=parameters)
                 max_kernel.body.append(stmt)
 
@@ -559,8 +559,7 @@ class FortranMaxTransformation(Transformation):
         arguments = flatten([generate_arg_tuple(arg) for arg in arguments])
 
         # Remove initial values from arguments
-        for arg in arguments:
-            arg.initial = None
+        arguments = tuple(arg.clone(type=arg.type.clone(initial=None)) for arg in arguments)
 
         # Update the routine's arguments and remove any other variables
         slic_routine.variables = ()  # [v for v in slic_routine.variables if v.type.parameter]

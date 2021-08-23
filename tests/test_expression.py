@@ -783,10 +783,6 @@ def test_string_compare():
     assert all(v == exp for exp in ['v(i,j)', 'v(i, j)', 'v (i , j)', 'V(i,j)', 'V(I, J)'])
     assert not all(v == exp for exp in ['v(i,j())', 'v(i,_j)', '_V(i,j)'])
 
-    # Test array variable dimensions (ArraySubscript)
-    assert all(v.dimensions == exp for exp in ['(i,j)', '(i, j)', ' (i ,  j)', '(i,J)', '(I, J)'])  # pylint: disable=no-member
-    assert not all(v.dimensions == exp for exp in ['i, j', '(j, i)', '[i, j]'])  # pylint: disable=no-member
-
     # Test a standard array dimension range
     r = RangeIndex(children=(i, j))
     w = Variable(name='w', dimensions=(r,), scope=scope, type=type_real)

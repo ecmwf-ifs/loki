@@ -16,7 +16,8 @@ __all__ = [
     # Mix-ins
     'ExprMetadataMixin', 'StrCompareMixin',
     # Typed leaf nodes
-    'TypedSymbol', 'DeferredTypeSymbol', 'Scalar', 'Array', 'Variable', 'ProcedureSymbol',
+    'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol',
+    'MetaSymbol', 'Scalar', 'Array', 'Variable',
     # Non-typed leaf nodes
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
     'IntrinsicLiteral', 'Literal', 'LiteralList',
@@ -128,7 +129,7 @@ class TypedSymbol:
         self.name = kwargs['name']
 
         self.parent = kwargs.pop('parent', None)
-        assert self.parent is None or isinstance(self.parent, TypedSymbol)
+        assert self.parent is None or isinstance(self.parent, (TypedSymbol, MetaSymbol))
 
         scope = kwargs.pop('scope', None)
         assert scope is None or isinstance(scope, Scope)
@@ -226,18 +227,31 @@ class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.V
     mapper_method = intern('map_deferred_type_symbol')
 
 
-class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
+class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
-    Expression node for scalar variables.
+    Expression node to represent a variable symbol
+
+    Note that this node should not be used directly to represent variables
+    but instead meta nodes :any:`Scalar` or :any:`Array` (via their factory
+    :any:`Variable`) should be used.
+
+    The purpose of this is to align Loki's "convenience layer" for expressions
+    with Pymbolic's expression tree structure. Loki makes variable use
+    (especially for arrays) with or without properties (such as subscript
+    dimensions) directly accessible from a single object, whereas Pymbolic
+    represents array subscripts as an operation applied to a variable.
+
+    Furthermore, it adds type information via :any:`TypedSymbol`.
 
     Parameters
     ----------
     name : str
         The name of the variable.
-    scope : :any:`Scope`
+    scope : :any:`Scope`, optional
         The scope in which the variable is declared.
-    type : optional
-        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    type : :any:`SymbolAttributes`, optional
+        The type of that symbol. Defaults to :any:`SymbolAttributes` with
+        :any:`BasicType.DEFERRED`.
     """
 
     def __init__(self, name, scope=None, type=None, **kwargs):
@@ -262,13 +276,190 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  #
             args += [('parent', self.parent)]
         return super().__getinitargs__() + tuple(args)
 
+    mapper_method = intern('map_variable_symbol')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+
+class _FunctionSymbol(pmbl.FunctionSymbol):
+    """
+    Adapter class for :any:`pymbolic.primitives.FunctionSymbol` that intercepts
+    constructor arguments
+
+    This is needed since the original symbol does not like having a :data:`name`
+    parameter handed down in the constructor.
+    """
+
+    def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
+        super().__init__()
+
+
+class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
+    """
+    Internal representation of a symbol that represents a callable
+    subroutine or function
+
+    Parameters
+    ----------
+    name : str
+        The name of the symbol.
+    scope : :any:`Scope`
+        The scope in which the symbol is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    """
+
+    def __init__(self, name, scope=None, type=None, **kwargs):
+        # pylint: disable=redefined-builtin
+        assert type is None or isinstance(type.dtype, ProcedureType) or \
+                (isinstance(type.dtype, DerivedType) and name.lower() == type.dtype.name.lower())
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+    mapper_method = intern('map_procedure_symbol')
+
+
+class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
+    """
+    Base class for meta symbols to encapsulate a symbol node with optional
+    enclosing operations in a unifying interface
+
+    The motivation for this class is that Loki strives to make variables
+    and their use accessible via uniform interfaces :any:`Scalar` or
+    :any:`Array`. Pymbolic's representation of array subscripts or access
+    to members of a derived type are represented as operations on a symbol,
+    thus resulting in a inside-out view that has the symbol innermost.
+
+    To make it more convenient to find symbols and apply transformations on
+    them, Loki wraps these compositions of expression tree nodes into meta
+    nodes that store these compositions and provide direct access to properties
+    of the contained nodes from a single object.
+
+    In the simplest case, an instance of a :any:`TypedSymbol` subclass is
+    stored as :attr:`symbol` and accessible via this property. Typical
+    properties of this symbol (such as :attr:`name`, :attr:`type`, etc.) are
+    directly accessible as properties that are redirected to the actual symbol.
+
+    For arrays, not just the :any:`TypedSymbol` subclass but also an enclosing
+    :any:`ArraySubscript` may be stored inside the meta symbol, providing
+    additionally access to the subscript dimensions. The properties are then
+    dynamically redirected to the relevant expression tree node.
+    """
+
+    def __init__(self, symbol, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._symbol = symbol
+
+    @property
+    def symbol(self):
+        """
+        The underlying :any:`TypedSymbol` node encapsulated by this meta node
+        """
+        return self._symbol
+
+    @property
+    def name(self):
+        """
+        The fully qualifying symbol name
+
+        For derived type members this yields parent and basename
+        """
+        return self.symbol.name
+
+    @property
+    def basename(self):
+        """
+        For derived type members this yields the declared member name without
+        the parent's name
+        """
+        return self.symbol.basename
+
+    @property
+    def parent(self):
+        """
+        For derived type members this yields the declared parent symbol to
+        which it belongs
+        """
+        return self.symbol.parent
+
+    @property
+    def scope(self):
+        """
+        The scope in which the symbol was declared
+
+        Note: for imported symbols this refers to the scope into which it is
+        imported, _not_ where it was declared.
+        """
+        return self.symbol.scope
+
+    @property
+    def type(self):
+        """
+        The :any:`SymbolAttributes` declared for this symbol
+
+        This includes data type as well as additional properties, such as
+        ``INTENT``, ``KIND`` etc.
+        """
+        return self.symbol.type
+
+    @property
+    def initial(self):
+        """
+        Initial value of the variable in a declaration, if given
+        """
+        return self.type.initial
+
+    @property
+    def source(self):
+        return self.symbol.source
+
+    mapper_method = intern('map_meta_symbol')
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+    def __getinitargs__(self):
+        return self.symbol.__getinitargs__()
+
+    def clone(self, **kwargs):
+        return self.symbol.clone(**kwargs)
+
+
+class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
+    """
+    Expression node for scalar variables.
+
+    See :any:`MetaSymbol` for a description of meta symbols.
+
+    Parameters
+    ----------
+    name : str
+        The name of the variable.
+    scope : :any:`Scope`
+        The scope in which the variable is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    """
+
+    def __init__(self, name, scope=None, type=None, **kwargs):
+        # Stop complaints about `type` in this function
+        # pylint: disable=redefined-builtin
+        symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
+        super().__init__(symbol=symbol)
+
+    def __getinitargs__(self):
+        args = []
+        if self.parent:
+            args += [('parent', self.parent)]
+        return super().__getinitargs__() + tuple(args)
+
     mapper_method = intern('map_scalar')
 
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 
 
-class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
+class Array(MetaSymbol):
     """
     Expression node for array variables.
 
@@ -276,6 +467,8 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
     a shape (stored in :data:`type`) and can have associated
     :data:`dimensions` (i.e., the array subscript for indexing/slicing
     when accessing entries).
+
+    See :any:`MetaSymbol` for a description of meta symbols.
 
     Parameters
     ----------
@@ -292,34 +485,26 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
     def __init__(self, name, scope=None, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
-        super().__init__(name=name, scope=scope, type=type, **kwargs)
 
-        # Ensure dimensions are treated via ArraySubscript objects
-        if dimensions is not None and not isinstance(dimensions, ArraySubscript):
-            dimensions = ArraySubscript(dimensions)
-        self.dimensions = dimensions
+        symbol = VariableSymbol(name=name, scope=scope, type=type, **kwargs)
+        if dimensions:
+            symbol = ArraySubscript(symbol, dimensions)
+        super().__init__(symbol=symbol)
 
     @property
-    def initial(self):
-        """
-        Initial value of the variable in declaration.
-        """
-        return self.type.initial
-
-    @initial.setter
-    def initial(self, value):
-        self.type.initial = value
+    def symbol(self):
+        if isinstance(self._symbol, ArraySubscript):
+            return self._symbol.aggregate
+        return self._symbol
 
     @property
     def dimensions(self):
         """
         Symbolic representation of the dimensions or indices.
         """
-        return self._dimensions
-
-    @dimensions.setter
-    def dimensions(self, value):
-        self._dimensions = value
+        if isinstance(self._symbol, ArraySubscript):
+            return self._symbol.index_tuple
+        return ()
 
     @property
     def shape(self):
@@ -328,22 +513,13 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
         """
         return self.type.shape
 
-    @shape.setter
-    def shape(self, value):
-        self.type.shape = value
-
     def __getinitargs__(self):
-        args = []
+        args = super().__getinitargs__()
         if self.dimensions:
-            args += [('dimensions', self.dimensions)]
-        if self.parent:
-            args += [('parent', self.parent)]
-        return super().__getinitargs__() + tuple(args)
+            args += (('dimensions', self.dimensions),)
+        return args
 
     mapper_method = intern('map_array')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
     def clone(self, **kwargs):
         """
@@ -360,7 +536,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
 
 class Variable:
     """
-    Factory class for :any:`TypedSymbol` classes
+    Factory class for :any:`TypedSymbol` or :any:`MetaSymbol` classes
 
     This is a convenience constructor to provide a uniform interface for
     instantiating different symbol types. It checks the symbol's type
@@ -388,7 +564,8 @@ class Variable:
         entry in the scope's symbol table. To not modify the type information
         omit :attr:`type` or use ``type=None``.
 
-    Note that all :class:`TypedSymbol` classes are intentionally quasi-immutable:
+    Note that all :class:`TypedSymbol` and :class:`MetaSymbol` classes are
+    intentionally quasi-immutable:
     Changing any of their attributes, including attaching them to a scope or
     modifying their type, should always be done via the :meth:`clone` method:
 
@@ -435,10 +612,6 @@ class Variable:
             # This is a constructor call
             return ProcedureSymbol(**kwargs)
 
-        #if _type and _type.shape == (IntLiteral(1),):
-        #    # Convenience: This way we can construct Scalar variables with `shape=(1,)`
-        #    _type = _type.clone(shape=None)
-
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
             kwargs.pop('dimensions')
@@ -476,41 +649,6 @@ class Variable:
                                                          scope=obj.scope)
                                                  for v in obj.type.dtype.typedef.variables)
         return obj
-
-
-class _FunctionSymbol(pmbl.FunctionSymbol):
-    """
-    Adapter class for pmbl.FunctionSymbol that stores a name argument.
-
-    This is needed since the original symbol does not like having a :data:`name`
-    parameter handed down in the constructor.
-    """
-
-    def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
-        super().__init__()
-
-
-class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
-    """
-    Internal representation of a callable subroutine or function.
-
-    Parameters
-    ----------
-    name : str
-        The name of the symbol.
-    scope : :any:`Scope`
-        The scope in which the symbol is declared.
-    type : optional
-        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
-    """
-
-    def __init__(self, name, scope=None, type=None, **kwargs):
-        # pylint: disable=redefined-builtin
-        assert type is None or isinstance(type.dtype, ProcedureType) or \
-                (isinstance(type.dtype, DerivedType) and name.lower() == type.dtype.name.lower())
-        super().__init__(name=name, scope=scope, type=type, **kwargs)
-
-    mapper_method = intern('map_procedure_symbol')
 
 
 class _Literal(pmbl.Leaf):
@@ -980,11 +1118,6 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of an array subscript.
     """
-
-    def __init__(self, index, **kwargs):
-        # TODO: have aggregate here?
-        super().__init__(None, index, **kwargs)
-
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()
 

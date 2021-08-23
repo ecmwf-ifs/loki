@@ -61,7 +61,7 @@ class CCodeMapper(LokiStringifyMapper):
         return self.parenthesize_if_needed(
             self.format('(%s) %s', c_intrinsic_type(_type), expression), enclosing_prec, PREC_CALL)
 
-    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
+    def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
         ptr = '*' if expr.type and expr.type.pointer else ''
         if expr.parent is not None:
@@ -69,22 +69,23 @@ class CCodeMapper(LokiStringifyMapper):
             return self.format('%s%s.%s', ptr, parent, expr.basename)
         return self.format('%s%s', ptr, expr.name)
 
-    def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = ''
-        if expr.dimensions:
-            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
-        if expr.parent is not None:
-            parent = self.parenthesize(self.rec(expr.parent, PREC_NONE, *args, **kwargs))
-            return self.format('%s.%s%s', parent, expr.basename, dims)
-        return self.format('%s%s', expr.basename, dims)
+    def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
+
+    map_scalar = map_meta_symbol
+    map_array = map_meta_symbol
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
+        if expr.aggregate.type.pointer and name_str.startswith('*'):
+            # Strip the pointer '*' because subscript dereference
+            name_str = name_str[1:]
         index_str = ''
         for index in expr.index_tuple:
             d = self.format(self.rec(index, PREC_NONE, *args, **kwargs))
             if d:
                 index_str += self.format('[%s]', d)
-        return index_str
+        return self.format('%s%s', name_str, index_str)
 
     def map_logical_not(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize_if_needed(
@@ -187,7 +188,7 @@ class CCodegen(Stringifier):
                     dtype = self.visit(a.type, **kwargs)
                     # str(d).lower() is a bad hack to ensure caps-alignment
                     outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower()
-                                         for d in a.dimensions.index_tuple[1:])
+                                         for d in a.dimensions[1:])
                     body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
                                               dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
 

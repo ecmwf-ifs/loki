@@ -33,7 +33,7 @@ def shift_to_zero_indexing(routine):
     for v in FindVariables(unique=False).visit(routine.body):
         if isinstance(v, sym.Array):
             new_dims = []
-            for d in v.dimensions.index_tuple:
+            for d in v.dimensions:
                 if isinstance(d, sym.RangeIndex):
                     start = d.start - sym.Literal(1) if d.start is not None else None
                     # no shift for stop because Python ranges are [start, stop)
@@ -56,14 +56,14 @@ def invert_array_indices(routine):
     vmap = {}
     for v in FindVariables(unique=True).visit(routine.body):
         if isinstance(v, sym.Array):
-            rdim = as_tuple(reversed(v.dimensions.index_tuple))
+            rdim = as_tuple(reversed(v.dimensions))
             vmap[v] = v.clone(dimensions=rdim)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
     # Invert variable and argument dimensions for the automatic cast generation
     for v in routine.variables:
         if isinstance(v, sym.Array):
-            rdim = as_tuple(reversed(v.dimensions.index_tuple))
+            rdim = as_tuple(reversed(v.dimensions))
             if v.shape:
                 rshape = as_tuple(reversed(v.shape))
                 vmap[v] = v.clone(dimensions=rdim, type=v.type.clone(shape=rshape))
@@ -89,7 +89,7 @@ def resolve_vector_notation(routine):
                 continue
 
             ivar_basename = 'i_%s' % stmt.lhs.basename
-            for i, dim, s in zip(count(), v.dimensions.index_tuple, as_tuple(v.shape)):
+            for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
                     # Create new index variable
                     vtype = SymbolAttributes(BasicType.INTEGER)
@@ -102,7 +102,7 @@ def resolve_vector_notation(routine):
 
             # Add index variable to range replacement
             new_dims = as_tuple(shape_index_map.get(s, d)
-                                for d, s in zip(v.dimensions.index_tuple, as_tuple(v.shape)))
+                                for d, s in zip(v.dimensions, as_tuple(v.shape)))
             vmap[v] = v.clone(dimensions=new_dims)
 
         index_vars.update(list(vdims))
@@ -140,7 +140,7 @@ def normalize_range_indexing(routine):
     vmap = {}
     for v in routine.variables:
         if isinstance(v, sym.Array):
-            new_dims = [d.upper if is_one_index(d) else d for d in v.dimensions.index_tuple]
+            new_dims = [d.upper if is_one_index(d) else d for d in v.dimensions]
             new_shape = [d.upper if is_one_index(d) else d for d in v.shape]
             new_type = v.type.clone(shape=as_tuple(new_shape))
             vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
@@ -208,7 +208,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
                     # If the position is given relative to the end we convert it to
                     # a positive index
                     if hasattr(var, 'dimensions'):
-                        var_dim = var.dimensions.index
+                        var_dim = var.dimensions
                     else:
                         var_dim = ()
                     if pos < 0:

@@ -43,21 +43,19 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_intrinsic_literal = map_logic_literal
 
-    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
+    def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         if expr.parent is not None:
             parent = self.rec(expr.parent, enclosing_prec, *args, **kwargs)
             return self.format('%s%%%s', parent, expr.basename)
         return expr.name
 
-    map_deferred_type_symbol = map_scalar
+    map_deferred_type_symbol = map_variable_symbol
 
-    def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims, parent = '', ''
-        if expr.dimensions:
-            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
-        if expr.parent is not None:
-            parent = self.rec(expr.parent, PREC_NONE, *args, **kwargs) + '%'
-        return self.format('%s%s%s', parent, expr.basename, dims)
+    def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
+
+    map_scalar = map_meta_symbol
+    map_array = map_meta_symbol
 
     map_inline_call = StringifyMapper.map_call_with_kwargs
 
@@ -134,8 +132,9 @@ class LokiStringifyMapper(StringifyMapper):
         return '[' + ','.join(str(c) for c in expr.elements) + ']'
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
         index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
-        return '(%s)' % index_str
+        return '%s(%s)' % (name_str, index_str)
 
     def map_procedure_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return expr.name
@@ -172,24 +171,27 @@ class ExpressionRetriever(WalkMapper):
         if self.query(expr):
             self.exprs.append(expr)
 
-    def map_scalar(self, expr, *args, **kwargs):
+    def map_variable_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
         self.post_visit(expr, *args, **kwargs)
 
-    map_deferred_type_symbol = map_scalar
-    map_procedure_symbol = map_scalar
+    map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol
 
-    def map_array(self, expr, *args, **kwargs):
+    def map_meta_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
-        if expr.dimensions:
-            self.rec(expr.dimensions, *args, **kwargs)
+        self.rec(expr._symbol, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
+
+    map_scalar = map_meta_symbol
+    map_array = map_meta_symbol
 
     def map_array_subscript(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
+        self.rec(expr.aggregate, *args, **kwargs)
         self.rec(expr.index, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -279,6 +281,7 @@ class ExpressionDimensionsMapper(Mapper):
     map_int_literal = map_algebraic_leaf
     map_string_literal = map_algebraic_leaf
     map_intrinsic_literal = map_algebraic_leaf
+    map_variable_symbol = map_algebraic_leaf
     map_scalar = map_algebraic_leaf
 
     def map_deferred_type_symbol(self, expr, *args, **kwargs):
@@ -289,15 +292,14 @@ class ExpressionDimensionsMapper(Mapper):
             # We have the full array
             return expr.shape
 
-        # pylint: disable=import-outside-toplevel
-        from loki.expression.symbols import RangeIndex, IntLiteral
-        dims = self.rec(expr.dimensions, *args, **kwargs)
+        dims = self.rec(expr._symbol, *args, **kwargs)
+
         # Replace colon dimensions by the value from shape
         shape = expr.shape or [None] * len(dims)
-        dims = [s if (isinstance(d, RangeIndex) and d.lower is None and d.upper is None)
-                else d for d, s in zip(dims, shape)]
+        dims = [s if d == ':' else d for d, s in zip(dims, shape)]
+
         # Remove singleton dimensions
-        dims = [d for d in dims if d != IntLiteral(1)]
+        dims = [d for d in dims if d != '1']
         return as_tuple(dims)
 
     def map_array_subscript(self, expr, *args, **kwargs):
@@ -353,19 +355,21 @@ class ExpressionCallbackMapper(CombineMapper):
 
     map_float_literal = map_int_literal
 
-    map_variable = map_constant
-    map_scalar = map_constant
+    map_variable_symbol = map_constant
     map_deferred_type_symbol = map_constant
 
-    def map_array(self, expr, *args, **kwargs):
+    def map_meta_symbol(self, expr, *args, **kwargs):
         rec_results = (self.callback(expr, *args, **kwargs), )
-        if expr.dimensions:
-            rec_results += (self.rec(expr.dimensions, *args, **kwargs), )
+        rec_results += (self.rec(expr._symbol, *args, **kwargs), )
         return self.combine(rec_results)
 
+    map_scalar = map_meta_symbol
+    map_array = map_meta_symbol
+
     def map_array_subscript(self, expr, *args, **kwargs):
-        dimensions = self.rec(expr.index_tuple, *args, **kwargs)
-        return self.combine(dimensions)
+        rec_results = (self.rec(expr.aggregate, *args, **kwargs), )
+        rec_results += (self.rec(expr.index, *args, **kwargs), )
+        return self.combine(rec_results)
 
     map_inline_call = CombineMapper.map_call_with_kwargs
 
@@ -428,7 +432,7 @@ class LokiIdentityMapper(IdentityMapper):
 
     map_float_literal = map_int_literal
 
-    def map_scalar(self, expr, *args, **kwargs):
+    def map_variable_symbol(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
         _type = expr.type
         if _type.kind:
@@ -436,26 +440,28 @@ class LokiIdentityMapper(IdentityMapper):
             _type = _type.clone(kind=kind)
         return expr.clone(parent=parent, type=_type)
 
-    map_deferred_type_symbol = map_scalar
-    map_procedure_symbol = map_scalar
+    map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol
+
+    def map_meta_symbol(self, expr, *args, **kwargs):
+        return self.rec(expr._symbol, *args, **kwargs)
+
+    map_scalar = map_meta_symbol
 
     def map_array(self, expr, *args, **kwargs):
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
+        symbol = self.rec(expr.symbol, *args, **kwargs)
         if expr.dimensions:
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        _type = expr.type
+        _type = symbol.type
         if _type.shape:
             shape = self.rec(_type.shape, *args, **kwargs)
             _type = _type.clone(shape=shape)
-        if _type.kind:
-            kind = self.rec(_type.kind, *args, **kwargs)
-            _type = _type.clone(kind=kind)
-        return expr.clone(parent=parent, dimensions=dimensions, type=_type)
+        return symbol.clone(dimensions=dimensions, type=_type)
 
     def map_array_subscript(self, expr, *args, **kwargs):
-        return expr.__class__(self.rec(expr.index, *args, **kwargs))
+        raise RuntimeError('Recursion should have ended at map_array')
 
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
