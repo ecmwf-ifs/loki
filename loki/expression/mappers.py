@@ -288,7 +288,7 @@ class ExpressionDimensionsMapper(Mapper):
         raise ValueError('Symbol with deferred type encountered: {}'.format(expr))
 
     def map_array(self, expr, *args, **kwargs):
-        if expr.dimensions is None:
+        if not expr.dimensions:
             # We have the full array
             return expr.shape
 

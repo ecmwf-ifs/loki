@@ -416,7 +416,7 @@ class OMNI2IR(GenericVisitor):
             expr = AttachScopesMapper()(expr, scope=parent_scope)
 
             # Determine type of new names
-            if isinstance(expr, sym.TypedSymbol):
+            if isinstance(expr, (sym.TypedSymbol, sym.MetaSymbol)):
                 # Use the type of the associated variable
                 _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
