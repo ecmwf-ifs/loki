@@ -130,7 +130,6 @@ class Module:
         # Generate spec, filter out external declarations and insert `implicit none`
         spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
                               definitions=definitions, raw_source=raw_source, scope=scope)
-        spec = Section(body=spec)
 
         # Parse member functions
         routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
@@ -147,11 +146,11 @@ class Module:
         scope = Scope()
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        spec = []
         if spec_ast is not None:
             spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=scope,
                                      pp_info=pp_info, raw_source=raw_source)
-            spec = Section(body=spec)
+        else:
+            spec = Section(body=())
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
@@ -181,10 +180,10 @@ class Module:
     @property
     def typedefs(self):
         """
-        Map of names and :class:`DerivedType`s defined in this module.
+        Map of names and :any:`DerivedType` defined in this module.
         """
         types = FindNodes(TypeDef).visit(self.spec)
-        return {td.name.lower(): td for td in types}
+        return CaseInsensitiveDict((td.name, td) for td in types)
 
     @property
     def variables(self):
@@ -222,7 +221,7 @@ class Module:
     @property
     def variable_map(self):
         """
-        Map of variable names to `Variable` objects
+        Map of variable names to :any:`Variable` objects
         """
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 

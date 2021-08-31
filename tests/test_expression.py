@@ -13,7 +13,8 @@ from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
-    parse_fparser_expression, Sum, DerivedType, ProcedureType
+    parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
+    DeferredTypeSymbol, Module
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -330,7 +331,6 @@ end subroutine parenthesis
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
-    # assert str(stmt.expr) == '1.3*(v1**1.23) + (1 - v2**1.26)'
     assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v2**1.26_jprb)'
 
     # Now perform a simple substitutions on the expression
@@ -338,7 +338,6 @@ end subroutine parenthesis
     v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
     v4 = v2.clone(name='v4')
     stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
-    # assert str(stmt2.expr) == '1.3*(v1**1.23) + (1 - v4**1.26)'
     assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
 
 
@@ -360,7 +359,6 @@ end subroutine commutativity
     routine = Subroutine.from_source(fcode, frontend=frontend)
     stmt = FindNodes(Assignment).visit(routine.body)[0]
 
-    # assert str(stmt.expr) == '1.0 + v2*v1(:) - v2 - v3(:)'
     assert fgen(stmt) in ('v3(:) = 1.0_jprb + v2*v1(:) - v2 - v3(:)',
                           'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
 
@@ -542,11 +540,48 @@ end subroutine nested_call_inline_call
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Not implemented')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_no_arg_inline_call(frontend):
+    """
+    Make sure that no-argument function calls are recognized as such,
+    especially when their implementation is unknown.
+    """
+    fcode_mod = """
+module external_mod
+  implicit none
+contains
+  function my_func()
+    integer :: my_func
+    my_func = 2
+  end function my_func
+end module external_mod
+    """.strip()
+
+    fcode_routine = """
+subroutine my_routine(var)
+  use external_mod, only: my_func
+  implicit none
+  integer, intent(out) :: var
+  var = my_func()
+end subroutine my_routine
+    """
+
+    if frontend != OMNI:
+        routine = Subroutine.from_source(fcode_routine, frontend=frontend)
+        assert routine.symbols['my_func'].dtype is BasicType.DEFERRED
+        assignment = FindNodes(Assignment).visit(routine.body)[0]
+        assert assignment.lhs == 'var'
+        assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, DeferredTypeSymbol)
+
+    module = Module.from_source(fcode_mod, frontend=frontend)
+    routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module)
+    assert isinstance(routine.symbols['my_func'].dtype, ProcedureType)
+    assignment = FindNodes(Assignment).visit(routine.body)[0]
+    assert assignment.lhs == 'var'
+    assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_character_concat(here, frontend):
     """
     Concatenation operator ``//``
@@ -573,7 +608,7 @@ end subroutine character_concat
 
 @pytest.mark.parametrize('frontend', [
     pytest.param(OFP, marks=pytest.mark.xfail(reason='Inline WHERE not implemented')),
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
+    OMNI,
     FP
 ])
 def test_masked_statements(here, frontend):
@@ -662,11 +697,7 @@ end subroutine data_declaration
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
-    FP
-])
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_pointer_nullify(here, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
@@ -823,16 +854,12 @@ def test_variable_factory(kwargs, reftype):
     assert isinstance(symbols.Variable(name='var', scope=scope, **kwargs), reftype)
 
 
-@pytest.mark.parametrize('kwargs,exception', [
-    ({'name': 'var'}, KeyError),  # no scope
-    ({'scope': Scope()}, KeyError),  # no name
-])
-def test_variable_factory_invalid(kwargs, exception):
+def test_variable_factory_invalid():
     """
     Test invalid variable instantiations
     """
-    with pytest.raises(exception):
-        _ = symbols.Variable(**kwargs)
+    with pytest.raises(KeyError):
+        _ = symbols.Variable()
 
 
 @pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
@@ -889,8 +916,6 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
 @pytest.mark.parametrize('initype,inireftype,newtype,newreftype', [
     # From deferred type to other type
     (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
-     None, symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
      SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
     (SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol,
      SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
@@ -905,27 +930,21 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     (None, symbols.DeferredTypeSymbol, SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     # From Scalar to other type
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     None, symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+     SymbolAttributes(BasicType.DEFERRED), symbols.Scalar),  # Providing DEFERRED doesn't change type
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
      SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(3),)), symbols.Array),
     (SymbolAttributes(BasicType.INTEGER), symbols.Scalar,
      SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
     # From Array to other type
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     None, symbols.DeferredTypeSymbol),
-    (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
      SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+     SymbolAttributes(BasicType.DEFERRED), symbols.Array),  # Providing DEFERRED doesn't change type
     (SymbolAttributes(BasicType.INTEGER, shape=(symbols.Literal(4),)), symbols.Array,
      SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol),
     # From ProcedureSymbol to other type
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     None, symbols.DeferredTypeSymbol),
-    (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
-     SymbolAttributes(BasicType.DEFERRED), symbols.DeferredTypeSymbol),
+     SymbolAttributes(BasicType.DEFERRED), symbols.ProcedureSymbol),  # Providing DEFERRED doesn't change type
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
      SymbolAttributes(BasicType.INTEGER), symbols.Scalar),
     (SymbolAttributes(ProcedureType('foo')), symbols.ProcedureSymbol,
@@ -941,3 +960,59 @@ def test_variable_clone(initype, inireftype, newtype, newreftype):
     assert 'var' in scope.symbols
     var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
+
+
+def test_variable_without_scope():
+    """
+    Test that creating variables without scope works and scopes can be
+    attached and detached
+    """
+    # pylint: disable=no-member
+    # Create a plain variable without type or scope
+    var = symbols.Variable(name='var')
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type and var.type.dtype is BasicType.DEFERRED
+    # Attach a scope with a data type for this variable
+    scope = Scope()
+    scope.symbols['var'] = SymbolAttributes(BasicType.INTEGER)
+    assert isinstance(var, symbols.DeferredTypeSymbol)
+    assert var.type and var.type.dtype is BasicType.DEFERRED
+    var = var.clone(scope=scope)
+    assert var.scope is scope
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.INTEGER
+    # Change the data type via constructor
+    var = var.clone(type=SymbolAttributes(BasicType.REAL))
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.REAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Detach the scope (type remains)
+    var = var.clone(scope=None)
+    assert var.scope is None
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.REAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Assign a data type locally
+    var = var.clone(type=SymbolAttributes(BasicType.LOGICAL))
+    assert var.scope is None
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Re-attach the scope without specifying type
+    var = var.clone(scope=scope, type=None)
+    assert var.scope is scope
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.REAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Detach the scope and specify new type
+    var = var.clone(scope=None, type=SymbolAttributes(BasicType.LOGICAL))
+    assert var.scope is None
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    assert scope.symbols['var'].dtype is BasicType.REAL
+    # Re-attach the scope (overwrites scope-stored type with local type)
+    var = var.clone(scope=scope)
+    assert var.scope is scope
+    assert isinstance(var, symbols.Scalar)
+    assert var.type.dtype is BasicType.LOGICAL
+    assert scope.symbols['var'].dtype is BasicType.LOGICAL

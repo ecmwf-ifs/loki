@@ -142,7 +142,7 @@ class BasicType(DataType, IntEnum):
     - :any:`CHARACTER`
     - :any:`COMPLEX`
 
-    and, to indicate a currently not defined data type (e.g., for imported
+    and, to indicate an undefined data type (e.g., for imported
     symbols whose definition is not available), :any:`DEFERRED`.
 
     For convenience, string representations of FORTRAN and C99 types can be
@@ -373,8 +373,8 @@ class SymbolAttributes:
         bool
         """
         ignore_attrs = as_tuple(ignore)
-        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(self.__dict__.keys()))
-        return all(self.__dict__[k] == other.__dict__[k]
+        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(other.__dict__.keys()))
+        return all(self.__dict__.get(k) == other.__dict__.get(k)
                    for k in keys if k not in ignore_attrs)
 
 
@@ -387,7 +387,7 @@ class SymbolTable(dict):
     into an enclosing scope, it allows to perform recursive look-ups in parent
     scopes.
 
-    The interface of this table behaves like a :class:`dict`.
+    The interface of this table behaves like a :any:`dict`.
 
     Parameters
     ----------
@@ -404,9 +404,30 @@ class SymbolTable(dict):
 
     @property
     def parent(self):
+        """
+        The symbol table of the parent scope
+
+        Returns
+        -------
+        :any:`SymbolTable` or `None`
+        """
         return self._parent() if self._parent is not None else None
 
     def format_lookup_name(self, name):
+        """
+        Format a variable name for look-up (e.g., convert to lower case if
+        case-insensitive)
+
+        Parameters
+        ----------
+        name : `str`
+            the name to look up
+
+        Returns
+        -------
+        str :
+            the name used for look-ups
+        """
         if not self._case_sensitive:
             name = name.lower()
         name = name.partition('(')[0]  # Remove any dimension parameters
@@ -414,7 +435,14 @@ class SymbolTable(dict):
 
     def _lookup(self, name, recursive):
         """
-        Recursively look for a symbol in the table.
+        Helper routine to recursively look for a symbol in the table.
+
+        Parameters
+        ----------
+        name : `str`
+            the name to look for, formatted according to :meth:`format_lookup_name`
+        recursive : `bool`
+            recursive look-up in parent tables
         """
         value = super().get(name, None)
         if value is None and recursive and self.parent is not None:
@@ -423,11 +451,18 @@ class SymbolTable(dict):
 
     def lookup(self, name, recursive=True):
         """
-        Lookup a symbol in the type table and return the type or `None` if not found.
+        Look-up a symbol in the symbol table and return the type or `None` if not found.
 
-        :param name: Name of the type or symbol.
-        :param recursive: If no entry by that name is found, try to find it in the
-                          table of the parent scope.
+        Parameters
+        ----------
+        name : `str`
+            Name of the type or symbol
+        recursive : `bool`, optional
+            If no entry by that name is found, try to find it in the table of the parent scope
+
+        Returns
+        -------
+        :any:`SymbolAttributes` or `None`
         """
         name_parts = self.format_lookup_name(name)
         value = self._lookup(name_parts, recursive)
@@ -440,16 +475,26 @@ class SymbolTable(dict):
         value = self.lookup(key, recursive=False)
         if value is None:
             raise KeyError(key)
-        return value
+        return value.clone()
 
     def get(self, key, default=None):
+        """
+        Get a symbol's entry without recursive lookup
+
+        Parameters
+        ----------
+        key : `str`
+            Name of the type or symbol
+        default : optional
+            Return this value if :attr:`key` is not found in the table
+        """
         value = self.lookup(key, recursive=False)
-        return value if value is not None else default
+        return value.clone() if value is not None else default
 
     def __setitem__(self, key, value):
         assert isinstance(value, SymbolAttributes)
         name_parts = self.format_lookup_name(key)
-        super().__setitem__(name_parts, value)
+        super().__setitem__(name_parts, value.clone())
 
     def __hash__(self):
         return hash(tuple(self.keys()))
@@ -458,7 +503,31 @@ class SymbolTable(dict):
         return '<loki.types.SymbolTable object at %s>' % hex(id(self))
 
     def setdefault(self, key, default=None):
-        super().setdefault(self.format_lookup_name(key), default)
+        """
+        Insert a default value for a key into the table if it does not exist
+
+        Parameters
+        ----------
+        key : `str`
+            Name of the type or symbol
+        default : optional
+            The default value to store for the key. Defaults to
+            ``SymbolAttributes(BasicType.DEFERRED)``.
+        """
+        if default is None:
+            default = SymbolAttributes(BasicType.DEFERRED)
+        assert isinstance(default, SymbolAttributes)
+        super().setdefault(self.format_lookup_name(key), default.clone())
+
+    def update(self, other):
+        """
+        Update this symbol table with entries from :attr:`other`
+        """
+        if isinstance(other, dict):
+            other = {self.format_lookup_name(k): v.clone() for k, v in other.items()}
+        else:
+            other = {self.format_lookup_name(k): v.clone() for k, v in other}
+        super().update(other)
 
 
 class Scope:

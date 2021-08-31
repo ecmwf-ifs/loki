@@ -6,7 +6,7 @@ from collections import defaultdict
 
 from loki import Subroutine, info
 from loki.analyse import dataflow_analysis_attached
-from loki.expression import FindVariables
+from loki.expression import FindVariables, Variable
 from loki.ir import CallStatement, Comment, Import, Loop, Pragma, PragmaRegion, Section
 from loki.pragma_utils import is_loki_pragma, get_pragma_parameters, pragma_regions_attached
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -216,7 +216,7 @@ def region_to_call(routine):
 
                 # Replace end pragma by call in original routine
                 call_arguments = region_in_args + region_inout_args + region_out_args
-                call = CallStatement(name=name, arguments=call_arguments)
+                call = CallStatement(name=Variable(name=name), arguments=call_arguments)
                 mask_map[region.pragma_post] = call
 
     routine.body = MaskedTransformer(active=True, start=starts, stop=stops, mapper=mask_map).visit(routine.body)

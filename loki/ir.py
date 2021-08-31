@@ -158,8 +158,9 @@ class Node:
         """
         Pretty-print the node hierachy under this node.
         """
-        from loki.visitors import pprint  # pylint: disable=import-outside-toplevel
-        return pprint(self)
+        # pylint: disable=import-outside-toplevel
+        from loki.visitors import pprint
+        pprint(self)
 
     @property
     def live_symbols(self):
@@ -714,12 +715,12 @@ class CallStatement(LeafNode):
     def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
-        # TODO: Currently, also simple strings are allowed as arguments. This should be expressions
-        arg_types = (Expression, str)
-        assert is_iterable(arguments) and all(isinstance(arg, arg_types) for arg in arguments)
+        assert isinstance(name, Expression)
+        assert is_iterable(arguments) and all(isinstance(arg, Expression) for arg in arguments)
         assert kwarguments is None or (
             is_iterable(kwarguments) and all(isinstance(a, tuple) and len(a) == 2 and
-                                             isinstance(a[1], arg_types) for a in kwarguments))
+                                             isinstance(a[1], Expression) for a in kwarguments)
+        )
 
         self.name = name
         self.arguments = as_tuple(arguments)
@@ -1142,8 +1143,8 @@ class MultiConditional(LeafNode):
     ----------
     expr : :any:`pymbolic.primitives.Expression`
         The expression that is evaluated to choose the appropriate case.
-    values : tuple of :any:`pymbolic.primitives.Expression`
-        The list of values, one for each case.
+    values : tuple of tuple of :any:`pymbolic.primitives.Expression`
+        The list of values, a tuple for each case.
     bodies : tuple of tuple
         The corresponding bodies for each case.
     else_body : tuple
@@ -1160,8 +1161,9 @@ class MultiConditional(LeafNode):
         super().__init__(**kwargs)
 
         assert isinstance(expr, Expression)
-        assert is_iterable(values) and all(isinstance(v, Expression) for v in flatten(values))
-        assert is_iterable(bodies)
+        assert is_iterable(values) and all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
+                                           for v in values)
+        assert is_iterable(bodies) and all(isinstance(b, tuple) for b in bodies)
         assert is_iterable(else_body)
 
         self.expr = expr

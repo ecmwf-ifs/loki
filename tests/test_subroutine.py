@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, jit_compile_lib, clean_test
 from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
@@ -1029,23 +1029,25 @@ def test_external_stmt(here, frontend):
     """
     Tests procedures passed as dummy arguments and declared as EXTERNAL.
     """
-    fcode = """
+    fcode_external = """
 ! This should be tested as well with interface statements in the caller
 ! routine, and the subprogram definitions outside (to have "truly external"
 ! procedures, however, we need to make the INTERFACE support more robust first
 
-!subroutine external_subroutine(outvar)
-!  implicit none
-!  integer, intent(out) :: outvar
-!  outvar = 1
-!end subroutine external_subroutine
-!
-!function external_function() result(outvar)
-!  implicit none
-!  integer :: outvar
-!  outvar = 2
-!end function external_function
+subroutine other_external_subroutine(outvar)
+  implicit none
+  integer, intent(out) :: outvar
+  outvar = 4
+end subroutine other_external_subroutine
 
+function other_external_function() result(outvar)
+  implicit none
+  integer :: outvar
+  outvar = 6
+end function other_external_function
+    """.strip()
+
+    fcode = """
 subroutine routine_external_stmt(invar, sub1, sub2, sub3, outvar, func1, func2, func3)
   implicit none
   integer, intent(in) :: invar
@@ -1059,11 +1061,11 @@ subroutine routine_external_stmt(invar, sub1, sub2, sub3, outvar, func1, func2, 
   call sub1(tmp)
   outvar = invar + tmp  ! invar + 1
   call sub2(tmp)
-  outvar = outvar + tmp + func1()  ! (invar + 1) + 1 + 2
+  outvar = outvar + tmp + func1()  ! (invar + 1) + 1 + 6
   call sub3(tmp)
-  outvar = outvar + tmp + func2()  ! (invar + 4) + 1 + 2
+  outvar = outvar + tmp + func2()  ! (invar + 8) + 4 + 2
   tmp = func3()
-  outvar = outvar + tmp  ! (invar + 7) + 2
+  outvar = outvar + tmp  ! (invar + 14) + 2
 end subroutine routine_external_stmt
 
 subroutine routine_call_external_stmt(invar, outvar)
@@ -1071,20 +1073,20 @@ subroutine routine_call_external_stmt(invar, outvar)
   integer, intent(in) :: invar
   integer, intent(out) :: outvar
 
-!  interface
-!    subroutine external_subroutine(outvar)
-!      integer, intent(out) :: outvar
-!    end subroutine external_subroutine
-!  end interface
-!
-!  interface
-!    function external_function() result(outvar)
-!      integer :: outvar
-!    end function external_function
-!  end interface
+  interface
+    subroutine other_external_subroutine(outvar)
+      integer, intent(out) :: outvar
+    end subroutine other_external_subroutine
+  end interface
 
-  call routine_external_stmt(invar, external_subroutine, external_subroutine, external_subroutine, &
-                            &outvar, external_function, external_function, external_function)
+  interface
+    function other_external_function()
+      integer :: other_external_function
+    end function other_external_function
+  end interface
+
+  call routine_external_stmt(invar, external_subroutine, external_subroutine, other_external_subroutine, &
+                            &outvar, other_external_function, external_function, external_function)
 
 contains
 
@@ -1101,7 +1103,7 @@ contains
   end function external_function
 
 end subroutine routine_call_external_stmt
-"""
+    """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['routine_external_stmt']
@@ -1127,11 +1129,16 @@ end subroutine routine_call_external_stmt
                 assert v.type.return_type == BasicType.INTEGER
 
     # Generate code, compile and load
+    extpath = here/('subroutine_routine_external_%s.f90' % frontend)
+    with extpath.open('w') as f:
+        f.write(fcode_external)
     filepath = here/('subroutine_routine_external_stmt_%s.f90' % frontend)
-    function = jit_compile(source, filepath=filepath, objname='routine_call_external_stmt')
+    source.path = filepath
+    lib = jit_compile_lib([source, extpath], path=here, name='subroutine_external')
+    function = lib.routine_call_external_stmt
 
     outvar = function(7)
-    assert outvar == 16
+    assert outvar == 23
     clean_test(filepath)
 
 

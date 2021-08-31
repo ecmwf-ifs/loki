@@ -8,7 +8,7 @@ they mostly check whether at the end comes out what went in at the beginning.
 from pathlib import Path
 import pytest
 from conftest import clean_test
-from loki import Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes
+from loki import Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes, as_tuple
 import loki.ir as ir
 
 
@@ -199,9 +199,10 @@ end subroutine routine_raw_source_multicond
         assert node.source is not None
         assert node.source.lines in cond_lines
         # Make sure that cases have source information
-        assert all(val.source.lines[0] == val.source.lines[1] and
-                   val.source.lines[0] in conditions[node.source.lines[0]]
-                   for val in node.values)
+        for value in node.values:
+            assert all(val.source.lines[0] == val.source.lines[1] and
+                       val.source.lines[0] in conditions[node.source.lines[0]]
+                       for val in as_tuple(value))
         # Verify that source string is subset of the relevant lines in the original source
         assert node.source.string in ('\n'.join(fcode[start-1:end]) for start, end in cond_lines)
         if node.name:

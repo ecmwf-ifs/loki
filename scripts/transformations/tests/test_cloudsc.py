@@ -22,24 +22,6 @@ def fixture_bundle_create(here):
     # Reset cloudsc.F90
     execute('git checkout -- src/cloudsc_loki/cloudsc.F90', cwd=here, silent=False)
 
-    # Apply precision bug for reproducible results
-    patch = b"""
-diff --git a/src/cloudsc_loki/cloudsc.F90 b/src/cloudsc_loki/cloudsc.F90
-index 887a9e4..acefd85 100644
---- a/src/cloudsc_loki/cloudsc.F90
-+++ b/src/cloudsc_loki/cloudsc.F90
-@@ -1964,7 +1964,7 @@ DO JK=NCLDTOP,KLEV
-     IF(ZTP1(JL,JK) <= RTT .AND. ZLIQCLD(JL)>ZEPSEC) THEN
- 
-       ! Fallspeed air density correction 
--      ZFALLCORR = (RDENSREF/ZRHO(JL))**0.4_JPRB
-+      ZFALLCORR = (RDENSREF/ZRHO(JL))**0.4
- 
-       !------------------------------------------------------------------
-       ! Riming of snow by cloud water - implicit in lwc
-    """
-    execute('patch -p1', cwd=here, input=patch)
-
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cloudsc(here, frontend):

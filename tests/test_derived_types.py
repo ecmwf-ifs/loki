@@ -5,7 +5,7 @@ import numpy as np
 from conftest import jit_compile, clean_test
 from loki import (
     OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
-    RangeIndex, Scalar, BasicType, DeferredTypeSymbol
+    RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef
 )
 
 
@@ -407,11 +407,11 @@ end module
     routine = module['associates']
     variables = FindVariables().visit(routine.body)
     if frontend == OMNI:
-        assert all([v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
-                    for v in variables if v.name in ['vector', 'vector2']])
+        assert all(v.shape == (RangeIndex((IntLiteral(1), IntLiteral(3))),)
+                   for v in variables if v.name in ['vector', 'vector2'])
     else:
-        assert all([v.shape == (IntLiteral(3),)
-                    for v in variables if v.name in ['vector', 'vector2']])
+        assert all(v.shape == (IntLiteral(3),)
+                   for v in variables if v.name in ['vector', 'vector2'])
 
     # Test the generated module
     filepath = here/('derived_types_associates_%s.f90' % frontend)
@@ -456,6 +456,47 @@ END SUBROUTINE
     assert isinstance(some_var, DeferredTypeSymbol)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_associates_expr(here, frontend):
+    """
+    Verify that associates with expressions are supported
+    """
+    fcode = """
+subroutine associates_expr(in, out)
+  implicit none
+  integer, intent(in) :: in(3)
+  integer, intent(out) :: out(3)
+
+  out(:) = 0
+
+  associate(a=>1+3)
+    out(:) = out(:) + a
+  end associate
+
+  associate(b=>2*in(:) + in(:))
+    out(:) = out(:) + b(:)
+  end associate
+end subroutine associates_expr
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    variables = {v.name: v for v in FindVariables().visit(routine.body)}
+    assert len(variables) == 4
+    assert isinstance(variables['a'], DeferredTypeSymbol)
+    assert variables['a'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+    assert isinstance(variables['b'], Array)  # Note: this is an array because we have a shape
+    assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
+    assert variables['b'].type.shape == (IntLiteral(3),)
+
+    filepath = here/('associates_expr_%s.f90' % frontend)
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    a = np.array([1, 2, 3], dtype='i')
+    b = np.zeros(3, dtype='i')
+    function(a, b)
+    assert np.all(b == [7, 10, 13])
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
@@ -570,3 +611,73 @@ end module
     mod.free_deferred(item2)
 
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_derived_type_procedure_designator(frontend):
+    mcode = """
+module derived_type_procedure_designator_mod
+  implicit none
+  type some_type
+    integer :: val
+  contains
+    procedure :: SOME_PROC => some_TYPE_some_proc
+    PROCEDURE :: some_FUNC => some_type_SOME_func
+  end type some_type
+
+  TYPE other_type
+    real :: val
+  END TYPE other_type
+contains
+  subroutine some_type_some_proc(self, val)
+    class(some_type) :: self
+    integer, intent(in) :: val
+    self%val = val
+  end subroutine some_type_some_proc
+
+  function some_type_some_func(self)
+    integer :: some_type_some_func
+    CLASS(SOME_TYPE) :: self
+    some_type_some_func = self%val
+  end function some_type_some_func
+end module derived_type_procedure_designator_mod
+    """.strip()
+
+    fcode = """
+subroutine derived_type_procedure_designator(val)
+  use derived_type_procedure_designator_mod
+  implicit none
+  integer, intent(out) :: val
+  type(some_type) :: tp
+
+  call tp%some_proc(3)
+  val = tp%some_func()
+end subroutine derived_type_procedure_designator
+    """.strip()
+
+    module = Module.from_source(mcode, frontend=frontend)
+    assert 'some_type' in module.typedefs
+    assert 'other_type' in module.typedefs
+    assert 'some_type' in module.symbols
+    assert 'other_type' in module.symbols
+
+    # First, without external definitions
+    if frontend != OMNI:
+        routine = Subroutine.from_source(fcode, frontend=frontend)
+        assert 'some_type' not in routine.symbols
+        assert 'other_type' not in routine.symbols
+        assert isinstance(routine.symbols['tp'].dtype, DerivedType)
+        assert routine.symbols['tp'].dtype.typedef == BasicType.DEFERRED
+
+    # Now with external definitions
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module])
+
+    for name in ('some_type', 'other_type'):
+        assert name in routine.symbols
+        assert routine.symbols[name].imported is True
+        assert isinstance(routine.symbols[name].dtype, DerivedType)
+        assert isinstance(routine.symbols[name].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbols['tp'].dtype, DerivedType)
+    assert isinstance(routine.symbols['tp'].dtype.typedef, TypeDef)
+
+    # TODO: actually verify representation of type-bound procedures

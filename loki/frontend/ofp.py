@@ -1,4 +1,4 @@
-from collections import OrderedDict, deque
+from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
 import re
@@ -8,15 +8,14 @@ import open_fortran_parser
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, import_external_symbols, OFP,
-    combine_multiline_pragmas
+    inline_comments, cluster_comments, inline_labels, OFP, combine_multiline_pragmas
 )
 from loki.visitors import GenericVisitor
 import loki.ir as ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat)
-from loki.expression import ExpressionDimensionsMapper
+from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions
 from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
@@ -157,13 +156,22 @@ class OFP2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
+        #import pdb; pdb.set_trace()
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
-    visit_body = visit_Element
+    def visit_specification(self, o, label=None, source=None):
+        body = tuple(self.visit(c) for c in o)
+        body = tuple(c for c in body if c is not None)
+        return ir.Section(body=body, label=label, source=source)
+
+    def visit_body(self, o, source=None, **kwargs):
+        body = tuple(self.visit(c, **kwargs) for c in o)
+        body = tuple(c for c in body if c is not None)
+        return body
 
     def visit_loop(self, o, label=None, source=None):
         body = as_tuple(self.visit(o.find('body')))
@@ -246,22 +254,22 @@ class OFP2IR(GenericVisitor):
         values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)
-            values, bodies = list(values), list(bodies)
-            values.pop(else_index)
-            else_body = as_tuple(bodies.pop(else_index))
+            else_body = as_tuple(bodies[else_index])
+            values = values[:else_index] + values[else_index+1:]
+            bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
         construct_name = o.find('select-case-stmt').attrib['id'] or None
         label = self.get_label(o.find('select-case-stmt'))
-        return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
-                                   else_body=else_body, label=label, name=construct_name, source=source)
+        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                   label=label, name=construct_name, source=source)
 
     def visit_case(self, o, label=None, source=None):
         value = self.visit(o.find('header'))
         if isinstance(value, tuple) and len(value) > int(o.find('header/value-ranges').attrib['count']):
             value = sym.RangeIndex(value, source=source)
         body = self.visit(o.find('body'))
-        return value, body
+        return as_tuple(value) or None, as_tuple(body)
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'\!\$(?P<keyword>\w+)\s+(?P<content>.*)', re.IGNORECASE)
@@ -329,161 +337,323 @@ class OFP2IR(GenericVisitor):
         rhs = self.visit(o.find('value'))
         return ir.Assignment(lhs=lhs, rhs=rhs, ptr=True, label=label, source=source)
 
-    def visit_specification(self, o, label=None, source=None):
-        body = tuple(self.visit(c) for c in o)
-        body = tuple(c for c in body if c is not None)
-        # Wrap spec area into a separate Scope
-        return ir.Section(body=body, label=label, source=source)
+    def visit_type(self, o, label=None, source=None):
+        if o.attrib['type'] == 'intrinsic':
+            _type = self.visit(o.find('intrinsic-type-spec'))
+            if o.attrib['hasKind'] == 'true':
+                kind = self.visit(o.find('kind'))
+                _type = _type.clone(kind=kind)
+            return _type
+
+        if o.attrib['type'] == 'derived':
+            dtype = self.visit(o.find('derived-type-spec'))
+
+            # Look for a previous definition of this type
+            _type = self.scope.symbols.lookup(dtype.name)
+            if _type is None or _type.dtype is BasicType.DEFERRED:
+                _type = SymbolAttributes(dtype)
+
+            # Strip import annotations
+            return _type.clone(imported=None, module=None)
+
+        raise NotImplementedError
+
+    def visit_intrinsic_type_spec(self, o, label=None, source=None):
+        dtype = BasicType.from_str(o.attrib['keyword1'])
+        return SymbolAttributes(dtype)
+
+    def visit_derived_type_spec(self, o, label=None, source=None):
+        dtype = DerivedType(o.attrib['typeName'])
+        return dtype
+
+    def visit_kind(self, o, label=None, source=None):
+        return self.visit(o[0])
+
+    def visit_attribute_parameter(self, o, label=None, source=None):
+        return self.visit(o.findall('attr-spec'))
+
+    visit_attribute_pointer = visit_attribute_parameter
+
+    def visit_attr_spec(self, o, label=None, source=None):
+        return (o.attrib['attrKeyword'].lower(), True)
+
+    def visit_intent(self, o, label=None, source=None):
+        return ('intent', o.attrib['type'].lower())
+
+    def visit_entity_decl(self, o, source=None, **kwargs):
+        return sym.Variable(name=o.attrib['id'], source=source)
+
+    def visit_variables(self, o, source=None, **kwargs):
+        count = int(o.attrib['count'])
+        return self.visit(o.findall('variable')[:count])
+
+    def visit_variable(self, o, source=None, **kwargs):
+        var = self.visit(o.find('entity-decl'))
+
+        if o.attrib['hasInitialValue'] == 'true':
+            init = self.visit(o.find('initial-value'))
+            var = var.clone(type=var.type.clone(initial=init))
+
+        dimensions = o.find('dimensions')
+        if dimensions is not None:
+            dimensions = self.visit(dimensions)
+            var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
+
+        return var
+
+    def visit_derived_type_stmt(self, o, label=None, source=None):
+        if o.attrib['keyword'].lower() != 'type':
+            raise NotImplementedError
+        if o.attrib['hasTypeAttrSpecList'] != 'false':
+            raise NotImplementedError
+        if o.attrib['hasGenericNameList'] != 'false':
+            raise NotImplementedError
+        return o.attrib['id']
 
     def visit_declaration(self, o, label=None, source=None):
-        if len(o.attrib) == 0:
-            return None  # Empty element, skip
-        if o.find('save-stmt') is not None:
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.find('implicit-stmt') is not None:
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.find('access-spec') is not None:
-            # PUBLIC or PRIVATE declarations
-            return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.attrib['type'] == 'variable':
-            if o.find('end-type-stmt') is not None:
-                # We are dealing with a derived type
-                name = o.find('end-type-stmt').attrib['id']
-
-                # Initialize a local scope for typedef objects
-                typedef_scope = Scope(parent=self.scope)
-
-                # This is still ugly, but better than before! In order to
-                # process certain tag combinations (groups) into declaration
-                # objects, we first group them in place, while also allowing
-                # comments/pragmas through here. We then explicitly process
-                # them into the intended nodes in the order we found them.
-                grouped_elems = match_tag_sequence(o, [
-                    ('type', 'attributes', 'components'),
-                    ('type', 'components'),
-                    ('comment', ),
-                ])
-
-                body = []
-                for group in grouped_elems:
-                    if len(group) == 1:
-                        # Process indidividual comments/pragmas
-                        body.append(self.visit(group[0]))
-
-                    elif len(group) == 2:
-                        # Process declarations without attributes
-                        decl = self.create_typedef_declaration(t=group[0], comps=group[1],
-                                                               scope=typedef_scope, source=source)
-                        body.append(decl)
-
-                    elif len(group) == 3:
-                        # Process declarations with attributes
-                        decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
-                                                               scope=typedef_scope, source=source)
-                        body.append(decl)
-
-                    else:
-                        raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
-
-                # Infer any additional shape information from `!$loki dimension` pragmas
-                body = attach_pragmas(body, ir.Declaration)
-                body = process_dimension_pragmas(body)
-                body = detach_pragmas(body, ir.Declaration)
-                typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=typedef_scope,
-                                     label=label, source=source)
-
-                # Now make the typedef known in its scope's type table
-                self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
-
-                return typedef
-
-            # We are dealing with a single declaration, so we retrieve
-            # all the declaration-level information first.
-            typename = o.find('type').attrib['name']
-            kind = o.find('type/kind')
-            if kind is not None:
-                kind = self.visit(kind)
-
-            type_attrs = {
-                'intent': o.find('intent').attrib['type'] if o.find('intent') else None,
-                'parameter': o.find('attribute-parameter') is not None,
-                'optional': o.find('attribute-optional') is not None,
-                'allocatable': o.find('attribute-allocatable') is not None,
-                'pointer': o.find('attribute-pointer') is not None,
-                'target': o.find('attribute-target') is not None,
-            }
-
-            external = o.find('attribute-external') is not None
-            dims = o.find('dimensions')
-            dimensions = None if dims is None else as_tuple(self.visit(dims))
-
-            if o.find('type').attrib['type'] == 'intrinsic':
-                # Create a basic variable type
-                # TODO: Character length attribute
-                stype = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind,
-                                         shape=dimensions, source=source, **type_attrs)
-            else:
-                # Create the local variant of the derived type
-                dtype = self.scope.symbols.lookup(typename, recursive=True)
-                if dtype is None or dtype.dtype is BasicType.DEFERRED:
-                    dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-                else:
-                    dtype = dtype.dtype
-
-                stype = SymbolAttributes(dtype, source=source, **type_attrs)
-
-            variables = [self.visit(v, type=stype, dimensions=dimensions, external=external)
-                         for v in o.findall('variables/variable')]
-            variables = [v for v in variables if v is not None]
-            return ir.Declaration(variables=variables, dimensions=dimensions, external=external,
-                                  label=label, source=source)
-        if o.attrib['type'] == 'external':
-            variables = []
-            for v in o.findall('names/name'):
-                var = self.visit(v)
-                if var.type.dtype is BasicType.DEFERRED:
-                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=False), external=True)
-                else:
-                    _type = var.type.clone(dtype=ProcedureType(name=var.name, is_function=True), external=True,
-                                           return_type=var.type.dtype)
-                variables += [var.clone(type=_type)]
-            return ir.Declaration(variables=variables, external=True, label=label, source=source)
+        if not o.attrib:
+            return None  # Skip empty declarations
+        if not 'type' in o.attrib:
+            if o.find('access-spec') is not None or o.find('save-stmt') is not None:
+                return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
+            if o.find('interface') is not None:
+                return self.visit(o.find('interface'))
+            if o.find('subroutine') is not None:
+                return self.visit(o.find('subroutine'))
+            if o.find('function') is not None:
+                return self.visit(o.find('function'))
+            raise NotImplementedError
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
-        if o.attrib['type'] == 'data':
-            # Data declaration blocks
-            declarations = []
-            for variables, values in zip(o.findall('variables'), o.findall('values')):
-                # TODO: actually parse the statements
-                variable = source.string[5:source.string.index('/')].strip()
-                # variable = self.visit(variables)
-                # Lists of literal values are again nested, so extract
-                # them recursively.
-                lit = values.find('literal')  # We explicitly recurse on l
-                vals = []
-                while lit.find('literal') is not None:
-                    vals += [self.visit(lit)]
-                    lit = lit.find('literal')
-                vals += [self.visit(lit)]
-                declarations += [ir.DataDeclaration(variable=variable, values=vals, label=label, source=source)]
-            return as_tuple(declarations)
 
-        raise NotImplementedError('Unknown declaration type encountered: %s' % o.attrib['type'])
+        if o.attrib['type'] == 'external':
+            # External stmt (not as attribute in a declaration)
+            assert o.find('external-stmt') is not None
+            assert o.find('type') is None
+
+            variables = self.visit(o.findall('names'))
+            for var in variables:
+                _type = self.scope.symbols.lookup(var.name)
+                if _type is None:
+                    _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
+                else:
+                    _type = _type.clone(external=True)
+                self.scope.symbols[var.name] = _type
+
+            variables = tuple(v.clone(scope=self.scope) for v in variables)
+            declaration = ir.Declaration(variables=variables, external=True, source=source, label=label)
+            return declaration
+
+        if o.attrib['type'] == 'data':
+            raise NotImplementedError
+
+        if o.find('derived-type-stmt') is not None:
+            # Derived type definition
+            name = self.visit(o.find('derived-type-stmt'))
+            scope = Scope(parent=self.scope)
+
+            # This is still ugly, but better than before! In order to
+            # process certain tag combinations (groups) into declaration
+            # objects, we first group them in place, while also allowing
+            # comments/pragmas through here. We then explicitly process
+            # them into the intended nodes in the order we found them.
+            grouped_elems = match_tag_sequence(o, [
+                ('type', 'attributes', 'components'),
+                ('type', 'components'),
+                ('comment', ),
+            ])
+
+            body = []
+            for group in grouped_elems:
+                if len(group) == 1:
+                    # Process indidividual comments/pragmas
+                    body.append(self.visit(group[0]))
+
+                elif len(group) == 2:
+                    # Process declarations without attributes
+                    decl = self.create_typedef_declaration(t=group[0], comps=group[1],
+                                                           scope=scope, source=source)
+                    body.append(decl)
+
+                elif len(group) == 3:
+                    # Process declarations with attributes
+                    decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
+                                                           scope=scope, source=source)
+                    body.append(decl)
+
+                else:
+                    raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
+
+            # Infer any additional shape information from `!$loki dimension` pragmas
+            body = attach_pragmas(body, ir.Declaration)
+            body = process_dimension_pragmas(body)
+            body = detach_pragmas(body, ir.Declaration)
+            typedef = ir.TypeDef(name=name, body=as_tuple(body), scope=scope,
+                                 label=label, source=source)
+
+            # Now make the typedef known in its scope's type table
+            self.scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
+
+            return typedef
+
+        # First, obtain data type and attributes
+        _type = self.visit(o.find('type'))
+
+        attrs = {}
+        if o.find('intent') is not None:
+            intent = self.visit(o.find('intent'))
+            attrs.update((intent,))
+
+        if o.find('attribute-parameter') is not None:
+            parameter = self.visit(o.find('attribute-parameter'))
+            attrs.update((parameter,))
+
+        if o.find('attribute-optional') is not None:
+            optional = self.visit(o.find('attribute-optional'))
+            attrs.update((optional,))
+
+        if o.find('attribute-allocatable') is not None:
+            allocatable = self.visit(o.find('attribute-allocatable'))
+            attrs.update((allocatable,))
+
+        if o.find('attribute-pointer') is not None:
+            pointer = self.visit(o.find('attribute-pointer'))
+            attrs.update((pointer,))
+
+        if o.find('attribute-target') is not None:
+            target = self.visit(o.find('attribute-target'))
+            attrs.update((target,))
+
+        if _type.dtype == BasicType.CHARACTER and o.find('char-selector') is not None:
+            length = self.visit(o[0])
+            attrs['length'] = length
+
+        # Then, build the common symbol type for all variables
+        _type = _type.clone(**attrs)
+
+        # Last, instantiate declared variables
+        variables = as_tuple(self.visit(o.find('variables')))
+
+        # check if we have a dimensions keyword
+        if o.find('dimensions') is not None:
+            dimensions = self.visit(o.find('dimensions'))
+            _type = _type.clone(shape=dimensions)
+            # Attach dimension attribute to variable declaration for uniform
+            # representation of variables in declarations
+            variables = as_tuple(v.clone(dimensions=dimensions) for v in variables)
+
+        # EXTERNAL attribute means this is actually a function or subroutine
+        external = o.find('attribute-external') is not None
+        if external:
+            return_type = _type.dtype if _type.dtype is not BasicType.DEFERRED else None
+            _type = _type.clone(return_type=return_type, external=True)
+
+        # Make sure KIND (which can be a name) is in the right scope
+        scope = self.scope  # TODO: pass down scopes
+        if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
+            # TODO: put it in the right scope (Rescope Visitor)
+            _type = _type.clone(kind=_type.kind.clone(scope=scope))
+
+        # Update symbol table entries
+        for var in variables:
+            if external:
+                type_kwargs = _type.__dict__.copy()
+                type_kwargs['dtype'] = ProcedureType(var.name, is_function=_type.dtype is not None)
+                scope.symbols[var.name] = var.type.clone(**type_kwargs)
+            else:
+                scope.symbols[var.name] = var.type.clone(**_type.__dict__)
+
+        variables = tuple(v.clone(scope=scope) for v in variables)
+        return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
+                              source=source, label=label)
+
+    def visit_interface(self, o, label=None, source=None):
+        spec = self.visit(o.find('interface-stmt'))
+        body = self.visit(o.find('body'))
+        return ir.Interface(spec=spec, body=body, label=label, source=source)
+
+    def visit_interface_stmt(self, o, label=None, source=None):
+        if o.attrib['abstract_token']:
+            return o.attrib['abstract_token']
+        if o.attrib['hasGenericSpec'] == 'true':
+            raise NotImplementedError
+        return None
+
+    def visit_subroutine(self, o, label=None, source=None):
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+
+        # Create a scope
+        scope = Scope(parent=self.scope)
+
+        # Name and dummy args
+        name = o.attrib['name']
+        if o.tag == 'function':
+            is_function = True
+            args = [a.attrib['id'].upper() for a in o.findall('header/names/name')]
+            bind = None
+        else:
+            is_function = False
+            args = [a.attrib['name'].upper() for a in o.findall('header/arguments/argument')]
+            bind = None
+            if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
+                raise NotImplementedError
+
+        # Spec
+        # HACK: temporarily replace the scope property until we pass down scopes properly
+        parent_scope, self.scope = self.scope, scope
+        spec = self.visit(o.find('body/specification'))
+        self.scope = parent_scope
+
+        # Note: the Subroutine constructor registers itself in the parent scope
+        routine = Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, bind=bind,
+                             is_function=is_function, source=source)
+        return routine
+
+    visit_function = visit_subroutine
+
+    def visit_association(self, o, label=None, source=None):
+        return sym.Variable(name=o.attrib['associate-name'])
 
     def visit_associate(self, o, label=None, source=None):
-        associations = OrderedDict()
-        for a in o.findall('header/keyword-arguments/keyword-argument'):
-            var = self.visit(a.find('name'))
-            if isinstance(var, sym.Array):
-                shape = ExpressionDimensionsMapper()(var)
+        # Handle the associates
+        associations = [(self.visit(a[0]), self.visit(a.find('association')))
+                        for a in o.findall('header/keyword-arguments/keyword-argument')]
+
+        # Create a scope for the associate
+        parent_scope = self.scope
+        scope = parent_scope  # TODO: actually create own scope
+
+        # TODO: Apply some rescope-visitor here
+        rescoped_associations = []
+        for expr, name in associations:
+            rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
+            expr = SubstituteExpressions(rescope_map).visit(expr)
+            name = name.clone(scope=scope)
+            rescoped_associations += [(expr, name)]
+        associations = as_tuple(rescoped_associations)
+
+        # Update symbol table for associates
+        for expr, name in associations:
+            if isinstance(expr, sym.TypedSymbol):
+                # Use the type of the associated variable
+                _type = parent_scope.symbols.lookup(expr.name)
+                if isinstance(expr, sym.Array) and expr.dimensions is not None:
+                    shape = ExpressionDimensionsMapper()(expr)
+                    if shape == (sym.IntLiteral(1),):
+                        # For a scalar expression, we remove the shape
+                        shape = None
+                    _type = _type.clone(shape=shape)
             else:
-                shape = None
-            _type = var.type.clone(name=None, parent=None, shape=shape)
-            assoc_name = a.find('association').attrib['associate-name']
-            associations[var] = sym.Variable(name=assoc_name, type=_type, scope=self.scope,
-                                             source=source)
-        body = self.visit(o.find('body'))
-        return ir.Associate(body=as_tuple(body), associations=associations, label=label, source=source)
+                # TODO: Handle data type and shape of complex expressions
+                shape = ExpressionDimensionsMapper()(expr)
+                if shape == (sym.IntLiteral(1),):
+                    # For a scalar expression, we remove the shape
+                    shape = None
+                _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
+            scope.symbols[name.name] = _type
+
+        body = as_tuple(self.visit(o.find('body')))
+        return ir.Associate(body=body, associations=associations, label=label, source=source)
 
     def visit_allocate(self, o, label=None, source=None):
         variables = as_tuple(self.visit(v) for v in o.findall('expressions/expression/name'))
@@ -496,13 +666,34 @@ class OFP2IR(GenericVisitor):
         return ir.Deallocation(variables=variables, label=label, source=source)
 
     def visit_use(self, o, label=None, source=None):
-        name = o.attrib['name']
-        symbol_names = [n.attrib['id'] for n in o.findall('only/name')]
-        symbols = None
-        if len(symbol_names) > 0:
-            module = self.definitions.get(name, None)
-            symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
+        name, module = self.visit(o.find('use-stmt'))
+        scope = self.scope
+        if o.find('only') is not None:
+            symbols = self.visit(o.find('only'))
+            if module is None:
+                scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
+            else:
+                scope.symbols.update({s.name: module.symbols[s.name].clone(imported=True, module=module)
+                                      for s in symbols})
+            symbols = tuple(s.clone(scope=scope) for s in symbols)
+        else:
+            # No ONLY list
+            symbols = None
+            # Import all symbols
+            if module is not None:
+                scope.symbols.update({k: v.clone(imported=True, module=module) for k, v in module.symbols.items()})
         return ir.Import(module=name, symbols=symbols, label=label, source=source)
+
+    def visit_only(self, o, label=None, source=None):
+        return tuple(self.visit(c) for c in o.findall('name'))
+
+    def visit_use_stmt(self, o, label=None, source=None):
+        name = o.attrib['id']
+        if o.attrib['hasModuleNature'] != 'false':
+            raise NotImplementedError
+        if o.attrib['hasRenameList'] != 'false':
+            raise NotImplementedError
+        return name, self.definitions.get(name)
 
     def visit_directive(self, o, label=None, source=None):
         if '#include' in o.attrib['text']:
@@ -565,17 +756,10 @@ class OFP2IR(GenericVisitor):
         return self.create_intrinsic_from_source(o, 'readKeyword', label=label, source=source)
 
     def visit_call(self, o, label=None, source=None):
-        # Need to re-think this: the 'name' node already creates
-        # a 'Variable', which in this case is wrong...
-        name = o.find('name').attrib['id']
-        args = tuple(self.visit(i) for i in o.findall('name/subscripts/subscript'))
-        kwargs = list(self.visit(i) for i in o.findall('name/subscripts/argument'))
+        name, subscripts = self.visit(o.find('name'))
+        args = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
+        kwargs = tuple(arg for arg in subscripts if isinstance(arg, tuple))
         return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, label=label, source=source)
-
-    def visit_argument(self, o, label=None, source=None):
-        key = o.attrib['name']
-        val = self.visit(list(o)[0])
-        return key, val
 
     def visit_label(self, o, label=None, source=None):
         assert label is not None
@@ -583,111 +767,113 @@ class OFP2IR(GenericVisitor):
 
     # Expression parsing below; maye move to its own parser..?
 
+    def visit_subscripts(self, o, label=None, source=None):
+        return tuple(self.visit(c) for c in o if c.tag in ('subscript', 'argument'))
+
+    def visit_subscript(self, o, label=None, source=None):
+        if o.attrib['type'] in ('empty', 'assumed-shape'):
+            return sym.RangeIndex((None, None, None), source=source)
+        if o.attrib['type'] == 'simple':
+            return self.visit(o[0])
+        if o.attrib['type'] == 'upper-bound-assumed-shape':
+            return sym.RangeIndex((self.visit(o[0]), None, None), source=source)
+        if o.attrib['type'] == 'range':
+            lower, upper, step = None, None, None
+            if o.find('range/lower-bound') is not None:
+                lower = self.visit(o.find('range/lower-bound'))
+            if o.find('range/upper-bound') is not None:
+                upper = self.visit(o.find('range/upper-bound'))
+            if o.find('range/step') is not None:
+                step = self.visit(o.find('range/step'))
+            return sym.RangeIndex((lower, upper, step), source=source)
+        raise NotImplementedError
+
+    def visit_dimensions(self, o, label=None, source=None):
+        return tuple(self.visit(c) for c in o.findall('dimension'))
+
+    visit_dimension = visit_subscript
+
+    def visit_argument(self, o, label=None, source=None):
+        return o.attrib['name'], self.visit(o[0])
+
+    def visit_names(self, o, label=None, source=None):
+        return tuple(self.visit(c) for c in o.findall('name'))
+
     def visit_name(self, o, label=None, source=None, **kwargs):
+        if o.find('generic-name-list-part') is not None or o.find('generic_spec') is not None:
+            # From an external-stmt or use-stmt
+            return sym.Variable(name=o.attrib['id'], source=source)
 
-        def generate_variable(vname, indices, kwargs, parent, source, scope):
-            if vname.upper() == 'RESHAPE':
-                # return reshape(indices[0], shape=indices[1])
-                raise NotImplementedError()
-            if vname.upper() in ['MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD',
-                                 'SELECTED_INT_KIND', 'SELECTED_REAL_KIND', 'ALLOCATED',
-                                 'PRESENT', 'SIGN', 'EPSILON']:
-                fct_symbol = sym.ProcedureSymbol(vname, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
-            if vname.upper() in ['REAL', 'INT']:
-                kind = kwargs.get('kind', indices[1] if len(indices) > 1 else None)
-                return sym.Cast(vname, expression=indices[0], kind=kind, source=source)
-            if indices is not None and len(indices) == 0:
-                # HACK: We (most likely) found a call out to a C routine
-                fct_symbol = sym.ProcedureSymbol(o.attrib['id'], scope=scope, source=source)
-                assert not kwargs
-                return sym.InlineCall(fct_symbol, parameters=indices, source=source)
+        num_part_ref = int(o.find('data-ref').attrib['numPartRef'])
+        subscripts = [self.visit(s) for s in o.findall('subscripts')]
+        name = None
+        for i, part_ref in enumerate(o.findall('part-ref')):
+            name, parent = self.visit(part_ref), name
+            if parent:
+                name = name.clone(name='{}%{}'.format(parent.name, name.name), parent=parent)
 
-            if parent is not None:
-                basename = vname
-                vname = '%s%%%s' % (parent.name, vname)
+            if part_ref.attrib['hasSectionSubscriptList'] == 'true':
+                if i < num_part_ref - 1 or o.attrib['type'] == 'variable':
+                    if subscripts[0]:  # If there are no subscripts it cannot be an array but must
+                                       # be a function call
+                        arguments = subscripts.pop(0)
+                        kwarguments = tuple(arg for arg in arguments if isinstance(arg, tuple))
+                        assert not kwarguments
+                        name = name.clone(dimensions=arguments)
 
-            _type = scope.symbols.lookup(vname, recursive=True)
-            if _type and isinstance(_type.dtype, ProcedureType):
-                fct_symbol = sym.ProcedureSymbol(vname, type=_type, scope=scope, source=source)
-                return sym.InlineCall(fct_symbol, parameters=indices, kw_parameters=kwargs, source=source)
+        # Check for leftover subscripts
+        assert len(subscripts) <= 1
 
-            # If the (possibly external) struct definitions exist
-            # try to derive the type from it.
-            if _type is None and parent is not None and parent.type is not None:
-                if isinstance(parent.type.dtype, DerivedType) \
-                   and parent.type.dtype.typedef is not BasicType.DEFERRED:
-                    _type = parent.type.dtype.typedef.variables.get(basename)
+        if not 'type' in o.attrib or o.attrib['type'] == 'variable':
+            # name is just used as an identifier or without any subscripts
+            assert not subscripts
+            return name
 
-            if indices:
-                indices = sym.ArraySubscript(indices, source=source)
+        if o.attrib['type'] == 'procedure':
+            return name, subscripts[0] if subscripts else ()
 
-            var = sym.Variable(name=vname, dimensions=indices, parent=parent,
-                               type=_type, scope=scope, source=source)
-            return var
+        if subscripts and not subscripts[0]:
+            # Function call with no arguments (gaaawwddd...)
+            return sym.InlineCall(name, parameters=(), source=source)
 
-        # Creating compound variables is a bit tricky, so let's first
-        # process all our children and shove them into a deque
-        _children = deque(self.visit(c) for c in o)
-        _children = deque(c for c in _children if c is not None)
+        # unpack into positional and keyword args
+        subscripts = subscripts[0] if subscripts else ()
+        kwarguments = tuple(arg for arg in subscripts if isinstance(arg, tuple))
+        arguments = tuple(arg for arg in subscripts if not isinstance(arg, tuple))
 
-        # Hack: find kwargs for Casts and InlineCalls
-        kw_args = {i.attrib['name']: self.visit(list(i)[0], **kwargs)
-                   for i in o.findall('subscripts/argument')}
-
-        # Now we nest variables, dimensions and sub-variables by
-        # walking through our queue of nested symbols
-        variable = None
-        while len(_children) > 0:
-            # Indices sit on the left of their base symbol
-            if len(_children) > 0 and isinstance(_children[0], tuple):
-                indices = _children.popleft()
+        cast_names = ('REAL', 'INT')
+        if str(name).upper() in cast_names:
+            assert arguments
+            expr = arguments[0]
+            if kwarguments:
+                assert len(arguments) == 1
+                assert len(kwarguments) == 1 and kwarguments[0][0] == 'kind'
+                kind = kwarguments[0][1]
             else:
-                indices = None
+                kind = arguments[1] if len(arguments) > 1 else None
+            return sym.Cast(name, expr, kind=kind, source=source)
 
-            item = _children.popleft()
-            variable = generate_variable(vname=item, indices=indices, kwargs=kw_args,
-                                         parent=variable, source=source,
-                                         scope=kwargs.get('scope', self.scope))
-        return variable
+        if subscripts:
+            # This may potentially be an inline call
+            intrinsic_calls = (
+                'MIN', 'MAX', 'EXP', 'SQRT', 'ABS', 'LOG', 'MOD', 'SELECTED_INT_KIND',
+                'SELECTED_REAL_KIND', 'ALLOCATED', 'PRESENT', 'SIGN', 'EPSILON', 'NULL'
+            )
+            if str(name).upper() in intrinsic_calls or kwarguments:
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
-    def visit_generic_name_list_part(self, o, source=None, **kwargs):
-        return o.attrib['id']
+            _type = self.scope.symbols.lookup(name.name)
+            if subscripts and _type and isinstance(_type.dtype, ProcedureType):
+                return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
-    def visit_variable(self, o, source=None, **kwargs):
-        if 'id' not in o.attrib and 'name' not in o.attrib:
-            return None
-        name = o.attrib['id'] if 'id' in o.attrib else o.attrib['name']
-        if o.find('dimensions') is not None:
-            dimensions = tuple(self.visit(d) for d in o.find('dimensions'))
-            dimensions = tuple(d for d in dimensions if d is not None)
-        else:
-            dimensions = kwargs.get('dimensions', None)
-        _type = kwargs.get('type', None)
-        initial = None if o.find('initial-value') is None else self.visit(o.find('initial-value'))
-        if _type is not None:
-            _type = _type.clone(shape=dimensions, initial=initial)
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-
-        external = kwargs.get('external')
-        if external:
-            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
-            # variable declaration but declares a procedure symbol. Depending on whether
-            # we have a data type for that symbol or not, we can deduce it to be a
-            # function or subroutine
-            if _type.dtype is BasicType.DEFERRED:
-                _type = _type.clone(dtype=ProcedureType(name=name, is_function=False), external=external)
-            else:
-                _type = _type.clone(dtype=ProcedureType(name=name, is_function=True),
-                                    external=external, return_type=_type.dtype)
-
-        return sym.Variable(name=name, scope=self.scope, dimensions=dimensions,
-                            type=_type, source=source)
+        # We end up here if it is ambiguous (i.e., OFP did not know what the symbol is)
+        # which is either a function call, an array with subscript or a name without anything further
+        assert o.attrib['type'] == 'ambiguous' and not getattr(name, 'dimensions', None)
+        assert not kwarguments
+        return name.clone(dimensions=arguments or None)
 
     def visit_part_ref(self, o, label=None, source=None):
-        # Return a pure string, as part of a variable name
-        return o.attrib['id']
+        return sym.Variable(name=o.attrib['id'], source=source)
 
     def visit_literal(self, o, label=None, source=None):
         boz_literal = o.find('boz-literal-constant')
@@ -710,36 +896,6 @@ class OFP2IR(GenericVisitor):
             else:
                 kwargs['kind'] = sym.Variable(name=kind, scope=self.scope)
         return sym.Literal(value, **kwargs)
-
-    def visit_subscripts(self, o, label=None, source=None):
-        return tuple(self.visit(c) for c in o
-                     if c.tag in ['subscript', 'name'])
-
-    def visit_subscript(self, o, label=None, source=None):
-        # TODO: Drop this entire routine, but beware the base-case!
-        if o.find('range'):
-            lower, upper, step = None, None, None
-            if o.find('range/lower-bound') is not None:
-                lower = self.visit(o.find('range/lower-bound'))
-            if o.find('range/upper-bound') is not None:
-                upper = self.visit(o.find('range/upper-bound'))
-            if o.find('range/step') is not None:
-                step = self.visit(o.find('range/step'))
-            return sym.RangeIndex((lower, upper, step), source=source)
-        if 'type' in o.attrib and o.attrib['type'] == "upper-bound-assumed-shape":
-            lower = self.visit(o[0])
-            return sym.RangeIndex((lower, None, None), source=source)
-        if o.find('name'):
-            return self.visit(o.find('name'))
-        if o.find('literal'):
-            return self.visit(o.find('literal'))
-        if o.find('operation'):
-            return self.visit(o.find('operation'))
-        if o.find('array-constructor-values'):
-            return self.visit(o.find('array-constructor-values'))
-        return sym.RangeIndex((None, None, None), source=source)
-
-    visit_dimension = visit_subscript
 
     def visit_array_constructor_values(self, o, label=None, source=None):
         values = [self.visit(v) for v in o.findall('value')]
@@ -827,34 +983,17 @@ class OFP2IR(GenericVisitor):
         if attr:
             attrs = [a.attrib['attrKeyword'].upper()
                      for a in attr.findall('attribute/component-attr-spec')]
-        typename = t.attrib['name']
-        t_source = extract_source(t.attrib, self._raw_source)
-        kind = t.find('kind')
-        if kind is not None:
-            kind = self.visit(kind, scope=scope)
 
         type_attrs = {
             'pointer': 'POINTER' in attrs,
             'allocatable': 'ALLOCATABLE' in attrs,
         }
-
-        # We have an intrinsic Fortran type
-        if t.attrib['type'] == 'intrinsic':
-            stype = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind,
-                                  source=t_source, **type_attrs)
-        else:
-            # This is a derived type. Let's see if we know it already
-            dtype = self.scope.symbols.lookup(typename, recursive=True)
-            if dtype is None:
-                dtype = DerivedType(name=typename, typedef=BasicType.DEFERRED)
-            else:
-                dtype = dtype.dtype
-            stype = SymbolAttributes(dtype, kind=kind, variables=OrderedDict(), source=t_source, **type_attrs)
+        stype = self.visit(t).clone(**type_attrs)
 
         # Derive variables for this declaration entry
         variables = []
         for v in comps.findall('component'):
-            if len(v.attrib) == 0:
+            if not v.attrib:
                 continue
             if 'DIMENSION' in attrs:
                 # Dimensions are provided via `dimension` keyword
@@ -871,12 +1010,12 @@ class OFP2IR(GenericVisitor):
             dimensions = as_tuple(d for d in dimensions if d is not None)
             dimensions = dimensions if len(dimensions) > 0 else None
             v_source = extract_source(v.attrib, self._raw_source)
-            v_type = stype.clone(shape=dimensions, source=v_source)
+            v_type = stype.clone(shape=dimensions)
             v_name = v.attrib['name']
             if dimensions:
                 dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
 
-            variables += [sym.Variable(name=v_name, type=v_type, dimensions=dimensions,
-                                       scope=scope, source=source)]
+            scope.symbols[v_name] = v_type
+            variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
-        return ir.Declaration(variables=variables, source=t_source)
+        return ir.Declaration(variables=variables, source=source)

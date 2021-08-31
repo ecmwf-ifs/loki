@@ -106,7 +106,7 @@ def inline_constant_parameters(routine, external_only=True):
     # Replace kind parameters in variable types
     for variable in routine.variables:
         if is_inline_parameter(variable.type.kind):
-            variable.type = variable.type.clone(kind=variable.type.kind.type.initial)
+            routine.symbols[variable.name] = variable.type.clone(kind=variable.type.kind.type.initial)
         if variable.type.initial is not None:
             # Substitute kind specifier in literals in initializers (I know...)
             init_map = {literal.kind: literal.kind.type.initial
@@ -114,7 +114,7 @@ def inline_constant_parameters(routine, external_only=True):
                         if is_inline_parameter(literal.kind)}
             if init_map:
                 initial = SubstituteExpressions(init_map).visit(variable.type.initial)
-                variable.type = variable.type.clone(initial=initial)
+                routine.symbols[variable.name] = variable.type.clone(initial=initial)
 
     # Update imports
     imprtmap = {}

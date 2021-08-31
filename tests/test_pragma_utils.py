@@ -1,6 +1,7 @@
+from io import StringIO
 import pytest
 
-from loki import Module, Subroutine, pprint, FindNodes, flatten
+from loki import Module, Subroutine, FindNodes, flatten, pprint
 from loki.frontend import OFP, OMNI, FP
 from loki.ir import Pragma, Loop, Declaration, PragmaRegion
 from loki.pragma_utils import (
@@ -205,7 +206,12 @@ end subroutine test_tools_pragma_detach
     # Inline pragmas again
     ir = attach_pragmas(ir, Loop)
 
-    assert pprint(ir) == pprint(routine.body)
+    stream_ir = StringIO()
+    stream_body = StringIO()
+    pprint(ir, stream=stream_ir)
+    pprint(routine.body, stream=stream_body)
+    assert stream_ir.getvalue() == stream_body.getvalue()
+
     loops = FindNodes(Loop).visit(ir)
     assert len(loops) == 2
     assert all(loop.pragma is not None for loop in loops)

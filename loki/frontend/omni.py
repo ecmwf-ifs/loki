@@ -1,17 +1,13 @@
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from collections import OrderedDict
-
 
 from loki.frontend.source import Source
-from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, import_external_symbols
-)
-from loki.visitors import GenericVisitor
+from loki.frontend.util import inline_comments, cluster_comments, inline_labels
+from loki.visitors import GenericVisitor, FindNodes, Transformer
 import loki.ir as ir
 import loki.expression.symbols as sym
-from loki.expression import ExpressionDimensionsMapper, StringConcat
-from loki.logging import info, debug, DEBUG
+from loki.expression import ExpressionDimensionsMapper, StringConcat, FindTypedSymbols, SubstituteExpressions
+from loki.logging import info, debug, DEBUG, warning
 from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
@@ -168,91 +164,147 @@ class OMNI2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
+        warning('No specific handler for node type %s', o.__class__.name)
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
-    visit_body = visit_Element
+    def visit_FuseDecl(self, o, source=None):
+        name = o.attrib['name']
+        module = self.definitions.get(name, None)
+        scope = self.scope
+        if module is not None:
+            for k, v in module.symbols.items():
+                scope.symbols[k] = v.clone(imported=True, module=module)
+        return ir.Import(module=name, c_import=False, source=source)
 
     def visit_FuseOnlyDecl(self, o, source=None):
         name = o.attrib['name']
-        symbol_names = as_tuple(r.attrib['use_name'] for r in o.findall('renamable'))
+        symbols = tuple(self.visit(c) for c in o.findall('renamable'))
         module = self.definitions.get(name, None)
-        symbols = import_external_symbols(module=module, symbol_names=symbol_names, scope=self.scope)
-        return ir.Import(module=name, symbols=symbols, c_import=False)
+        scope = self.scope
+        if module is None:
+            scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
+        else:
+            for s in symbols:
+                scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+        symbols = tuple(s.clone(scope=scope) for s in symbols)
+        return ir.Import(module=name, symbols=symbols, c_import=False, source=source)
+
+    def visit_renamable(self, o, source=None):
+        return sym.Variable(name=o.attrib['use_name'], source=source)
 
     def visit_FinterfaceDecl(self, o, source=None):
         # TODO: We can only deal with interface blocks partially
         # in the frontend, as we cannot yet create `Subroutine` objects
         # cleanly here. So for now we skip this, but we should start
         # moving the `Subroutine` constructors into the frontend.
-        spec = [self.visit(c) for c in o if c.tag != 'FfunctionDecl']
-        return ir.Interface(spec=spec, body=(), source=source)
+        spec = None
+        body = tuple(self.visit(c) for c in o)
+        return ir.Interface(spec=spec, body=body, source=source)
+
+    def visit_FfunctionDecl(self, o, source=None):
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+
+        # Create a scope
+        scope = Scope(parent=self.scope)
+
+        # Name and dummy args
+        name = o.find('name').text
+        ftype = self.type_map[o.find('name').attrib['type']]
+        is_function = ftype.attrib['return_type'] != 'Fvoid'
+        args = tuple(a.text for a in ftype.findall('params/name'))
+
+        # Generate spec
+        # HACK: temporarily replace the scope property until we pass down scopes properly
+        parent_scope, self.scope = self.scope, scope
+        spec = self.visit(o.find('declarations'))
+        self.scope = parent_scope
+
+        # Filter out the declaration for the subroutine name but keep it for functions (since
+        # this declares the return type)
+        if not is_function:
+            mapper = {d: None for d in FindNodes(ir.Declaration).visit(spec)
+                      if d.variables[0].name == name}
+            spec = Transformer(mapper, invalidate_source=False).visit(spec)
+
+        return Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, is_function=is_function,
+                          source=source)
+
+    def visit_declarations(self, o, source=None, **kwargs):
+        body = tuple(self.visit(c, **kwargs) for c in o)
+        body = tuple(c for c in body if c is not None)
+        return ir.Section(body=body, source=source)
+
+    def visit_body(self, o, source=None, **kwargs):
+        body = tuple(self.visit(c, **kwargs) for c in o)
+        body = tuple(c for c in body if c is not None)
+        return body
 
     def visit_varDecl(self, o, source=None):
+        # OMNI has only one variable per declaration, find and create that
         name = o.find('name')
+        variable = self.visit(name)
 
-        external = False
-        if name.attrib['type'] in self.type_map:
-            tast = self.type_map[name.attrib['type']]
-            _type = self.visit(tast)
-
-            if _type is None:
-                if tast.attrib['return_type'] == 'Fvoid':
-                    dtype = BasicType.DEFERRED
-                    _type = SymbolAttributes(dtype)
-                elif tast.attrib['return_type'] in self.type_map:
-                    _type = self.visit(self.type_map[tast.attrib['return_type']])
-                else:
-                    t = self._omni_types[tast.attrib['return_type']]
-                    dtype = BasicType.from_fortran_type(t)
-                    _type = SymbolAttributes(dtype)
-
-            if tast.attrib.get('is_external') == 'true':
-                # This is an external declaration
-                external = True
-
-            # If the type definition comes back as deferred, then we have to unwrap an
-            # abundance of .attrib['ref'] cross-references and chase them in the type_table
-            # until we end up at a hash that actually points to an entry in the symbol_table
-            # which contains the name of the derived type. Yes, it's as stupid as it sounds...
-            if _type.dtype == BasicType.DEFERRED and 'ref' in tast.attrib:
-                type_ref = self.type_map[tast.attrib['ref']]
-                while 'ref' in type_ref.attrib:
-                    type_ref = self.type_map[type_ref.attrib['ref']]
-                type_symbol = self.symbol_map[type_ref.attrib['type']]
-                _type = _type.clone(dtype=DerivedType(type_symbol.find('name').text))
-
-            # If the type node has ranges, create dimensions
-            dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
-            dimensions = None if len(dimensions) == 0 else dimensions
-        else:
+        # Create the declared type
+        if name.attrib['type'] in self._omni_types:
+            # Intrinsic scalar type
             t = self._omni_types[name.attrib['type']]
             _type = SymbolAttributes(BasicType.from_fortran_type(t))
             dimensions = None
 
-        if _type is not None:
-            _type.shape = dimensions
-        value = self.visit(o.find('value')) if o.find('value') is not None else None
-        if value:
-            _type.initial = value
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        if external:
-            # Fortran's EXTERNAL statement/attribute is evil, as it looks like a regular
-            # variable declaration but declares a procedure symbol. Depending on whether
-            # we have a data type for that symbol or not, we can deduce it to be a
-            # function or subroutine
-            if _type.dtype is BasicType.DEFERRED:
-                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=False), external=external)
-            else:
-                _type = _type.clone(dtype=ProcedureType(name=name.text, is_function=True),
-                                    external=external, return_type=_type.dtype)
-        variable = sym.Variable(name=name.text, dimensions=dimensions, type=_type,
-                                scope=self.scope, source=source)
-        return ir.Declaration(variables=as_tuple(variable), external=external, source=source)
+        elif name.attrib['type'] in self.type_map:
+            # Type with attributes or derived type
+            tast = self.type_map[name.attrib['type']]
+            _type = self.visit(tast)
+
+            dimensions = as_tuple(self.visit(d) for d in tast.findall('indexRange'))
+            if dimensions:
+                _type = _type.clone(shape=dimensions)
+                variable = variable.clone(dimensions=dimensions)
+
+            if isinstance(_type.dtype, ProcedureType):
+                return_type = tast.attrib['return_type']
+                if return_type != 'Fvoid':
+                    if return_type in self._omni_types:
+                        dtype = BasicType.from_fortran_type(self._omni_types[return_type])
+                        _type.return_type = dtype
+                    elif return_type in self.type_map:
+                        # Any attributes (like kind) are on the return type, therefore we
+                        # overwrite the _type here
+                        _type = self.visit(self.type_map[return_type])
+                        _type.return_type = _type.dtype
+                    else:
+                        raise ValueError
+                    _type.dtype = ProcedureType(variable.name, is_function=True)
+                else:
+                    _type.dtype = ProcedureType(variable.name, is_function=False)
+
+                if tast.attrib.get('is_external') == 'true':
+                    _type.external = True
+                else:
+                    # This is the declaration of the return type inside a function, which is
+                    # why we restore the dtype from return_type
+                    _type = _type.clone(dtype=_type.return_type or BasicType.DEFERRED, return_type=None)
+
+        else:
+            raise ValueError
+
+        scope = self.scope
+        if o.find('value') is not None:
+            _type.initial = self.visit(o.find('value'))
+            # TODO: Apply some rescope-visitor here
+            rescope_map = {var: var.clone(scope=scope) for var in FindTypedSymbols().visit(_type.initial)}
+            _type.initial = SubstituteExpressions(rescope_map).visit(_type.initial)
+        if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
+            # TODO: put it in the right scope (Rescope Visitor)
+            _type = _type.clone(kind=_type.kind.clone(scope=scope))
+
+        scope.symbols[variable.name] = _type
+        variables = (variable.clone(scope=scope),)
+        return ir.Declaration(variables=variables, external=_type.external is True, source=source)
 
     def visit_FstructDecl(self, o, source=None):
         name = o.find('name')
@@ -273,15 +325,33 @@ class OMNI2IR(GenericVisitor):
 
         return typedef
 
+    def visit_FdataDecl(self, o, source=None):
+        variable = self.visit(o.find('varList'))
+        values = self.visit(o.find('valueList'))
+        return ir.DataDeclaration(variable=variable, values=values, source=source)
+
+    def visit_varList(self, o, source=None):
+        children = tuple(self.visit(c) for c in o)
+        children = tuple(c for c in children if c is not None)
+        return children
+
+    visit_valueList = visit_varList
+
     def visit_FbasicType(self, o, source=None):
         ref = o.attrib.get('ref', None)
-        if ref in self.type_map:
-            _type = self.visit(self.type_map[ref])
-        else:
-            typename = self._omni_types[ref]
+        if ref in self._omni_types:
+            dtype = BasicType.from_fortran_type(self._omni_types[ref])
             kind = self.visit(o.find('kind')) if o.find('kind') is not None else None
             length = self.visit(o.find('len')) if o.find('len') is not None else None
-            _type = SymbolAttributes(BasicType.from_fortran_type(typename), kind=kind, length=length)
+            _type = SymbolAttributes(dtype, kind=kind, length=length)
+        elif ref in self.type_map:
+            _type = self.visit(self.type_map[ref])
+        else:
+            raise ValueError
+
+        shape = o.findall('indexRange')
+        if shape:
+            _type.shape = tuple(self.visit(s) for s in shape)
 
         # OMNI types are build recursively from references (Matroshka-style)
         _type.intent = o.attrib.get('intent', None)
@@ -293,6 +363,20 @@ class OMNI2IR(GenericVisitor):
         _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
         return _type
 
+    def visit_FfunctionType(self, o, source=None):
+        if o.attrib['return_type'] == 'Fvoid':
+            return_type = None
+        elif o.attrib['return_type'] in self._omni_types:
+            return_type = BasicType.from_fortran_type(self._omni_types[o.attrib['return_type']])
+        elif o.attrib['return_type'] in self.type_map:
+            return_type = self.visit(self.type_map[o.attrib['return_type']])
+        else:
+            raise ValueError
+
+        # OMNI doesn't give us the function name at this point
+        dtype = ProcedureType('UNKNOWN', is_function=return_type is not None)
+        return SymbolAttributes(dtype, return_type=return_type)
+
     def visit_FstructType(self, o, source=None):
         # We have encountered a derived type as part of the declaration in the spec
         # of a routine.
@@ -302,27 +386,65 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we know that type already
         dtype = self.scope.symbols.lookup(name, recursive=True)
-        if dtype is None:
+        if dtype is None or dtype.dtype == BasicType.DEFERRED:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:
             dtype = dtype.dtype
 
         return SymbolAttributes(dtype)
 
+    def visit_value(self, o, source=None):
+        return self.visit(o[0])
+
+    visit_kind = visit_value
+    visit_len = visit_value
+
     def visit_associateStatement(self, o, source=None):
-        associations = OrderedDict()
-        for i in o.findall('symbols/id'):
-            var = self.visit(i.find('value'))
-            if isinstance(var, sym.Array):
-                shape = ExpressionDimensionsMapper()(var)
+        associations = tuple(self.visit(c) for c in o.findall('symbols/id'))
+
+        # Create a scope for the associate
+        parent_scope = self.scope
+        scope = parent_scope  # TODO: actually create own scope
+
+        # TODO: Apply some rescope-visitor here
+        rescoped_associations = []
+        for expr, name in associations:
+            rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
+            expr = SubstituteExpressions(rescope_map).visit(expr)
+            name = name.clone(scope=scope)
+            rescoped_associations += [(expr, name)]
+        associations = as_tuple(rescoped_associations)
+
+        # Update symbol table for associates
+        for expr, name in associations:
+            if isinstance(expr, sym.TypedSymbol):
+                # Use the type of the associated variable
+                _type = parent_scope.symbols.lookup(expr.name)
+                if isinstance(expr, sym.Array) and expr.dimensions is not None:
+                    shape = ExpressionDimensionsMapper()(expr)
+                    if shape == (sym.IntLiteral(1),):
+                        # For a scalar expression, we remove the shape
+                        shape = None
+                    _type = _type.clone(shape=shape)
             else:
-                shape = None
-            vname = i.find('name').text
-            vtype = var.type.clone(name=None, parent=None, shape=shape)
-            associations[var] = sym.Variable(name=vname, type=vtype, scope=self.scope,
-                                             source=source)
+                # TODO: Handle data type and shape of complex expressions
+                shape = ExpressionDimensionsMapper()(expr)
+                if shape == (sym.IntLiteral(1),):
+                    # For a scalar expression, we remove the shape
+                    shape = None
+                _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
+            scope.symbols[name.name] = _type
+
         body = self.visit(o.find('body'))
-        return ir.Associate(body=as_tuple(body), associations=associations, source=source)
+        return ir.Associate(body=body, associations=associations, source=source)
+
+    def visit_id(self, o, source=None):
+        expr = self.visit(o.find('value'))
+        name = self.visit(o.find('name'))
+        return expr, name
+
+    def visit_exprStatement(self, o, source=None):
+        return self.visit(o[0])
 
     def visit_FcommentLine(self, o, source=None):
         return ir.Comment(text=o.text, source=source)
@@ -337,10 +459,45 @@ class OMNI2IR(GenericVisitor):
         rhs = self.visit(o[1])
         return ir.Assignment(lhs=lhs, rhs=rhs, source=source)
 
+    def visit_FallocateStatement(self, o, source=None):
+        variables = tuple(self.visit(c) for c in o.findall('alloc'))
+        if o.find('allocOpt') is not None:
+            data_source = self.visit(o.find('allocOpt'))
+            return ir.Allocation(variables=variables, data_source=data_source, source=source)
+        return ir.Allocation(variables=variables, source=source)
+
+    def visit_allocOpt(self, o, source=None):
+        return self.visit(o[0])
+
+    def visit_FdeallocateStatement(self, o, source=None):
+        allocs = o.findall('alloc')
+        variables = as_tuple(self.visit(a[0]) for a in allocs)
+        return ir.Deallocation(variables=variables, source=source)
+
+    def visit_FnullifyStatement(self, o, source=None):
+        variables = tuple(self.visit(c) for c in o.findall('alloc'))
+        return ir.Nullify(variables=variables, source=source)
+
+    def visit_alloc(self, o, source=None):
+        variable = self.visit(o[0])
+        if o.find('arrayIndex') is not None:
+            dimensions = tuple(self.visit(c) for c in o.findall('arrayIndex'))
+            variable = variable.clone(dimensions=dimensions)
+        return variable
+
+    def visit_FwhereStatement(self, o, source=None):
+        condition = self.visit(o.find('condition'))
+        body = self.visit(o.find('then/body'))
+        if o.find('else') is not None:
+            default = self.visit(o.find('else/body'))
+        else:
+            default = ()
+        return ir.MaskedStatement(condition, body, default, source=source)
+
     def visit_FpointerAssignStatement(self, o, source=None):
         target = self.visit(o[0])
         expr = self.visit(o[1])
-        return ir.Assignment(target=target, expr=expr, ptr=True, source=source)
+        return ir.Assignment(lhs=target, rhs=expr, ptr=True, source=source)
 
     def visit_FdoWhileStatement(self, o, source=None):
         assert o.find('condition') is not None
@@ -351,7 +508,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FdoStatement(self, o, source=None):
         assert o.find('body') is not None
-        body = as_tuple(self.visit(o.find('body')))
+        body = self.visit(o.find('body'))
         if o.find('Var') is None:
             # We are in an unbound do loop
             return ir.WhileLoop(condition=None, body=body, source=source)
@@ -364,14 +521,20 @@ class OMNI2IR(GenericVisitor):
         bounds = sym.LoopRange((lower, upper, step), source=source)
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
+    def visit_FdoLoop(self, o, source=None):
+        raise NotImplementedError
+
     def visit_FifStatement(self, o, source=None):
         condition = self.visit(o.find('condition'))
-        body = as_tuple(self.visit(o.find('then/body')))
+        body = self.visit(o.find('then/body'))
         if o.find('else'):
-            else_body = as_tuple(self.visit(o.find('else/body')))
+            else_body = self.visit(o.find('else/body'))
         else:
             else_body = ()
         return ir.Conditional(condition=condition, body=body, else_body=else_body, source=source)
+
+    def visit_condition(self, o, source=None):
+        return self.visit(o[0])
 
     def visit_FselectCaseStatement(self, o, source=None):
         expr = self.visit(o.find('value'))
@@ -379,13 +542,12 @@ class OMNI2IR(GenericVisitor):
         values, bodies = zip(*cases)
         if None in values:
             else_index = values.index(None)
-            values, bodies = list(values), list(bodies)
-            values.pop(else_index)
-            else_body = as_tuple(bodies.pop(else_index))
+            else_body = as_tuple(bodies[else_index])
+            values = values[:else_index] + values[else_index+1:]
+            bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
-        return ir.MultiConditional(expr=expr, values=as_tuple(values), bodies=as_tuple(bodies),
-                                   else_body=else_body, source=source)
+        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body, source=source)
 
     def visit_FcaseLabel(self, o, source=None):
         values = [self.visit(value) for value in list(o) if value.tag in ('value', 'indexRange')]
@@ -394,79 +556,27 @@ class OMNI2IR(GenericVisitor):
         elif len(values) == 1:
             values = values.pop()
         body = self.visit(o.find('body'))
-        return values, body
+        return as_tuple(values) or None, as_tuple(body)
 
     def visit_FmemberRef(self, o, **kwargs):
-        vname = o.attrib['member']
-        t = o.attrib['type']
         parent = self.visit(o.find('varRef'))
+        name = '{}%{}'.format(parent.name, o.attrib['member'])
+        variable = sym.Variable(name=name, parent=parent)
+        return variable
 
-        source = kwargs.get('source', None)
-        shape = kwargs.get('shape', None)
-        dimensions = kwargs.get('dimensions', None)
+    def visit_name(self, o, **kwargs):
+        return sym.Variable(name=o.text, source=kwargs.get('source'))
 
-        vtype = None
-        if parent is not None:
-            basename = vname
-            vname = '%s%%%s' % (parent.name, vname)
-
-        vtype = self.scope.symbols.lookup(vname, recursive=True)
-
-        # If we have a parent with a type, use that
-        if vtype is None and parent is not None and isinstance(parent.type.dtype, DerivedType):
-            vtype = parent.type.dtype.variable_map.get(basename, vtype)
-        if vtype is None and t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-        if vtype is None:
-            if t in self._omni_types:
-                typename = self._omni_types[t]
-                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-            else:
-                # If we truly cannot determine the type, we defer
-                vtype = SymbolAttributes(BasicType.DEFERRED)
-
-        if shape is not None and vtype is not None and vtype.shape != shape:
-            # We need to create a clone of that type as other instances of that
-            # derived type might have a different allocation size
-            vtype = vtype.clone(shape=shape)
-
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, parent=parent, scope=self.scope,
-                            dimensions=dimensions, source=source)
-
-    def visit_Var(self, o, **kwargs):
-        vname = o.text
-        t = o.attrib.get('type')
-
-        source = kwargs.get('source', None)
-        dimensions = kwargs.get('dimensions', None)
-        shape = kwargs.get('shape', None)
-
-        vtype = self.scope.symbols.lookup(vname, recursive=True)
-
-        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self.type_map:
-            vtype = self.visit(self.type_map[t])
-
-        if (vtype is None or vtype.dtype == BasicType.DEFERRED) and t in self._omni_types:
-            typename = self._omni_types.get(t, t)
-            vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-
-        if shape is not None and vtype is not None and vtype.shape != shape:
-            # We need to create a clone of that type as other instances of that
-            # derived type might have a different allocation size
-            vtype = vtype.clone(shape=shape)
-
-        if dimensions:
-            dimensions = sym.ArraySubscript(dimensions, source=source)
-        return sym.Variable(name=vname, type=vtype, scope=self.scope,
-                            dimensions=dimensions, source=source)
+    visit_Var = visit_name
 
     def visit_FarrayRef(self, o, source=None):
-        # Hack: Get variable components here and derive the dimensions
-        # explicitly before constructing our symbolic variable.
+        var = self.visit(o.find('varRef'))
         dimensions = as_tuple(self.visit(i) for i in o[1:])
-        return self.visit(o.find('varRef'), dimensions=dimensions)
+        var = var.clone(dimensions=dimensions)
+        return var
+
+    def visit_varRef(self, o, source=None):
+        return self.visit(o[0])
 
     def visit_arrayIndex(self, o, source=None):
         return self.visit(o[0])
@@ -482,8 +592,14 @@ class OMNI2IR(GenericVisitor):
         step = None if step == '1' else step
         return sym.RangeIndex((lower, upper, step), source=source)
 
+    def visit_lowerBound(self, o, source=None):
+        return self.visit(o[0])
+
+    visit_upperBound = visit_lowerBound
+    visit_step = visit_lowerBound
+
     def visit_FrealConstant(self, o, source=None):
-        if 'kind' in o.attrib:
+        if 'kind' in o.attrib and not 'd' in o.text.lower():
             _type = self.visit(self.type_map[o.attrib.get('type')])
             return sym.Literal(value=o.text, type=BasicType.REAL, kind=_type.kind, source=source)
         return sym.Literal(value=o.text, type=BasicType.REAL, source=source)
@@ -510,60 +626,37 @@ class OMNI2IR(GenericVisitor):
 
     def visit_functionCall(self, o, source=None):
         if o.find('name') is not None:
-            name = o.find('name').text
-        elif o[0].tag == 'FmemberRef':
-            # TODO: Super-hacky for now!
-            # We need to deal with member function (type-bound procedures)
-            # and integrate FfunctionType into our own IR hierachy.
-            var = self.visit(o[0][0])
-            name = '%s%%%s' % (var.name, o[0].attrib['member'])
+            name = self.visit(o.find('name'))
+        elif o.find('FmemberRef') is not None:
+            name = self.visit(o.find('FmemberRef'))
         else:
-            raise RuntimeError('Could not determine name of function call')
-        args = o.find('arguments') or tuple()
-        args = as_tuple(self.visit(a) for a in args)
-        # Separate keyrword argument from positional arguments
-        kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
-        args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
+            raise ValueError
 
-        # Check if we're dealing with a previously known function call
-        stype = self.scope.symbols.lookup(name, recursive=True)
-        if stype and isinstance(stype.dtype, ProcedureType) and stype.dtype.is_function:
-            fct_symbol = sym.ProcedureSymbol(name, type=stype, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
+        args = o.find('arguments')
+        if args is not None:
+            args = as_tuple(self.visit(a) for a in args)
+            # Separate keyword argument from positional arguments
+            kwargs = as_tuple(arg for arg in args if isinstance(arg, tuple))
+            args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
+        else:
+            args, kwargs = (), ()
 
-        # Slightly hacky: inlining is decided based on return type
-        # TODO: Unify the two call types?
-        if o.attrib.get('type', 'Fvoid') != 'Fvoid':
-            if o.find('name') is not None and o.find('name').text in ['real', 'int']:
-                args = o.find('arguments')
-                expr = self.visit(args[0])
-                if len(args) > 1:
-                    kind = self.visit(args[1])
-                    if isinstance(kind, tuple):
-                        kind = kind[1]  # Yuckk!
-                else:
-                    kind = None
-                return sym.Cast(o.find('name').text, expression=expr, kind=kind, source=source)
-            fct_symbol = sym.ProcedureSymbol(name, scope=self.scope, source=source)
-            return sym.InlineCall(fct_symbol, parameters=args, kw_parameters=kwargs, source=source)
-        return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
+        if o.attrib.get('type', 'Fvoid') == 'Fvoid':
+            # Subroutine call
+            return ir.CallStatement(name=name, arguments=args, kwarguments=kwargs, source=source)
 
-    def visit_FallocateStatement(self, o, source=None):
-        allocs = o.findall('alloc')
-        variables = []
-        data_source = None
-        if o.find('allocOpt') is not None:
-            data_source = self.visit(o.find('allocOpt'))
-        for a in allocs:
-            dimensions = as_tuple(self.visit(i) for i in a[1:])
-            dimensions = None if len(dimensions) == 0 else dimensions
-            variables += [self.visit(a[0], shape=dimensions, dimensions=dimensions)]
-        return ir.Allocation(variables=as_tuple(variables), data_source=data_source)
+        if name.name.lower() in ('real', 'int'):
+            assert args
+            expr = args[0]
+            if kwargs:
+                assert len(args) == 1
+                assert len(kwargs) == 1 and kwargs[0][0] == 'kind'
+                kind = kwargs[0][1]
+            else:
+                kind = args[1] if len(args) > 1 else None
+            return sym.Cast(name, expr, kind=kind, source=source)
 
-    def visit_FdeallocateStatement(self, o, source=None):
-        allocs = o.findall('alloc')
-        variables = as_tuple(self.visit(a[0]) for a in allocs)
-        return ir.Deallocation(variables=variables, source=source)
+        return sym.InlineCall(name, parameters=args, kw_parameters=kwargs, source=source)
 
     def visit_FcycleStatement(self, o, source=None):
         # TODO: do-construct-name is not preserved

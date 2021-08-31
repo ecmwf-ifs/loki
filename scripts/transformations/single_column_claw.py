@@ -252,12 +252,13 @@ class CLAWTransformation(ExtractSCATransformation):
             self.item_depth[routine.name.lower()] = 0
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.name.lower() in targets:
+            call_name = str(call.name).lower()
+            if call_name in targets:
                 if call.context:
-                    self.item_depth[call.name.lower()] = self.item_depth[routine.name.lower()] + 1
+                    self.item_depth[call_name] = self.item_depth[routine.name.lower()] + 1
                 else:
                     warning('[Loki] CLAWTransform: Routine {} not attached to call context in {}'.format(
-                        routine.name, call.name.lower()
+                        routine.name, call_name
                     ))
 
         # Store the names of all variables that we are about to remove
@@ -318,7 +319,7 @@ class CLAWTransformation(ExtractSCATransformation):
 
             # Insert `!$claw sca forward` pragmas to propagate the SCA region
             for call in FindNodes(CallStatement).visit(routine.body):
-                if call.name.lower() in targets:
+                if str(call.name).lower() in targets:
                     call._update(pragma=Pragma(keyword='claw', content='sca forward'))
 
         if role == 'driver':

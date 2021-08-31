@@ -63,6 +63,11 @@ class ExprMetadataMixin:
     def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument,missing-function-docstring
         return LokiStringifyMapper()
 
+    def clone(self, **kwargs):
+        if self.source and 'source' not in kwargs:
+            kwargs['source'] = self.source
+        return super().clone(**kwargs)
+
 
 class StrCompareMixin:
     """
@@ -87,12 +92,20 @@ class StrCompareMixin:
 
 class TypedSymbol:
     """
-    Base class for symbols that carry type information from an associated scope.
+    Base class for symbols that carry type information.
 
-    Every :any:`TypedSymbol` is associated with a specific scope in which type
-    information is cached. The scope itself is owned by the corresponding
-    container class in which it is declared (such as :any:`Module` or
-    :any:`Subroutine`).
+    :class:`TypedSymbol` can be associated with a specific :any:`Scope` in
+    which it is declared. In that case, all type information is cached in that
+    scope's :any:`SymbolTable`. Creating :class:`TypedSymbol` without attaching
+    it to a scope stores the type information locally.
+
+    .. note::
+        Providing :attr:`scope` and :attr:`type` overwrites the corresponding
+        entry in the scope's symbol table. To not modify the type information
+        omit :attr:`type` or use ``type=None``.
+
+    Objects should always be created via the factory class :any:`Variable`.
+
 
     Parameters
     ----------
@@ -104,36 +117,38 @@ class TypedSymbol:
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     parent : :any:`Scalar` or :any:`Array`, optional
         The derived type variable this variable belongs to.
-
-    .. note::
-        Providing a type overwrites the corresponding entry in the scope's
-        symbol table. This is due to the assumption that the type of a symbol
-        is only explicitly specified when it should be updated.
+    *args : optional
+        Any other positional arguments for other parent classes
+    **kwargs : optional
+        Any other keyword arguments for other parent classes
     """
 
     def __init__(self, *args, **kwargs):
-        self.name = kwargs.get('name')
+        self.name = kwargs['name']
+
         self.parent = kwargs.pop('parent', None)
-        scope = kwargs.pop('scope')
-        _type = kwargs.pop('type', None)
+        assert self.parent is None or isinstance(self.parent, TypedSymbol)
+
+        scope = kwargs.pop('scope', None)
+        assert scope is None or isinstance(scope, Scope)
+        self._scope = None if scope is None else weakref.ref(scope)
+
+        # Use provided type or try to determine from scope
+        self._type = None
+        _type = kwargs.pop('type', None) or self.type
+
+        # Update the stored type information
+        if self._scope is None:
+            # Store locally if not attached to a scope
+            self._type = _type
+        elif _type is None:
+            # Store deferred type if unknown
+            self.scope.symbols[self.name] = SymbolAttributes(BasicType.DEFERRED)
+        elif _type is not self.type:
+            # Update type if differs from stored type
+            self.scope.symbols[self.name] = _type
 
         super().__init__(*args, **kwargs)
-
-        assert isinstance(scope, Scope)
-        self._scope = weakref.ref(scope)
-
-        if _type is None:
-            # Insert the deferred type in the type table only if it does not exist
-            # yet (necessary for deferred type definitions, e.g., derived types in header or
-            # parameters from other modules)
-            self.scope.symbols.setdefault(self.name, SymbolAttributes(BasicType.DEFERRED))
-        else:
-            lookup_type = self.scope.symbols.lookup(self.name)
-            if not lookup_type or (_type.dtype is not BasicType.DEFERRED and _type is not lookup_type):
-                # If the type information does already exist and is identical (not just
-                # equal) we don't update it. This makes sure that we don't create double
-                # entries for variables inherited from a parent scope
-                self.type = _type.clone()
 
     def __getinitargs__(self):
         args = [self.name, ('scope', self.scope)]
@@ -142,8 +157,10 @@ class TypedSymbol:
     @property
     def scope(self):
         """
-        The object corresponding to the symbols scope.
+        The object corresponding to the symbol's scope.
         """
+        if self._scope is None:
+            return None
         return self._scope()
 
     @property
@@ -151,11 +168,9 @@ class TypedSymbol:
         """
         Internal representation of the declared data type.
         """
+        if self._scope is None:
+            return self._type or SymbolAttributes(BasicType.DEFERRED)
         return self.scope.symbols.lookup(self.name)
-
-    @type.setter
-    def type(self, value):
-        self.scope.symbols[self.name] = value
 
     @property
     def basename(self):
@@ -201,7 +216,7 @@ class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.V
         The scope in which the symbol is declared
     """
 
-    def __init__(self, name, scope, **kwargs):
+    def __init__(self, name, scope=None, **kwargs):
         if kwargs.get('type') is None:
             kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
         assert kwargs['type'].dtype is BasicType.DEFERRED
@@ -224,7 +239,7 @@ class Scalar(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  #
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     """
 
-    def __init__(self, name, scope, type=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
@@ -273,7 +288,7 @@ class Array(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # 
         The array subscript expression.
     """
 
-    def __init__(self, name, scope, type=None, dimensions=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, dimensions=None, **kwargs):
         # Stop complaints about `type` in this function
         # pylint: disable=redefined-builtin
         super().__init__(name=name, scope=scope, type=type, **kwargs)
@@ -361,6 +376,26 @@ class Variable:
        Instantiate a :any:`Scalar`;
     4. None of the above: Instantiate a :any:`DeferredTypeSymbol`
 
+    All objects created by this factory implement :class:`TypedSymbol`. A
+    :class:`TypedSymbol` object can be associated with a specific :any:`Scope` in
+    which it is declared. In that case, all type information is cached in that
+    scope's :any:`SymbolTable`. Creating :class:`TypedSymbol` without attaching
+    it to a scope stores the type information locally.
+
+    .. note::
+        Providing :attr:`scope` and :attr:`type` overwrites the corresponding
+        entry in the scope's symbol table. To not modify the type information
+        omit :attr:`type` or use ``type=None``.
+
+    Note that all :class:`TypedSymbol` classes are intentionally quasi-immutable:
+    Changing any of their attributes, including attaching them to a scope or
+    modifying their type, should always be done via the :meth:`clone` method:
+
+    .. codeblock::
+        var = Variable(name='foo')
+        var = var.clone(scope=scope, type=SymbolAttributes(BasicType.INTEGER))
+        var = var.clone(type=var.type.clone(dtype=BasicType.REAL))
+
     Parameters
     ----------
     name : str
@@ -377,13 +412,29 @@ class Variable:
 
     def __new__(cls, **kwargs):
         name = kwargs['name']
-        scope = kwargs['scope']
-        _type = kwargs.setdefault('type', scope.symbols.lookup(name))
+        scope = kwargs.get('scope')
+        _type = kwargs.get('type')
+
+        if not _type or _type.dtype is BasicType.DEFERRED:
+            # Try to determine type information
+            if scope is not None:
+                kwargs['type'] = scope.symbols.lookup(name) if scope else None
+                _type = kwargs['type']
 
         if _type and isinstance(_type.dtype, ProcedureType):
+            # This is the name in a function/subroutine call
             return ProcedureSymbol(**kwargs)
 
+        if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
+            # This is a constructor call
+            return ProcedureSymbol(**kwargs)
+
+        #if _type and _type.shape == (IntLiteral(1),):
+        #    # Convenience: This way we can construct Scalar variables with `shape=(1,)`
+        #    _type = _type.clone(shape=None)
+
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
+            # Convenience: This way we can construct Scalar variables with `dimensions=None`
             kwargs.pop('dimensions')
 
         if kwargs.get('dimensions') is not None or (_type and _type.shape):
@@ -433,7 +484,7 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
         super().__init__()
 
 
-class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
+class ProcedureSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint: disable=too-many-ancestors
     """
     Internal representation of a callable subroutine or function.
 
@@ -447,9 +498,10 @@ class ProcedureSymbol(ExprMetadataMixin, TypedSymbol, _FunctionSymbol):
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     """
 
-    def __init__(self, name, scope, type=None, **kwargs):
+    def __init__(self, name, scope=None, type=None, **kwargs):
         # pylint: disable=redefined-builtin
-        assert type is None or isinstance(type.dtype, ProcedureType) or type.dtype is BasicType.DEFERRED
+        assert type is None or isinstance(type.dtype, ProcedureType) or \
+                (isinstance(type.dtype, DerivedType) and name.lower() == type.dtype.name.lower())
         super().__init__(name=name, scope=scope, type=type, **kwargs)
 
     mapper_method = intern('map_procedure_symbol')

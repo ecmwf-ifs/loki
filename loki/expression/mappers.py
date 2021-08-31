@@ -177,6 +177,7 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_scalar
+    map_procedure_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         if not self.visit(expr):
@@ -198,6 +199,8 @@ class ExpressionRetriever(WalkMapper):
     def map_float_literal(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
+        if expr.kind:
+            self.rec(expr.kind, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_int_literal = map_float_literal
@@ -233,8 +236,6 @@ class ExpressionRetriever(WalkMapper):
                 # strings. Do not recurse on those for the moment...
                 self.rec(elem, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
-
-    map_procedure_symbol = WalkMapper.map_function_symbol
 
 
 def retrieve_expressions(expr, cond, recurse_cond=None):
@@ -309,6 +310,18 @@ class ExpressionDimensionsMapper(Mapper):
         lower = expr.lower.value - 1 if expr.lower is not None else 0
         step = expr.step.value if expr.step is not None else 1
         return as_tuple((expr.upper - lower) // step)
+
+    def map_sum(self, expr, *args, **kwargs):
+        dim = (1,)
+        for ch in expr.children:
+            child_dim = self.rec(ch, *args, **kwargs)
+            if dim == (1,):
+                dim = child_dim
+            elif dim != child_dim and child_dim != 1:
+                raise ValueError('Non-matching dimensions: {} and {}'.format(str(dim), str(child_dim)))
+        return dim
+
+    map_product = map_sum
 
 
 class ExpressionCallbackMapper(CombineMapper):

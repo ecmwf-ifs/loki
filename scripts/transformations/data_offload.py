@@ -65,7 +65,7 @@ class DataOffloadTransformation(Transformation):
 
         # Find all targeted kernel calls
         calls = FindNodes(CallStatement).visit(region)
-        calls = [c for c in calls if c.name.lower() in targets]
+        calls = [c for c in calls if str(c.name).lower() in targets]
         if len(calls) == 0:
             return False
 
@@ -93,7 +93,7 @@ class DataOffloadTransformation(Transformation):
 
                 # Find all targeted kernel calls
                 calls = FindNodes(CallStatement).visit(region)
-                calls = [c for c in calls if c.name.lower() in targets]
+                calls = [c for c in calls if str(c.name).lower() in targets]
 
                 if len(calls) > 1:
                     raise RuntimeError('[Loki] Data-offload: Cannot deal with multiple '
@@ -106,18 +106,18 @@ class DataOffloadTransformation(Transformation):
                 for call in calls:
                     if not call.context:
                         warning('[Loki] Data offload: Routine {} not attached to call context in {}'.format(
-                            routine.name, call.name.lower()
+                            routine.name, str(call.name).lower()
                         ))
 
                         continue
 
                     for param, arg in call.context.arg_iter(call):
                         if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                            inargs += [arg.name.lower()]
+                            inargs += [str(arg.name).lower()]
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
-                            inoutargs += [arg.name.lower()]
+                            inoutargs += [str(arg.name).lower()]
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
-                            outargs += [arg.name.lower()]
+                            outargs += [str(arg.name).lower()]
 
                 def _pragma_string(items):
                     # items = list(dict.fromkeys(items))

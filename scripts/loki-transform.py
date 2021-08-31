@@ -10,8 +10,8 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Transformation, Scheduler, SchedulerConfig, FindNodes,
-    Loop, Pragma, Frontend, flatten, Dimension, as_tuple
+    Sourcefile, Transformation, Scheduler, SchedulerConfig,
+    Frontend, flatten, as_tuple
 )
 
 # Get generalized transformations provided by Loki
@@ -299,8 +299,8 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     transformation.apply(kernel, role='kernel', path=out_path)
 
     # Traverse header modules to create getter functions for module variables
-    for header in definitions:
-        transformation.apply(header, role='header', path=out_path)
+    for h in definitions:
+        transformation.apply(h, role='header', path=out_path)
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
     dependency = DependencyTransformation(suffix='_FC', mode='module', module_suffix='_MOD')
