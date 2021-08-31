@@ -53,6 +53,10 @@ config.register('omni-dump-xml', False, env_variable='LOKI_OMNI_DUMP_XML',
 config.register('frontend-pp-cache', False, env_variable='LOKI_FRONTEND_PP_CACHE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
+# Enable strict frontend behaviour (fail on unknown/unsupported language features)
+config.register('frontend-strict-mode', False, env_variable='LOKI_FRONTEND_STRICT_MODE',
+                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
+
 # Disk-caching, which causes OFP ASTs to be cached on disk for
 # fast re-parsing of unchanged source files
 config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',

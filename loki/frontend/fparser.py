@@ -12,15 +12,16 @@ from loki.frontend.util import (
     inline_comments, cluster_comments, read_file, FP,
     combine_multiline_pragmas
 )
-import loki.ir as ir
+from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
 from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions
-from loki.logging import DEBUG, warning
+from loki.logging import DEBUG, warning, error
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+from loki.config import config
 
 
 __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast',
@@ -30,7 +31,7 @@ __all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fp
 @timeit(log_level=DEBUG)
 def parse_fparser_file(filename):
     """
-    Generate an internal IR from file via the fparser AST.
+    Generate a parse tree from file via fparser
     """
     fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
@@ -38,6 +39,9 @@ def parse_fparser_file(filename):
 
 @timeit(log_level=DEBUG)
 def parse_fparser_source(source):
+    """
+    Generate a parse tree from string
+    """
     reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
@@ -47,7 +51,26 @@ def parse_fparser_source(source):
 @timeit(log_level=DEBUG)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
-    Generate an internal IR from file via the fparser AST.
+    Generate an internal IR from fparser parse tree
+
+    Parameters
+    ----------
+    ast :
+        The fparser parse tree as created by :any:`parse_fparser_source` or :any:`parse_fparser_file`
+    raw_source : str
+        The raw source string from which :attr:`ast` was generated
+    pp_info : optional
+        Information from internal preprocessing step that was applied to work around
+        parser limitations and that should be re-inserted
+    definitions : list of :any:`Module`, optional
+        List of external module definitions to attach upon use
+    scope : :any:`Scope`
+        Scope object for which to parse the AST.
+
+    Returns
+    -------
+    :any:`Node`
+        The control flow tree
     """
 
     # Parse the raw FParser language AST into our internal IR
@@ -77,10 +100,17 @@ def parse_fparser_expression(source, scope):
     hierarchy by directly matching against a primary expression, thus this
     should be able to parse any syntactically correct Fortran expression.
 
-    :param str source: the expression as a string.
-    :param Scope scope: the scope to which symbol names inside the expression belong.
+    Parameters
+    ----------
+    source : str
+        The expression as a string
+    scope : :any:`Scope`
+        The scope to which symbol names inside the expression belong
 
-    :return: the expression tree.
+    Returns
+    -------
+    :any:`Expression`
+        The expression tree corresponding to the expression
     """
     _ = ParserFactory().create(std='f2008')
     # Wrap source in brackets to make sure it appears like a valid expression
@@ -134,7 +164,7 @@ def rget_child(node, node_type):
 
 def extract_fparser_source(node, raw_source):
     """
-    Extract the py:class:`Source` object for any py:class:`fparser.two.utils.BlockBase`
+    Extract the :any:`Source` object for any py:class:`fparser.two.utils.BlockBase`
     from the raw source string.
     """
     assert isinstance(node, BlockBase)
@@ -166,6 +196,13 @@ class FParser2IR(GenericVisitor):
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.scope = scope
+
+    @staticmethod
+    def warn_or_fail(msg):
+        if config['frontend-strict-mode']:
+            error(msg)
+            raise NotImplementedError
+        warning(msg)
 
     def get_source(self, o, source):
         """
@@ -310,7 +347,7 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # Module nature
-            raise NotImplementedError
+            self.warn_or_fail('module-nature not implemented for USE statements')
         name = o.children[2].tostr()
         module = self.definitions.get(name)
         scope = kwargs['scope']
@@ -331,9 +368,9 @@ class FParser2IR(GenericVisitor):
             symbols = tuple(s.clone(scope=scope) for s in symbols)
         elif o.children[3] == ',':
             # Rename list
-            raise NotImplementedError
+            self.warn_or_fail('rename lists not implemented for USE statements')
         else:
-            raise NotImplementedError
+            raise ValueError('Unexpected list only/rename-list value in USE statement: {}'.format(o.children[3]))
 
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
 
@@ -412,7 +449,7 @@ class FParser2IR(GenericVisitor):
                 return SymbolAttributes(dtype, kind=self.visit(o.children[1], **kwargs))
             if dtype is BasicType.CHARACTER:
                 return SymbolAttributes(dtype, length=self.visit(o.children[1], **kwargs))
-            raise NotImplementedError
+            raise ValueError('Unknown kind for intrinsic type: {}'.format(o.children[0]))
         return SymbolAttributes(dtype)
 
     def visit_Kind_Selector(self, o, **kwargs):
@@ -437,7 +474,7 @@ class FParser2IR(GenericVisitor):
             * ')' (str)
         """
         if o.children[0] == '*':
-            raise NotImplementedError
+            self.warn_or_fail('* specifier for character length not implemented')
         assert o.children[0] == '(' and o.children[2] == ')'
         return self.visit(o.children[1], **kwargs)
 
@@ -461,7 +498,7 @@ class FParser2IR(GenericVisitor):
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
-        raise NotImplementedError
+        return self.visit_Base(o, **kwargs)
 
     def visit_Dimension_Attr_Spec(self, o, **kwargs):
         """
@@ -512,7 +549,7 @@ class FParser2IR(GenericVisitor):
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
 
         if o.children[2]:
-            raise NotImplementedError
+            self.warn_or_fail('Char-Length not implemented')
 
         if o.children[3]:
             init = self.visit(o.children[3], **kwargs)
@@ -559,7 +596,7 @@ class FParser2IR(GenericVisitor):
             return self.visit(o.items[1], **kwargs)
         if o.children[0] == '=>':
             return self.visit(o.items[1], **kwargs)
-        raise NotImplementedError
+        raise ValueError('Invalid assignment operator {}'.format(o.children[0]))
 
     def visit_External_Stmt(self, o, **kwargs):
         """
@@ -615,7 +652,8 @@ class FParser2IR(GenericVisitor):
             * :class:`fparser.two.Fortran2003.Ac_Value_List`
         """
         if o.children[0] is not None:
-            raise NotImplementedError
+            # TODO: implement Type_Spec support
+            return self.visit_Base(o, **kwargs)
         return self.visit(o.children[1], **kwargs)
 
     def visit_Ac_Value_List(self, o, **kwargs):
@@ -659,7 +697,8 @@ class FParser2IR(GenericVisitor):
         """
         An implied-do for data-stmt
         """
-        raise NotImplementedError
+        # TODO: Implement implied-do
+        return self.visit_Base(o, **kwargs)
 
     visit_Data_Stmt_Object_List = visit_List
     visit_Data_Stmt_Value_List = visit_List
@@ -703,13 +742,16 @@ class FParser2IR(GenericVisitor):
         return sym.RangeIndex((start, stop, stride), source=source)
 
     def visit_Array_Section(self, o, **kwargs):
-        raise NotImplementedError
+        # TODO: Implement Array_Section
+        return self.visit_Base(o, **kwargs)
 
     def visit_Substring_Range(self, o, **kwargs):
-        raise NotImplementedError
+        # TODO: Implement Substring_Range
+        return self.visit_Base(o, **kwargs)
 
     def visit_Stride(self, o, **kwargs):
-        raise NotImplementedError
+        # TODO: Implement Stride
+        return self.visit_Base(o, **kwargs)
 
     #
     # Derived Type definition
@@ -774,10 +816,10 @@ class FParser2IR(GenericVisitor):
             * parameter name list (:class:`fparser.two.Fortran2003.Type_Param_Name_List`)
         """
         if o.children[0] is not None:
-            raise NotImplementedError
+            self.warn_or_fail('attribute-spec-list not implemented for derived types')
         name = o.children[1].tostr()
         if o.children[2] is not None:
-            raise NotImplementedError
+            self.warn_or_fail('parameter-name-list not implemented for derived types')
         return name
 
     def visit_Component_Part(self, o, **kwargs):
@@ -801,7 +843,7 @@ class FParser2IR(GenericVisitor):
         """
         A procedure declaration in a derived type definition
         """
-        raise NotImplementedError
+        return self.visit_Base(o, **kwargs)
 
     def visit_Type_Bound_Procedure_Part(self, o, **kwargs):
         """
@@ -1060,7 +1102,7 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # We can't handle prefix, yet
-            raise NotImplementedError
+            self.warn_or_fail('Subroutine prefix not implemented')
 
         name = self.visit(o.children[1], **kwargs)
         name = name.name
@@ -1295,7 +1337,7 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # We can't handle type spec at the moment
-            raise NotImplementedError
+            self.warn_or_fail('type-spec in allocate-stmt not implemented')
 
         # Any allocation options. We can only deal with "source" at the moment
         alloc_opts = {}
@@ -1339,7 +1381,9 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0].lower() == 'source':
             return 'source', self.visit(o.children[1], **kwargs)
-        raise NotImplementedError
+        # TODO: implement other alloc options
+        self.warn_or_fail('Unsupported allocation option: {}'.format(o.children[0]))
+        return None
 
     def visit_Deallocate_Stmt(self, o, **kwargs):
         """
@@ -1351,7 +1395,7 @@ class FParser2IR(GenericVisitor):
         """
         variables = self.visit(o.children[0], **kwargs)
         if o.children[1] is not None:
-            raise NotImplementedError
+            self.warn_or_fail('deallocate options {} not implemented'.format(','.join(o.children[1])))
         return ir.Deallocation(variables=variables, source=kwargs.get('source'),
                                label=kwargs.get('label'))
 
@@ -1489,7 +1533,7 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``Base`` FParser-AST nodes
         """
-        warning('No specific handler for node type %s', o.__class__.name)
+        self.warn_or_fail('No specific handler for node type {}'.format(o.__class__.name))
         children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -1499,7 +1543,7 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``BlockBase`` FParser-AST nodes
         """
-        warning('No specific handler for node type %s', o.__class__.name)
+        self.warn_or_fail('No specific handler for node type {}'.format(o.__class__.name))
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:

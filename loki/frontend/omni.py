@@ -4,10 +4,10 @@ import xml.etree.ElementTree as ET
 from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_labels
 from loki.visitors import GenericVisitor, FindNodes, Transformer
-import loki.ir as ir
+from loki import ir
 import loki.expression.symbols as sym
 from loki.expression import ExpressionDimensionsMapper, StringConcat, FindTypedSymbols, SubstituteExpressions
-from loki.logging import info, debug, DEBUG, warning
+from loki.logging import info, debug, DEBUG, warning, error
 from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
@@ -111,6 +111,13 @@ class OMNI2IR(GenericVisitor):
         self.symbol_map = symbol_map
         self.raw_source = raw_source
         self.scope = scope
+
+    @staticmethod
+    def warn_or_fail(msg):
+        if config['frontend-strict-mode']:
+            error(msg)
+            raise NotImplementedError
+        warning(msg)
 
     def _struct_type_variables(self, o, scope, parent=None, source=None):
         """
@@ -313,8 +320,11 @@ class OMNI2IR(GenericVisitor):
         typedef_scope = Scope(parent=self.scope)
 
         # Built the list of derived type members
-        variables = self._struct_type_variables(self.type_map[name.attrib['type']],
-                                                scope=typedef_scope)
+        struct_type = self.type_map[name.attrib['type']]
+        variables = self._struct_type_variables(struct_type, scope=typedef_scope)
+
+        if 'extends' in struct_type.attrib:
+            self.warn_or_fail('extends attribute for derived types not implemented')
 
         # Build individual declarations for each member
         declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
@@ -522,7 +532,7 @@ class OMNI2IR(GenericVisitor):
         return ir.Loop(variable=variable, body=body, bounds=bounds, source=source)
 
     def visit_FdoLoop(self, o, source=None):
-        raise NotImplementedError
+        self.warn_or_fail('implicit do loops not implemented')
 
     def visit_FifStatement(self, o, source=None):
         condition = self.visit(o.find('condition'))
