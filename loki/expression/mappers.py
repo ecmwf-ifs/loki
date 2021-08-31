@@ -312,14 +312,12 @@ class ExpressionDimensionsMapper(Mapper):
         return as_tuple((expr.upper - lower) // step)
 
     def map_sum(self, expr, *args, **kwargs):
-        # pylint: disable=import-outside-toplevel
-        from loki.expression.symbols import IntLiteral
-        dim = (IntLiteral(1),)
+        dim = (1,)
         for ch in expr.children:
             child_dim = self.rec(ch, *args, **kwargs)
-            if dim == (IntLiteral(1),):
+            if dim == (1,):
                 dim = child_dim
-            elif dim != child_dim and child_dim != IntLiteral(1):
+            elif dim != child_dim and child_dim != 1:
                 raise ValueError('Non-matching dimensions: {} and {}'.format(str(dim), str(child_dim)))
         return dim
 
