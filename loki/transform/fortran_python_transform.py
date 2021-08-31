@@ -13,6 +13,9 @@ from loki.pragma_utils import pragmas_attached
 from loki import ir, Subroutine, Sourcefile
 
 
+__all__ = ['FortranPythonTransformation']
+
+
 class FortranPythonTransformation(Transformation):
     """
     A transformer class to convert Fortran to Python.
