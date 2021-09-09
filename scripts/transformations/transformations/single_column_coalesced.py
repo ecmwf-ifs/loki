@@ -574,6 +574,12 @@ class SingleColumnCoalescedTransformation(Transformation):
             List of subroutines that are to be considered as part of
             the transformation call tree.
         """
+
+        # Resolve associates, since the PGI compiler cannot deal with
+        # implicit derived type component offload by calling device
+        # routines.
+        resolve_associates(routine)
+
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
 
             for call in FindNodes(ir.CallStatement).visit(routine.body):
