@@ -235,6 +235,7 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
     private_arrays = [v for v in routine.variables if not v.name in argument_map]
     private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
     private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
+    private_arrays = [v for v in private_arrays if not any(horizontal.size in d for d in v.shape)]
 
     with pragmas_attached(routine, ir.Loop):
         mapper = {}
