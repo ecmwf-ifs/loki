@@ -596,8 +596,19 @@ class SingleColumnCoalescedTransformation(Transformation):
 
                 # Mark driver loop as "gang parallel".
                 if self.directive == 'openacc':
+                    arrays = FindVariables(unique=True).visit(loop)
+                    arrays = [v for v in arrays if isinstance(v, sym.Array)]
+                    arrays = [v for v in arrays if not v.type.intent]
+                    arrays = [v for v in arrays if not v.type.pointer]
+                    # Filter out arrays that are explicitly allocated with block dimension
+                    sizes = self.block_dim.size_expressions
+                    arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
+                    private_arrays = ', '.join(set(v.name for v in arrays))
+                    private_clause = '' if not private_arrays else ' private({})'.format(private_arrays)
+
                     if loop.pragma is None:
-                        loop._update(pragma=ir.Pragma(keyword='acc', content='parallel loop gang'))
+                        p_content = 'parallel loop gang{}'.format(private_clause)
+                        loop._update(pragma=ir.Pragma(keyword='acc', content=p_content))
                         loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
 
                 # Apply hoisting of temporary "column arrays"

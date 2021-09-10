@@ -73,7 +73,9 @@ class Dimension:
         This includes generic aliases, like ``end - start + 1`` or ``1:size`` ranges.
         """
         exprs = as_tuple(self.size)
-        exprs += as_tuple(self._aliases)
+        if self._aliases:
+            exprs += as_tuple(self._aliases)
         exprs += (f'1:{self.size}', )
-        exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
+        if self._bounds:
+            exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
         return exprs
