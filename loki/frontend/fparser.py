@@ -20,7 +20,8 @@ from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, Substi
 from loki.logging import DEBUG, warning, error
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
-from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.scope import Scope
 from loki.config import config
 
 

@@ -21,7 +21,8 @@ from loki.tools import (
 )
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.logging import info, debug, DEBUG, error, warning
-from loki.types import BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.scope import Scope
 from loki.config import config
 
 

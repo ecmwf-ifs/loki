@@ -10,6 +10,7 @@ from loki.module import *  # noqa
 from loki.ir import *  # noqa
 from loki.expression import *  # noqa
 from loki.types import *  # noqa
+from loki.scope import *  # noqa
 from loki.visitors import *  # noqa
 from loki.tools import *  # noqa
 from loki.logging import *  # noqa
