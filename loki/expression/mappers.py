@@ -8,6 +8,7 @@ from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
 )
+from fparser.two.Fortran2003 import Intrinsic_Name
 
 from loki.logging import warning
 from loki.tools import as_tuple, flatten
@@ -15,6 +16,8 @@ from loki.tools import as_tuple, flatten
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions',
            'LokiIdentityMapper', 'AttachScopesMapper']
+
+_intrinsic_fortran_names = Intrinsic_Name.function_names
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -542,7 +545,7 @@ class AttachScopesMapper(LokiIdentityMapper):
                     expr = expr.clone(scope=symbol_scope)
             elif self.fail:
                 raise RuntimeError('AttachScopesMapper: {} was not found in any scope'.format(str(expr)))
-            else:
+            elif expr not in _intrinsic_fortran_names:
                 warning('AttachScopesMapper: %s was not found in any scopes', str(expr))
         return super().__call__(expr, *args, **kwargs)
 
