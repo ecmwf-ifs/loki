@@ -53,6 +53,13 @@ class Subroutine(Scope):
     source : :any:`Source`
         Source object representing the raw source string information from the
         read file.
+    parent : :any:`Scope`, optional
+        The enclosing parent scope of the subroutine, typically a :any:`Module`
+        or :any:`Subroutine` object. Declarations from the parent scope remain
+        valid within the subroutine's scope (unless shadowed by local
+        declarations).
+    symbols : :any:`SymbolTable`, optional
+        Use the provided :any:`SymbolTable` object instead of creating a new
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
