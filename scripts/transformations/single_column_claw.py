@@ -166,7 +166,7 @@ class ExtractSCATransformation(Transformation):
                     # Remove self.horizontal dimension sizes from caller-side argument indices
                     if val.shape is not None:
                         v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
-                        new_dims = tuple(Variable(name=self.horizontal.index, scope=caller.scope)
+                        new_dims = tuple(Variable(name=self.horizontal.index, scope=caller)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
@@ -195,7 +195,7 @@ class ExtractSCATransformation(Transformation):
 
                 # Create and insert new loop over self.horizontal dimension
                 if wrap:
-                    loop = Loop(variable=Variable(name=self.horizontal.index, scope=caller.scope),
+                    loop = Loop(variable=Variable(name=self.horizontal.index, scope=caller),
                                 bounds=LoopRange((dim_lower, dim_upper, None)),
                                 body=as_tuple([new_call]))
                     replacements[call] = loop
@@ -207,8 +207,8 @@ class ExtractSCATransformation(Transformation):
         # Finally, we add the declaration of the loop variable
         if wrap and self.horizontal.index not in [str(v) for v in caller.variables]:
             # TODO: Find a better way to define raw data type
-            dtype = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
-            caller.variables += (Variable(name=self.horizontal.index, type=dtype, scope=caller.scope),)
+            dtype = SymbolAttributes(BasicType.INTEGER, kind=Variable(name='JPIM'))
+            caller.variables += (Variable(name=self.horizontal.index, type=dtype, scope=caller),)
 
 
 class CLAWTransformation(ExtractSCATransformation):
@@ -277,17 +277,17 @@ class CLAWTransformation(ExtractSCATransformation):
                 assignments = []
                 for arg, val in call.context.arg_iter(call):
                     if arg == self.horizontal.size and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.horizontal.bounds[0] and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 
                     if arg == self.horizontal.bounds[1] and not arg.name in routine.variables:
-                        local_var = arg.clone(scope=routine.scope, type=arg.type.clone(intent=None))
+                        local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
                         routine.spec.append(Declaration(variables=[local_var]))
 

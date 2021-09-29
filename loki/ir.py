@@ -10,8 +10,9 @@ import inspect
 from pymbolic.primitives import Expression
 
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import DataType
+from loki.types import DataType, DerivedType, SymbolAttributes
 from loki.scope import Scope
+from loki.tools import CaseInsensitiveDict
 
 
 __all__ = [
@@ -68,6 +69,7 @@ class Node:
         return obj
 
     def __init__(self, source=None, label=None):
+        super().__init__()
         self._source = source
         self._label = label
 
@@ -241,6 +243,31 @@ class LeafNode(Node):
         raise NotImplementedError
 
 
+# Mix-ins
+
+class ScopedNode(Scope):
+    """
+    Mix-in to attache a scope to an IR :any:`Node`
+
+    Additionally, this specializes the node's :meth:`_update` and
+    :meth:`_rebuild` methods to make sure that an existing symbol table
+    is carried over correctly.
+    """
+
+    def _update(self, *args, **kwargs):
+        if 'symbols' not in kwargs:
+            # Retain the symbol table (unless given explicitly)
+            kwargs['symbols'] = self.symbols
+        super()._update(*args, **kwargs)  # pylint: disable=no-member
+
+    def _rebuild(self, *args, **kwargs):
+        if 'symbols' not in kwargs:
+            # Retain the symbol table (unless given explicitly)
+            kwargs['symbols'] = self.symbols
+        kwargs['rescope_variables'] = True
+        return super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
+
+
 # Intermediate node types
 
 
@@ -290,7 +317,7 @@ class Section(InternalNode):
         return 'Section::'
 
 
-class Associate(Section):
+class Associate(ScopedNode, Section):
     """
     Internal representation of a code region in which names are associated
     with expressions or variables.
@@ -302,25 +329,35 @@ class Associate(Section):
     associations : dict or OrderedDict
         The mapping of names to expressions or variables valid inside the
         associate's body.
+    parent : :any:`Scope`, optional
+        The parent scope in which the associate appears
+    symbols : :any:`SymbolTable`, optional
+        An existing symbol table to use
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body', 'associations']
 
-    def __init__(self, body=None, associations=None, **kwargs):
-        super().__init__(body=body, **kwargs)
-
+    def __init__(self, body=None, associations=None, parent=None, symbols=None, **kwargs):
         if not isinstance(associations, tuple):
             assert isinstance(associations, (dict, OrderedDict)) or associations is None
             self.associations = as_tuple(associations.items())
         else:
             self.associations = associations
 
+        super().__init__(body=body, parent=parent, symbols=symbols, **kwargs)
+
     @property
     def association_map(self):
         """
-        An ``OrderedDict`` of associated expressions.
+        An :any:`OrderedDict` of associated expressions.
         """
         return OrderedDict(self.associations)
+
+    @property
+    def variables(self):
+        return tuple(v for _, v in self.associations)
 
     def __repr__(self):
         if self.associations:
@@ -1002,7 +1039,7 @@ class Declaration(LeafNode):
         The declared allocation size if given as part of the declaration
         attributes.
     external : bool, optional
-        ???
+        This is a Fortran ``EXTERNAL`` declaration.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1069,7 +1106,7 @@ class DataDeclaration(LeafNode):
         return 'DataDeclaration:: {}'.format(str(self.variable))
 
 
-class TypeDef(LeafNode):
+class TypeDef(ScopedNode, LeafNode):
     """
     Internal representation of a derived type definition.
 
@@ -1087,38 +1124,31 @@ class TypeDef(LeafNode):
         The body of the type definition.
     bind_c : bool, optional
         Flag to indicate that this contains a ``BIND(C)`` attribute.
-    scope : :any:`Scope`, optional
-        An existing scope to use for this type definition. Useful when
-        having inserted symbols into the scope already, e.g., while building
-        the body.
+    parent : :any:`Scope`, optional
+        The parent scope in which the type definition appears
+    symbols : :any:`SymbolTable`, optional
+        An existing symbol table to use
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, scope=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name, body, bind_c=False, parent=None, symbols=None, **kwargs):
         assert is_iterable(body)
 
+        # First, store the local properties
         self.name = name
         self.body = as_tuple(body)
         self.bind_c = bind_c
-        self._scope = Scope() if scope is None else scope
-        self.scope.defined_by = self
 
-    @property
-    def children(self):
-        # We do not traverse into the TypeDef.body at present
-        return ()
+        # Then, call the parent constructors to take care of any generic
+        # properties and handle the scope information
+        super().__init__(parent=parent, symbols=symbols, **kwargs)
 
-    @property
-    def scope(self):
-        return self._scope
-
-    @property
-    def symbols(self):
-        return self.scope.symbols
+        # Finally, register this typedef in the parent scope
+        if self.parent:
+            self.parent.symbols[self.name] = SymbolAttributes(self.dtype)
 
     @property
     def declarations(self):
@@ -1132,8 +1162,35 @@ class TypeDef(LeafNode):
     def variables(self):
         return tuple(flatten([decl.variables for decl in self.declarations]))
 
+    @property
+    def imported_symbols(self):
+        """
+        Return the symbols imported in this typedef
+        """
+        return as_tuple(flatten(c.symbols for c in self.body if isinstance(c, Import)))
+
+    @property
+    def imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
+    @property
+    def dtype(self):
+        """
+        Return the :any:`DerivedType` representing this type
+        """
+        return DerivedType(name=self.name, typedef=self)
+
     def __repr__(self):
         return 'TypeDef:: {}'.format(self.name)
+
+    def clone(self, **kwargs):
+        from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
+        if 'body' not in kwargs:
+            kwargs['body'] = Transformer().visit(self.body)
+        return super().clone(**kwargs)
 
 
 class MultiConditional(LeafNode):

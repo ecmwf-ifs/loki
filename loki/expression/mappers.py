@@ -8,12 +8,16 @@ from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
 )
+from fparser.two.Fortran2003 import Intrinsic_Name
 
+from loki.logging import debug
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions',
-           'LokiIdentityMapper']
+           'LokiIdentityMapper', 'AttachScopesMapper']
+
+_intrinsic_fortran_names = Intrinsic_Name.function_names
 
 
 class LokiStringifyMapper(StringifyMapper):
@@ -162,7 +166,7 @@ class ExpressionRetriever(WalkMapper):
         super().__init__()
 
         self.query = query
-        self.exprs = list()
+        self.exprs = []
 
         if recurse_query is not None:
             self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
@@ -412,6 +416,7 @@ class LokiIdentityMapper(IdentityMapper):
 
     rec = __call__
 
+    map_algebraic_leaf = IdentityMapper.map_constant
     map_logic_literal = IdentityMapper.map_constant
     map_string_literal = IdentityMapper.map_constant
     map_intrinsic_literal = IdentityMapper.map_constant
@@ -426,9 +431,14 @@ class LokiIdentityMapper(IdentityMapper):
 
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        return expr.clone(parent=parent)
+        _type = expr.type
+        if _type.kind:
+            kind = self.rec(_type.kind, *args, **kwargs)
+            _type = _type.clone(kind=kind)
+        return expr.clone(parent=parent, type=_type)
 
     map_deferred_type_symbol = map_scalar
+    map_procedure_symbol = map_scalar
 
     def map_array(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
@@ -436,11 +446,13 @@ class LokiIdentityMapper(IdentityMapper):
             dimensions = self.rec(expr.dimensions, *args, **kwargs)
         else:
             dimensions = None
-        if expr.shape:
-            shape = self.rec(expr.shape, *args, **kwargs)
-            _type = expr.type.clone(shape=shape)
-        else:
-            _type = expr.type
+        _type = expr.type
+        if _type.shape:
+            shape = self.rec(_type.shape, *args, **kwargs)
+            _type = _type.clone(shape=shape)
+        if _type.kind:
+            kind = self.rec(_type.kind, *args, **kwargs)
+            _type = _type.clone(kind=kind)
         return expr.clone(parent=parent, dimensions=dimensions, type=_type)
 
     def map_array_subscript(self, expr, *args, **kwargs):
@@ -470,7 +482,6 @@ class LokiIdentityMapper(IdentityMapper):
     map_range = IdentityMapper.map_slice
     map_range_index = IdentityMapper.map_slice
     map_loop_range = IdentityMapper.map_slice
-    map_procedure_symbol = IdentityMapper.map_function_symbol
 
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
@@ -503,3 +514,37 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         expr = self.expr_map.get(expr, expr)
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
+
+
+class AttachScopesMapper(LokiIdentityMapper):
+    """
+    A Pymbolic expression mapper (i.e., a visitor for the expression tree)
+    that determines the scope of :any:`TypedSymbol` nodes and updates its
+    :attr:`scope` pointer accordingly.
+
+    Parameters
+    ----------
+    fail : bool, optional
+        If `True`, the mapper raises :any:`RuntimeError` if the scope for a
+        symbol can not be found.
+    """
+
+    def __init__(self, fail=False):
+        super().__init__(invalidate_source=False)
+        self.fail = fail
+
+    def __call__(self, expr, *args, **kwargs):
+        from loki.expression.symbols import TypedSymbol  # pylint: disable=import-outside-toplevel
+        if isinstance(expr, TypedSymbol):
+            scope = kwargs['scope']
+            symbol_scope = scope.get_symbol_scope(expr.name)
+            if symbol_scope is not None:
+                if symbol_scope is not expr.scope:
+                    expr = expr.clone(scope=symbol_scope)
+            elif self.fail:
+                raise RuntimeError('AttachScopesMapper: {} was not found in any scope'.format(str(expr)))
+            elif expr not in _intrinsic_fortran_names:
+                debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
+        return super().__call__(expr, *args, **kwargs)
+
+    rec = __call__

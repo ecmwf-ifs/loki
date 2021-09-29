@@ -154,7 +154,7 @@ def inline_elemental_functions(routine):
         if call.procedure_type is not BasicType.DEFERRED:
             # Map each call to its substitutions, as defined by the
             # recursive inline substitution mapper
-            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine.scope)
+            exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)
 
             # Mark function as removed for later cleanup
             removed_functions.add(call.procedure_type)

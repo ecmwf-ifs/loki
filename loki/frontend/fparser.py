@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 import re
 
 from fparser.two.parser import ParserFactory
@@ -15,13 +16,15 @@ from loki.frontend.util import (
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
-    StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow)
-from loki.expression import ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions
+    StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow
+)
+from loki.expression import (
+    ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
+)
 from loki.logging import DEBUG, warning, error
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
-from loki.scope import Scope
 from loki.config import config
 
 
@@ -196,7 +199,7 @@ class FParser2IR(GenericVisitor):
         super().__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
-        self.scope = scope
+        self.default_scope = scope
 
     @staticmethod
     def warn_or_fail(msg):
@@ -239,7 +242,7 @@ class FParser2IR(GenericVisitor):
         """
         kwargs['source'] = self.get_source(o, kwargs.get('source'))
         kwargs['label'] = self.get_label(o)
-        kwargs.setdefault('scope', self.scope)
+        kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
 
     def visit_List(self, o, **kwargs):
@@ -418,9 +421,9 @@ class FParser2IR(GenericVisitor):
 
         # Make sure KIND (which can be a name) is in the right scope
         scope = kwargs['scope']
-        if _type.kind is not None and isinstance(_type.kind, sym.TypedSymbol):
-            # TODO: put it in the right scope (Rescope Visitor)
-            _type = _type.clone(kind=_type.kind.clone(scope=scope))
+        if _type.kind is not None:
+            kind = AttachScopesMapper()(_type.kind, scope=scope)
+            _type = _type.clone(kind=kind)
 
         # Update symbol table entries
         for var in variables:
@@ -781,10 +784,16 @@ class FParser2IR(GenericVisitor):
 
         # Name of the derived type
         name = self.visit(derived_type_stmt, **kwargs)
+        source = kwargs.get('source')
+        label = kwargs.get('label')
 
-        # Initialize a symbol table for the typedef
-        parent_scope = kwargs['scope']
-        kwargs['scope'] = Scope(parent=parent_scope)
+        # Instantiate the TypeDef without its body
+        # Note: This creates the symbol table for the declarations and
+        # the typedef object registers itself in the parent scope
+        typedef = ir.TypeDef(name=name, body=(), source=source, label=label, parent=kwargs['scope'])
+
+        # Pass down the typedef scope when building the body
+        kwargs['scope'] = typedef
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
 
@@ -792,20 +801,13 @@ class FParser2IR(GenericVisitor):
         # These should become declarations and TypeDef should probably store them separately
 
         # Infer any additional shape information from `!$loki dimension` pragmas
-        # Note that this needs to be done before we create `dtype` below, to allow
-        # propagation of type info through multiple typedefs in the same module.
         body = attach_pragmas(body, ir.Declaration)
         body = process_dimension_pragmas(body)
         body = detach_pragmas(body, ir.Declaration)
 
-        source = kwargs.get('source')
-        label = kwargs.get('label')
-        typedef = ir.TypeDef(name=name, body=body, scope=kwargs['scope'], source=source, label=label)
-
-        # Make the typedef known in the parent scope
-        parent_scope.symbols[name] = SymbolAttributes(DerivedType(name=name, typedef=typedef))
+        # Finally: update the typedef with its body
+        typedef._update(body=body)
         return (*pre, typedef)
-
 
     def visit_Derived_Type_Stmt(self, o, **kwargs):
         """
@@ -910,23 +912,20 @@ class FParser2IR(GenericVisitor):
 
         # Create a scope for the associate
         parent_scope = kwargs['scope']
-        scope = parent_scope  # TODO: actually create own scope
-        kwargs['scope'] = scope
+        associate = ir.Associate(associations=associations, body=(), parent=parent_scope,
+                                 label=kwargs.get('label'), source=source)
+        kwargs['scope'] = associate
 
-        # TODO: Apply some rescope-visitor here
+        # Put associate expressions into the right scope and determine type of new symbols
         rescoped_associations = []
         for expr, name in associations:
-            rescope_map = {var: var.clone(scope=parent_scope) for var in FindTypedSymbols().visit(expr)}
-            expr = SubstituteExpressions(rescope_map).visit(expr)
-            name = name.clone(scope=scope)
-            rescoped_associations += [(expr, name)]
-        associations = as_tuple(rescoped_associations)
+            # Put symbols in associated expression into the right scope
+            expr = AttachScopesMapper()(expr, scope=parent_scope)
 
-        # Update symbol table for associates
-        for expr, name in associations:
+            # Determine type of new names
             if isinstance(expr, sym.TypedSymbol):
                 # Use the type of the associated variable
-                _type = parent_scope.symbols.lookup(expr.name)
+                _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
                     shape = ExpressionDimensionsMapper()(expr)
                     if shape == (sym.IntLiteral(1),):
@@ -940,11 +939,13 @@ class FParser2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            scope.symbols[name.name] = _type
+            name = name.clone(scope=associate, type=_type)
+            rescoped_associations += [(expr, name)]
+        associations = as_tuple(rescoped_associations)
 
         # The body
         body = as_tuple(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index])
-        associate = ir.Associate(associations=associations, body=body, label=kwargs.get('label'), source=source)
+        associate._update(associations=associations, body=body)
 
         # Everything past the END ASSOCIATE (should be empty)
         assert not o.children[end_assoc_stmt_index+1:]
@@ -1066,27 +1067,21 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # Create a scope
-        parent_scope = kwargs['scope']
-        scope = Scope(parent=parent_scope)
-        kwargs['scope'] = scope
-
         # Name and dummy args
         name, args, bind = self.visit(subroutine_stmt, **kwargs)
         is_function = isinstance(subroutine_stmt, Fortran2003.Function_Stmt)
+        routine = Subroutine(name=name, ast=o, args=args, bind=bind, is_function=is_function,
+                             source=source, parent=kwargs['scope'])
 
         # Spec
+        kwargs['scope'] = routine
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         spec_ast_index = o.children.index(spec_ast)
-        spec = self.visit(spec_ast, **kwargs)
+        routine.spec = self.visit(spec_ast, **kwargs)
 
         # Make sure there is nothing else in there
         assert (subroutine_stmt_index, spec_ast_index, end_subroutine_stmt_index) == \
                 as_tuple(range(subroutine_stmt_index, len(o.children)))
-
-        # Note: the Subroutine constructor registers itself in the parent scope
-        routine = Subroutine(name=name, args=args, spec=spec, ast=o, scope=scope, bind=bind,
-                             is_function=is_function, source=source)
         return (*pre, routine)
 
     visit_Function_Body = visit_Subroutine_Body
@@ -1562,8 +1557,7 @@ class FParser2IR(GenericVisitor):
             if kind.isdigit():
                 kind = sym.Literal(value=int(kind), source=source)
             else:
-                scope = kwargs.get('scope', self.scope)
-                kind = sym.Variable(name=kind, scope=scope, source=source)
+                kind = AttachScopesMapper()(sym.Variable(name=kind, source=source), scope=kwargs['scope'])
             return sym.Literal(value=val, type=_type, kind=kind, source=source)
         return sym.Literal(value=val, type=_type, source=source)
 
@@ -1636,7 +1630,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = sym.Variable(name=pname, scope=self.scope)
+        v = AttachScopesMapper()(sym.Variable(name=pname), scope=kwargs['scope'])
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'))

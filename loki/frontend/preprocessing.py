@@ -152,7 +152,7 @@ def reinsert_contiguous(ir, pp_info):
     """
     Reinsert the CONTIGUOUS marker into declaration variables.
     """
-    if pp_info is not None:
+    if pp_info:
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
                 for var in decl.variables:
@@ -165,7 +165,7 @@ def reinsert_convert_endian(ir, pp_info):
     Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
     into calls to OPEN.
     """
-    if pp_info is not None:
+    if pp_info:
         for intr in FindNodes(Intrinsic).visit(ir):
             match = pp_info.get(intr._source.lines[0], [None])[0]
             if match is not None:
@@ -184,7 +184,7 @@ def reinsert_open_newunit(ir, pp_info):
     """
     Reinsert the NEWUNIT=... arguments into calls to OPEN.
     """
-    if pp_info is not None:
+    if pp_info:
         for intr in FindNodes(Intrinsic).visit(ir):
             match = pp_info.get(intr._source.lines[0], [None])[0]
             if match is not None:

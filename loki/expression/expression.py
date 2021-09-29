@@ -7,7 +7,7 @@ from pymbolic.primitives import Expression
 from loki.ir import Node
 from loki.visitors import Visitor, Transformer
 from loki.tools import flatten, as_tuple
-from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions
+from loki.expression.mappers import SubstituteExpressionsMapper, retrieve_expressions, AttachScopesMapper
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral, LogicLiteral,
     StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
@@ -16,7 +16,7 @@ from loki.expression.symbols import (
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols', 'FindInlineCalls',
     'FindLiterals', 'FindExpressionRoot', 'SubstituteExpressions',
-    'ExpressionFinder'
+    'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -25,16 +25,22 @@ class ExpressionFinder(Visitor):
     Base class visitor to collect specific sub-expressions,
     eg. functions or symbols, from all nodes in an IR tree.
 
-    :param retrieve: Custom retrieval function that yields all wanted
-                     sub-expressions from an expression.
-    :param unique: If ``True`` the visitor will return a set of unique sub-expression
-                   instead of a list of possibly repeated instances.
-    :param with_ir_node: If ``True`` the visitor will return tuples which
-                         contain the sub-expression and the corresponding
-                         IR node in which the expression is contained.
+    Parameters
+    ----------
+    retrieve :
+        Custom retrieval function that yields all wanted sub-expressions
+        from an expression.
+    unique : bool, optional
+        If `True` the visitor will return a `set` of unique sub-expression
+        instead of a list of possibly repeated instances.
+    with_ir_node : bool, optional
+        If `True` the visitor will return tuples which contain the
+        sub-expression and the corresponding IR node in which the
+        expression is contained.
 
-    Note that :class:`FindXXX` classes are provided to find the most
-    common sub-expression types, eg. symbols, functions and variables.
+    Note that specialized ``FindXXX`` classes are provided in :any:`loki.expression`
+    to find some of the most common sub-expression types, eg. symbols, functions
+    and variables.
     """
     # pylint: disable=unused-argument
 
@@ -54,11 +60,12 @@ class ExpressionFinder(Visitor):
     def find_uniques(self, variables):
         """
         Reduces the number of matched sub-expressions to a set of unique sub-expressions,
-        if self.unique is ``True``.
+        if self.unique is `True`.
+
         Currently, two sub-expressions are considered NOT to be unique if they have the same
-        - ``name``
-        - ``parent.name`` (or ``None``)
-        - ``dimensions`` (for :class:`Array`)
+        - :attr:`name`
+        - :attr:`parent.name` (or `None`)
+        - :attr:`dimensions` (for :any:`Array`)
         """
         def dict_key(var):
             assert isinstance(var, Expression)
@@ -115,12 +122,21 @@ class ExpressionFinder(Visitor):
         expressions = [self.visit(c, **kwargs) for c in flatten(o.children)]
         return self._return(o, as_tuple(expressions))
 
+    def visit_TypeDef(self, o, **kwargs):
+        """
+        Custom handler for :any:`TypeDef` nodes that does not traverse the
+        body (reason being that discovering variables used or declared
+        inside the type definition would be unexpected if called on a
+        containing :any:`Subroutine` or :any:`Module`)
+        """
+        return self._return(o, ())
 
 class FindExpressions(ExpressionFinder):
     """
-    A visitor to collect all symbols (i.e., :class:`pymbolic.primitives.Expression`) in an IR tree.
+    A visitor to collect all expression tree nodes
+    (i.e., :class:`pymbolic.primitives.Expression`) in an IR tree.
 
-    See :class:`ExpressionFinder`
+    See :any:`ExpressionFinder`
     """
     retrieval_function = staticmethod(
         lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, Expression)))
@@ -128,10 +144,9 @@ class FindExpressions(ExpressionFinder):
 
 class FindTypedSymbols(ExpressionFinder):
     """
-    A visitor to collect all typed symbols (which includes :class:`loki.Scalar`, :class:`loki.Array`,
-    and :class:`loki.ProcedureSymbol`) used in an IR tree.
+    A visitor to collect all :any:`TypedSymbol` used in an IR tree.
 
-    See :class:`ExpressionFinder`
+    See :any:`ExpressionFinder`
     """
     retrieval_function = staticmethod(
         lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (TypedSymbol))))
@@ -152,7 +167,7 @@ class FindVariables(ExpressionFinder):
 
 class FindInlineCalls(ExpressionFinder):
     """
-    A visitor to collect all :class:`loki.InlineCall` symbols used in an IR tree.
+    A visitor to collect all :any:`InlineCall` symbols used in an IR tree.
 
     See :class:`ExpressionFinder`
     """
@@ -162,9 +177,9 @@ class FindInlineCalls(ExpressionFinder):
 
 class FindLiterals(ExpressionFinder):
     """
-    A visitor to collect all literals (which includes :class:`loki.FloatLiteral`,
-    :class:`loki.IntLiteral`, :class:`loki.LogicLiteral`, :class:`loki.StringLiteral`,
-    and :class:`loki.IntrinsicLiteral`) used in an IR tree.
+    A visitor to collect all literals (which includes :any:`FloatLiteral`,
+    :any:`IntLiteral`, :any:`LogicLiteral`, :any:`StringLiteral`,
+    and :any:`IntrinsicLiteral`) used in an IR tree.
 
     See :class:`ExpressionFinder`
     """
@@ -176,7 +191,7 @@ class FindLiterals(ExpressionFinder):
 class FindExpressionRoot(ExpressionFinder):
     """
     A visitor to obtain the root node of the expression tree in which a given
-    py:class:`pymbolic.primitives.Expression` is located.
+    :class:`pymbolic.primitives.Expression` is located.
     """
 
     def __init__(self, expr):
@@ -200,3 +215,132 @@ class SubstituteExpressions(Transformer):
 
     def visit_Expression(self, o, **kwargs):
         return self.expr_mapper(o)
+
+
+class AttachScopes(Visitor):
+    """
+    Scoping visitor that traverses the control flow tree and uses
+    :any:`AttachScopesMapper` to update all :any:`TypedSymbol` expression
+    tree nodes with a pointer to their corresponding scope.
+
+    Parameters
+    ----------
+    fail : bool, optional
+        If set to True, this lets the visitor fail if it encounters a node
+        without a declaration or an entry in any of the symbol tables
+        (default: False).
+    """
+
+    def __init__(self, fail=False):
+        super().__init__()
+        self.fail = fail
+        self.expr_mapper = AttachScopesMapper(fail=fail)
+
+    @staticmethod
+    def _update(o, children, **args):
+        """
+        Utility routine to update the IR node
+        """
+        args_frozen = o.args_frozen
+        args_frozen.update(args)
+        o._update(*children, **args_frozen)
+        return o
+
+    def visit_object(self, o, **kwargs):
+        """Return any foreign object unchanged."""
+        return o
+
+    def visit(self, o, *args, **kwargs):
+        """
+        Default visitor method that dispatches the node-specific handler
+        """
+        kwargs.setdefault('scope', None)
+        return super().visit(o, *args, **kwargs)
+
+    def visit_Expression(self, o, **kwargs):
+        """
+        Dispatch :any:`AttachScopesMapper` for :any:`Expression` tree nodes
+        """
+        return self.expr_mapper(o, scope=kwargs['scope'])
+
+    def visit_list(self, o, **kwargs):
+        """
+        Visit each entry in a list and return as a tuple
+        """
+        return tuple(self.visit(c, **kwargs) for c in o)
+
+    visit_tuple = visit_list
+
+    def visit_Node(self, o, **kwargs):
+        """
+        Generic handler for IR :any:`Node` objects
+
+        Recurses to children and updates the node
+        """
+        children = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._update(o, children)
+
+    def visit_Scope(self, o, **kwargs):
+        """
+        Generic handler for :any:`Scope` objects
+
+        Makes sure that declared variables and imported symbols have an
+        entry in that node's symbol table before recursing to children with
+        this node as new scope.
+        """
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        children = tuple(self.visit(i, **kwargs) for i in o.children)
+        return self._update(o, children, symbols=o.symbols, rescope_variables=False)
+
+    @staticmethod
+    def _update_symbol_table_with_decls_and_imports(o):
+        """
+        Utility function to insert default entries for symbols declared or
+        imported in a node
+        """
+        for v in getattr(o, 'variables', ()):
+            o.symbols.setdefault(v.name, v.type)
+        for s in getattr(o, 'imported_symbols', ()):
+            o.symbols.setdefault(s.name, s.type)
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Handler for :any:`Subroutine` nodes
+
+        Makes sure that declared variables and imported symbols have an
+        entry in the routine's symbol table before recursing to spec, body,
+        and member routines with this routine as new scope.
+        """
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        o.spec = self.visit(o.spec, **kwargs)
+        o.body = self.visit(o.body, **kwargs)
+        o._members = self.visit(o.members, **kwargs)
+        return o
+
+    def visit_Module(self, o, **kwargs):
+        """
+        Handler for :any:`Module` nodes
+
+        Makes sure that declared variables and imported symbols have an
+        entry in the module's symbol table before recursing to spec,
+        and member routines with this module as new scope.
+        """
+        # First, make sure declared variables and imported symbols have an
+        # entry in the scope's table
+        self._update_symbol_table_with_decls_and_imports(o)
+
+        # Then recurse to all children
+        kwargs['scope'] = o
+        o.spec = self.visit(o.spec, **kwargs)
+        o.routines = self.visit(o.routines, **kwargs)
+        return o

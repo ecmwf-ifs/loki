@@ -409,9 +409,9 @@ end module module_variables_add_remove
     x = module.variable_map['x']  # That's the symbol for variable 'x'
     real_type = SymbolAttributes('real', kind=module.variable_map['jprb'])
     int_type = SymbolAttributes('integer')
-    a = Variable(name='a', type=real_type, scope=module.scope)
-    b = Variable(name='b', dimensions=(x, ), type=real_type, scope=module.scope)
-    c = Variable(name='c', type=int_type, scope=module.scope)
+    a = Variable(name='a', type=real_type, scope=module)
+    b = Variable(name='b', dimensions=(x, ), type=real_type, scope=module)
+    c = Variable(name='c', type=int_type, scope=module)
 
     # Add new variables and check that they are all in the module spec
     module.variables += (a, b, c)
@@ -470,14 +470,14 @@ end module test_module_rescope
     module_copy = Module(name=module.name, spec=spec, rescope_variables=True)
 
     for var in FindTypedSymbols().visit(module_copy.spec):
-        assert var.scope is module_copy.scope
+        assert var.scope is module_copy
 
     # Create another copy of the nested subroutine without rescoping
     spec = Transformer().visit(module.spec)
     other_module_copy = Module(name=module.name, spec=spec)
 
     # Explicitly throw away type information from original module
-    module.scope.symbols.clear()
+    module.symbols.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
@@ -513,13 +513,13 @@ end module test_module_rescope_clone
     module_copy = module.clone()
 
     for var in FindTypedSymbols().visit(module_copy.spec):
-        assert var.scope is module_copy.scope
+        assert var.scope is module_copy
 
     # Create another copy of the nested subroutine without rescoping
-    other_module_copy = module.clone(rescope_variables=False)
+    other_module_copy = module.clone(rescope_variables=False, symbols=None)
 
     # Explicitly throw away type information from original module
-    module.scope.symbols.clear()
+    module.symbols.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 

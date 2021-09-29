@@ -423,13 +423,13 @@ def loop_interchange(routine, project_bounds=False):
                     if len(lower_bounds) == 1:
                         lower_bounds = lower_bounds[0]
                     else:
-                        fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
+                        fct_symbol = sym.ProcedureSymbol('max', scope=routine)
                         lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
                     if len(upper_bounds) == 1:
                         upper_bounds = upper_bounds[0]
                     else:
-                        fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
+                        fct_symbol = sym.ProcedureSymbol('min', scope=routine)
                         upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(upper_bounds))
 
                     bounds = sym.LoopRange((lower_bounds, upper_bounds))
@@ -500,7 +500,7 @@ def loop_fusion(routine):
             raise RuntimeError('Conflicting collapse values in group "{}"'.format(group))
         collapse = int(collapse[0]) if collapse[0] is not None else 1
 
-        pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine.scope) for param in parameters]
+        pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine) for param in parameters]
 
         # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
         range_set = {r for r in pragma_ranges if r is not None}
@@ -561,13 +561,13 @@ def loop_fusion(routine):
                 if len(lower_bounds) == 1:
                     lower_bounds = lower_bounds[0]
                 else:
-                    fct_symbol = sym.ProcedureSymbol('min', scope=routine.scope)
+                    fct_symbol = sym.ProcedureSymbol('min', scope=routine)
                     lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
                 if len(upper_bounds) == 1:
                     upper_bounds = upper_bounds[0]
                 else:
-                    fct_symbol = sym.ProcedureSymbol('max', scope=routine.scope)
+                    fct_symbol = sym.ProcedureSymbol('max', scope=routine)
                     upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(upper_bounds))
 
                 fusion_ranges += [sym.LoopRange((lower_bounds, upper_bounds))]

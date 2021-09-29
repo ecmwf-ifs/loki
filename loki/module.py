@@ -10,8 +10,6 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import TypeDef, Section, Declaration, Import
-from loki.expression import FindTypedSymbols, SubstituteExpressions
-from loki.logging import debug
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
 from loki.types import ProcedureType, SymbolAttributes
@@ -23,7 +21,7 @@ from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
 __all__ = ['Module']
 
 
-class Module:
+class Module(Scope):
     """
     Class to handle and manipulate source modules.
 
@@ -39,29 +37,26 @@ class Module:
         The node for this module from the parse tree produced by the frontend.
     source : :any:`Source`, optional
         Object representing the raw source string information from the read file.
-    scope : :any:`Scope`, optional
-        Prepopulated type and symbol information object to be used in this module.
     rescope_variables : bool, optional
         Ensure that the type information for all :any:`TypedSymbol` in the
         module's IR exist in the module's scope. Defaults to `False`.
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, scope=None, rescope_variables=False):
+    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, rescope_variables=False,
+                 parent=None, symbols=None):
+        # First, store all local properties
         self.name = name or ast.attrib['name']
         self.spec = spec
         self.routines = routines
-
-        # Ensure we always have a local scope, and register ourselves with it
-        self._scope = Scope() if scope is None else scope
-        self.scope.defined_by = self
-        if rescope_variables:
-            self.rescope_variables()
 
         self._ast = ast
         self._source = source
 
         with pragmas_attached(self, Declaration):
             self.spec = process_dimension_pragmas(self.spec)
+
+        # Then call the parent constructor to take care of symbol table and rescoping
+        super().__init__(parent=parent, symbols=symbols, rescope_variables=rescope_variables)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=Frontend.FP):
@@ -96,29 +91,31 @@ class Module:
 
         # Process module-level type specifications
         name = name or ast.attrib['name']
-        scope = Scope()
+
+        module = cls(name=name, ast=ast, source=source)
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
-        spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions,
-                             scope=scope, pp_info=pp_info)
+        module.spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions,
+                                    scope=module, pp_info=pp_info)
 
         # Parse member subroutines and functions
         routines = None
         if ast.find('members'):
-            # We need to pre-populate the ProcedureType type table to
-            # correctly class inline function calls within the module
+            # We need to pre-populate the ProcedureType symbol table to
+            # correctly classify inline function calls within the module
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
             for routine_ast in routine_asts:
                 fname = routine_ast.attrib['name']
-                scope.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=routine_ast.tag == 'function'))
+                is_function = routine_ast.tag == 'function'
+                module.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
 
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
-                                            parent_scope=scope, pp_info=pp_info)
+                                            parent=module, pp_info=pp_info)
                         for routine in routine_asts if routine.tag in ('subroutine', 'function')]
-            routines = as_tuple(routines)
+            module.routines = as_tuple(routines)
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
+        return module
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, name=None, definitions=None, symbol_map=None):
@@ -126,32 +123,35 @@ class Module:
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
         source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-        scope = Scope()
+
+        module = cls(name=name, ast=ast, source=source)
 
         # Generate spec, filter out external declarations and insert `implicit none`
-        spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
-                              definitions=definitions, raw_source=raw_source, scope=scope)
+        module.spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
+                                     definitions=definitions, raw_source=raw_source, scope=module)
 
         # Parse member functions
         routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
-                                         definitions=definitions, raw_source=raw_source,
-                                         parent_scope=scope)
+                                         definitions=definitions, raw_source=raw_source, parent=module)
                     for s in ast.findall('FcontainsStatement/FfunctionDefinition')]
+        module.routines = as_tuple(routines)
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
+        return module
 
     @classmethod
     def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
         name = name or ast.content[0].items[1].tostr()
         source = extract_fparser_source(ast, raw_source)
-        scope = Scope()
+
+        module = cls(name=name, ast=ast, source=source)
 
         spec_ast = get_child(ast, Fortran2003.Specification_Part)
         if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=scope,
+            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=module,
                                      pp_info=pp_info, raw_source=raw_source)
         else:
             spec = Section(body=())
+        module.spec = spec
 
         routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
         routines = None
@@ -168,15 +168,15 @@ class Module:
                 else:
                     routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
                     fname = routine_stmt.get_name().string
-                scope.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                module.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
 
             # Now create the actual Subroutine objects
-            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent_scope=scope,
+            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=module,
                                                 pp_info=pp_info, raw_source=raw_source)
                         for s in routines_ast.content if isinstance(s, routine_types)]
-            routines = as_tuple(routines)
+            module.routines = as_tuple(routines)
 
-        return cls(name=name, spec=spec, routines=routines, ast=ast, source=source, scope=scope)
+        return module
 
     @property
     def typedefs(self):
@@ -227,19 +227,25 @@ class Module:
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
+    def imported_symbols(self):
+        """
+        Return the symbols imported in this module
+        """
+        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(Import).visit(self.spec or ())))
+
+    @property
+    def imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
+    @property
     def subroutines(self):
         """
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
         """
         return as_tuple(self.routines)
-
-    @property
-    def scope(self):
-        return self._scope
-
-    @property
-    def symbols(self):
-        return self.scope.symbols
 
     @property
     def source(self):
@@ -288,32 +294,6 @@ class Module:
         """
         return 'Module:: {}'.format(self.name)
 
-    def rescope_variables(self):
-        """
-        Verify that all :any:`TypedSymbol` objects in the IR are in the
-        module's scope.
-        """
-        # The local variable map. These really need to be in *this* scope.
-        variable_map = self.variable_map
-        imports_map = CaseInsensitiveDict(
-            (s.name, s) for imprt in FindNodes(Import).visit(self.spec or ()) for s in imprt.symbols
-        )
-
-        # Check for all variables that they are associated with the scope
-        rescope_map = {}
-        for var in FindTypedSymbols().visit(self.spec):
-            if (var.name in variable_map or var.name in imports_map) and var.scope is not self.scope:
-                # This takes care of all local variables or imported symbols
-                rescope_map[var] = var.clone(scope=self.scope)
-            elif var not in rescope_map:
-                # Put this in the local scope just to be on the safe side
-                debug('Module.rescope_variables: type for %s not found in any scope.', var.name)
-                rescope_map[var] = var.clone(scope=self.scope)
-
-        # Now apply the rescoping map
-        if rescope_map and self.spec:
-            self.spec = SubstituteExpressions(rescope_map).visit(self.spec)
-
     def clone(self, **kwargs):
         """
         Create a deep copy of the module with the option to override individual
@@ -339,11 +319,9 @@ class Module:
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
 
-        if 'scope' not in kwargs:
-            kwargs['scope'] = Scope()
         if 'rescope_variables' not in kwargs:
             kwargs['rescope_variables'] = True
 
         kwargs['spec'] = Transformer({}).visit(self.spec)
 
-        return type(self)(**kwargs)
+        return super().clone(**kwargs)

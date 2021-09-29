@@ -597,7 +597,7 @@ end subroutine transform_region_to_call_arrays
     assert {(str(a), a.type.intent) for a in routines[0].arguments} == {('a(n)', 'out'), ('n', 'in')}
     assert {(str(a), a.type.intent) for a in routines[1].arguments} == {('b(n)', 'out'), ('n', 'in')}
     assert {(str(a), a.type.intent) for a in routines[2].arguments} == {('a(n)', 'in'), ('b(n)', 'inout'), ('n', 'in')}
-    assert routines[0].variable_map['a'].dimensions.index_tuple[0].scope is routines[0].scope
+    assert routines[0].variable_map['a'].dimensions.index_tuple[0].scope is routines[0]
 
     # Test transformation
     module = Module(name='{}_mod'.format(routine.name), spec=(), routines=[*routines, routine])

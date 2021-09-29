@@ -189,7 +189,7 @@ class FortranMaxTransformation(Transformation):
                 if is_loki_pragma(loop.pragma, starts_with='dataflow'):
                     loop_map[loop] = loop.body
                     # We have to add 1 since FORTRAN counts from 1
-                    call_fct = sym.ProcedureSymbol('control.count.simpleCounter', scope=max_kernel.scope)
+                    call_fct = sym.ProcedureSymbol('control.count.simpleCounter', scope=max_kernel)
                     vinit = sym.Sum((sym.InlineCall(call_fct, parameters=(sym.Literal(32),)), sym.Literal(1)))
                     # TODO: Add support for wrap point
                     #                      parameters=(Literal(32), loop.bounds[1]))
@@ -208,7 +208,7 @@ class FortranMaxTransformation(Transformation):
 
             # Extract conditions as separate variables
             cond_var = sym.Variable(name='cond_{cnt}'.format(cnt=cnt),
-                                    type=cond_type.clone(), scope=max_kernel.scope)
+                                    type=cond_type.clone(), scope=max_kernel)
             body += [ir.Assignment(lhs=cond_var, rhs=cond.condition)]
             max_kernel.variables += as_tuple(cond_var)
 
@@ -305,7 +305,7 @@ class FortranMaxTransformation(Transformation):
                             v, lambda e, dim=dim: isinstance(e, sym.Scalar) and str(e) == dim)}
                         offset = SubstituteExpressionsMapper(dmap)(index)
                         # Create the offset-variable
-                        fct_symbol = sym.ProcedureSymbol('stream.offset', scope=max_kernel.scope)
+                        fct_symbol = sym.ProcedureSymbol('stream.offset', scope=max_kernel)
                         initial = sym.InlineCall(fct_symbol, parameters=(stream, offset))
                         var_hash = sha256(str(v).encode('utf-8')).hexdigest()[:10]
                         name = '{}_{}'.format(v.name, var_hash)
@@ -338,8 +338,8 @@ class FortranMaxTransformation(Transformation):
             if stmt.lhs.type.dfevar:
                 if isinstance(stmt.rhs, (sym.FloatLiteral, sym.IntLiteral)):
                     _type = sym.InlineCall(sym.ProcedureSymbol('%s.getType' % stmt.lhs.name,
-                                                               scope=max_kernel.scope))
-                    rhs = sym.InlineCall(sym.ProcedureSymbol('constant.var', scope=max_kernel.scope),
+                                                               scope=max_kernel))
+                    rhs = sym.InlineCall(sym.ProcedureSymbol('constant.var', scope=max_kernel),
                                          parameters=(_type, stmt.rhs))
                     smap[stmt] = ir.Assignment(lhs=stmt.lhs, rhs=rhs)
         max_kernel.body = Transformer(smap).visit(max_kernel.body)
@@ -347,17 +347,17 @@ class FortranMaxTransformation(Transformation):
         def base_type(var_type):
             # TODO: put this somewhere else
             if var_type.dtype == BasicType.LOGICAL:
-                return sym.InlineCall(sym.ProcedureSymbol('dfeBool', scope=max_kernel.scope))
+                return sym.InlineCall(sym.ProcedureSymbol('dfeBool', scope=max_kernel))
             if var_type.dtype == BasicType.INTEGER:
                 # TODO: Distinguish between signed and unsigned
-                return sym.InlineCall(sym.ProcedureSymbol('dfeUInt', scope=max_kernel.scope),
+                return sym.InlineCall(sym.ProcedureSymbol('dfeUInt', scope=max_kernel),
                                       parameters=(sym.IntLiteral(32),))
             if var_type.dtype == BasicType.REAL:
                 if var_type.kind in ['real32']:
                     parameters = (sym.IntLiteral(8), sym.IntLiteral(24))
                 else:
                     parameters = (sym.IntLiteral(11), sym.IntLiteral(53))
-                return sym.InlineCall(sym.ProcedureSymbol('dfeFloat', scope=max_kernel.scope),
+                return sym.InlineCall(sym.ProcedureSymbol('dfeFloat', scope=max_kernel),
                                       parameters=parameters)
             raise ValueError()
 
@@ -374,7 +374,7 @@ class FortranMaxTransformation(Transformation):
             sub_type = var_type.clone(shape=var_type.shape[:-1])
             name = 'new DFEVectorType<{}>'.format(decl_type(sub_type))
             parameters = (init_type(sub_type), var_type.shape[-1])
-            return sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel.scope), parameters=parameters)
+            return sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel), parameters=parameters)
 
         # Initialization of dfevars
         var_map = {}
@@ -386,7 +386,7 @@ class FortranMaxTransformation(Transformation):
                     else:
                         name = 'io.scalarInput'
                     parameters = (sym.StringLiteral('"{}"'.format(var.name)), init_type(var.type))
-                    initial = sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel.scope),
+                    initial = sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel),
                                              parameters=parameters)
                     var_map[var] = var.clone(type=var.type.clone(initial=initial))
                 elif var.initial is None:
@@ -395,7 +395,7 @@ class FortranMaxTransformation(Transformation):
                         parameters = (sym.IntrinsicLiteral('this'),)
                     else:
                         parameters = (sym.IntrinsicLiteral('this'), sym.IntLiteral(0))
-                    initial = sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel.scope),
+                    initial = sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel),
                                              parameters=parameters)
                     var_map[var] = var.clone(type=var.type.clone(initial=initial))
         max_kernel.spec = SubstituteExpressions(var_map).visit(max_kernel.spec)
@@ -431,11 +431,11 @@ class FortranMaxTransformation(Transformation):
         spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
 
         max_module = Module(name=kernel.name, spec=ir.Section(body=as_tuple(spec)))
-        max_kernel = kernel.clone(parent_scope=max_module.scope)
+        max_kernel = kernel.clone(parent=max_module)
 
         # Remove all arguments (as they are streamed in now) and insert parameter argument
         arg_type = SymbolAttributes(DerivedType('KernelParameters'), intent='in')
-        arg = sym.Variable(name='params', type=arg_type, scope=max_kernel.scope)
+        arg = sym.Variable(name='params', type=arg_type, scope=max_kernel)
         max_kernel.arguments = as_tuple(arg)
         max_kernel.spec.prepend(ir.CallStatement(sym.Variable(name='super'), arguments=(arg,)))
 
@@ -460,7 +460,7 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the setup
-        setup = Subroutine(name='default void setup', parent_scope=manager.scope, spec=ir.Section(body=()))
+        setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
 
         body = [ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(
             kernel.name))]
@@ -506,29 +506,29 @@ class FortranMaxTransformation(Transformation):
         manager = Module(name='{}ManagerMAX5C'.format(name), spec=ir.Section(body=as_tuple(spec)))
 
         # Create the constructor
-        constructor = Subroutine(name=manager.name, parent_scope=manager.scope, spec=ir.Section(body=()))
+        constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
         params_type = SymbolAttributes(DerivedType('EngineParameters'), intent='in')
-        params = sym.Variable(name='params', type=params_type, scope=constructor.scope)
+        params = sym.Variable(name='params', type=params_type, scope=constructor)
         body = [ir.CallStatement(sym.Variable(name='super'), arguments=(params,)),
                 ir.CallStatement(sym.Variable(name='setup'), arguments=())]
         constructor.arguments = as_tuple(params)
         constructor.body = ir.Section(body=body)
 
         # Create the main function for maxJavaRun
-        main = Subroutine(name='public static void main', parent_scope=manager.scope,
+        main = Subroutine(name='public static void main', parent=manager,
                           spec=ir.Section(body=()))
         args_type = SymbolAttributes(DerivedType('String[]'), intent='in')
-        args = sym.Variable(name='args', type=args_type, scope=main.scope)
+        args = sym.Variable(name='args', type=args_type, scope=main)
         main.arguments = as_tuple(args)
 
         params_type = SymbolAttributes(
             DerivedType('EngineParameters'), initial=sym.InlineCall(
-                sym.ProcedureSymbol('new EngineParameters', scope=main.scope), parameters=(args,)))
-        params = sym.Variable(name='params', type=params_type, scope=main.scope)
+                sym.ProcedureSymbol('new EngineParameters', scope=main), parameters=(args,)))
+        params = sym.Variable(name='params', type=params_type, scope=main)
         mgr_type = SymbolAttributes(
             DerivedType('MAX5CManager'), initial=sym.InlineCall(
-                sym.ProcedureSymbol('new {}'.format(manager.name), scope=main.scope), parameters=(params,)))
-        mgr = sym.Variable(name='manager', type=mgr_type, scope=main.scope)
+                sym.ProcedureSymbol('new {}'.format(manager.name), scope=main), parameters=(params,)))
+        mgr = sym.Variable(name='manager', type=mgr_type, scope=main)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement(sym.Variable(name='manager.build'), arguments=())]
         main.body = ir.Section(body=body)
@@ -547,14 +547,14 @@ class FortranMaxTransformation(Transformation):
 
         # Add an argument for ticks
         size_t_type = SymbolAttributes(BasicType.INTEGER, intent='in')  # TODO: make this size_t
-        ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel.scope)
+        ticks_argument = sym.Variable(name='ticks', type=size_t_type, scope=kernel)
         arguments = (ticks_argument,) + slic_routine.arguments
 
         # The DFE wants to know array sizes, so we replace array arguments by pairs (arg, arg_size)
         def generate_arg_tuple(arg):
             if isinstance(arg, sym.Array):
                 return (arg, sym.Variable(name='{}_size'.format(arg.name), type=size_t_type,
-                                          scope=slic_routine.scope))
+                                          scope=slic_routine))
             return arg
         arguments = flatten([generate_arg_tuple(arg) for arg in arguments])
 
