@@ -10,7 +10,7 @@ from pymbolic.mapper.stringifier import (
 )
 from fparser.two.Fortran2003 import Intrinsic_Name
 
-from loki.logging import warning
+from loki.logging import debug
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
@@ -166,7 +166,7 @@ class ExpressionRetriever(WalkMapper):
         super().__init__()
 
         self.query = query
-        self.exprs = list()
+        self.exprs = []
 
         if recurse_query is not None:
             self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
@@ -546,7 +546,7 @@ class AttachScopesMapper(LokiIdentityMapper):
             elif self.fail:
                 raise RuntimeError('AttachScopesMapper: {} was not found in any scope'.format(str(expr)))
             elif expr not in _intrinsic_fortran_names:
-                warning('AttachScopesMapper: %s was not found in any scopes', str(expr))
+                debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
         return super().__call__(expr, *args, **kwargs)
 
     rec = __call__
