@@ -271,16 +271,15 @@ class OMNI2IR(GenericVisitor):
                 return_type = tast.attrib['return_type']
                 if return_type != 'Fvoid':
                     if return_type in self._omni_types:
-                        dtype = BasicType.from_fortran_type(self._omni_types[return_type])
-                        _type.return_type = dtype
+                        return_type = SymbolAttributes(BasicType.from_fortran_type(self._omni_types[return_type]))
                     elif return_type in self.type_map:
                         # Any attributes (like kind) are on the return type, therefore we
                         # overwrite the _type here
                         _type = self.visit(self.type_map[return_type], **kwargs)
-                        _type.return_type = _type.dtype
+                        return_type = SymbolAttributes(_type.dtype)
                     else:
                         raise ValueError
-                    _type.dtype = ProcedureType(variable.name, is_function=True)
+                    _type.dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
                 else:
                     _type.dtype = ProcedureType(variable.name, is_function=False)
 
@@ -289,7 +288,7 @@ class OMNI2IR(GenericVisitor):
                 else:
                     # This is the declaration of the return type inside a function, which is
                     # why we restore the dtype from return_type
-                    _type = _type.clone(dtype=_type.return_type or BasicType.DEFERRED, return_type=None)
+                    _type = _type.clone(dtype=getattr(_type.dtype.return_type, 'dtype', BasicType.DEFERRED))
 
         else:
             raise ValueError
@@ -369,15 +368,15 @@ class OMNI2IR(GenericVisitor):
         if o.attrib['return_type'] == 'Fvoid':
             return_type = None
         elif o.attrib['return_type'] in self._omni_types:
-            return_type = BasicType.from_fortran_type(self._omni_types[o.attrib['return_type']])
+            return_type = SymbolAttributes(BasicType.from_fortran_type(self._omni_types[o.attrib['return_type']]))
         elif o.attrib['return_type'] in self.type_map:
             return_type = self.visit(self.type_map[o.attrib['return_type']], **kwargs)
         else:
             raise ValueError
 
         # OMNI doesn't give us the function name at this point
-        dtype = ProcedureType('UNKNOWN', is_function=return_type is not None)
-        return SymbolAttributes(dtype, return_type=return_type)
+        dtype = ProcedureType('UNKNOWN', is_function=return_type is not None, return_type=return_type)
+        return SymbolAttributes(dtype)
 
     def visit_FstructType(self, o, **kwargs):
         # We have encountered a derived type as part of the declaration in the spec

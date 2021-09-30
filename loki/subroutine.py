@@ -14,7 +14,7 @@ from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import ProcedureType, SymbolAttributes
+from loki.types import ProcedureType, SymbolAttributes, BasicType
 from loki.scope import Scope
 
 
@@ -181,8 +181,12 @@ class Subroutine(Scope):
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
             for routine_ast in routine_asts:
                 fname = routine_ast.attrib['name']
-                is_function = routine_ast.tag == 'function'
-                routine.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                if routine_ast.tag == 'function':
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
+                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
+                else:
+                    dtype = ProcedureType(fname, is_function=False)
+                routine.symbols[fname] = SymbolAttributes(dtype)
             members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions, parent=routine)
                        for member in routine_asts]
             routine._members = as_tuple(members)
@@ -320,14 +324,16 @@ class Subroutine(Scope):
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
             routine_asts = list(walk(contains_ast, routine_types))
             for s in routine_asts:
-                is_function = isinstance(s, Fortran2003.Function_Subprogram)
-                if is_function:
+                if isinstance(s, Fortran2003.Function_Subprogram):
                     routine_stmt = get_child(s, Fortran2003.Function_Stmt)
                     fname = routine_stmt.items[1].tostr()
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
+                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
                     routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
                     fname = routine_stmt.get_name().string
-                routine.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                    dtype = ProcedureType(fname, is_function=False)
+                routine.symbols[fname] = SymbolAttributes(dtype)
 
             # Now create the actual Subroutine objects
             members = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=routine,

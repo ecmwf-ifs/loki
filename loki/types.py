@@ -137,14 +137,26 @@ class DerivedType(DataType):
 class ProcedureType(DataType):
     """
     Representation of a function or subroutine type definition.
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the function or subroutine. Can be skipped if :arg:`procedure`
+        is provided
+    is_function : bool, optional
+        Indicate that this is a function
+    procedure :
+
     """
 
-    def __init__(self, name=None, is_function=False, procedure=None):
+    def __init__(self, name=None, is_function=False, procedure=None, return_type=None):
         super().__init__()
         assert name or procedure
+        assert isinstance(return_type, SymbolAttributes) or procedure or not is_function
         self._name = name
         self._is_function = is_function
         self.procedure = procedure if procedure is not None else BasicType.DEFERRED
+        self._return_type = return_type
 
     @property
     def name(self):
@@ -161,6 +173,12 @@ class ProcedureType(DataType):
         if self.procedure is BasicType.DEFERRED:
             return self._is_function
         return self.procedure.is_function
+
+    @property
+    def return_type(self):
+        if self.procedure is BasicType.DEFERRED:
+            return self._return_type
+        return self.procedure.return_type
 
     def __str__(self):
         return self.name

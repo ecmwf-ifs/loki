@@ -1127,10 +1127,10 @@ end subroutine routine_call_external_stmt
             assert v.type.dtype.procedure == BasicType.DEFERRED
             if 'sub' in v.name:
                 assert not v.type.dtype.is_function
-                assert v.type.return_type is None
+                assert v.type.dtype.return_type is None
             else:
                 assert v.type.dtype.is_function
-                assert v.type.return_type == BasicType.INTEGER
+                assert v.type.dtype.return_type.compare(SymbolAttributes(BasicType.INTEGER))
 
     # Generate code, compile and load
     extpath = here/('subroutine_routine_external_%s.f90' % frontend)
