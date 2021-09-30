@@ -3,9 +3,10 @@ Collection of classes to represent type information for symbols used
 throughout Loki's :ref:`internal_representation:internal representation`
 """
 
+import weakref
 from enum import IntEnum
 from collections import OrderedDict
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 
 __all__ = ['DataType', 'BasicType', 'DerivedType', 'ProcedureType', 'SymbolAttributes']
@@ -145,8 +146,8 @@ class ProcedureType(DataType):
         is provided
     is_function : bool, optional
         Indicate that this is a function
-    procedure :
-
+    procedure : :any:`Subroutine` or :any:`StatementFunction`
+        The procedure this type represents
     """
 
     def __init__(self, name=None, is_function=False, procedure=None, return_type=None):
@@ -155,12 +156,23 @@ class ProcedureType(DataType):
         assert isinstance(return_type, SymbolAttributes) or procedure or not is_function
         self._name = name
         self._is_function = is_function
-        self.procedure = procedure if procedure is not None else BasicType.DEFERRED
         self._return_type = return_type
+        if procedure is None:
+            self._procedure = None
+        elif isinstance(procedure, LazyNodeLookup):
+            self._procedure = procedure
+        else:
+            self._procedure = weakref.ref(procedure)
 
     @property
     def name(self):
         return self._name if self.procedure is BasicType.DEFERRED else self.procedure.name
+
+    @property
+    def procedure(self):
+        if self._procedure is None:
+            return BasicType.DEFERRED
+        return self._procedure()
 
     @property
     def parameters(self):

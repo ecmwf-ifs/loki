@@ -298,6 +298,16 @@ class FortranCodegen(Stringifier):
         values = self.visit_all(o.values, **kwargs)
         return self.format_line('DATA ', o.variable, '/', values, '/')
 
+    def visit_StatementFunction(self, o, **kwargs):
+        """
+        Format as
+          <variable>(<arguments>) = <rhs>
+        """
+        name = self.visit(o.variable, **kwargs)
+        arguments = self.visit_all(o.arguments, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
+        return self.format_line(name, '(', self.join_items(arguments), ') = ', rhs)
+
     def visit_Import(self, o, **kwargs):
         """
         Format imports according to their type as

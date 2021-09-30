@@ -1,7 +1,7 @@
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend import Frontend, Source, extract_source
+from loki.frontend import Frontend, Source, extract_source, inject_statement_functions
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
@@ -396,6 +396,9 @@ class Subroutine(Scope):
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, Declaration):
             routine.spec = process_dimension_pragmas(routine.spec)
+
+        # Inject statement function definitions
+        inject_statement_functions(routine)
 
         return routine
 
