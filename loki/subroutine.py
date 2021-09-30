@@ -309,12 +309,28 @@ class Subroutine(Scope):
 
         routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
 
-        spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        if spec_ast:
-            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
+        # Hack: Collect all spec and body parts and use all but the
+        # last body as spec. Reason is that Fparser misinterprets statement
+        # functions as array assignments and thus breaks off spec early
+        part_asts = [c for c in ast.children
+                     if isinstance(c, (Fortran2003.Specification_Part, Fortran2003.Execution_Part))]
+        if not part_asts:
+            spec_asts = []
+            body_ast = None
+        elif isinstance(part_asts[-1], Fortran2003.Execution_Part):
+            *spec_asts, body_ast = part_asts
         else:
-            spec = Section(body=())
+            spec_asts = part_asts
+            body_ast = None
+
+        # Build the spec by parsing all relevant parts of the AST and appending them
+        # to the same section object
+        spec = Section(body=())
+        for spec_ast in spec_asts:
+            part = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
+                                     scope=routine, raw_source=raw_source)
+            if part is not None:
+                spec.append(part.body)
 
         # Parse "member" subroutines recursively
         contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
@@ -341,7 +357,7 @@ class Subroutine(Scope):
                        for s in routine_asts]
             routine._members = as_tuple(members)
 
-        body_ast = get_child(ast, Fortran2003.Execution_Part)
+        # Take care of the body
         if body_ast:
             body = parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
                                      scope=routine, raw_source=raw_source)
