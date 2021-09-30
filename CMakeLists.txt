@@ -65,6 +65,8 @@ ecbuild_add_option(
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
+include( loki_transform )
+
 # Make CMake script files available in build and install directory
 add_subdirectory( cmake )
 install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
