@@ -647,7 +647,7 @@ class OFP2IR(GenericVisitor):
             # Determine type of new names
             if isinstance(expr, sym.TypedSymbol):
                 # Use the type of the associated variable
-                _type = expr.type
+                _type = expr.type.clone(parent=None)
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
                     shape = ExpressionDimensionsMapper()(expr)
                     if shape == (sym.IntLiteral(1),):
