@@ -2,7 +2,7 @@
 Visitor classes for transforming the IR
 """
 
-from loki.ir import Node, Conditional
+from loki.ir import Node, Conditional, ScopedNode
 from loki.tools import flatten, is_iterable, as_tuple
 from loki.visitors.visitor import Visitor
 
@@ -151,6 +151,45 @@ class Transformer(Visitor):
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._rebuild(o, rebuilt)
 
+    def visit_ScopedNode(self, o, **kwargs):
+        """
+        Handler for :any:`ScopedNode` objects.
+
+        It replaces :data:`o` by :data:`mapper[o]`, if it is in the mapper,
+        otherwise its behaviour differs slightly from the default
+        :meth:`visit_Node` as it rebuilds the node first, then visits all
+        children and then updates in-place the rebuilt node.
+        This is to make sure upwards-pointing references to this scope
+        (such as :any:`ScopedNode.parent` properties) can be updated correctly.
+
+        Additionally, it passes down the currently active scope in :attr:`kwargs`
+        when recursing to children.
+        """
+        if o in self.mapper:
+            handle = self.mapper[o]
+            if handle is None:
+                # None -> drop /o/
+                return None
+
+            # For one-to-many mappings making sure this is not replaced again
+            # as it has been inserted by visit_tuple already
+            if not is_iterable(handle) or o not in handle:
+                return handle._rebuild(**handle.args)
+
+        # Rebuild the node (and update parent pointer if necessary)
+        if 'scope' in kwargs:
+            o = self._rebuild(o, o.children, parent=kwargs['scope'])
+        else:
+            o = self._rebuild(o, o.children)
+
+        # Recurse to children, passing down the scope
+        kwargs['scope'] = o
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+
+        # Update in-place the node with rebuilt children
+        o._update(*rebuilt)
+        return o
+
     def visit(self, o, *args, **kwargs):
         """
         Apply this :class:`Transformer` to an IR tree.
@@ -186,11 +225,16 @@ class NestedTransformer(Transformer):
 
         It visits all children before applying the :data:`mapper`.
         """
-        rebuilt = [self.visit(i, **kwargs) for i in o.children]
+        # Get the handle to bail out early if we drop the node
         handle = self.mapper.get(o, o)
         if handle is None:
             # None -> drop /o/
             return None
+
+        # Recurse to children
+        rebuilt = [self.visit(i, **kwargs) for i in o.children]
+
+        # Rebuild the node with rebuilt children
         if is_iterable(handle):
             if not o.children:
                 raise ValueError
@@ -199,6 +243,52 @@ class NestedTransformer(Transformer):
                 return self._rebuild_without_source(o, extended)
             return o._rebuild(*extended, **o.args_frozen)
         return self._rebuild(handle, rebuilt)
+
+    def visit_ScopedNode(self, o, **kwargs):
+        """
+        Handler for :any:`ScopedNode` objects.
+
+        Its behaviour differs slightly from the default :meth:`visit_Node` as
+        it rebuilds the node first, then visits all
+        children and then updates in-place the rebuilt node.
+        This is to make sure upwards-pointing references to this scope
+        (such as :any:`ScopedNode.parent` properties) can be updated correctly.
+
+        Additionally, it passes down the currently active scope in :attr:`kwargs`
+        when recursing to children.
+        """
+        # Get the handle to bail out early if we drop the node
+        handle = self.mapper.get(o, o)
+        if handle is None:
+            # None -> drop /o/
+            return None
+        handle = self.mapper.get(o, o)
+
+        # Rebuild the handle (and update parent pointer if necessary)
+        if 'scope' in kwargs and isinstance(handle, ScopedNode):
+            handle = self._rebuild(handle, handle.children, parent=kwargs['scope'])
+        else:
+            handle = self._rebuild(handle, handle.children)
+
+        # Rebuild children
+        if is_iterable(handle):
+            kwargs['scope'] = o
+        elif isinstance(handle, ScopedNode):
+            kwargs['scope'] = handle
+        rebuilt = [self.visit(i, **kwargs) for i in o.children]
+
+        # Update the node with rebuilt children
+        if is_iterable(handle):
+            if not o.children:
+                raise ValueError
+            extended = [tuple(handle) + rebuilt[0]] + rebuilt[1:]
+            if self.invalidate_source:
+                o._update(*extended, source=None)
+            else:
+                o._update(*extended)
+            return o
+        handle._update(*rebuilt)
+        return handle
 
 
 class MaskedTransformer(Transformer):
@@ -312,6 +402,27 @@ class MaskedTransformer(Transformer):
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         if kwargs['parent_active']:
             return self._rebuild(o, rebuilt)
+        return tuple(i for i in rebuilt if i is not None) or None
+
+    def visit_ScopedNode(self, o, **kwargs):
+        if o in self.mapper:
+            return super().visit_ScopedNode(o, **kwargs)
+
+        # Rebuild the node (and update parent pointer if necessary)
+        if 'scope' in kwargs:
+            o = self._rebuild(o, o.children, parent=kwargs['scope'])
+        else:
+            o = self._rebuild(o, o.children)
+
+        # Recurse to children, passing down the scope and if this node is active
+        kwargs['scope'] = o
+        kwargs['parent_active'] = self.active
+        rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+
+        # Update rebuilt node
+        if kwargs['parent_active']:
+            o._update(rebuilt)
+            return o
         return tuple(i for i in rebuilt if i is not None) or None
 
 
