@@ -169,7 +169,7 @@ class TypedSymbol:
         """
         Internal representation of the declared data type.
         """
-        if self._scope is None:
+        if self.scope is None:
             return self._type or SymbolAttributes(BasicType.DEFERRED)
         return self.scope.symbols.lookup(self.name)
 
