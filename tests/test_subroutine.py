@@ -1315,9 +1315,10 @@ end subroutine test_subroutine_rescope
     # have been garbage collected at this point
     assert other_kind_var.scope is not other_routine
 
-    # fgen of the not rescoped routine should fail because the scope of the variables went away
-    with pytest.raises(AttributeError):
-        fgen(other_routine)
+    # fgen of the not rescoped routine should lack some type information and thus produce a different output
+    other_fgen = fgen(other_routine)
+    assert other_fgen != ref_fgen
+    assert len(other_fgen) < len(ref_fgen)
 
 
 @pytest.mark.parametrize('frontend', [
