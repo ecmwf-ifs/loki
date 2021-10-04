@@ -1162,3 +1162,46 @@ end subroutine test_is_child_of
     for node in [loop, conditional]:
         assert {is_child_of(a, node) for a in assignments} == {True, False}
         assert all(not is_child_of(node, a) for a in assignments)
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_attach_scopes_associates(frontend):
+    fcode = """
+module attach_scopes_associates_mod
+    implicit none
+
+    type other_type
+        integer :: foo
+    end type other_type
+
+    type some_type
+        type(other_type) :: var
+    end type some_type
+
+contains
+
+    subroutine attach_scopes_associates
+        type(some_type) :: blah
+        integer :: a
+
+        associate(var=>blah%var)
+            associate(bar=>5+3)
+                a = var%foo
+            end associate
+        end associate
+    end subroutine attach_scopes_associates
+end module attach_scopes_associates_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    routine = module['attach_scopes_associates']
+    associates = FindNodes(Associate).visit(routine.body)
+    assert len(associates) == 2
+    assignment = FindNodes(Assignment).visit(routine.body)
+    assert len(assignment) == 1
+    var_map = {str(var): var for var in FindVariables().visit(assignment)}
+    assert len(var_map) == 2
+    assert associates[1].parent is associates[0]
+    assert var_map['a'].scope is routine
+    assert var_map['var%foo'].scope is associates[0]
+    assert var_map['var%foo'].parent.scope is associates[0]

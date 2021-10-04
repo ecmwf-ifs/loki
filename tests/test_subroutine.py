@@ -1315,9 +1315,14 @@ end subroutine test_subroutine_rescope
     # have been garbage collected at this point
     assert other_kind_var.scope is not other_routine
 
-    # fgen of the not rescoped routine should fail because the scope of the variables went away
-    with pytest.raises(AttributeError):
-        fgen(other_routine)
+    # fgen of the not rescoped routine should lack some type information and thus either fail or
+    # produce a different output, depending on whether GC has already happened
+    try:
+        other_fgen = fgen(other_routine)
+        assert other_fgen != ref_fgen
+        assert len(other_fgen) < len(ref_fgen)
+    except AttributeError as e:
+        assert str(e) == "'NoneType' object has no attribute 'compare'"
 
 
 @pytest.mark.parametrize('frontend', [
@@ -1398,6 +1403,11 @@ end subroutine test_subroutine_rescope_clone
     # collected or its types are gonee
     assert all(var.scope is None or var.type is None for var in other_routine.variables)
 
-    # fgen of the not rescoped routine should fail because the scope of the variables went away
-    with pytest.raises(AttributeError):
-        fgen(other_routine)
+    # fgen of the not rescoped routine should lack some type information and thus either fail or
+    # produce a different output, depending on whether GC has already happened
+    try:
+        other_fgen = fgen(other_routine)
+        assert other_fgen != ref_fgen
+        assert len(other_fgen) < len(ref_fgen)
+    except AttributeError as e:
+        assert str(e) == "'NoneType' object has no attribute 'compare'"
