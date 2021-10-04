@@ -101,7 +101,7 @@ class Subroutine(Scope):
                     if alloc.data_source:
                         alloc_map[v.name.lower()] = alloc.data_source.type.shape
                     else:
-                        alloc_map[v.name.lower()] = v.dimensions.index_tuple
+                        alloc_map[v.name.lower()] = v.dimensions
         vmap = {}
         for v in FindVariables().visit(body):
             if v.name.lower() in alloc_map:

@@ -8,7 +8,8 @@ import platform
 from loki import Subroutine, Module
 from loki.expression import (
     symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, SubstituteExpressionsMapper, FindTypedSymbols
+    SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
+    retrieve_expressions, TypedSymbol, MetaSymbol
 )
 from loki.ir import Associate, Import, TypeDef
 from loki.visitors import Transformer, FindNodes
@@ -108,7 +109,7 @@ def used_names_from_symbol(symbol, modifier=str.lower):
     if isinstance(symbol, str):
         return {modifier(symbol)}
 
-    if isinstance(symbol, sym.TypedSymbol):
+    if isinstance(symbol, (sym.TypedSymbol, sym.MetaSymbol)):
         return {modifier(symbol.name)} | used_names_from_symbol(symbol.type, modifier=modifier)
 
     if isinstance(symbol, SymbolAttributes):
@@ -155,7 +156,11 @@ def find_and_eliminate_unused_imports(routine):
     The accumulated set of used symbols is returned.
     """
     # We need a custom expression retriever that does not return symbols used in Imports
-    class SymbolRetriever(FindTypedSymbols):
+    class SymbolRetriever(ExpressionFinder):
+        retrieval_function = staticmethod(
+            lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, (TypedSymbol, MetaSymbol)))
+        )
+
         def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument,no-self-use
             return ()
 

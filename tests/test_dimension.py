@@ -6,7 +6,7 @@ from loki import OFP, OMNI, FP, Subroutine, Dimension, FindNodes, Loop
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
 def test_dimension_size(frontend):
     """
-    Test that ``Dimension`` objects match size expressions.
+    Test that :any:`Dimension` objects match size expressions.
     """
     fcode = """
 subroutine test_dimension_size(nlon, start, end, arr)
@@ -23,18 +23,18 @@ end subroutine test_dimension_size
     # Create the dimension object and make sure we match all array sizes
     dim = Dimension(name='test_dim', size='nlon', bounds=('start', 'end'))
     assert routine.variable_map['nlon'] == dim.size
-    assert routine.variable_map['arr'].dimensions.index_tuple[0] == dim.size
+    assert routine.variable_map['arr'].dimensions[0] == dim.size
 
     # Ensure that aliased size expressions laos trigger right
     assert routine.variable_map['nlon'] in dim.size_expressions
-    assert routine.variable_map['local_arr'].dimensions.index_tuple[0] in dim.size_expressions
-    assert routine.variable_map['range_arr'].dimensions.index_tuple[0] in dim.size_expressions
+    assert routine.variable_map['local_arr'].dimensions[0] in dim.size_expressions
+    assert routine.variable_map['range_arr'].dimensions[0] in dim.size_expressions
 
 
 @pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
 def test_dimension_index_range(frontend):
     """
-    Test that ``Dimension`` objects match index and range expressions.
+    Test that :any:`Dimension` objects match index and range expressions.
     """
     fcode = """
 subroutine test_dimension_index(nlon, start, end, arr)

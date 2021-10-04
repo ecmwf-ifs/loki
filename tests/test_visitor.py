@@ -349,7 +349,7 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     exprs = FindExpressions().visit(routine.body)
-    assert len(exprs) == 26 if frontend == OMNI else 21  # OMNI substitutes jprb in the Cast
+    assert len(exprs) == (33 if frontend == OMNI else 31)  # OMNI substitutes jprb in the Cast
 
     # Test ability to find root if searching for root
     comps = [e for e in exprs if isinstance(e, Comparison)]

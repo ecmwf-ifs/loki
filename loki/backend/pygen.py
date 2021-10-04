@@ -44,23 +44,24 @@ class PyCodeMapper(LokiStringifyMapper):
         return self.parenthesize_if_needed(
             self.format('%s(%s)', numpy_type(_type), expression), enclosing_prec, PREC_CALL)
 
-    def map_scalar(self, expr, enclosing_prec, *args, **kwargs):
+    def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return expr.name
 
-    def map_array(self, expr, enclosing_prec, *args, **kwargs):
-        dims = ''
-        if expr.dimensions:
-            dims = self.rec(expr.dimensions, PREC_NONE, *args, **kwargs)
-        return self.format('%s%s', expr.name, dims)
+    def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
+        return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
+
+    map_scalar = map_meta_symbol
+    map_array = map_meta_symbol
 
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
+        name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
         dims = [self.format(self.rec(d, PREC_NONE, *args, **kwargs)) for d in expr.index_tuple]
         dims = [d for d in dims if d]
         if not dims:
             index_str = ''
         else:
             index_str = '[{}]'.format(', '.join(dims))
-        return index_str
+        return self.format('%s%s', name_str, index_str)
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
         return ' + '.join(self.rec(c, enclosing_prec, *args, **kwargs) for c in expr.children)

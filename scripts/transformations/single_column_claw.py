@@ -7,7 +7,7 @@ from collections import OrderedDict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer, SubstituteExpressions,
     SubstituteExpressionsMapper, Assignment, CallStatement, Loop, Variable,
-    Array, Pragma, Declaration, ArraySubscript, LoopRange, RangeIndex,
+    Array, Pragma, Declaration, LoopRange, RangeIndex,
     SymbolAttributes, BasicType, CaseInsensitiveDict, as_tuple, warning
 )
 
@@ -106,11 +106,11 @@ class ExtractSCATransformation(Transformation):
             old_shape = shape_map[v.name]
             new_shape = as_tuple(s for s in old_shape if s not in size_expressions)
             if v.dimensions:
-                new_dims = as_tuple(d for d, s in zip(v.dimensions.index_tuple, old_shape)
+                new_dims = as_tuple(d for d, s in zip(v.dimensions, old_shape)
                                     if s not in size_expressions)
             else:
                 new_dims = ()
-            new_dims = None if len(new_dims) == 0 else ArraySubscript(new_dims)
+            new_dims = None if len(new_dims) == 0 else new_dims
             if len(old_shape) != len(new_shape):
                 new_type = v.type.clone(shape=new_shape)
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
@@ -165,13 +165,13 @@ class ExtractSCATransformation(Transformation):
 
                     # Remove self.horizontal dimension sizes from caller-side argument indices
                     if val.shape is not None:
-                        v_dims = val.dimensions.index_tuple if val.dimensions else new_dims
+                        v_dims = val.dimensions if val.dimensions else new_dims
                         new_dims = tuple(Variable(name=self.horizontal.index, scope=caller)
                                          if tdim in size_expressions else ddim
                                          for ddim, tdim in zip(v_dims, val.shape))
 
                     if new_dims is not None:
-                        argmap[val] = val.clone(dimensions=ArraySubscript(new_dims))
+                        argmap[val] = val.clone(dimensions=new_dims)
 
                 # Apply argmap to the list of call arguments
                 arguments = [argmap.get(a, a) for a in call.arguments]

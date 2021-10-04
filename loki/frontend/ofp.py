@@ -645,7 +645,7 @@ class OFP2IR(GenericVisitor):
             expr = AttachScopesMapper()(expr, scope=parent_scope)
 
             # Determine type of new names
-            if isinstance(expr, sym.TypedSymbol):
+            if isinstance(expr, (sym.TypedSymbol, sym.MetaSymbol)):
                 # Use the type of the associated variable
                 _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
@@ -1036,8 +1036,6 @@ class OFP2IR(GenericVisitor):
             v_source = extract_source(v.attrib, self._raw_source)
             v_type = stype.clone(shape=dimensions)
             v_name = v.attrib['name']
-            if dimensions:
-                dimensions = sym.ArraySubscript(dimensions, source=source) if dimensions else None
 
             scope.symbols[v_name] = v_type
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]

@@ -11,7 +11,7 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
-    DerivedType, BasicType, ArraySubscript, RangeIndex, as_tuple
+    DerivedType, BasicType, RangeIndex, as_tuple
 )
 
 
@@ -94,7 +94,6 @@ class DerivedTypeArgumentsTransformation(Transformation):
                         for type_var in candidates[k_arg]:
                             # Insert `:` range dimensions into newly generated args
                             new_dims = tuple(RangeIndex((None, None)) for _ in type_var.type.shape or [])
-                            new_dims = ArraySubscript(new_dims)
                             new_type = type_var.type.clone(parent=d_arg)
                             new_arg = type_var.clone(dimensions=new_dims, type=new_type,
                                                      parent=d_arg, scope=d_arg.scope)
@@ -134,7 +133,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 new_type = SymbolAttributes(type_var.type.dtype, kind=type_var.type.kind,
                                             intent=arg.type.intent, shape=type_var.type.shape)
                 new_name = '%s_%s' % (arg.name, type_var.basename)
-                new_dimensions = ArraySubscript(new_type.shape) if new_type.shape else None
+                new_dimensions = new_type.shape if new_type.shape else None
                 new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions, scope=routine)
                 new_vars += [new_var]
 

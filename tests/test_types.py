@@ -235,7 +235,7 @@ end subroutine test_type_module_imports
     # Ensure local variable info is correct, as far as known
     arg_a, arg_b = routine.variables
     assert arg_a.type.kind.type.compare(routine.symbols['a_kind'], ignore=('imported'))
-    assert arg_a.dimensions.index_tuple[0].type.compare(routine.symbols['a_dim'])
+    assert arg_a.dimensions[0].type.compare(routine.symbols['a_dim'])
     assert isinstance(arg_b.type.dtype, DerivedType)
     assert arg_b.type.dtype.typedef == BasicType.DEFERRED
 
@@ -268,8 +268,8 @@ end module my_types_mod
 
     # Check that we correctly re-scoped the member variable
     a, b = routine.variable_map['arg_b'].type.dtype.variables
-    assert a.dimensions == '(:)'
-    assert b.dimensions == '(:,:)'
+    assert ','.join(str(d) for d in a.dimensions) == ':'
+    assert ','.join(str(d) for d in b.dimensions) == ':,:'
     assert a.type.kind == b.type.kind == 'a_kind'
     assert a.scope is routine
     assert b.scope is routine

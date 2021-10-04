@@ -187,7 +187,8 @@ class Polyhedron:
         :return: the pair ``(lhs, rhs)`` of the row in the matrix inequality.
         :rtype: tuple(np.array, np.array)
         """
-        if not (is_constant(bound) or isinstance(bound, (sym.TypedSymbol, sym.Sum, sym.Product))):
+        supported_types = (sym.TypedSymbol, sym.MetaSymbol, sym.Sum, sym.Product)
+        if not (is_constant(bound) or isinstance(bound, supported_types)):
             raise ValueError('Cannot derive inequality from bound {}'.format(str(bound)))
         summands = accumulate_polynomial_terms(bound)
         b = -summands.pop(1, 0)  # Constant term or 0

@@ -141,8 +141,6 @@ class OMNI2IR(GenericVisitor):
                 typename = self._omni_types.get(t, t)
                 vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
 
-            if dimensions:
-                dimensions = sym.ArraySubscript(dimensions, source=kwargs['source'])
             variables += [
                 sym.Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope, source=kwargs['source'])]
         return variables
@@ -418,7 +416,7 @@ class OMNI2IR(GenericVisitor):
             expr = AttachScopesMapper()(expr, scope=parent_scope)
 
             # Determine type of new names
-            if isinstance(expr, sym.TypedSymbol):
+            if isinstance(expr, (sym.TypedSymbol, sym.MetaSymbol)):
                 # Use the type of the associated variable
                 _type = expr.type
                 if isinstance(expr, sym.Array) and expr.dimensions is not None:
