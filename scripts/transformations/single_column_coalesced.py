@@ -52,103 +52,101 @@ def kernel_remove_vector_loops(routine, horizontal):
     routine.body = Transformer(loop_map).visit(routine.body)
 
 
-def kernel_promote_vector_loops(routine, horizontal):
+def kernel_sections_from_nodes(nodes, section):
     """
-    Promote vector loops to be the outermost loop in the kernel.
+    Extract a list of code sub-sections from a section tuple and separator nodes.
+    """
+    nodes = [None, *nodes, None]
+    sections = []
+    for start, stop in pairwise(nodes):
+        t = NestedMaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
+        sec = as_tuple(t.visit(section))
+        if start is not None:
+            sec = sec[1:]  # Strip `start` node
+        sections.append(sec)
+
+    return sections
+
+
+def wrap_vector_section(section, routine, horizontal):
+    """
+    Wrap a section of nodes in a vector-level loop across the horizontal.
 
     Parameters
     ----------
+    section : tuple of :any:`Node`
+        A section of nodes to be wrapped in a vector-level loop
     routine : :any:`Subroutine`
         The subroutine in the vector loops should be removed.
     horizontal: :any:`Dimension`
         The dimension specifying the horizontal vector dimension
     """
-    def _construct_loop(body):
-        """
-        Create a single loop around the horizontal from a given body
-        """
-        v_start = routine.variable_map[horizontal.bounds[0]]
-        v_end = routine.variable_map[horizontal.bounds[1]]
-        bounds = LoopRange((v_start, v_end))
-        index = get_integer_variable(routine, horizontal.index)
-        # Ensure we clone all body nodes, to avoid recursion issues
-        return Loop(variable=index, bounds=bounds, body=Transformer().visit(body))
 
-    def _sections_from_nodes(nodes, section):
-        """
-        Extract a list of code sub-sections from a section and separator nodes.
-        """
-        nodes = [None, *nodes, None]
-        sections = []
-        for start, stop in pairwise(nodes):
-            t = NestedMaskedTransformer(start=start, stop=stop, active=start is None, inplace=True)
-            sec = as_tuple(t.visit(section))
-            if start is not None:
-                sec = sec[1:]  # Strip `start` node
-            sections.append(sec)
-        return sections
+    # Create a single loop around the horizontal from a given body
+    v_start = routine.variable_map[horizontal.bounds[0]]
+    v_end = routine.variable_map[horizontal.bounds[1]]
+    index = get_integer_variable(routine, horizontal.index)
+    bounds = LoopRange((v_start, v_end))
 
-    def _wrap_local_section(section, mapper):
-        """
-        Wrap vector loops around calls that we cannot promot around
-        """
-        calls = FindNodes(CallStatement).visit(section)
-        for s in _sections_from_nodes(calls, section):
-            if len(s) > 0 and len(FindNodes(Assignment).visit(s)) > 0:
-                # Add a comment before the pragma-annotated loop to ensure
-                # not overlap with neighbouring pragmas
-                vector_loop = _construct_loop(s)
-                mapper[s] = (Comment(''), vector_loop)
+    # Ensure we clone all body nodes, to avoid recursion issues
+    vector_loop = Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
 
-    def _process_outer_section(section, mapper):
-        """
-        For any nodes that define sections span that recursive calls,
-        we cannot promote vector loops past the section boundaries.
-        So, we need to find those constrained sections, and deal with
-        them separately, and recursively if they are nested.
-        """
+    # Add a comment before the pragma-annotated loop to ensure
+    # we do not overlap with neighbouring pragmas
+    return (Comment(''), vector_loop)
 
-        # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
-        outer_scopes = []
-        calls = FindNodes(CallStatement).visit(section)
-        for call in calls:
+
+def extract_vector_sections(section, horizontal):
+    """
+    Extract a contiguous sections of nodes that contains vector-level
+    computations and are not interrupted by recursive subroutine calls
+    or nested control-flow structures.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        A section of nodes from which to extract vector-level sub-sections
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+
+    # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
+    separator_nodes = []
+    calls = FindNodes(CallStatement).visit(section)
+    for call in calls:
+        if call in section:
+            # If the call is at the current section's level, it's a separator
+            separator_nodes.append(call)
+
+        else:
+            # If the call is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(call).visit(section))
             ancestor_scopes = [a for a in ancestors if isinstance(a, (Loop, Conditional))]
             if len(ancestor_scopes) > 0:
-                outer_scopes.append(ancestor_scopes[0])
+                separator_nodes.append(ancestor_scopes[0])
 
-        # Insert outer vector loops around call-free sections outside of
-        # the constrained scopes.
-        outer_sections = _sections_from_nodes(outer_scopes, section)
-        for section in outer_sections:
-            # Apply wrapping around the unbroken outer sections
-            _wrap_local_section(section, mapper)
+    subsections = kernel_sections_from_nodes(separator_nodes, section)
 
-        # Now recursively deal with constrained scopes explicitly by
-        # applying the same mechanism to the loop or conditional body.
-        for scope in outer_scopes:
-            if isinstance(scope, Loop):
-                _process_outer_section(scope.body, mapper)
+    # Filter sub-sections that do not use the horizontal loop index variable
+    subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
 
-            if isinstance(scope, Conditional):
-                _process_outer_section(scope.body, mapper)
-                _process_outer_section(scope.else_body, mapper)
+    # Recurse on all separator nodes that might contain further vector sections
+    for separator in separator_nodes:
 
+        if isinstance(separator, Loop):
+            subsec_body = extract_vector_sections(separator.body, horizontal)
+            if subsec_body:
+                subsections += subsec_body
 
-    if horizontal.bounds[0] not in routine.variable_map:
-        raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
-    if horizontal.bounds[1] not in routine.variable_map:
-        raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
+        if isinstance(separator, Conditional):
+            subsec_body = extract_vector_sections(separator.body, horizontal)
+            if subsec_body:
+                subsections += subsec_body
+            subsec_else = extract_vector_sections(separator.else_body, horizontal)
+            if subsec_else:
+                subsections += subsec_else
 
-    mapper = {}
-
-    # Now re-wrap individual sections with vector loops at the
-    # appropriate level, as defined by "scope" nodes (loops,
-    # conditionals) that might be constrined by recursive function
-    # calls.
-    _process_outer_section(routine.body.body, mapper)
-
-    routine.body = Transformer(mapper).visit(routine.body)
+    return subsections
 
 
 def kernel_demote_private_locals(routine, horizontal, vertical):
@@ -445,6 +443,11 @@ class SingleColumnCoalescedTransformation(Transformation):
             Subroutine to apply this transformation to.
         """
 
+        if self.horizontal.bounds[0] not in routine.variable_map:
+            raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
+        if self.horizontal.bounds[1] not in routine.variable_map:
+            raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
+
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         resolve_associates(routine)
@@ -462,9 +465,13 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Remove all vector loops over the specified dimension
         kernel_remove_vector_loops(routine, self.horizontal)
 
+        # Extract vector-level compute sections from the kernel
+        sections = extract_vector_sections(routine.body.body, self.horizontal)
+
         if not self.hoist_column_arrays:
-            # Promote vector loops to be the outermost loop dimension in the kernel 
-            kernel_promote_vector_loops(routine, self.horizontal)
+            # Promote vector loops to be the outermost loop dimension in the kernel
+            mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
+            routine.body = Transformer(mapper).visit(routine.body)
 
         # Demote all private local variables
         if self.demote_local_arrays:
