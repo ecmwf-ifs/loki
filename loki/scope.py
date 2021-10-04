@@ -32,6 +32,10 @@ class SymbolTable(dict):
         super().__init__(**kwargs)
         self._parent = weakref.ref(parent) if parent is not None else None
         self._case_sensitive = case_sensitive
+        if self.case_sensitive:
+            self.format_lookup_name = SymbolTable._case_sensitive_format_lookup_name
+        else:
+            self.format_lookup_name = SymbolTable._not_case_sensitive_format_lookup_name
 
     @property
     def parent(self):
@@ -56,7 +60,7 @@ class SymbolTable(dict):
         """
         return self._case_sensitive
 
-    def format_lookup_name(self, name):
+    def format_lookup_name(self, name):  # pylint: disable=method-hidden
         """
         Format a variable name for look-up (e.g., convert to lower case if
         case-insensitive)
@@ -71,8 +75,15 @@ class SymbolTable(dict):
         str :
             the name used for look-ups
         """
-        if not self.case_sensitive:
-            name = name.lower()
+
+    @staticmethod
+    def _case_sensitive_format_lookup_name(name):
+        name = name.partition('(')[0]  # Remove any dimension parameters
+        return name
+
+    @staticmethod
+    def _not_case_sensitive_format_lookup_name(name):
+        name = name.lower()
         name = name.partition('(')[0]  # Remove any dimension parameters
         return name
 
@@ -299,7 +310,6 @@ class Scope:
             The scope object in which the symbol is declared, or `None` if
             not found
         """
-        name = self.symbols.format_lookup_name(name)
         scope = self
         while scope is not None:
             if name in scope.symbols:
