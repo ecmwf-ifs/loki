@@ -51,6 +51,10 @@ class Transformer(Visitor):
     inplace : bool, optional
         If set to `True`, all updates are performed on existing :any:`Node`
         objects, instead of rebuilding them, keeping the original tree intact.
+    rebuild_scopes : bool, optional
+        If set to `True`, this will also rebuild :any:`ScopedNode` in the IR.
+        This requires updating :any:`Variable.scope` properties, which is
+        expensive and thus carried out only when explicitly requested.
 
     Attributes
     ----------
@@ -60,12 +64,13 @@ class Transformer(Visitor):
         :math:`n \in T` to the rebuilt nodes in the new tree :math:`n' \in T'`.
     """
 
-    def __init__(self, mapper=None, invalidate_source=True, inplace=False):
+    def __init__(self, mapper=None, invalidate_source=True, inplace=False, rebuild_scopes=False):
         super().__init__()
         self.mapper = mapper.copy() if mapper is not None else {}
         self.invalidate_source = invalidate_source
         self.rebuilt = {}
         self.inplace = inplace
+        self.rebuild_scopes = rebuild_scopes
 
     def _rebuild_without_source(self, o, children, **args):
         """
@@ -184,10 +189,13 @@ class Transformer(Visitor):
                 return handle._rebuild(**handle.args)
 
         # Rebuild the node (and update parent pointer if necessary)
-        if 'scope' in kwargs:
-            o = self._rebuild(o, o.children, parent=kwargs['scope'])
-        else:
-            o = self._rebuild(o, o.children)
+        if self.rebuild_scopes:
+            if 'scope' in kwargs:
+                o = self._rebuild(o, o.children, parent=kwargs['scope'])
+            else:
+                o = self._rebuild(o, o.children)
+        elif 'scope' in kwargs and kwargs['scope'] is not o.parent:
+            o._update(parent=kwargs['scope'])
 
         # Recurse to children, passing down the scope
         kwargs['scope'] = o
@@ -272,10 +280,13 @@ class NestedTransformer(Transformer):
         handle = self.mapper.get(o, o)
 
         # Rebuild the handle (and update parent pointer if necessary)
-        if 'scope' in kwargs and isinstance(handle, ScopedNode):
-            handle = self._rebuild(handle, handle.children, parent=kwargs['scope'])
-        else:
-            handle = self._rebuild(handle, handle.children)
+        if self.rebuild_scopes:
+            if 'scope' in kwargs and isinstance(handle, ScopedNode):
+                handle = self._rebuild(handle, handle.children, parent=kwargs['scope'])
+            else:
+                handle = self._rebuild(handle, handle.children)
+        elif 'scope' in kwargs and isinstance(handle, ScopedNode) and kwargs['scope'] is not handle.parent:
+            handle._update(parent=kwargs['scope'])
 
         # Rebuild children
         if is_iterable(handle):
@@ -339,6 +350,10 @@ class MaskedTransformer(Transformer):
        in-between multiple start and end nodes without knowing in which order
        they appear.
 
+    .. note::
+       :any:`MaskedTransformer` rebuilds also :any:`ScopedNode` by default
+       (i.e., it calls the parent constructor with ``rebuild_scopes=True``).
+
     Parameters
     ----------
     start : (iterable of) :any:`Node`, optional
@@ -367,6 +382,7 @@ class MaskedTransformer(Transformer):
 
     def __init__(self, start=None, stop=None, active=False,
                  require_all_start=False, greedy_stop=False, **kwargs):
+        kwargs.setdefault('rebuild_scopes', True)
         super().__init__(**kwargs)
 
         self.start = set(as_tuple(start))
@@ -416,10 +432,13 @@ class MaskedTransformer(Transformer):
             return super().visit_ScopedNode(o, **kwargs)
 
         # Rebuild the node (and update parent pointer if necessary)
-        if 'scope' in kwargs:
-            o = self._rebuild(o, o.children, parent=kwargs['scope'])
-        else:
-            o = self._rebuild(o, o.children)
+        if self.rebuild_scopes:
+            if 'scope' in kwargs:
+                o = self._rebuild(o, o.children, parent=kwargs['scope'])
+            else:
+                o = self._rebuild(o, o.children)
+        elif 'scope' in kwargs and kwargs['scope'] is not o.parent:
+            o._update(parent=kwargs['scope'])
 
         # Recurse to children, passing down the scope and if this node is active
         kwargs['scope'] = o
