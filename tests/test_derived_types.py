@@ -425,6 +425,7 @@ end module
         for var in FindVariables().visit(assoc.body):
             if var.name in assoc.variables:
                 assert var.scope is assoc
+                assert var.type.parent is None
             else:
                 assert var.scope is routine
 
