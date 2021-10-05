@@ -1,6 +1,7 @@
 """
 Visitor classes for transforming the IR
 """
+from more_itertools import windowed
 
 from loki.ir import Node, Conditional, ScopedNode
 from loki.tools import flatten, is_iterable, as_tuple
@@ -115,6 +116,11 @@ class Transformer(Visitor):
         the replaced node into a tuple.
         """
         for k, handle in self.mapper.items():
+            if is_iterable(k):
+                w = list(windowed(o, len(k)))
+                if k in w:
+                    i = list(w).index(k)
+                    o = o[:i] + as_tuple(handle) + o[i+len(k):]
             if k in o and is_iterable(handle):
                 i = o.index(k)
                 o = o[:i] + tuple(handle) + o[i+1:]
@@ -126,7 +132,8 @@ class Transformer(Visitor):
         """
         o = self._inject_tuple_mapping(o)
         visited = tuple(self.visit(i, **kwargs) for i in o)
-        return tuple(i for i in visited if i is not None)
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i) != ())
 
     visit_list = visit_tuple
 

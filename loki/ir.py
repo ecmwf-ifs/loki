@@ -228,7 +228,7 @@ class InternalNode(Node):
 
     def __init__(self, body=None, **kwargs):
         super().__init__(**kwargs)
-        self.body = as_tuple(body)
+        self.body = as_tuple(flatten(as_tuple(body)))
 
     def __repr__(self):
         raise NotImplementedError
