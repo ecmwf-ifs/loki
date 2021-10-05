@@ -3,6 +3,7 @@ Mappers for traversing and transforming the
 :ref:`internal_representation:Expression tree`.
 """
 import re
+from itertools import zip_longest
 import pymbolic.primitives as pmbl
 from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
@@ -405,15 +406,27 @@ class ExpressionCallbackMapper(CombineMapper):
 
 class LokiIdentityMapper(IdentityMapper):
     """
-    A visitor which creates a copy of the expression tree.
+    A visitor to traverse and transform an expression tree
+
+    This can serve as basis for any transformation mappers
+    that apply changes to the expression tree. Expression nodes that
+    are unchanged are returned as is.
+
+    Parameters
+    ----------
+    invalidate_source : bool, optional
+        By default the :attr:`source` property of nodes is discarded
+        when rebuilding the node, setting this to `False` allows to
+        retain that information
     """
-    # pylint: disable=abstract-method
 
     def __init__(self, invalidate_source=True):
         super().__init__()
         self.invalidate_source = invalidate_source
 
     def __call__(self, expr, *args, **kwargs):
+        if expr is None:
+            return None
         new_expr = super().__call__(expr, *args, **kwargs)
         if new_expr is not expr and hasattr(new_expr, 'update_metadata'):
             metadata = getattr(expr, 'get_metadata', dict)()
@@ -430,61 +443,72 @@ class LokiIdentityMapper(IdentityMapper):
     map_intrinsic_literal = IdentityMapper.map_constant
 
     def map_int_literal(self, expr, *args, **kwargs):
-        kind = None
-        if expr.kind is not None:
-            kind = self.rec(expr.kind, *args, **kwargs)
+        kind = self.rec(expr.kind, *args, **kwargs)
+        if kind is expr.kind:
+            return expr
         return expr.__class__(expr.value, kind=kind)
 
     map_float_literal = map_int_literal
 
     def map_variable_symbol(self, expr, *args, **kwargs):
-        parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
-        _type = expr.type
-        if _type.kind:
-            kind = self.rec(_type.kind, *args, **kwargs)
-            _type = _type.clone(kind=kind)
-        return expr.clone(parent=parent, type=_type)
+        kind = self.rec(expr.type.kind, *args, **kwargs)
+        if kind is not expr.type.kind and expr.scope:
+            # Update symbol table entry for kind directly because with a scope attached
+            # it does not affect the outcome of expr.clone
+            expr.scope.symbols[expr.name] = expr.type.clone(kind=kind)
+
+        parent = self.rec(expr.parent, *args, **kwargs)
+        if parent is expr.parent and (kind is expr.type.kind or expr.scope):
+            return expr
+        return expr.clone(parent=parent, type=expr.type.clone(kind=kind))
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, *args, **kwargs):
-        return self.rec(expr._symbol, *args, **kwargs)
+        symbol = self.rec(expr._symbol, *args, **kwargs)
+        # This is tricky as a rebuilt of the symbol will yield Scalar, Array, ProcedureSymbol etc
+        # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
+        # original expression if the underlying symbol is unchanged
+        if symbol is expr._symbol:
+            return expr
+        return symbol
 
     map_scalar = map_meta_symbol
 
     def map_array(self, expr, *args, **kwargs):
         symbol = self.rec(expr.symbol, *args, **kwargs)
-        if expr.dimensions:
-            dimensions = self.rec(expr.dimensions, *args, **kwargs)
-        else:
-            dimensions = None
-        _type = symbol.type
-        if _type.shape:
-            shape = self.rec(_type.shape, *args, **kwargs)
-            _type = _type.clone(shape=shape)
-        return symbol.clone(dimensions=dimensions, type=_type)
+        dimensions = self.rec(expr.dimensions, *args, **kwargs)
+        shape = self.rec(symbol.type.shape, *args, **kwargs)
+        if (getattr(symbol, 'symbol', symbol) is expr.symbol and
+                all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
+                all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
+            return expr
+        return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape))
 
-    def map_array_subscript(self, expr, *args, **kwargs):
+    def map_array_subscript(self, expr, *args, **kwargs):  # pylint: disable=no-self-use
         raise RuntimeError('Recursion should have ended at map_array')
 
     map_inline_call = IdentityMapper.map_call_with_kwargs
 
     def map_cast(self, expr, *args, **kwargs):
-        kind = None
-        if expr.kind is not None:
-            kind = self.rec(expr.kind, *args, **kwargs)
-        return expr.__class__(self.rec(expr.function, *args, **kwargs),
-                              tuple(self.rec(p, *args, **kwargs) for p in expr.parameters),
-                              kind=kind)
+        function = self.rec(expr.function, *args, **kwargs)
+        parameters = self.rec(expr.parameters, *args, **kwargs)
+        kind = self.rec(expr.kind, *args, **kwargs)
+        if (function is expr.function and kind is expr.kind and
+                all(p is orig_p for p, orig_p in zip_longest(parameters, expr.parameters))):
+            return expr
+        return expr.__class__(function, parameters, kind=kind)
 
     def map_sum(self, expr, *args, **kwargs):
-        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
-
-    def map_product(self, expr, *args, **kwargs):
-        return expr.__class__(tuple(self.rec(child, *args, **kwargs) for child in expr.children))
+        # Need to re-implement to avoid application of flattened_sum/flattened_product
+        children = self.rec(expr.children, *args, **kwargs)
+        if all(c is orig_c for c, orig_c in zip_longest(children, expr.children)):
+            return expr
+        return expr.__class__(children)
 
     map_parenthesised_add = map_sum
+    map_product = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_pow = IdentityMapper.map_power
     map_string_concat = map_sum
@@ -496,6 +520,8 @@ class LokiIdentityMapper(IdentityMapper):
     def map_literal_list(self, expr, *args, **kwargs):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
                        for v in expr.elements)
+        if all(v is orig_v for v, orig_v in zip_longest(values, expr.elements)):
+            return expr
         return expr.__class__(values)
 
 
@@ -543,18 +569,25 @@ class AttachScopesMapper(LokiIdentityMapper):
         super().__init__(invalidate_source=False)
         self.fail = fail
 
-    def __call__(self, expr, *args, **kwargs):
-        from loki.expression.symbols import TypedSymbol  # pylint: disable=import-outside-toplevel
-        if isinstance(expr, TypedSymbol):
-            scope = kwargs['scope']
-            symbol_scope = scope.get_symbol_scope(expr.name)
-            if symbol_scope is not None:
-                if symbol_scope is not expr.scope:
-                    expr = expr.clone(scope=symbol_scope)
-            elif self.fail:
-                raise RuntimeError('AttachScopesMapper: {} was not found in any scope'.format(str(expr)))
-            elif expr not in _intrinsic_fortran_names:
-                debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
-        return super().__call__(expr, *args, **kwargs)
+    def _update_symbol_scope(self, expr, scope):
+        symbol_scope = scope.get_symbol_scope(expr.name)
+        if symbol_scope is not None:
+            if symbol_scope is not expr.scope:
+                expr = expr.clone(scope=symbol_scope)
+        elif self.fail:
+            raise RuntimeError(f'AttachScopesMapper: {expr!s} was not found in any scope')
+        elif expr not in _intrinsic_fortran_names:
+            debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
+        return expr
 
-    rec = __call__
+    def map_deferred_type_symbol(self, expr, *args, **kwargs):
+        expr = self._update_symbol_scope(expr, kwargs['scope'])
+        return super().map_deferred_type_symbol(expr, *args, **kwargs)
+
+    def map_variable_symbol(self, expr, *args, **kwargs):
+        expr = self._update_symbol_scope(expr, kwargs['scope'])
+        return super().map_variable_symbol(expr, *args, **kwargs)
+
+    def map_procedure_symbol(self, expr, *args, **kwargs):
+        expr = self._update_symbol_scope(expr, kwargs['scope'])
+        return super().map_procedure_symbol(expr, *args, **kwargs)

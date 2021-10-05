@@ -277,12 +277,6 @@ class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Varia
     def initial(self, value):
         self.type.initial = value
 
-    def __getinitargs__(self):
-        args = []
-        if self.parent:
-            args += [('parent', self.parent)]
-        return super().__getinitargs__() + tuple(args)
-
     mapper_method = intern('map_variable_symbol')
 
     def make_stringifier(self, originating_stringifier=None):

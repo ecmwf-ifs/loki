@@ -296,7 +296,7 @@ class OMNI2IR(GenericVisitor):
 
         scope = kwargs['scope']
         if o.find('value') is not None:
-            _type.initial = AttachScopesMapper()(self.visit(o.find('value'), **kwargs), scope=scope)
+            _type = _type.clone(initial=AttachScopesMapper()(self.visit(o.find('value'), **kwargs), scope=scope))
         if _type.kind is not None:
             _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
