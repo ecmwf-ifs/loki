@@ -1,3 +1,4 @@
+# pylint: disable=invalid-all-format
 """
 Implementation of rules in the IFS coding standards document (2011) for loki-lint.
 """
@@ -7,7 +8,7 @@ from collections import defaultdict
 import re
 
 from loki import (
-    Visitor, FindNodes, ExpressionFinder, FindExpressionRoot, retrieve_expressions,
+    Visitor, FindNodes, ExpressionFinder, FindExpressionRoot, ExpressionRetriever,
     flatten, as_tuple, strip_inline_comments, Module, Subroutine, BasicType
 )
 from loki.lint import GenericRule, RuleType
@@ -371,10 +372,10 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         # Custom retriever that yields the literal types specified in config and stops
         # recursion on loop ranges and array subscripts
         # (to avoid warnings about integer constants in these cases)
-        excl_types = (sym.ArraySubscript, sym.Range)
-        q_lit = lambda expr: retrieve_expressions(
-            expr, lambda e: isinstance(e, types), recurse_cond=lambda e: not isinstance(e, excl_types))
-        finder = ExpressionFinder(unique=False, retrieve=q_lit, with_ir_node=True)
+        excl_types = (sym.Array, sym.Range)
+        retriever = ExpressionRetriever(query=lambda e: isinstance(e, types),
+                                        recurse_query=lambda e: not isinstance(e, excl_types))
+        finder = ExpressionFinder(unique=False, retrieve=retriever.retrieve, with_ir_node=True)
 
         for _, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
@@ -475,9 +476,9 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
         '''Check for the use of Fortran 90 comparison operators.'''
         # We extract all `Comparison` expression nodes, grouped by the IR node they are in.
         # Then we run through all such pairs and check the symbol used in the source string.
-        q_comp = lambda expr: retrieve_expressions(expr, lambda e: isinstance(e, sym.Comparison))
-        retriever = ExpressionFinder(unique=False, retrieve=q_comp, with_ir_node=True)
-        for node, expr_list in retriever.visit(subroutine.ir):
+        retriever = ExpressionRetriever(lambda e: isinstance(e, sym.Comparison))
+        finder = ExpressionFinder(unique=False, retrieve=retriever.retrieve, with_ir_node=True)
+        for node, expr_list in finder.visit(subroutine.ir):
             # First, we group all the expressions found in this node by their expression root
             # (This is mostly required for Conditionals/MultiConditionals, where the different
             #  if-elseif-cases or select values are on different source lines)

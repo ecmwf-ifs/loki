@@ -6,7 +6,7 @@ from loki import (
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
-    ExpressionCallbackMapper, retrieve_expressions, Stringifier, Transformer, MaskedTransformer,
+    ExpressionCallbackMapper, ExpressionRetriever, Stringifier, Transformer, MaskedTransformer,
     NestedMaskedTransformer, is_parent_of, is_child_of, fgen, FindScopes, Intrinsic
 )
 
@@ -305,10 +305,10 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Find all literals except when they appear in array subscripts or loop ranges
-    cond = lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral))
-    recurse_cond = lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
-    retrieve = lambda expr: retrieve_expressions(expr, cond=cond, recurse_cond=recurse_cond)
-    literals = ExpressionFinder(unique=False, retrieve=retrieve).visit(routine.body)
+    query = lambda expr: isinstance(expr, (IntLiteral, FloatLiteral, LogicLiteral))
+    recurse_query = lambda expr, *args, **kwargs: not isinstance(expr, (ArraySubscript, LoopRange))
+    retriever = ExpressionRetriever(query=query, recurse_query=recurse_query)
+    literals = ExpressionFinder(unique=False, retrieve=retriever.retrieve).visit(routine.body)
 
     if frontend == OMNI:
         # OMNI substitutes jprb
@@ -367,9 +367,8 @@ end subroutine routine_simple
     assert cast_root[0] is cond.body[0].rhs
 
     # Test ability to find root if searching for a leaf expression
-    literals = ExpressionFinder(
-        retrieve=lambda e: retrieve_expressions(e, lambda _e: isinstance(_e, FloatLiteral)),
-        with_ir_node=True).visit(routine.body)
+    retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
+    literals = ExpressionFinder(retrieve=retriever.retrieve, with_ir_node=True).visit(routine.body)
     assert len(literals) == 1
     assert isinstance(literals[0][0], Assignment) and literals[0][0]._source.lines == (13, 13)
 
@@ -1199,9 +1198,11 @@ end module attach_scopes_associates_mod
     assert len(associates) == 2
     assignment = FindNodes(Assignment).visit(routine.body)
     assert len(assignment) == 1
+    assert len(FindVariables(recurse_to_parent=False).visit(assignment)) == 2
     var_map = {str(var): var for var in FindVariables().visit(assignment)}
-    assert len(var_map) == 2
+    assert len(var_map) == 3
     assert associates[1].parent is associates[0]
     assert var_map['a'].scope is routine
     assert var_map['var%foo'].scope is associates[0]
     assert var_map['var%foo'].parent.scope is associates[0]
+    assert var_map['var%foo'].parent is var_map['var']

@@ -466,12 +466,14 @@ END ASSOCIATE
 END SUBROUTINE
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindVariables(recurse_to_parent=False).visit(routine.body)) == 3
     variables = {v.name: v for v in FindVariables().visit(routine.body)}
-    assert len(variables) == 3
+    assert len(variables) == 4
     some_var = variables['SOME_VAR']
     assert isinstance(some_var, DeferredTypeSymbol)
     assert some_var.name.upper() == 'SOME_VAR'
     assert some_var.type.dtype == BasicType.DEFERRED
+    assert some_var.scope is FindNodes(Associate).visit(routine.body)[0]
 
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
