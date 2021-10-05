@@ -132,7 +132,8 @@ class Transformer(Visitor):
         """
         o = self._inject_tuple_mapping(o)
         visited = tuple(self.visit(i, **kwargs) for i in o)
-        return tuple(i for i in visited if i is not None)
+        # Strip empty sublists/subtuples or None entries
+        return tuple(i for i in visited if i is not None and as_tuple(i) != ())
 
     visit_list = visit_tuple
 
