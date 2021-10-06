@@ -12,7 +12,7 @@ from loki.transform.transform_utilities import replace_intrinsics
 from loki.backend import maxjgen, fgen, cgen
 from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
-    SubstituteExpressionsMapper, retrieve_expressions, symbols as sym
+    SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
 )
 import loki.ir as ir
 from loki import Module, Subroutine, Sourcefile
@@ -266,13 +266,13 @@ class FortranMaxTransformation(Transformation):
 
         # Replace array access by stream inflow
         if dataflow_indices:
+            scalar_retriever = ExpressionRetriever(lambda e: isinstance(e, sym.Scalar))
             vmap = {}
             arr_args = {arg.name: arg for arg in max_kernel.arguments if isinstance(arg, sym.Array)}
             for v in FindVariables(unique=False).visit(max_kernel.ir):
                 # All array subscripts must be transformed to streams/stream offsets
                 if isinstance(v, sym.Array) and v.dimensions is not None:
-                    dfe_dims = {d: d.name in dataflow_indices
-                                for d in retrieve_expressions(v, lambda e: isinstance(e, sym.Scalar))}
+                    dfe_dims = {d: d.name in dataflow_indices for d in scalar_retriever.retrieve(v)}
                     if not any(dfe_dims.values()) or v in vmap:
                         continue
 
@@ -301,8 +301,8 @@ class FortranMaxTransformation(Transformation):
                         vmap[v] = stream
                     elif v not in vmap:  # We have to create/use an offset stream
                         # Hacky: Replace dataflow index (loop variable) by zero
-                        dmap = {d: sym.Literal(0) for d in retrieve_expressions(
-                            v, lambda e, dim=dim: isinstance(e, sym.Scalar) and str(e) == dim)}
+                        retriever = ExpressionRetriever(lambda e, dim=dim: isinstance(e, sym.Scalar) and str(e) == dim)
+                        dmap = {d: sym.Literal(0) for d in retriever.retrieve(v)}
                         offset = SubstituteExpressionsMapper(dmap)(index)
                         # Create the offset-variable
                         fct_symbol = sym.ProcedureSymbol('stream.offset', scope=max_kernel)
@@ -327,8 +327,7 @@ class FortranMaxTransformation(Transformation):
             # We have to add initialization variables by hand because the mapper does not recurse
             # to them
             if v.initial is not None:
-                used_var_names += [i.name for i in retrieve_expressions(
-                    v.initial, lambda e: isinstance(e, (sym.Scalar, sym.Array)))]
+                used_var_names += [i.name for i in FindVariables().visit(v.initial)]
         obsolete_args = [arg for arg in max_kernel.arguments if arg.name not in used_var_names]
         max_kernel.variables = [v for v in max_kernel.variables if v not in obsolete_args]
 

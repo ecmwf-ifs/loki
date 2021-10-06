@@ -14,7 +14,7 @@ from loki.logging import debug
 from loki.tools import as_tuple, flatten
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
-           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper', 'retrieve_expressions',
+           'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
            'LokiIdentityMapper', 'AttachScopesMapper']
 
 _intrinsic_fortran_names = Intrinsic_Name.function_names
@@ -143,40 +143,28 @@ class LokiStringifyMapper(StringifyMapper):
         return expr.name
 
 
-class ExpressionRetriever(WalkMapper):
+class LokiWalkMapper(WalkMapper):
     """
-    A mapper for the expression tree that looks for entries specified by
-    a query.
+    A mapper that traverses the expression tree and calls :meth:`visit`
+    for each visited node.
 
     Parameters
     ----------
-    query :
-        Function handle that is given each visited expression node and
-        yields `True` or `False` depending on whether that expression
-        should be included into the result.
-    recurse_query : optional
-        Optional function handle to which each visited expression node is
-        given and that should return `True` or `False` depending on whether
-        that expression node and its children should be visited.
+    recurse_to_parent : bool, optional
+        For symbols that belong to a derived type, recurse also to the
+        ``parent`` of that symbol (default: `True`)
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, query, recurse_query=None):
+    def __init__(self, recurse_to_parent=True):
         super().__init__()
-
-        self.query = query
-        self.exprs = []
-
-        if recurse_query is not None:
-            self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
-
-    def post_visit(self, expr, *args, **kwargs):
-        if self.query(expr):
-            self.exprs.append(expr)
+        self.recurse_to_parent = recurse_to_parent
 
     def map_variable_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
+        if self.recurse_to_parent and expr.parent:
+            self.rec(expr.parent, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_variable_symbol
@@ -244,12 +232,10 @@ class ExpressionRetriever(WalkMapper):
         self.post_visit(expr, *args, **kwargs)
 
 
-def retrieve_expressions(expr, cond, recurse_cond=None):
+class ExpressionRetriever(LokiWalkMapper):
     """
-    Utility function to retrieve all expressions satisfying a condition
-    in an expression tree.
-
-    It uses :class:`ExpressionRetriever` to search the expression tree.
+    A mapper for the expression tree that looks for entries specified by
+    a query.
 
     Parameters
     ----------
@@ -262,9 +248,27 @@ def retrieve_expressions(expr, cond, recurse_cond=None):
         given and that should return `True` or `False` depending on whether
         that expression node and its children should be visited.
     """
-    retriever = ExpressionRetriever(cond, recurse_query=recurse_cond)
-    retriever(expr)
-    return retriever.exprs
+    # pylint: disable=abstract-method
+
+    def __init__(self, query, recurse_query=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.query = query
+        if recurse_query is not None:
+            self.visit = lambda expr, *args, **kwargs: recurse_query(expr)
+        self.reset()
+
+    def post_visit(self, expr, *args, **kwargs):
+        if self.query(expr):
+            self.exprs.append(expr)
+
+    def reset(self):
+        self.exprs = []
+
+    def retrieve(self, expr, *args, **kwargs):
+        self.reset()
+        self(expr, *args, **kwargs)
+        return self.exprs
 
 
 class ExpressionDimensionsMapper(Mapper):

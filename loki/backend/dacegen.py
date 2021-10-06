@@ -1,4 +1,4 @@
-from loki.expression import symbols as sym, retrieve_expressions
+from loki.expression import symbols as sym, ExpressionRetriever
 from loki.backend import PyCodegen
 from loki.types import BasicType
 from loki.pragma_utils import is_loki_pragma
@@ -45,10 +45,11 @@ class DaceCodegen(PyCodegen):
         # TODO
 
         # Generate header with argument signature
+        retriever = ExpressionRetriever(lambda e: isinstance(e, sym.Scalar))
         symbols = set()
         for arg in o.arguments:
             if isinstance(arg, sym.Array):
-                shape_vars = retrieve_expressions(arg.shape, lambda e: isinstance(e, sym.Scalar))
+                shape_vars = retriever.retrieve(arg.shape)
                 symbols |= set(v.name.lower() for v in shape_vars)
         arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
                      for arg in o.arguments if arg.name.lower() not in symbols]
@@ -66,6 +67,9 @@ class DaceCodegen(PyCodegen):
         self.depth -= 1
 
         return self.join_lines(*header, *body)
+
+    def visit_Module(self, o, **kwargs):
+        raise NotImplementedError()
 
     # Handler for IR nodes
 
