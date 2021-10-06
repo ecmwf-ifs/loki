@@ -573,7 +573,7 @@ class AttachScopesMapper(LokiIdentityMapper):
         symbol_scope = scope.get_symbol_scope(expr.name)
         if symbol_scope is not None:
             if symbol_scope is not expr.scope:
-                expr = expr.clone(scope=symbol_scope)
+                expr = expr.rescope(symbol_scope)
         elif self.fail:
             raise RuntimeError(f'AttachScopesMapper: {expr!s} was not found in any scope')
         elif expr not in _intrinsic_fortran_names:
