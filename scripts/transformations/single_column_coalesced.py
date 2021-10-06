@@ -340,6 +340,31 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     routine.body = Transformer(mapper).visit(routine.body)
 
 
+def get_column_locals(routine, vertical):
+    """
+    List of array variables that include a `vertical` dimension and
+    thus need to be stored in shared memory.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    vertical: :any:`Dimension`
+        The dimension object specifying the vertical dimension
+    """
+    variables = list(routine.variables)
+
+    # Filter out purely local array variables
+    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
+    variables = [v for v in variables if not v.name in argument_map]
+    variables = [v for v in variables if isinstance(v, Array)]
+
+    variables = [v for v in variables if v.shape is not None]
+    variables = [v for v in variables if any(vertical.size in d for d in v.shape)]
+
+    return variables
+
+
 class SingleColumnCoalescedTransformation(Transformation):
     """
     Single Column Coalesced: Direct CPU-to-GPU trnasformation for
@@ -414,23 +439,6 @@ class SingleColumnCoalescedTransformation(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, targets=targets)
 
-    def get_column_locals(self, routine):
-        """
-        List of array variables that include a `vertical` dimension and
-        thus need to be stored in shared memory.
-        """
-        variables = list(routine.variables)
-
-        # Filter out purely local array variables
-        argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-        variables = [v for v in variables if not v.name in argument_map]
-        variables = [v for v in variables if isinstance(v, Array)]
-
-        variables = [v for v in variables if v.shape is not None]
-        variables = [v for v in variables if any(self.vertical.size in d for d in v.shape)]
-
-        return variables
-
     def process_kernel(self, routine, targets=None):
         """
         Remove all vector loops that match the stored ``horizontal``
@@ -448,19 +456,18 @@ class SingleColumnCoalescedTransformation(Transformation):
         if self.horizontal.bounds[1] not in routine.variable_map:
             raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
 
+        # Find the iteration index variable for the specified horizontal
+        v_index = get_integer_variable(routine, name=self.horizontal.index)
+
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         resolve_associates(routine)
 
-        # Find the iteration index variable for the specified horizontal
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
-
         # Resolve WHERE clauses
-        lvar = Variable(name=self.horizontal.index, scope=routine)
-        resolve_masked_stmts(routine, loop_variable=lvar)
+        resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        resolve_vector_dimension(routine, loop_variable=lvar, bounds=self.horizontal.bounds)
+        resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
 
         # Remove all vector loops over the specified dimension
         kernel_remove_vector_loops(routine, self.horizontal)
@@ -481,7 +488,7 @@ class SingleColumnCoalescedTransformation(Transformation):
             # Promote all local arrays with column dimension to arguments
             # TODO: Should really delete and re-insert in spec, to prevent
             # issues with shared declarations.
-            column_locals = self.get_column_locals(routine)
+            column_locals = get_column_locals(routine, vertical=self.vertical)
             promoted = [v.clone(type=v.type.clone(intent='INOUT')) for v in column_locals]
             routine.arguments += as_tuple(promoted)
 
@@ -574,7 +581,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         kernel = call.context.routine
         call_map = {}
 
-        column_locals = self.get_column_locals(kernel)
+        column_locals = get_column_locals(kernel, vertical=self.vertical)
         arg_map = dict(call.context.arg_iter(call))
         arg_mapper = SubstituteExpressions(arg_map)
 
