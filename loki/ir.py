@@ -731,7 +731,7 @@ class CallStatement(LeafNode):
 
     Parameters
     ----------
-    name : str
+    name : :any:`pymbolic.primitives.Expression`
         The name of the subroutine to call.
     arguments : tuple of :any:`pymbolic.primitives.Expression`
         The list of positional arguments.
@@ -748,7 +748,7 @@ class CallStatement(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['arguments', 'kwarguments']
+    _traversable = ['name', 'arguments', 'kwarguments']
 
     def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
