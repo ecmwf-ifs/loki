@@ -193,7 +193,7 @@ def inject_statement_functions(routine):
         injected
     """
     def create_stmt_func(assignment):
-        arguments = assignment.lhs.dimensions.index_tuple
+        arguments = assignment.lhs.dimensions
         variable = assignment.lhs.clone(dimensions=None)
         return StatementFunction(variable, arguments, assignment.rhs, variable.type)
 
@@ -238,7 +238,7 @@ def inject_statement_functions(routine):
         expr_map = {}
         for variable in FindVariables().visit(routine.body):
             if variable.name.lower() in stmt_funcs and isinstance(variable, Array):
-                parameters = variable.dimensions.index_tuple
+                parameters = variable.dimensions
                 expr_map[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
 
         # Make sure we remove comments from the body if we append them to spec

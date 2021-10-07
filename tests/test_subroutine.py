@@ -1323,7 +1323,10 @@ end subroutine test_subroutine_rescope
         assert other_fgen != ref_fgen
         assert len(other_fgen) < len(ref_fgen)
     except AttributeError as e:
-        assert str(e) == "'NoneType' object has no attribute 'compare'"
+        assert str(e) in (
+            "'NoneType' object has no attribute 'compare'",
+            "'NoneType' object has no attribute 'dtype'"
+        )
 
 
 @pytest.mark.parametrize('frontend', [
@@ -1411,7 +1414,10 @@ end subroutine test_subroutine_rescope_clone
         assert other_fgen != ref_fgen
         assert len(other_fgen) < len(ref_fgen)
     except AttributeError as e:
-        assert str(e) == "'NoneType' object has no attribute 'compare'"
+        assert str(e) in (
+            "'NoneType' object has no attribute 'compare'",
+            "'NoneType' object has no attribute 'dtype'"
+        )
 
 
 @pytest.mark.parametrize('frontend', [
