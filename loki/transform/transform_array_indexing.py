@@ -88,6 +88,10 @@ def resolve_vector_notation(routine):
             if not isinstance(v, sym.Array):
                 continue
 
+            # Skip if the entire array is used implicitly
+            if not v.dimensions:
+                continue
+
             ivar_basename = f'i_{stmt.lhs.basename}'
             for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
