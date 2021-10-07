@@ -32,12 +32,12 @@ class InferArgShapeTransformation(Transformation):
                         if all(str(d) == ':' for d in arg.shape):
                             if len(val.shape) == len(arg.shape):
                                 # We're passing the full value array, copy shape
-                                vmap[arg] = arg.clone(shape=val.shape)
+                                vmap[arg] = arg.clone(type=arg.type.clone(shape=val.shape))
                             else:
                                 # Passing a sub-array of val, find the right index
                                 new_shape = [s for s, d in zip(val.shape, val.dimensions)
                                              if str(d) == ':']
-                                vmap[arg] = arg.clone(shape=new_shape)
+                                vmap[arg] = arg.clone(type=arg.type.clone(shape=new_shape))
 
                 # TODO: The derived call-side dimensions can be undefined in the
                 # called routine, so we need to add them to the call signature.
@@ -51,5 +51,5 @@ class InferArgShapeTransformation(Transformation):
                 for v in FindVariables(unique=False).visit(routine.body):
                     if v.name.lower() in vname_map:
                         new_shape = vname_map[v.name.lower()].shape
-                        vmap_body[v] = v.clone(shape=new_shape)
+                        vmap_body[v] = v.clone(type=v.type.clone(shape=new_shape))
                 routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
