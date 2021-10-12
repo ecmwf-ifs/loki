@@ -209,11 +209,8 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
 
         if old_shape and old_shape[0] in horizontal.size_expressions:
             new_type = v.type.clone(shape=new_shape)
-            if len(old_shape) > 1:
-                new_dims = v.dimensions[1:] if v.dimensions else None
-                vmap[v] = v.clone(dimensions=new_dims, type=new_type)
-            else:
-                vmap[v] = sym.Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
+            new_dims = v.dimensions[1:] if v.dimensions else None
+            vmap[v] = v.clone(dimensions=new_dims, type=new_type)
 
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
