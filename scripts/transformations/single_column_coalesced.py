@@ -262,7 +262,7 @@ def kernel_annotate_sequential_loops_openacc(routine, horizontal):
     Parameters
     ----------
     routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
+        The subroutine in which to annotate sequential loops
     horizontal: :any:`Dimension`
         The dimension object specifying the horizontal vector dimension
     """
@@ -285,7 +285,7 @@ def kernel_annotate_subroutine_present_openacc(routine):
     Parameters
     ----------
     routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
+        The subroutine to which annotations will be added
     """
 
     # Get the names of all array and derived type arguments
@@ -301,6 +301,13 @@ def resolve_masked_stmts(routine, loop_variable):
     """
     Resolve :any:`MaskedStatement` (WHERE statement) objects to an
     explicit combination of :any:`Loop` and :any:`Conditional` combination.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to resolve masked statements
+    loop_variable : :any:`Scalar`
+        The induction variable for the created loops.
     """
     mapper = {}
     for masked in FindNodes(MaskedStatement).visit(routine.body):
@@ -324,6 +331,15 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
 
     TODO: Consolidate this with the internal
     `loki.transform.transform_array_indexing.resolve_vector_notation`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to resolve vector notation usage.
+    loop_variable : :any:`Scalar`
+        The induction variable for the created loops.
+    bounds : tuple of :any:`Scalar`
+        Tuple defining the iteration space of the inserted loops.
     """
     bounds_str = '{}:{}'.format(bounds[0], bounds[1])
 
@@ -367,12 +383,15 @@ def get_column_locals(routine, vertical):
 
 class SingleColumnCoalescedTransformation(Transformation):
     """
-    Single Column Coalesced: Direct CPU-to-GPU trnasformation for
+    Single Column Coalesced: Direct CPU-to-GPU transformation for
     block-indexed gridpoint routines.
 
     This transformation will remove individiual CPU-style
-    vectorization loops from "kernel" routines and re-insert the
-    a single horizontal vector loop in the "driver" routine.
+    vectorization loops from "kernel" routines and either either
+    re-insert the vector loop at the highest possible level (without
+    interfering with subroutine calls), or completely strip it and
+    promote the index variable to the driver if
+    ``hoist_column_arrays`` is set.
 
     Unlike the CLAW-targetting SCA extraction, this will leave the
     block-based array passing structure in place, but pass a
@@ -381,7 +400,7 @@ class SingleColumnCoalescedTransformation(Transformation):
     accesses on GPUs.
 
     Note, this requires preprocessing with the
-    `DerivedTypeArgumentsTransformation`.
+    :any:`DerivedTypeArgumentsTransformation`.
 
     Parameters
     ----------
@@ -441,14 +460,23 @@ class SingleColumnCoalescedTransformation(Transformation):
 
     def process_kernel(self, routine, targets=None):
         """
-        Remove all vector loops that match the stored ``horizontal``
-        and promote the index variable to an argument, leaving fully
-        dimensioned array arguments intact.
+        Applies the SCC loop layout transformation to a "kernel"
+        subroutine. This will primarily strip the innermost vector
+        loops and either re-insert the vector loop at the highest
+        possible level (without interfering with subroutine calls),
+        or completely strip it and promote the index variable to the
+        driver if ``hoist_column_arrays`` is set.
+
+        In both cases argument arrays are left fully dimensioned,
+        allowing us to use them in recursive subroutine invocations.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        targets : list of strings
+            Names of all kernel routines that are to be considered "active"
+            in this call tree and should thus be processed accordingly.
         """
 
         if self.horizontal.bounds[0] not in routine.variable_map:
@@ -517,8 +545,14 @@ class SingleColumnCoalescedTransformation(Transformation):
 
     def process_driver(self, routine, targets=None):
         """
-        Process the "driver" routine by inserting the other level parallel loops,
-        and optionally hoisting temporary column routines.
+        Process the "driver" routine by inserting the other level
+        parallel loops, and optionally hoisting temporary column
+        arrays.
+
+        Note that if ``hoist_column_arrays`` is set, the driver needs
+        to be processed before any kernels are trnasformed. This is
+        due to the use of an interprocedural analysis forward pass
+        needed to collect the list of "column arrays".
 
         Parameters
         ----------
@@ -554,17 +588,21 @@ class SingleColumnCoalescedTransformation(Transformation):
 
     def hoist_temporary_column_arrays(self, routine, call):
         """
-        Hoist temporary column arrays to the driver level. This includes allocating
-        them as local arrays on the host and on the device via ``!$acc enter create``/
-        ``!$acc exit delete`` directives.
+        Hoist temporary column arrays to the driver level. This
+        includes allocating them as local arrays on the host and on
+        the device via ``!$acc enter create``/ ``!$acc exit delete``
+        directives.
+
+        Note that this employs an interprocedural analysis pass
+        (forward), and thus needs to be executed for the calling
+        routine before any of the callees are processed.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
-        targets : list or string
-            List of subroutines that are to be considered as part of
-            the transformation call tree.
+        call : :any:`CallStatement`
+            Call to subroutine from which we hoist the column arrays.
         """
         if call.context is None or not call.context.active:
             raise RuntimeError(
