@@ -1,14 +1,14 @@
 from more_itertools import pairwise
 
+from loki.expression import symbols as sym
+from loki.transform import resolve_associates
+from loki import ir
 from loki import (
-    Transformation, FindNodes, FindVariables, Transformer,
-    SubstituteExpressions, CallStatement, Loop, Variable, Scalar,
-    Array, LoopRange, RangeIndex, SymbolAttributes, Pragma, BasicType,
-    CaseInsensitiveDict, as_tuple, pragmas_attached,
-    JoinableStringList, FindScopes, Comment, NestedMaskedTransformer,
-    flatten, resolve_associates, Assignment, Conditional,
-    FindExpressions, RangeIndex, MaskedStatement, RangeIndex,
-    LoopRange, DerivedType, pragma_regions_attached, PragmaRegion
+    Transformation, FindNodes, FindScopes, FindVariables,
+    FindExpressions, Transformer, NestedMaskedTransformer,
+    SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
+    pragmas_attached, CaseInsensitiveDict, JoinableStringList,
+    as_tuple, flatten
 )
 
 
@@ -30,7 +30,7 @@ def get_integer_variable(routine, name):
         v_index = routine.variable_map[name]
     else:
         dtype = SymbolAttributes(BasicType.INTEGER)
-        v_index = Variable(name=name, type=dtype, scope=routine)
+        v_index = sym.Variable(name=name, type=dtype, scope=routine)
     return v_index
 
 
@@ -46,7 +46,7 @@ def kernel_remove_vector_loops(routine, horizontal):
         The dimension specifying the horizontal vector dimension
     """
     loop_map = {}
-    for loop in FindNodes(Loop).visit(routine.body):
+    for loop in FindNodes(ir.Loop).visit(routine.body):
         if loop.variable == horizontal.index:
             loop_map[loop] = loop.body
     routine.body = Transformer(loop_map).visit(routine.body)
@@ -86,14 +86,14 @@ def wrap_vector_section(section, routine, horizontal):
     v_start = routine.variable_map[horizontal.bounds[0]]
     v_end = routine.variable_map[horizontal.bounds[1]]
     index = get_integer_variable(routine, horizontal.index)
-    bounds = LoopRange((v_start, v_end))
+    bounds = sym.LoopRange((v_start, v_end))
 
     # Ensure we clone all body nodes, to avoid recursion issues
-    vector_loop = Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
+    vector_loop = ir.Loop(variable=index, bounds=bounds, body=Transformer().visit(section))
 
     # Add a comment before the pragma-annotated loop to ensure
     # we do not overlap with neighbouring pragmas
-    return (Comment(''), vector_loop)
+    return (ir.Comment(''), vector_loop)
 
 
 def extract_vector_sections(section, horizontal):
@@ -112,7 +112,7 @@ def extract_vector_sections(section, horizontal):
 
     # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
     separator_nodes = []
-    calls = FindNodes(CallStatement).visit(section)
+    calls = FindNodes(ir.CallStatement).visit(section)
     for call in calls:
         if call in section:
             # If the call is at the current section's level, it's a separator
@@ -121,7 +121,7 @@ def extract_vector_sections(section, horizontal):
         else:
             # If the call is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(call).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, (Loop, Conditional))]
+            ancestor_scopes = [a for a in ancestors if isinstance(a, (ir.Loop, ir.Conditional))]
             if len(ancestor_scopes) > 0:
                 separator_nodes.append(ancestor_scopes[0])
 
@@ -133,12 +133,12 @@ def extract_vector_sections(section, horizontal):
     # Recurse on all separator nodes that might contain further vector sections
     for separator in separator_nodes:
 
-        if isinstance(separator, Loop):
+        if isinstance(separator, ir.Loop):
             subsec_body = extract_vector_sections(separator.body, horizontal)
             if subsec_body:
                 subsections += subsec_body
 
-        if isinstance(separator, Conditional):
+        if isinstance(separator, ir.Conditional):
             subsec_body = extract_vector_sections(separator.body, horizontal)
             if subsec_body:
                 subsections += subsec_body
@@ -180,7 +180,7 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     # Filter out purely local array variables
     argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
     variables = [v for v in variables if not v.name in argument_map]
-    variables = [v for v in variables if isinstance(v, Array)]
+    variables = [v for v in variables if isinstance(v, sym.Array)]
 
     # Find all arrays with shapes that do not include the vertical
     # dimension and can thus be privatized.
@@ -188,7 +188,7 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
     variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
 
     # Filter out variables that we will pass down the call tree
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     call_args = flatten(call.arguments for call in calls)
     call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
     variables = [v for v in variables if v.name not in call_args]
@@ -213,7 +213,7 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
                 new_dims = v.dimensions[1:] if v.dimensions else None
                 vmap[v] = v.clone(dimensions=new_dims, type=new_type)
             else:
-                vmap[v] = Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
+                vmap[v] = sym.Scalar(name=v.name, parent=v.parent, type=new_type, scope=routine)
 
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
@@ -237,18 +237,18 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
     # Find any local arrays that need explicitly privatization
     argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
     private_arrays = [v for v in routine.variables if not v.name in argument_map]
-    private_arrays = [v for v in private_arrays if isinstance(v, Array)]
+    private_arrays = [v for v in private_arrays if isinstance(v, sym.Array)]
     private_arrays = [v for v in private_arrays if not any(vertical.size in d for d in v.shape)]
 
-    with pragmas_attached(routine, Loop):
+    with pragmas_attached(routine, ir.Loop):
         mapper = {}
-        for loop in FindNodes(Loop).visit(routine.body):
+        for loop in FindNodes(ir.Loop).visit(routine.body):
             if loop.variable == horizontal.index:
                 # Construct pragma and wrap entire body in vector loop
                 private_arrs = ', '.join(v.name for v in private_arrays)
                 pragma = None
                 private_clause = '' if not private_arrays else ' private({})'.format(private_arrs)
-                pragma = Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
+                pragma = ir.Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
                 mapper[loop] = loop.clone(pragma=pragma)
 
         routine.body = Transformer(mapper).visit(routine.body)
@@ -266,16 +266,16 @@ def kernel_annotate_sequential_loops_openacc(routine, horizontal):
     horizontal: :any:`Dimension`
         The dimension object specifying the horizontal vector dimension
     """
-    with pragmas_attached(routine, Loop):
+    with pragmas_attached(routine, ir.Loop):
 
-        for loop in FindNodes(Loop).visit(routine.body):
+        for loop in FindNodes(ir.Loop).visit(routine.body):
             # Skip loops explicitly marked with `!$loki/claw nodep`
             if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
                 continue
 
             if loop.variable != horizontal.index:
                 # Perform pragma addition in place to avoid nested loop replacements
-                loop._update(pragma=Pragma(keyword='acc', content='loop seq'))
+                loop._update(pragma=ir.Pragma(keyword='acc', content='loop seq'))
 
 
 def kernel_annotate_subroutine_present_openacc(routine):
@@ -289,12 +289,12 @@ def kernel_annotate_subroutine_present_openacc(routine):
     """
 
     # Get the names of all array and derived type arguments
-    args = [a for a in routine.arguments if isinstance(a, Array)]
+    args = [a for a in routine.arguments if isinstance(a, sym.Array)]
     args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
     argnames = [str(a.name) for a in args]
 
-    routine.body.prepend(Pragma(keyword='acc', content='data present({})'.format(', '.join(argnames))))
-    routine.body.append(Pragma(keyword='acc', content='end data'))
+    routine.body.prepend(ir.Pragma(keyword='acc', content='data present({})'.format(', '.join(argnames))))
+    routine.body.append(ir.Pragma(keyword='acc', content='end data'))
 
 
 def resolve_masked_stmts(routine, loop_variable):
@@ -310,14 +310,14 @@ def resolve_masked_stmts(routine, loop_variable):
         The induction variable for the created loops.
     """
     mapper = {}
-    for masked in FindNodes(MaskedStatement).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, RangeIndex)]
+    for masked in FindNodes(ir.MaskedStatement).visit(routine.body):
+        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, sym.RangeIndex)]
         exprmap = {r: loop_variable for r in ranges}
         assert len(ranges) > 0
         assert all(r == ranges[0] for r in ranges)
-        bounds = LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
-        cond = Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
-        loop = Loop(variable=loop_variable, bounds=bounds, body=cond)
+        bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
+        cond = ir.Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
+        loop = ir.Loop(variable=loop_variable, bounds=bounds, body=cond)
         # Substitute the loop ranges with the loop index and add to mapper
         mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
 
@@ -344,13 +344,13 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     bounds_str = '{}:{}'.format(bounds[0], bounds[1])
 
     mapper = {}
-    for stmt in FindNodes(Assignment).visit(routine.body):
+    for stmt in FindNodes(ir.Assignment).visit(routine.body):
         ranges = [e for e in FindExpressions().visit(stmt)
-                  if isinstance(e, RangeIndex) and e == bounds_str]
+                  if isinstance(e, sym.RangeIndex) and e == bounds_str]
         if ranges:
             exprmap = {r: loop_variable for r in ranges}
-            loop = Loop(variable=loop_variable, bounds=LoopRange(bounds),
-                        body=SubstituteExpressions(exprmap).visit(stmt))
+            loop = ir.Loop(variable=loop_variable, bounds=sym.LoopRange(bounds),
+                           body=SubstituteExpressions(exprmap).visit(stmt))
             mapper[stmt] = loop
 
     routine.body = Transformer(mapper).visit(routine.body)
@@ -373,7 +373,7 @@ def get_column_locals(routine, vertical):
     # Filter out purely local array variables
     argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
     variables = [v for v in variables if not v.name in argument_map]
-    variables = [v for v in variables if isinstance(v, Array)]
+    variables = [v for v in variables if isinstance(v, sym.Array)]
 
     variables = [v for v in variables if v.shape is not None]
     variables = [v for v in variables if any(vertical.size in d for d in v.shape)]
@@ -537,11 +537,11 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             if self.hoist_column_arrays:
                 # Mark routine as `!$acc routine seq` to make it device-callable
-                routine.body.prepend(Pragma(keyword='acc', content='routine seq'))
+                routine.body.prepend(ir.Pragma(keyword='acc', content='routine seq'))
 
             else:
                 # Mark routine as `!$acc routine vector` to make it device-callable
-                routine.body.prepend(Pragma(keyword='acc', content='routine vector'))
+                routine.body.prepend(ir.Pragma(keyword='acc', content='routine vector'))
 
     def process_driver(self, routine, targets=None):
         """
@@ -562,15 +562,15 @@ class SingleColumnCoalescedTransformation(Transformation):
             List of subroutines that are to be considered as part of
             the transformation call tree.
         """
-        with pragmas_attached(routine, Loop, attach_pragma_post=True):
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
 
-            for call in FindNodes(CallStatement).visit(routine.body):
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if not call.name in targets:
                     continue
 
                 # Find the driver loop by checking the call's heritage
                 ancestors = flatten(FindScopes(call).visit(routine.body))
-                loops = [a for a in ancestors if isinstance(a, Loop)]
+                loops = [a for a in ancestors if isinstance(a, ir.Loop)]
                 if not loops:
                     # Skip if there are no driver loops
                     continue
@@ -579,8 +579,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                 # Mark driver loop as "gang parallel".
                 if self.directive == 'openacc':
                     if loop.pragma is None:
-                        loop._update(pragma=Pragma(keyword='acc', content='parallel loop gang'))
-                        loop._update(pragma_post=Pragma(keyword='acc', content='end parallel loop'))
+                        loop._update(pragma=ir.Pragma(keyword='acc', content='parallel loop gang'))
+                        loop._update(pragma_post=ir.Pragma(keyword='acc', content='end parallel loop'))
 
                 # Apply hoisting of temporary "column arrays"
                 if self.hoist_column_arrays:
@@ -637,16 +637,16 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         if self.directive == 'openacc':
             vnames = _pragma_string(v.name for v in column_locals)
-            pragma = Pragma(keyword='acc', content='enter data create({})'.format(vnames))
-            pragma_post = Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
+            pragma = ir.Pragma(keyword='acc', content='enter data create({})'.format(vnames))
+            pragma_post = ir.Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
             # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((Comment(''), pragma, Comment('')))
-            routine.body.append((Comment(''), pragma_post, Comment('')))
+            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
         # Add a block-indexed slice of each column variable to the call
         idx = get_integer_variable(routine, self.block_dim.index)
         new_args = [v.clone(
-            dimensions=as_tuple([RangeIndex((None, None)) for _ in v.shape]) + (idx,),
+            dimensions=as_tuple([sym.RangeIndex((None, None)) for _ in v.shape]) + (idx,),
             scope=routine
         ) for v in column_locals]
         new_call = call.clone(arguments=call.arguments + as_tuple(new_args))
@@ -662,11 +662,11 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Now create a vector loop around the kerne invocation
         pragma = None
         if self.directive == 'openacc':
-            pragma = Pragma(keyword='acc', content='loop vector')
+            pragma = ir.Pragma(keyword='acc', content='loop vector')
         v_start = arg_map[kernel.variable_map[self.horizontal.bounds[0]]]
         v_end = arg_map[kernel.variable_map[self.horizontal.bounds[1]]]
-        bounds = LoopRange((v_start, v_end))
-        vector_loop = Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
+        bounds = sym.LoopRange((v_start, v_end))
+        vector_loop = ir.Loop(variable=v_index, bounds=bounds, body=[new_call], pragma=pragma)
         call_map[call] = vector_loop
 
         routine.body = Transformer(call_map).visit(routine.body)
