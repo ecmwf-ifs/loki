@@ -287,6 +287,10 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     assert driver.variable_map['t'].dimensions == ('nlon', 'nz', 'nb')
     # assert driver.variable_map['t'].shape == ('nlon', 'nz', 'nb')
 
+    # Ensure that the loop index variable is correctly promoted
+    assert 'jl' in kernel.argnames
+    assert kernel.variable_map['jl'].type.intent.lower() == 'in'
+
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blocking):

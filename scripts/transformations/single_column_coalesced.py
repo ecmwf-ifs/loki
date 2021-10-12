@@ -522,7 +522,10 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             # Add loop index variable
             if v_index not in routine.arguments:
-                routine.arguments += as_tuple(v_index)
+                new_v = v_index.clone(type=v_index.type.clone(intent='in'))
+                # Remove original variable first, since we need to update declaration
+                routine.variables = as_tuple(v for v in routine.variables if v != v_index)
+                routine.arguments += as_tuple(new_v)
 
         if self.directive == 'openacc':
             # Mark all non-parallel loops as `!$acc loop seq`
