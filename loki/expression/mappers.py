@@ -591,3 +591,4 @@ class AttachScopesMapper(LokiIdentityMapper):
     def map_procedure_symbol(self, expr, *args, **kwargs):
         expr = self._update_symbol_scope(expr, kwargs['scope'])
         return super().map_procedure_symbol(expr, *args, **kwargs)
+
