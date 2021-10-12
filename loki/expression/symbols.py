@@ -1084,11 +1084,11 @@ class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
     mapper_method = intern('map_range')
 
     def __hash__(self):
-        """ Need custom hashing function if we sepcialise __eq__ """
+        """ Need custom hashing function if we sepcialise :meth:`__eq__` """
         return hash(super().__str__().lower().replace(' ', ''))
 
     def __eq__(self, other):
-        """ Specialization to capture `a(1:n) == a(n)` """
+        """ Specialization to capture ``a(1:n) == a(n)`` """
         if self.children[0] == 1 and self.children[2] is None:
             return self.children[1] == other or super().__eq__(other)
         return super().__eq__(other)
@@ -1111,7 +1111,7 @@ class RangeIndex(Range):
     """
 
     def __hash__(self):
-        """ Need custom hashing function if we sepcialise __eq__ """
+        """ Need custom hashing function if we specialise :meth:`__eq__` """
         return hash(super().__str__().lower().replace(' ', ''))
 
     def __eq__(self, other):
