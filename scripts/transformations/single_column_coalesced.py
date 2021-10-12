@@ -372,7 +372,6 @@ def get_column_locals(routine, vertical):
     variables = [v for v in variables if not v.name in argument_map]
     variables = [v for v in variables if isinstance(v, sym.Array)]
 
-    variables = [v for v in variables if v.shape is not None]
     variables = [v for v in variables if any(vertical.size in d for d in v.shape)]
 
     return variables
