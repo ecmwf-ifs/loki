@@ -202,8 +202,15 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
 
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-    definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
-                                               frontend=frontend_type).modules for h in header)
+
+    # Note, in order to get function inlinig correct, we need full knowledge
+    # of any imported symbols and functions. Since we cannot yet retro-fit that
+    # after creation, we need to make sure that the order of definitions can
+    # be used to create a coherent stack of type definitions.
+    definitions = []
+    for h in header:
+        sfile = Sourcefile.from_file(h, xmods=xmod, definitions=definitions, frontend=frontend_type)
+        definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
     paths = [Path(p).resolve() for p in as_tuple(path)]
