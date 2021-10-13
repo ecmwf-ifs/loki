@@ -215,7 +215,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
             var = routine.variable_map[str(decl.variable)]
             assert isinstance(var, ProcedureSymbol)
             assert isinstance(var.type.dtype, ProcedureType)
-            assert var.type.dtype.procedure is decl 
+            assert var.type.dtype.procedure is decl
 
     # Generate code and compile
     filepath = here/f'{module.name}.F90'
