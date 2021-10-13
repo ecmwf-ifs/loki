@@ -11,7 +11,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, flatten, as_tuple
+    Frontend, as_tuple
 )
 
 # Get generalized transformations provided by Loki
@@ -87,72 +87,6 @@ class IdemTransformation(Transformation):
 @click.group()
 def cli():
     pass
-
-
-@cli.command('idem')
-@click.option('--out-path', '-out', type=click.Path(),
-              help='Path for generated source files.')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Source file to convert.')
-@click.option('--driver', '-d', type=click.Path(),
-              help='Driver file to convert.')
-@click.option('--header', '-h', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--define', '-I', multiple=True,
-              help='Additional symbol definitions for C-preprocessor')
-@click.option('--omni-include', '-I', type=click.Path(), multiple=True,
-              help='Additional path for header files, specifically for OMNI')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
-@click.option('--flatten-args/--no-flatten-args', default=True,
-              help='Flag to trigger derived-type argument unrolling')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
-@click.option('--config', default=None, type=click.Path(),
-              help='Path to custom scheduler configuration file')
-def idempotence(out_path, source, driver, header, cpp, include, define, omni_include, xmod,
-                flatten_args, frontend, config):
-    """
-    Idempotence: A "do-nothing" debug mode that performs a parse-and-unparse cycle.
-    """
-    if config is None:
-        config = SchedulerConfig.from_dict(cloudsc_config)
-    else:
-        config = SchedulerConfig.from_file(config)
-
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-    definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
-                                               frontend=frontend_type).modules for h in header)
-
-    # Create a scheduler to bulk-apply source transformations
-    paths = [Path(s).resolve().parent for s in source]
-    paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
-    scheduler.populate(routines=config.routines.keys())
-
-    # Fetch the dimension definitions from the config
-    horizontal = scheduler.config.dimensions['horizontal']
-
-    if flatten_args:
-        # Unroll derived-type arguments into multiple arguments
-        scheduler.process(transformation=DerivedTypeArgumentsTransformation())
-
-    # Now we instantiate our pipeline and apply the "idempotence" changes
-    scheduler.process(transformation=IdemTransformation())
-
-    # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
-    dependency = DependencyTransformation(suffix='_IDEM', mode='module', module_suffix='_MOD')
-    scheduler.process(transformation=dependency)
-
-    # Write out all modified source files into the build directory
-    for item in scheduler.items:
-        sourcefile = item.source
-        sourcefile.write(path=Path(out_path)/sourcefile.path.with_suffix('.idem.F90').name)
 
 
 @cli.command()
