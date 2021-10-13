@@ -205,6 +205,21 @@ class TypedSymbol:
 
         return Variable(**kwargs)
 
+    def rescope(self, scope):
+        """
+        Replicate the object with a new scope
+
+        This is a bespoke variant of :meth:`clone` for rescoping
+        symbols. The difference lies in the handling of the
+        type information, making sure not to overwrite any existing
+        symbol table entry in the provided scope.
+        """
+        if self.type:
+            existing_type = scope.symbols.lookup(self.name)
+            if existing_type:
+                return self.clone(scope=scope, type=existing_type)
+        return self.clone(scope=scope)
+
 
 class DeferredTypeSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: disable=too-many-ancestors
     """
@@ -276,12 +291,6 @@ class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Varia
     @initial.setter
     def initial(self, value):
         self.type.initial = value
-
-    def __getinitargs__(self):
-        args = []
-        if self.parent:
-            args += [('parent', self.parent)]
-        return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_variable_symbol')
 
@@ -429,7 +438,21 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         return self.symbol.__getinitargs__()
 
     def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
         return self.symbol.clone(**kwargs)
+
+    def rescope(self, scope):
+        """
+        Replicate the object with a new scope
+
+        This is a bespoke variant of :meth:`clone` for rescoping
+        symbols. The difference lies in the handling of the
+        type information, making sure not to overwrite any existing
+        symbol table entry in the provided scope.
+        """
+        return self.symbol.rescope(scope)
 
 
 class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
@@ -540,6 +563,21 @@ class Array(MetaSymbol):
             kwargs['dimensions'] = self.dimensions
         return super().clone(**kwargs)
 
+    def rescope(self, scope):
+        """
+        Replicate the object with a new scope
+
+        This is a bespoke variant of :meth:`clone` for rescoping
+        symbols. The difference lies in the handling of the
+        type information, making sure not to overwrite any existing
+        symbol table entry in the provided scope.
+        """
+        if self.type:
+            existing_type = scope.symbols.lookup(self.name)
+            if existing_type:
+                return self.clone(scope=scope, type=existing_type, dimensions=self.dimensions)
+        return self.clone(scope=scope, dimensions=self.dimensions)
+
 
 class Variable:
     """
@@ -573,13 +611,23 @@ class Variable:
 
     Note that all :class:`TypedSymbol` and :class:`MetaSymbol` classes are
     intentionally quasi-immutable:
-    Changing any of their attributes, including attaching them to a scope or
+    Changing any of their attributes, including attaching them to a scope and
     modifying their type, should always be done via the :meth:`clone` method:
 
     .. codeblock::
         var = Variable(name='foo')
         var = var.clone(scope=scope, type=SymbolAttributes(BasicType.INTEGER))
         var = var.clone(type=var.type.clone(dtype=BasicType.REAL))
+
+    Attaching a symbol to a new scope without updating any stored type information
+    (but still inserting type information if it doesn't exist, yet), can be done
+    via the dedicated :meth:`rescope` method. This is essentially a :meth:`clone`
+    invocation but without the type update:
+
+    .. codeblock::
+        var = Variable(name='foo', type=SymbolAttributes(BasicType.INTEGER), scope=scope)
+        unscoped_var = Variable(name='foo', type=SymbolAttributes(BasicType.REAL))
+        scoped_var = unscoped_var.rescope(scope)  # scoped_var will have INTEGER type
 
     Parameters
     ----------

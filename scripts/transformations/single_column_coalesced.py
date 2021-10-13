@@ -208,8 +208,8 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
         new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
 
         if old_shape and old_shape[0] in horizontal.size_expressions:
-            new_type = v.type.clone(shape=new_shape)
-            new_dims = v.dimensions[1:] if v.dimensions else None
+            new_type = v.type.clone(shape=new_shape or None)
+            new_dims = v.dimensions[1:] or None
             vmap[v] = v.clone(dimensions=new_dims, type=new_type)
 
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
