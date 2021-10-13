@@ -1,7 +1,7 @@
 numpy
 click
 toml
-networkx
+networkx>=2.6.3 # DaCe requires networkx and auto-version-detection fails
 graphviz
 fastcache
 cached-property
@@ -17,12 +17,14 @@ more-itertools
 -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 git+https://github.com/jameskermode/f90wrap.git
 git+https://github.com/stfc/fparser.git@0.0.12
+
+sympy==1.8 # DaCe needs sympy but is incompatible with v1.9, see https://github.com/spcl/dace/issues/861
 git+https://github.com/spcl/dace.git@v0.10.8
 
 # For tests
 pytest
 pytest-cov
 coverage2clover
-pylint==2.10.2
+pylint!=2.11.0,!=2.11.1  # Some Pylint problem with str.format, probably related: https://github.com/PyCQA/pylint/issues/5058
 pytest-pylint
 pandas

@@ -6,8 +6,8 @@ set -euo pipefail
 loki_ant_version=1.10.11
 
 ecmwf_java_version=11.0.1
-ecmwf_python_version=3.7.1-01
-ecmwf_cmake_version=3.17.0
+ecmwf_python_version=3.8.8-01
+ecmwf_cmake_version=3.19.5
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
