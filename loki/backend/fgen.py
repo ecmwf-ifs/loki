@@ -220,7 +220,9 @@ class FortranCodegen(Stringifier):
         """
         Format comments.
         """
-        text = o.text or o.source.string
+        text = o.text
+        if not text:
+            text = o.source.string if o.source else ''
         return self.format_line(str(text).lstrip(), no_wrap=True)
 
     def visit_Pragma(self, o, **kwargs):

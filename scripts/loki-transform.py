@@ -21,8 +21,9 @@ from loki.transform import DependencyTransformation, FortranCTransformation
 sys.path.insert(0, str(Path(__file__).parent))
 # pylint: disable=wrong-import-position,wrong-import-order
 from transformations import DerivedTypeArgumentsTransformation
-from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import DataOffloadTransformation
+from transformations import ExtractSCATransformation, CLAWTransformation
+from transformations import SingleColumnCoalescedTransformation
 
 
 """
@@ -58,6 +59,16 @@ cloudsc_config = {
             'index': 'JL',
             'bounds': ('KIDIA', 'KFDIA'),
             'aliases': ['NPROMA', 'KDIM%KLON'],
+        },
+        {
+            'name': 'vertical',
+            'size': 'KLEV',
+            'index': 'JK',
+        },
+        {
+            'name': 'block_dim',
+            'size': 'NGPBLKS',
+            'index': 'IBL',
         }
     ]
 }
@@ -170,7 +181,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
 @click.option('--remove-openmp', is_flag=True, default=False,
               help='Removes existing OpenMP pragmas in "!$loki data" regions')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
@@ -226,12 +237,22 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
             horizontal=horizontal, claw_data_offload=use_claw_offload
         )
 
+    if mode in ['scc', 'scc-hoist']:
+        horizontal = scheduler.config.dimensions['horizontal']
+        vertical = scheduler.config.dimensions['vertical']
+        block_dim = scheduler.config.dimensions['block_dim']
+        transformation = SingleColumnCoalescedTransformation(
+            horizontal=horizontal, vertical=vertical, block_dim=block_dim,
+            directive='openacc', hoist_column_arrays='hoist' in mode
+        )
+
     if transformation:
         scheduler.process(transformation=transformation)
     else:
         raise RuntimeError('[Loki] Convert could not find specified Transformation!')
 
     # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+    mode = mode.replace('-', '_')  # Sanitize mode string
     dependency = DependencyTransformation(suffix='_{}'.format(mode.upper()),
                                           mode='module', module_suffix='_MOD')
     scheduler.process(transformation=dependency)
