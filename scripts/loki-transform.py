@@ -94,10 +94,6 @@ def cli():
               help='Path for generated souce files.')
 @click.option('--path', '-p', type=click.Path(),
               help='Path to search during source exploration.')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Source file to convert.')
-@click.option('--driver', '-d', type=click.Path(),
-              help='Driver file to convert.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
 @click.option('--cpp/--no-cpp', default=False,
@@ -120,7 +116,7 @@ def cli():
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-def convert(out_path, path, source, driver, header, cpp, include, define, omni_include, xmod,
+def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
             data_offload, remove_openmp, mode, frontend, config):
     """
     Single Column Abstraction (SCA): Convert kernel into single-column
@@ -156,7 +152,6 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
 
     # Create a scheduler to bulk-apply source transformations
     paths = [Path(p).resolve() for p in as_tuple(path)]
-    paths += [Path(s).resolve().parent for s in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
                           definitions=definitions, **build_args)
