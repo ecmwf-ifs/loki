@@ -10,7 +10,7 @@ from loki.ir import (
     Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic, Pragma,
     StatementFunction
 )
-from loki.expression import Scalar, Array, InlineCall, FindVariables
+from loki.expression import Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
 from loki.types import ProcedureType, SymbolAttributes
 from loki.tools import LazyNodeLookup
 from loki.frontend.source import Source
@@ -235,11 +235,22 @@ def inject_statement_functions(routine):
 
         # Find any use of the statement functions in the body and replace
         # them with function calls
-        expr_map = {}
+        expr_map_spec = {}
+        for variable in FindVariables().visit(routine.spec):
+            if variable.name.lower() in stmt_funcs:
+                if isinstance(variable, Array):
+                    parameters = variable.dimensions
+                    expr_map_spec[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                elif not isinstance(variable, ProcedureSymbol):
+                    expr_map_spec[variable] = variable.clone()
+        expr_map_body = {}
         for variable in FindVariables().visit(routine.body):
-            if variable.name.lower() in stmt_funcs and isinstance(variable, Array):
-                parameters = variable.dimensions
-                expr_map[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+            if variable.name.lower() in stmt_funcs:
+                if isinstance(variable, Array):
+                    parameters = variable.dimensions
+                    expr_map_body[variable] = InlineCall(variable.clone(dimensions=None), parameters=parameters)
+                elif not isinstance(variable, ProcedureSymbol):
+                    expr_map_body[variable] = variable.clone()
 
         # Make sure we remove comments from the body if we append them to spec
         if any(isinstance(node, StatementFunction) for node in spec_appendix):
@@ -252,8 +263,10 @@ def inject_statement_functions(routine):
             routine.body = Transformer(body_map).visit(routine.body)
             if spec_appendix:
                 routine.spec.append(spec_appendix)
-        if expr_map:
-            routine.body = SubstituteExpressions(expr_map).visit(routine.body)
+        if expr_map_spec:
+            routine.spec = SubstituteExpressions(expr_map_spec).visit(routine.spec)
+        if expr_map_body:
+            routine.body = SubstituteExpressions(expr_map_body).visit(routine.body)
 
         # And make sure all symbols have the right type
         routine.rescope_variables()
