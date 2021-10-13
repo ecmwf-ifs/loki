@@ -156,7 +156,7 @@ def convert(out_path, path, header, cpp, include, define, omni_include, xmod,
     # be used to create a coherent stack of type definitions.
     definitions = []
     for h in header:
-        sfile = Sourcefile.from_file(h, frontend=frontend_type, **build_args)
+        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, **build_args)
         definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
@@ -356,7 +356,7 @@ def ecphys(mode, config, header, source, build, frontend):
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
 
-    headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
+    headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
     definitions = flatten(h.modules for h in headers)
 
     # Create and setup the scheduler for bulk-processing

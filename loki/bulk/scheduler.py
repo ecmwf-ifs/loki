@@ -6,7 +6,7 @@ from loki.frontend import FP, REGEX, RegexParserClass
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
-from loki.logging import info, warning, debug, PERF
+from loki.logging import info, warning, debug, INFO, PERF
 from loki.bulk.item import ProcedureBindingItem, SubroutineItem
 
 
@@ -366,7 +366,7 @@ class Scheduler:
                 self.obj_map[lookup_name].make_complete(**self.build_args)
                 item.routine.enrich_calls(self.obj_map[lookup_name].all_subroutines)
 
-    @timeit(log_level=PERF, getter=lambda x: str(x.get('transformation', '')))
+    @timeit(log_level=INFO, getter=lambda x: str(x['transformation'].__class__.__name__))
     def process(self, transformation, reverse=False):
         """
         Process all enqueued source modules and routines with the
