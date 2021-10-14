@@ -1,7 +1,7 @@
 from fparser.two import Fortran2003
 from fparser.two.utils import get_child, walk
 
-from loki.frontend import Frontend, Source, extract_source
+from loki.frontend import Frontend, Source, extract_source, inject_statement_functions
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
@@ -14,7 +14,7 @@ from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import ProcedureType, SymbolAttributes
+from loki.types import ProcedureType, SymbolAttributes, BasicType
 from loki.scope import Scope
 
 
@@ -181,8 +181,12 @@ class Subroutine(Scope):
             routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
             for routine_ast in routine_asts:
                 fname = routine_ast.attrib['name']
-                is_function = routine_ast.tag == 'function'
-                routine.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                if routine_ast.tag == 'function':
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
+                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
+                else:
+                    dtype = ProcedureType(fname, is_function=False)
+                routine.symbols[fname] = SymbolAttributes(dtype)
             members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions, parent=routine)
                        for member in routine_asts]
             routine._members = as_tuple(members)
@@ -305,12 +309,28 @@ class Subroutine(Scope):
 
         routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
 
-        spec_ast = get_child(ast, Fortran2003.Specification_Part)
-        if spec_ast:
-            spec = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
+        # Hack: Collect all spec and body parts and use all but the
+        # last body as spec. Reason is that Fparser misinterprets statement
+        # functions as array assignments and thus breaks off spec early
+        part_asts = [c for c in ast.children
+                     if isinstance(c, (Fortran2003.Specification_Part, Fortran2003.Execution_Part))]
+        if not part_asts:
+            spec_asts = []
+            body_ast = None
+        elif isinstance(part_asts[-1], Fortran2003.Execution_Part):
+            *spec_asts, body_ast = part_asts
         else:
-            spec = Section(body=())
+            spec_asts = part_asts
+            body_ast = None
+
+        # Build the spec by parsing all relevant parts of the AST and appending them
+        # to the same section object
+        spec = Section(body=())
+        for spec_ast in spec_asts:
+            part = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
+                                     scope=routine, raw_source=raw_source)
+            if part is not None:
+                spec.append(part.body)
 
         # Parse "member" subroutines recursively
         contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
@@ -320,14 +340,16 @@ class Subroutine(Scope):
             routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
             routine_asts = list(walk(contains_ast, routine_types))
             for s in routine_asts:
-                is_function = isinstance(s, Fortran2003.Function_Subprogram)
-                if is_function:
+                if isinstance(s, Fortran2003.Function_Subprogram):
                     routine_stmt = get_child(s, Fortran2003.Function_Stmt)
                     fname = routine_stmt.items[1].tostr()
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
+                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
                     routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
                     fname = routine_stmt.get_name().string
-                routine.symbols[fname] = SymbolAttributes(ProcedureType(fname, is_function=is_function))
+                    dtype = ProcedureType(fname, is_function=False)
+                routine.symbols[fname] = SymbolAttributes(dtype)
 
             # Now create the actual Subroutine objects
             members = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=routine,
@@ -335,7 +357,7 @@ class Subroutine(Scope):
                        for s in routine_asts]
             routine._members = as_tuple(members)
 
-        body_ast = get_child(ast, Fortran2003.Execution_Part)
+        # Take care of the body
         if body_ast:
             body = parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
                                      scope=routine, raw_source=raw_source)
@@ -374,6 +396,9 @@ class Subroutine(Scope):
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, Declaration):
             routine.spec = process_dimension_pragmas(routine.spec)
+
+        # Inject statement function definitions
+        inject_statement_functions(routine)
 
         return routine
 

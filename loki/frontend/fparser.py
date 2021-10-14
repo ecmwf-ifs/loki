@@ -413,12 +413,6 @@ class FParser2IR(GenericVisitor):
             # representation of variables in declarations
             variables = as_tuple(v.clone(dimensions=_type.shape) for v in variables)
 
-        # EXTERNAL attribute means this is actually a function or subroutine
-        external = _type.external is True
-        if _type.external:
-            return_type = _type.dtype if _type.dtype is not BasicType.DEFERRED else None
-            _type = _type.clone(return_type=return_type)
-
         # Make sure KIND (which can be a name) is in the right scope
         scope = kwargs['scope']
         if _type.kind is not None:
@@ -427,15 +421,22 @@ class FParser2IR(GenericVisitor):
 
         # Update symbol table entries
         for var in variables:
-            if external:
+            # EXTERNAL attribute means this is actually a function or subroutine
+            # Since every symbol refers to a different function we have to update the
+            # type definition for every symbol individually
+            if _type.external:
                 type_kwargs = _type.__dict__.copy()
-                type_kwargs['dtype'] = ProcedureType(var.name, is_function=_type.dtype is not None)
+                if _type.dtype is not None:
+                    return_type = SymbolAttributes(_type.dtype)
+                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
+                else:
+                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
                 scope.symbols[var.name] = var.type.clone(**type_kwargs)
             else:
                 scope.symbols[var.name] = var.type.clone(**_type.__dict__)
 
         variables = tuple(v.clone(scope=scope) for v in variables)
-        return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
+        return ir.Declaration(variables=variables, dimensions=_type.shape, external=_type.external,
                               source=kwargs.get('source'), label=kwargs.get('label'))
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):

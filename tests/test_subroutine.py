@@ -7,7 +7,8 @@ from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen, Declaration,
-    Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType
+    Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
+    StatementFunction
 )
 
 
@@ -1127,10 +1128,10 @@ end subroutine routine_call_external_stmt
             assert v.type.dtype.procedure == BasicType.DEFERRED
             if 'sub' in v.name:
                 assert not v.type.dtype.is_function
-                assert v.type.return_type is None
+                assert v.type.dtype.return_type is None
             else:
                 assert v.type.dtype.is_function
-                assert v.type.return_type == BasicType.INTEGER
+                assert v.type.dtype.return_type.compare(SymbolAttributes(BasicType.INTEGER))
 
     # Generate code, compile and load
     extpath = here/('subroutine_routine_external_%s.f90' % frontend)
@@ -1322,7 +1323,10 @@ end subroutine test_subroutine_rescope
         assert other_fgen != ref_fgen
         assert len(other_fgen) < len(ref_fgen)
     except AttributeError as e:
-        assert str(e) == "'NoneType' object has no attribute 'compare'"
+        assert str(e) in (
+            "'NoneType' object has no attribute 'compare'",
+            "'NoneType' object has no attribute 'dtype'"
+        )
 
 
 @pytest.mark.parametrize('frontend', [
@@ -1410,4 +1414,56 @@ end subroutine test_subroutine_rescope_clone
         assert other_fgen != ref_fgen
         assert len(other_fgen) < len(ref_fgen)
     except AttributeError as e:
-        assert str(e) == "'NoneType' object has no attribute 'compare'"
+        assert str(e) in (
+            "'NoneType' object has no attribute 'compare'",
+            "'NoneType' object has no attribute 'dtype'"
+        )
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='No support for statement functions')),
+    OMNI,
+    FP
+])
+def test_subroutine_stmt_func(here, frontend):
+    """
+    Test the correct identification of statement functions
+    """
+    fcode = """
+subroutine subroutine_stmt_func(a, b)
+    implicit none
+    integer, intent(in) :: a
+    integer, intent(out) :: b
+    integer :: i, j
+    integer :: plus, minus
+    plus(i, j) = i + j
+    minus(i, j) = i - j
+    integer :: mult
+    mult(i, j) = i * j
+    integer :: tmp
+
+    tmp = plus(a, 5)
+    tmp = minus(tmp, 1)
+    b = mult(2, tmp)
+end subroutine subroutine_stmt_func
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.name += f'_{frontend!s}'
+
+    # OMNI inlines statement functions, so we can only check correct representation
+    # for fparser
+    if frontend != OMNI:
+        stmt_func_decls = {d.variable: d for d in FindNodes(StatementFunction).visit(routine.spec)}
+        assert len(stmt_func_decls) == 3
+
+        for name in ('plus', 'minus', 'mult'):
+            var = routine.variable_map[name]
+            assert isinstance(var, ProcedureSymbol)
+            assert isinstance(var.type.dtype, ProcedureType)
+            assert var.type.dtype.procedure is stmt_func_decls[var]
+
+    # Make sure this produces the correct result
+    filepath = here/f'{routine.name}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    assert function(3) == 14
+    clean_test(filepath)

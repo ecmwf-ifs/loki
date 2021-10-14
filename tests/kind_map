@@ -29,5 +29,6 @@
         'INT32': 'int',
         'selected_int_kind(9)': 'int',
         'selected_int_kind9': 'int',
+        'jpim': 'int',
     },
 }

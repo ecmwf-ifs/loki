@@ -259,8 +259,14 @@ class FortranCodegen(Stringifier):
         # TODO: Should extend to deeper recursion of `variables` if
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
-        if o.external:
+        if o.external or isinstance(types[0].dtype, ProcedureType):
+            # TODO: We can't fully compare forward declarations of functions or statement functions,
+            # yet but we can make at least sure other declared attributes are compatible and that all
+            # have the same return type
             ignore += ['dtype']
+            assert all(t.dtype.return_type == types[0].dtype.return_type or
+                       t.dtype.return_type.compare(types[0].dtype.return_type, ignore=ignore) for t in types)
+
         assert all(t.compare(types[0], ignore=ignore) for t in types)
 
         dtype = self.visit(types[0], dimensions=o.dimensions, **kwargs)
@@ -291,6 +297,16 @@ class FortranCodegen(Stringifier):
         """
         values = self.visit_all(o.values, **kwargs)
         return self.format_line('DATA ', o.variable, '/', values, '/')
+
+    def visit_StatementFunction(self, o, **kwargs):
+        """
+        Format as
+          <variable>(<arguments>) = <rhs>
+        """
+        name = self.visit(o.variable, **kwargs)
+        arguments = self.visit_all(o.arguments, **kwargs)
+        rhs = self.visit(o.rhs, **kwargs)
+        return self.format_line(name, '(', self.join_items(arguments), ') = ', rhs)
 
     def visit_Import(self, o, **kwargs):
         """
@@ -549,8 +565,11 @@ class FortranCodegen(Stringifier):
         type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
                     BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
                     BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
-        if isinstance(o.dtype, ProcedureType) and o.external:
-            typename = type_map.get(o.return_type)
+        if isinstance(o.dtype, ProcedureType):
+            if o.dtype.is_function:
+                typename = self.visit(o.dtype.return_type, **kwargs)
+            else:
+                typename = ''
         elif isinstance(o.dtype, DerivedType):
             typename = 'TYPE({})'.format(o.dtype.name)
         else:

@@ -328,7 +328,7 @@ class ExpressionDimensionsMapper(Mapper):
             child_dim = self.rec(ch, *args, **kwargs)
             if dim == (1,):
                 dim = child_dim
-            elif dim != child_dim and child_dim != 1:
+            elif child_dim not in (dim, 1):
                 raise ValueError('Non-matching dimensions: {} and {}'.format(str(dim), str(child_dim)))
         return dim
 
@@ -580,15 +580,10 @@ class AttachScopesMapper(LokiIdentityMapper):
             debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
         return expr
 
-    def map_deferred_type_symbol(self, expr, *args, **kwargs):
-        expr = self._update_symbol_scope(expr, kwargs['scope'])
-        return super().map_deferred_type_symbol(expr, *args, **kwargs)
-
     def map_variable_symbol(self, expr, *args, **kwargs):
         expr = self._update_symbol_scope(expr, kwargs['scope'])
-        return super().map_variable_symbol(expr, *args, **kwargs)
+        map_fn = getattr(super(), expr.mapper_method)
+        return map_fn(expr, *args, **kwargs)
 
-    def map_procedure_symbol(self, expr, *args, **kwargs):
-        expr = self._update_symbol_scope(expr, kwargs['scope'])
-        return super().map_procedure_symbol(expr, *args, **kwargs)
-
+    map_deferred_type_symbol = map_variable_symbol
+    map_procedure_symbol = map_variable_symbol

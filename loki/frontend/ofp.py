@@ -563,8 +563,7 @@ class OFP2IR(GenericVisitor):
         # EXTERNAL attribute means this is actually a function or subroutine
         external = o.find('attribute-external') is not None
         if external:
-            return_type = _type.dtype if _type.dtype is not BasicType.DEFERRED else None
-            _type = _type.clone(return_type=return_type, external=True)
+            _type = _type.clone(external=True)
 
         # Make sure KIND (which can be a name) is in the right scope
         if _type.kind is not None:
@@ -576,7 +575,11 @@ class OFP2IR(GenericVisitor):
         for var in variables:
             if external:
                 type_kwargs = _type.__dict__.copy()
-                type_kwargs['dtype'] = ProcedureType(var.name, is_function=_type.dtype is not None)
+                if _type.dtype is not None:
+                    return_type = SymbolAttributes(_type.dtype)
+                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
+                else:
+                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
                 scope.symbols[var.name] = var.type.clone(**type_kwargs)
             else:
                 scope.symbols[var.name] = var.type.clone(**_type.__dict__)

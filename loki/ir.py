@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Control flow node classes for
 :ref:`internal_representation:Control flow tree`
@@ -25,8 +26,8 @@ __all__ = [
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
-    'Import', 'Declaration', 'DataDeclaration', 'TypeDef',
-    'MultiConditional', 'Intrinsic'
+    'Import', 'Declaration', 'DataDeclaration', 'StatementFunction',
+    'TypeDef', 'MultiConditional', 'Intrinsic'
 ]
 
 
@@ -1104,6 +1105,48 @@ class DataDeclaration(LeafNode):
 
     def __repr__(self):
         return 'DataDeclaration:: {}'.format(str(self.variable))
+
+
+class StatementFunction(LeafNode):
+    """
+    Internal representation of Fortran statement function statements
+
+    Parameters
+    ----------
+    variable : :any:`pymbolic.primitives.Expression`
+        The name of the statement function
+    arguments : tuple of :any:`pymbolic.primitives.Expression`
+        The list of dummy arguments
+    rhs : :any:`pymbolic.primitives.Expression`
+        The expression defining the statement function
+    return_type : :any:`SymbolAttributes`
+        The return type of the statement function
+    """
+
+    _traversable = ['variable', 'arguments', 'rhs']
+
+    def __init__(self, variable, arguments, rhs, return_type, **kwargs):
+        super().__init__(**kwargs)
+
+        assert isinstance(variable, Expression)
+        assert is_iterable(arguments) and all(isinstance(a, Expression) for a in arguments)
+        assert isinstance(return_type, SymbolAttributes)
+
+        self.variable = variable
+        self.arguments = as_tuple(arguments)
+        self.rhs = rhs
+        self.return_type = return_type
+
+    @property
+    def name(self):
+        return str(self.variable)
+
+    @property
+    def is_function(self):
+        return True
+
+    def __repr__(self):
+        return f'StatementFunction:: {self.variable}({" ,".join(str(a) for a in self.arguments)})'
 
 
 class TypeDef(ScopedNode, LeafNode):

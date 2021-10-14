@@ -1,9 +1,12 @@
 from pathlib import Path
 import pytest
+import numpy as np
 
+from conftest import jit_compile, clean_test
 from loki import (
     Sourcefile, OFP, OMNI, FP, FindNodes, PreprocessorDirective,
-    Intrinsic, Assignment, Import, fgen
+    Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
+    StatementFunction
 )
 
 
@@ -183,3 +186,46 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
 
     assert len(directives) == 0
     assert 'b = 6' in fgen(routine)
+
+
+@pytest.mark.parametrize('frontend', [
+    pytest.param(OFP, marks=pytest.mark.xfail(reason='No support for statement functions')),
+    OMNI,
+    FP
+])
+def test_sourcefile_cpp_stmt_func(here, frontend):
+    """
+    Test the correct identification of statement functions
+    after inlining by preprocessor.
+    """
+    sourcepath = here/'sources'
+    filepath = sourcepath/'sourcefile_cpp_stmt_func.F90'
+
+    source = Sourcefile.from_file(filepath, includes=sourcepath, preprocess=True, frontend=frontend)
+    module = source['sourcefile_cpp_stmt_func_mod']
+    module.name += f'_{frontend!s}'
+
+    # OMNI inlines statement functions, so we can't check the representation
+    if frontend != OMNI:
+        routine = source['sourcefile_cpp_stmt_func']
+        stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
+        assert len(stmt_func_decls) == 4
+
+        for decl in stmt_func_decls:
+            var = routine.variable_map[str(decl.variable)]
+            assert isinstance(var, ProcedureSymbol)
+            assert isinstance(var.type.dtype, ProcedureType)
+            assert var.type.dtype.procedure is decl
+
+    # Generate code and compile
+    filepath = here/f'{module.name}.F90'
+    mod = jit_compile(source, filepath=filepath, objname=module.name)
+
+    # Verify it produces correct results
+    klon, klev = 10, 5
+    kidia, kfdia = 1, klon
+    zfoeew = np.zeros((klon, klev), order='F')
+    mod.sourcefile_cpp_stmt_func(kidia, kfdia, klon, klev, zfoeew)
+    assert (zfoeew == 0.25).all()
+
+    clean_test(filepath)
