@@ -38,19 +38,21 @@ def test_cloudsc(here, frontend):
 
     # Raise stack limit
     resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    env = os.environ.copy()
+    env.update({'OMP_STACKSIZE': '2G'})
 
     # For some reason, the 'data' dir symlink is not created???
     os.symlink(here/'data', here/'build/data')
 
-    # Run the produced binaries  # Use only 160 columns to avoid stack size issues
+    # Run the produced binaries
     binaries = [
-        ('dwarf-cloudsc-loki-claw-cpu', '2', '160', '64'),
-        ('dwarf-cloudsc-loki-claw-gpu', '1', '160', '64'),
-        ('dwarf-cloudsc-loki-idem', '2', '160', '32'),
-        ('dwarf-cloudsc-loki-sca', '2', '160', '32'),
-        ('dwarf-cloudsc-loki-scc', '1', '160', '32'),
-        ('dwarf-cloudsc-loki-scc-hoist', '1', '160', '32'),
-        ('dwarf-cloudsc-loki-c', '2', '160', '32'),
+        ('dwarf-cloudsc-loki-claw-cpu', '2', '16000', '64'),
+        ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
+        ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-sca', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
+        ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
     ]
 
     failures = {}
@@ -58,7 +60,7 @@ def test_cloudsc(here, frontend):
         # TODO: figure out how to source env.sh
         run_cmd = [f"bin/{binary}", *args]
         try:
-            output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False)
+            output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False, env=env)
             results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
             no_errors = results['AbsMaxErr'].astype('float') == 0
             if not no_errors.all(axis=None):
