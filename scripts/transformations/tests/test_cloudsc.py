@@ -1,5 +1,7 @@
 import os
 import io
+import resource
+from subprocess import CalledProcessError
 from pathlib import Path
 import pandas as pd
 import pytest
@@ -19,9 +21,6 @@ def fixture_bundle_create(here):
     # Create the bundle
     execute('./cloudsc-bundle create', cwd=here, silent=False)
 
-    # Reset cloudsc.F90
-    execute('git checkout -- src/cloudsc_loki/cloudsc.F90', cwd=here, silent=False)
-
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cloudsc(here, frontend):
@@ -33,9 +32,14 @@ def test_cloudsc(here, frontend):
     ]
 
     if 'CLOUDSC_ARCH' in os.environ:
-        build_cmd += ['--arch={}'.format(os.environ['CLOUDSC_ARCH'])]
+        build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
 
     execute(build_cmd, cwd=here, silent=False)
+
+    # Raise stack limit
+    resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    env = os.environ.copy()
+    env.update({'OMP_STACKSIZE': '2G'})
 
     # For some reason, the 'data' dir symlink is not created???
     os.symlink(here/'data', here/'build/data')
@@ -46,25 +50,23 @@ def test_cloudsc(here, frontend):
         ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
         ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
         ('dwarf-cloudsc-loki-sca', '2', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
+        ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
+        ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
     ]
 
     failures = {}
     for binary, *args in binaries:
         # TODO: figure out how to source env.sh
-        run_cmd = ['bin/{}'.format(binary), *args]
-        output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False)
-        results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
-        no_errors = results['AbsMaxErr'].astype('float') == 0
-        if not no_errors.all(axis=None):
-            failures[binary] = results
-
-    # Handle C separately because of precision bug
-    binary = 'dwarf-cloudsc-loki-c'
-    output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False)
-    results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
-    no_errors = results['AbsMaxErr'].astype('float') < 1e-8
-    if not no_errors.all(axis=None):
-        failures[binary] = results
+        run_cmd = [f"bin/{binary}", *args]
+        try:
+            output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False, env=env)
+            results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
+            no_errors = results['AbsMaxErr'].astype('float') == 0
+            if not no_errors.all(axis=None):
+                failures[binary] = results
+        except CalledProcessError as e:
+            failures[binary] = e.stderr.decode()
 
     if failures:
         pytest.fail(str(failures))
