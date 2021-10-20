@@ -1036,3 +1036,16 @@ def test_variable_without_scope():
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
     assert scope.symbols['var'].dtype is BasicType.LOGICAL
+
+
+@pytest.mark.parametrize('expr', [
+    ('1.8 - 3.E-03*ztp1'),
+    ('1.8 - 0.003*ztp1'),
+    ('(a / b) + 3.0_jprb'),
+    ('a / b * 3.0_jprb'),
+])
+def test_parenthesis(expr):
+    scope = Scope()
+    ir = parse_fparser_expression(expr, scope)
+    assert isinstance(ir, pmbl.Expression)
+    assert fgen(ir) == expr
