@@ -14,7 +14,8 @@ from loki.visitors import GenericVisitor
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
-    ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, StringConcat
+    ParenthesisedAdd, ParenthesisedMul, ParenthesisedPow, ParenthesisedDiv,
+    StringConcat
 )
 from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
@@ -995,6 +996,8 @@ class OFP2IR(GenericVisitor):
                 expression = ParenthesisedMul(expression.children, source=source)
             if isinstance(expression, sym.Power):
                 expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
+            if isinstance(expression, sym.Quotient):
+                expression = ParenthesisedDiv(expression.numerator, expression.denominator, source=source)
 
         assert len(exprs) == 0
         return expression
