@@ -33,7 +33,7 @@ class LokiStringifyMapper(StringifyMapper):
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
     def __init__(self, *args, **kwargs):
-        from loki.expression import operations as op
+        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel
         super().__init__(*args, **kwargs)
         self.parenthesised_multiplicative_primitives = (
             op.ParenthesisedAdd, op.ParenthesisedMul,
