@@ -3,7 +3,9 @@ import pytest
 import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test
-from loki import Subroutine, Module, OFP, OMNI, FP, FortranCTransformation
+from loki import (
+  Subroutine, Module, OFP, OMNI, FP, FortranCTransformation, cgen
+)
 from loki.build import Builder
 
 
@@ -882,5 +884,67 @@ end subroutine transpile_inline_elementals_recursive
     assert v3 == 666.
 
     builder.clean()
+    f2c.wrapperpath.unlink()
+    f2c.c_path.unlink()
+
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_transpile_expressions(here, builder, frontend):
+    """
+    A simple test to verify expression parenthesis and resolution
+    of minus sign
+    """
+
+    fcode = """
+subroutine transpile_expressions(n, scalar, vector)
+  use iso_fortran_env, only: real64
+  implicit none
+  integer, intent(in) :: n
+  real(kind=real64), intent(in) :: scalar
+  real(kind=real64), intent(inout) :: vector(n)
+
+  integer :: i
+
+  vector(1) = scalar
+  do i=2, n
+     vector(i) = vector(i-1) - (-scalar)
+  end do
+end subroutine transpile_expressions
+"""
+
+    # Generate reference code, compile run and verify
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    n = 10
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F')
+    function(n, scalar, vector)
+
+    assert np.all(vector == [i * scalar for i in range(1, n+1)])
+
+    # Generate and test the transpiled C kernel
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=here)
+    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_expressions_fc_mod.transpile_expressions_fc
+
+    # Make sure minus signs are represented correctly in the C code
+    ccode = cgen(routine)
+    assert 'vector[i - 1 - 1]' in ccode  # double minus due to index shift to 0
+    assert 'vector[i - 1]' in ccode
+    assert '-scalar' in ccode  # scalar with negative sign
+
+    n = 10
+    scalar = 2.0
+    vector = np.zeros(shape=(n,), order='F')
+    fc_function(n, scalar, vector)
+
+    assert np.all(vector == [i * scalar for i in range(1, n+1)])
+
+    builder.clean()
+    clean_test(filepath)
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()

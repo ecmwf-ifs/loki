@@ -32,6 +32,27 @@ class LokiStringifyMapper(StringifyMapper):
 
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
+    def __init__(self, *args, **kwargs):
+        from loki.expression import operations as op
+        super().__init__(*args, **kwargs)
+        self.parenthesised_multiplicative_primitives = (
+            op.ParenthesisedAdd, op.ParenthesisedMul,
+            op.ParenthesisedDiv, op.ParenthesisedPow
+        )
+
+    def rec_with_force_parens_around(self, expr, *args, **kwargs):
+        # Re-implement here to add no_force_parens_around
+        force_parens_around = kwargs.pop("force_parens_around", ())
+        no_force_parens_around = kwargs.pop("no_force_parens_around",
+                                            self.parenthesised_multiplicative_primitives)
+
+        result = self.rec(expr, *args, **kwargs)
+
+        if isinstance(expr, force_parens_around) and not isinstance(expr, no_force_parens_around):
+            result = f"({result})"
+
+        return result
+
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return str(expr.value)
 
@@ -90,12 +111,14 @@ class LokiStringifyMapper(StringifyMapper):
         Since substraction and unary minus are mapped to multiplication with (-1), we are here
         looking for such cases and determine the matching operator for the output.
         """
+        from loki.expression.operations import ParenthesisedMul  # pylint: disable=import-outside-toplevel
         def get_op_prec_expr(expr):
-            if isinstance(expr, pmbl.Product) and expr.children and pmbl.is_zero(expr.children[0]+1):
-                if len(expr.children) == 2:
-                    # only the minus sign and the other child
-                    return '-', PREC_PRODUCT, expr.children[1]
-                return '-', PREC_PRODUCT, expr.__class__(expr.children[1:])
+            if isinstance(expr, pmbl.Product) and not isinstance(expr, ParenthesisedMul):
+                if pmbl.is_zero(expr.children[0]+1):
+                    if len(expr.children) == 2:
+                        # only the minus sign and the other child
+                        return '-', PREC_PRODUCT, expr.children[1]
+                    return '-', PREC_PRODUCT, expr.__class__(expr.children[1:])
             return '+', PREC_SUM, expr
 
         terms = []
