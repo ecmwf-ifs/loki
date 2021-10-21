@@ -91,12 +91,11 @@ class LokiStringifyMapper(StringifyMapper):
         looking for such cases and determine the matching operator for the output.
         """
         def get_op_prec_expr(expr):
-            from loki.expression.symbols import Product  # pylint: disable=import-outside-toplevel
-            if isinstance(expr, Product) and expr.children and pmbl.is_zero(expr.children[0]+1):
+            if isinstance(expr, pmbl.Product) and expr.children and pmbl.is_zero(expr.children[0]+1):
                 if len(expr.children) == 2:
                     # only the minus sign and the other child
                     return '-', PREC_PRODUCT, expr.children[1]
-                return '-', PREC_PRODUCT, Product(expr.children[1:])
+                return '-', PREC_PRODUCT, expr.__class__(expr.children[1:])
             return '+', PREC_SUM, expr
 
         terms = []
@@ -118,7 +117,26 @@ class LokiStringifyMapper(StringifyMapper):
             return self.parenthesize_if_needed(
                 '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
                 enclosing_prec, PREC_PRODUCT)
-        return super().map_product(expr, enclosing_prec, *args, **kwargs)
+        # Suppress Pymbolics's conservative default bracketing by overriding
+        # the multiplicative primitives to exclude `Product` and
+        # `Quotient` nodes.
+        # This is done to suppress the default bracketing, which can cause
+        # round-off deviations for agressively optimising compilers. Since
+        # we explicitly handle bracketing in our expression nodes, we can
+        # drop this here... famous last words!
+        kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
+        return self.parenthesize_if_needed(
+                self.join_rec("*", expr.children, PREC_PRODUCT, *args, **kwargs),
+                enclosing_prec, PREC_PRODUCT)
+
+    def map_quotient(self, expr, enclosing_prec, *args, **kwargs):
+        # Similar to products we drop the conservative bracketing for the numerator
+        kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
+        numerator = self.rec_with_force_parens_around(expr.numerator, PREC_PRODUCT, *args, **kwargs)
+        kwargs['force_parens_around'] = self.multiplicative_primitives
+        denominator = self.rec_with_force_parens_around(expr.denominator, PREC_PRODUCT, *args, **kwargs)
+        return self.parenthesize_if_needed(self.format('%s / %s', numerator, denominator),
+                                           enclosing_prec, PREC_PRODUCT)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, PREC_NONE, *args, **kwargs))

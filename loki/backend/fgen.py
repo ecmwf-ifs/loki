@@ -1,7 +1,6 @@
 from pymbolic.mapper.stringifier import (
-    PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_SUM, PREC_NONE
+    PREC_UNARY, PREC_LOGICAL_AND, PREC_LOGICAL_OR, PREC_COMPARISON, PREC_NONE
 )
-from pymbolic.primitives import FloorDiv, Remainder
 
 from loki.visitors import Stringifier
 from loki.tools import as_tuple
@@ -33,12 +32,7 @@ class FCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             return '%s_%s' % (str(expr.value), str(expr.kind))
-
-        result = str(expr.value)
-        if not (result.startswith("(") and result.endswith(")")) \
-                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-            return self.parenthesize(result)
-        return result
+        return str(expr.value)
 
     map_int_literal = map_float_literal
 
@@ -85,15 +79,6 @@ class FCodeMapper(LokiStringifyMapper):
             children = children[:-1]
         return self.parenthesize_if_needed(self.join(',', children), enclosing_prec, PREC_NONE)
 
-    # Suppress Pymbolics's conservative default bracketing by override
-    # the multiplicative primitives to exclude `Product` and
-    # `Quotient` nodes.
-    # This is done to suppress the default bracketing, which can cause
-    # round-off deviations for agressively optimising compilers. Since
-    # we explicitly handle bracketing in our expression nodes, we can
-    # drop this here... famous last words!
-    multiplicative_primitives = (FloorDiv, Remainder)
-
 
 class FortranCodegen(Stringifier):
     """
@@ -103,8 +88,7 @@ class FortranCodegen(Stringifier):
 
     def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
         super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=lambda indent: ' &\n{}& '.format(indent),  # pylint: disable=unnecessary-lambda
-                         symgen=FCodeMapper())
+                         line_cont=' &\n{}& '.format, symgen=FCodeMapper())
         self.conservative = conservative
 
     def apply_label(self, line, label):
