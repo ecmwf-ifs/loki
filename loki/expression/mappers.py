@@ -35,6 +35,10 @@ class LokiStringifyMapper(StringifyMapper):
     def __init__(self, *args, **kwargs):
         from loki.expression import operations as op  # pylint: disable=import-outside-toplevel
         super().__init__(*args, **kwargs)
+
+        # This should really be a class property but due to the circular dependency
+        # (Pymbolic expression nodes requiring `LokiStringifyMapper` for `make_stringifier`)
+        # we cannot perform the relevant import on a module level
         self.parenthesised_multiplicative_primitives = (
             op.ParenthesisedAdd, op.ParenthesisedMul,
             op.ParenthesisedDiv, op.ParenthesisedPow
@@ -140,20 +144,17 @@ class LokiStringifyMapper(StringifyMapper):
             return self.parenthesize_if_needed(
                 '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
                 enclosing_prec, PREC_PRODUCT)
-        # Suppress Pymbolics's conservative default bracketing by overriding
-        # the multiplicative primitives to exclude `Product` and
-        # `Quotient` nodes.
-        # This is done to suppress the default bracketing, which can cause
-        # round-off deviations for agressively optimising compilers. Since
-        # we explicitly handle bracketing in our expression nodes, we can
-        # drop this here... famous last words!
+        # Make Pymbolic's default bracketing less conservative by not enforcing
+        # parenthesis around products nested in a product, which can cause
+        # round-off deviations for agressively optimising compilers
         kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
         return self.parenthesize_if_needed(
                 self.join_rec("*", expr.children, PREC_PRODUCT, *args, **kwargs),
                 enclosing_prec, PREC_PRODUCT)
 
     def map_quotient(self, expr, enclosing_prec, *args, **kwargs):
-        # Similar to products we drop the conservative bracketing for the numerator
+        # Similar to products we drop the conservative parenthesis around products and
+        # quotients for the numerator
         kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
         numerator = self.rec_with_force_parens_around(expr.numerator, PREC_PRODUCT, *args, **kwargs)
         kwargs['force_parens_around'] = self.multiplicative_primitives
