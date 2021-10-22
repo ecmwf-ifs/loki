@@ -1,5 +1,5 @@
 from pymbolic.mapper.stringifier import (
-    PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
+    PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
 from loki.visitors import Stringifier, FindNodes
@@ -34,7 +34,7 @@ class CCodeMapper(LokiStringifyMapper):
             return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
         return str(expr.value)
 
-    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
+    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):  # pylint: disable=no-self-use
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
             return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))

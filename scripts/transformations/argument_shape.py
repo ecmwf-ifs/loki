@@ -15,9 +15,9 @@ class InferArgShapeTransformation(Transformation):
     the caller.
     """
 
-    def transform_subroutine(self, source, **kwargs):  # pylint: disable=arguments-differ
+    def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
-        for call in FindNodes(CallStatement).visit(source.body):
+        for call in FindNodes(CallStatement).visit(routine.body):
             if call.context is not None and call.context.active:
                 routine = call.context.routine
 

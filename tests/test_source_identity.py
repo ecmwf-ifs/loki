@@ -8,8 +8,9 @@ they mostly check whether at the end comes out what went in at the beginning.
 from pathlib import Path
 import pytest
 from conftest import clean_test
-from loki import Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes, as_tuple
-import loki.ir as ir
+from loki import (
+  Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes, as_tuple, ir
+)
 
 
 @pytest.fixture(scope='module', name='here')
