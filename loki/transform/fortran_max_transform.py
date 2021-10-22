@@ -14,8 +14,7 @@ from loki.expression import (
     FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
     SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
 )
-import loki.ir as ir
-from loki import Module, Subroutine, Sourcefile
+from loki import Module, Subroutine, Sourcefile, ir
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType, DerivedType

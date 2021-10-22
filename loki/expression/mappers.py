@@ -32,6 +32,31 @@ class LokiStringifyMapper(StringifyMapper):
 
     _regex_string_literal = re.compile(r"((?<!')'(?:'')*(?!'))")
 
+    def __init__(self, *args, **kwargs):
+        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel
+        super().__init__(*args, **kwargs)
+
+        # This should really be a class property but due to the circular dependency
+        # (Pymbolic expression nodes requiring `LokiStringifyMapper` for `make_stringifier`)
+        # we cannot perform the relevant import on a module level
+        self.parenthesised_multiplicative_primitives = (
+            op.ParenthesisedAdd, op.ParenthesisedMul,
+            op.ParenthesisedDiv, op.ParenthesisedPow
+        )
+
+    def rec_with_force_parens_around(self, expr, *args, **kwargs):
+        # Re-implement here to add no_force_parens_around
+        force_parens_around = kwargs.pop("force_parens_around", ())
+        no_force_parens_around = kwargs.pop("no_force_parens_around",
+                                            self.parenthesised_multiplicative_primitives)
+
+        result = self.rec(expr, *args, **kwargs)
+
+        if isinstance(expr, force_parens_around) and not isinstance(expr, no_force_parens_around):
+            result = f"({result})"
+
+        return result
+
     def map_logic_literal(self, expr, enclosing_prec, *args, **kwargs):
         return str(expr.value)
 
@@ -90,13 +115,14 @@ class LokiStringifyMapper(StringifyMapper):
         Since substraction and unary minus are mapped to multiplication with (-1), we are here
         looking for such cases and determine the matching operator for the output.
         """
+        from loki.expression.operations import ParenthesisedMul  # pylint: disable=import-outside-toplevel
         def get_op_prec_expr(expr):
-            from loki.expression.symbols import Product  # pylint: disable=import-outside-toplevel
-            if isinstance(expr, Product) and expr.children and pmbl.is_zero(expr.children[0]+1):
-                if len(expr.children) == 2:
-                    # only the minus sign and the other child
-                    return '-', PREC_PRODUCT, expr.children[1]
-                return '-', PREC_PRODUCT, Product(expr.children[1:])
+            if isinstance(expr, pmbl.Product) and not isinstance(expr, ParenthesisedMul):
+                if pmbl.is_zero(expr.children[0]+1):
+                    if len(expr.children) == 2:
+                        # only the minus sign and the other child
+                        return '-', PREC_PRODUCT, expr.children[1]
+                    return '-', PREC_PRODUCT, expr.__class__(expr.children[1:])
             return '+', PREC_SUM, expr
 
         terms = []
@@ -118,13 +144,32 @@ class LokiStringifyMapper(StringifyMapper):
             return self.parenthesize_if_needed(
                 '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
                 enclosing_prec, PREC_PRODUCT)
-        return super().map_product(expr, enclosing_prec, *args, **kwargs)
+        # Make Pymbolic's default bracketing less conservative by not enforcing
+        # parenthesis around products nested in a product, which can cause
+        # round-off deviations for agressively optimising compilers
+        kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
+        return self.parenthesize_if_needed(
+                self.join_rec("*", expr.children, PREC_PRODUCT, *args, **kwargs),
+                enclosing_prec, PREC_PRODUCT)
+
+    def map_quotient(self, expr, enclosing_prec, *args, **kwargs):
+        # Similar to products we drop the conservative parenthesis around products and
+        # quotients for the numerator
+        kwargs['force_parens_around'] = (pmbl.FloorDiv, pmbl.Remainder)
+        numerator = self.rec_with_force_parens_around(expr.numerator, PREC_PRODUCT, *args, **kwargs)
+        kwargs['force_parens_around'] = self.multiplicative_primitives
+        denominator = self.rec_with_force_parens_around(expr.denominator, PREC_PRODUCT, *args, **kwargs)
+        return self.parenthesize_if_needed(self.format('%s / %s', numerator, denominator),
+                                           enclosing_prec, PREC_PRODUCT)
 
     def map_parenthesised_add(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_sum(expr, PREC_NONE, *args, **kwargs))
 
     def map_parenthesised_mul(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_product(expr, PREC_NONE, *args, **kwargs))
+
+    def map_parenthesised_div(self, expr, enclosing_prec, *args, **kwargs):
+        return self.parenthesize(self.map_quotient(expr, PREC_NONE, *args, **kwargs))
 
     def map_parenthesised_pow(self, expr, enclosing_prec, *args, **kwargs):
         return self.parenthesize(self.map_power(expr, PREC_NONE, *args, **kwargs))
@@ -218,6 +263,7 @@ class LokiWalkMapper(WalkMapper):
 
     map_parenthesised_add = WalkMapper.map_sum
     map_parenthesised_mul = WalkMapper.map_product
+    map_parenthesised_div = WalkMapper.map_quotient
     map_parenthesised_pow = WalkMapper.map_power
     map_string_concat = WalkMapper.map_sum
 
@@ -395,6 +441,7 @@ class ExpressionCallbackMapper(CombineMapper):
 
     map_parenthesised_add = CombineMapper.map_sum
     map_parenthesised_mul = CombineMapper.map_product
+    map_parenthesised_div = CombineMapper.map_quotient
     map_parenthesised_pow = CombineMapper.map_power
     map_string_concat = CombineMapper.map_sum
 
@@ -507,9 +554,14 @@ class LokiIdentityMapper(IdentityMapper):
             return expr
         return expr.__class__(children)
 
+    def map_quotient(self, expr, *args, **kwargs):
+        return expr.__class__(self.rec(expr.numerator, *args, **kwargs),
+                              self.rec(expr.denominator, *args, **kwargs))
+
     map_parenthesised_add = map_sum
     map_product = map_sum
     map_parenthesised_mul = map_product
+    map_parenthesised_div = map_quotient
     map_parenthesised_pow = IdentityMapper.map_power
     map_string_concat = map_sum
 

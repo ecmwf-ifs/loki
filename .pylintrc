@@ -62,6 +62,8 @@ confidence=
 # --disable=W".
 disable=W504, # line break after binary operator
         W0511,  # Disable TODO warnings
+        unspecified-encoding,  # It's fairly sure to assume we'll only support Linux
+        duplicate-code,  # That's something that happens with tests and visitors...
         invalid-name,
         missing-module-docstring,
         missing-class-docstring,

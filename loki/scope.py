@@ -244,6 +244,12 @@ class Scope:
         if rescope_variables:
             self.rescope_variables()
 
+    def __repr__(self):
+        """
+        String representation.
+        """
+        return 'Scope<{}>'.format(id(self))
+
     @property
     def parent(self):
         """

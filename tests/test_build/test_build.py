@@ -14,12 +14,7 @@ def fixture_builder(path):
     return Builder(source_dirs=path, build_dir=path/'build')
 
 
-@pytest.mark.parametrize('rules', [
-    '*.o *.mod *.so f90wrap*.f90',
-    ['*.o', '*.mod', '*.so', 'f90wrap*.f90'],
-    ['xxx_a.o', 'xxx_b.o', 'xxx_a.mod', 'xxx_a.so', 'f90wrap_xxx_a.f90'],
-])
-def test_build_clean(builder, rules):
+def test_build_clean(builder):
     """
     Test basic `make clean`-style functionality.
     """

@@ -36,7 +36,7 @@ class OutputFile:
 
     def _check_open(self):
         if not self.file_handle:
-            self.file_handle = open(self.file_name, 'w')
+            self.file_handle = open(self.file_name, 'w')  # pylint: disable=consider-using-with
 
     def __del__(self):
         if self.file_handle:

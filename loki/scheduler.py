@@ -358,8 +358,7 @@ class Scheduler:
             warning('Scheduler could not create item: {}'.format(source))
             if self.config.default['strict']:
                 raise fnferr
-            else:
-                return None
+            return None
 
         debug('[Loki] Scheduler creating item: {} => {}'.format(name, path))
         return Item(name=name, config=item_conf, path=path, build_args=self.build_args)
@@ -421,8 +420,7 @@ class Scheduler:
                     warning('Scheduler could not find file for enrichment:\n{}'.format(path))
                     if self.config.default['strict']:
                         raise err
-                    else:
-                        continue
+                    continue
                 source = Sourcefile.from_file(path, preprocess=True, **self.build_args)
                 item.routine.enrich_calls(source.all_subroutines)
 

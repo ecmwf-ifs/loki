@@ -726,4 +726,4 @@ end subroutine test_routine
                     ('.le.', '<=', '23-24'))
 
     for keywords, message in zip(f77_f90_line, messages):
-        assert all([str(keyword) in message for keyword in keywords])
+        assert all(str(keyword) in message for keyword in keywords)

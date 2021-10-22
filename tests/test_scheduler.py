@@ -83,11 +83,11 @@ class VisGraphWrapper:
 
     @property
     def nodes(self):
-        return [m for m in self._re_nodes.findall(self.text)]
+        return list(self._re_nodes.findall(self.text))
 
     @property
     def edges(self):
-        return [m for m in self._re_edges.findall(self.text)]
+        return list(self._re_edges.findall(self.text))
 
 
 def test_scheduler_graph_simple(here, config):

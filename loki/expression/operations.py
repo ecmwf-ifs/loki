@@ -8,7 +8,7 @@ import pymbolic.primitives as pmbl
 from six.moves import intern
 
 from loki.expression.mappers import LokiStringifyMapper
-from loki.expression.symbols import StringLiteral, ExprMetadataMixin, Sum, Product, Power
+from loki.expression.symbols import StringLiteral, ExprMetadataMixin, Sum, Product, Quotient, Power
 
 
 class ParenthesisedAdd(Sum):
@@ -30,6 +30,18 @@ class ParenthesisedMul(Product):
     """
 
     mapper_method = intern("map_parenthesised_mul")
+
+    def make_stringifier(self, originating_stringifier=None):
+        return LokiStringifyMapper()
+
+
+class ParenthesisedDiv(Quotient):
+    """
+    Specialised version of :class:`Quotient` that always pretty-prints and
+    code-generates with explicit parentheses.
+    """
+
+    mapper_method = intern("map_parenthesised_div")
 
     def make_stringifier(self, originating_stringifier=None):
         return LokiStringifyMapper()

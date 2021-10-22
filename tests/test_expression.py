@@ -305,7 +305,7 @@ end subroutine logical_array
 ])
 def test_parenthesis(frontend):
     """
-    Test explicit parethesis in provided source code.
+    Test explicit parenthesis in provided source code.
 
     Note, that this test is very niche, as it ensures that mathematically
     insignificant (and hence sort of wrong) bracketing is still honoured.
@@ -318,27 +318,37 @@ def test_parenthesis(frontend):
     """
 
     fcode = """
-subroutine parenthesis(v1, v2, v3)
+subroutine parenthesis(v1, v2, v3, i)
   integer, parameter :: jprb = selected_real_kind(13,300)
-  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(in) :: v1(:), v2
   real(kind=jprb), intent(out) :: v3
+  integer, intent(in) :: i
 
-  v3 = (v1**1.23_jprb) * 1.3_jprb + (1_jprb - v2**1.26_jprb)
+  v3 = (v1(i-1)**1.23_jprb) * 1.3_jprb + (1_jprb - v2**1.26_jprb)
+
+  v3 = min(5._jprb - 3._jprb*v1(i), 3._jprb*exp(5._jprb*(v1(i) - v2) / (v1(i) - v3)) / 2._jprb*exp(5._jprb*(v1(i) - v2) / (v1(i) -  &
+  & v3)))
+
+  v3 = v1(i)*(1.0_jprb / (v2*v3))
 end subroutine parenthesis
-"""
+""".strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    stmt = FindNodes(Assignment).visit(routine.body)[0]
+    stmts = FindNodes(Assignment).visit(routine.body)
 
     # Check that the reduntant bracket around the minus
     # and the first exponential are still there.
-    assert fgen(stmt) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v2**1.26_jprb)'
+    assert fgen(stmts[0]) == 'v3 = (v1(i - 1)**1.23_jprb)*1.3_jprb + (1_jprb - v2**1.26_jprb)'
 
     # Now perform a simple substitutions on the expression
     # and make sure we are still parenthesising as we should!
-    v2 = [v for v in FindVariables().visit(stmt) if v.name == 'v2'][0]
+    v2 = [v for v in FindVariables().visit(stmts[0]) if v.name == 'v2'][0]
     v4 = v2.clone(name='v4')
-    stmt2 = SubstituteExpressions({v2: v4}).visit(stmt)
-    assert fgen(stmt2) == 'v3 = (v1**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
+    stmt2 = SubstituteExpressions({v2: v4}).visit(stmts[0])
+    assert fgen(stmt2) == 'v3 = (v1(i - 1)**1.23_jprb)*1.3_jprb + (1_jprb - v4**1.26_jprb)'
+
+    # Make sure there are no additional brackets in the exponentials or numerators/denominators
+    assert '\n'.join(l.lstrip() for l in fcode.splitlines()[-5:-3]) == fgen(stmts[1]).lower()
+    assert fgen(stmts[2]) == fcode.splitlines()[-2].lstrip()
 
 
 @pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
@@ -1036,3 +1046,19 @@ def test_variable_without_scope():
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
     assert scope.symbols['var'].dtype is BasicType.LOGICAL
+
+
+@pytest.mark.parametrize('expr', [
+    ('1.8 - 3.E-03*ztp1'),
+    ('1.8 - 0.003*ztp1'),
+    ('(a / b) + 3.0_jprb'),
+    ('a / b*3.0_jprb'),
+    ('-5*3 + (-(5*3))'),
+    ('5 + (-1)'),
+    ('5 - 1')
+])
+def test_standalone_expr_parenthesis(expr):
+    scope = Scope()
+    ir = parse_fparser_expression(expr, scope)
+    assert isinstance(ir, pmbl.Expression)
+    assert fgen(ir) == expr

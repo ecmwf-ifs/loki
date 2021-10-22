@@ -1,5 +1,5 @@
 from pymbolic.mapper.stringifier import (
-    PREC_SUM, PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
+    PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
 from loki.visitors import Stringifier, FindNodes
@@ -31,24 +31,14 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
-            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
-        else:
-            result = str(expr.value)
-        if not (result.startswith("(") and result.endswith(")")) \
-                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-            return self.parenthesize(result)
-        return result
+            return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+        return str(expr.value)
 
-    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):
+    def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):  # pylint: disable=no-self-use
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
-            result = '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
-        else:
-            result = str(expr.value)
-        if not (result.startswith("(") and result.endswith(")")) \
-                and ("-" in result or "+" in result) and (enclosing_prec > PREC_SUM):
-            return self.parenthesize(result)
-        return result
+            return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+        return str(expr.value)
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
         return '"%s"' % expr.value

@@ -5,8 +5,10 @@ from loki.frontend.source import Source
 from loki.frontend.util import inline_comments, cluster_comments, inline_labels
 from loki.visitors import GenericVisitor, FindNodes, Transformer
 from loki import ir
-import loki.expression.symbols as sym
-from loki.expression import ExpressionDimensionsMapper, StringConcat, AttachScopesMapper
+from loki.expression import (
+    symbols as sym, operations as op,
+    ExpressionDimensionsMapper, StringConcat, AttachScopesMapper
+)
 from loki.logging import info, debug, DEBUG, warning, error
 from loki.config import config
 from loki.tools import (
@@ -711,6 +713,25 @@ class OMNI2IR(GenericVisitor):
             return name, o.attrib['value']
         return name, self.visit(list(o)[0], **kwargs)
 
+    @staticmethod
+    def parenthesize_if_needed(expr, enclosing_cls):
+        # Other than FP/OFP, OMNI does not retain any information about parenthesis in the
+        # original source. While the parse tree is semantically correct,
+        # it may cause problems with some agressively optimising compilers.
+        # We inject manual parenthesis here for nested expressions to make sure
+        # we capture as much of the evaluation order of the original source as possible.
+        # Note: this will result in an abundance of trivial/unnecessary parenthesis!
+        if enclosing_cls in (sym.Product, sym.Quotient):
+            if isinstance(expr, sym.Product):
+                return op.ParenthesisedMul(expr.children, source=expr.source)
+            if isinstance(expr, sym.Quotient):
+                return op.ParenthesisedDiv(expr.numerator, expr.denominator, source=expr.source)
+            if isinstance(expr, sym.Sum):
+                return op.ParenthesisedAdd(expr.children, source=expr.source)
+            if isinstance(expr, sym.Power):
+                return op.ParenthesisedPow(expr.base, expr.exponent, source=expr.source)
+        return expr
+
     def visit_plusExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
@@ -724,11 +745,13 @@ class OMNI2IR(GenericVisitor):
     def visit_mulExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
+        exprs = tuple(self.parenthesize_if_needed(c, sym.Product) for c in exprs)
         return sym.Product(exprs, source=kwargs['source'])
 
     def visit_divExpr(self, o, **kwargs):
         exprs = tuple(self.visit(c, **kwargs) for c in o)
         assert len(exprs) == 2
+        exprs = tuple(self.parenthesize_if_needed(c, sym.Quotient) for c in exprs)
         return sym.Quotient(*exprs, source=kwargs['source'])
 
     def visit_FpowerExpr(self, o, **kwargs):

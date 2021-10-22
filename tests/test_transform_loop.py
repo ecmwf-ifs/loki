@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from pathlib import Path
 import pytest
 import numpy as np
@@ -1062,7 +1063,7 @@ end subroutine transform_loop_fission_nested_promote
         assert loop.bounds.stop == 'n + 1'
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    assert all([d == ref for d, ref in zip(routine.variable_map['zqxfg'].shape, ['5', '1 + n'])])
+    assert all(d == ref for d, ref in zip(routine.variable_map['zqxfg'].shape, ['5', '1 + n']))
 
     fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)

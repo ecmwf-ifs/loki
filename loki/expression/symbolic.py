@@ -540,6 +540,7 @@ class SimplifyMapper(LokiIdentityMapper):
 
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
+    map_parenthesised_div = map_quotient
 
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):
