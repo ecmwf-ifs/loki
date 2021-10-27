@@ -1,9 +1,10 @@
 # Version 3.12 required to use FindPython
 # Version 3.15 required to use Python3_FIND_VIRTUALENV (use 3.17 for conda support)
 cmake_minimum_required ( VERSION 3.15 FATAL_ERROR )
+find_package( ecbuild REQUIRED )
 
 # Specify project and configuration options
-project ( loki )
+project ( loki VERSION 0.0.5 LANGUAGES NONE )
 
 option ( EDITABLE "Install Loki as an editable Python package" ON )
 
@@ -34,14 +35,24 @@ execute_process (
 )
 
 # Install Loki with dependencies
-if ( EDITABLE )
-    list(APPEND PIP_OPTIONS "-e")
+if ( NOT CMAKE_VERBOSE_MAKEFILE )
+    list ( APPEND PIP_OPTIONS "-q" )
 endif()
-add_custom_command (
-    OUTPUT ${VIRTUAL_ENV_BIN}/loki-transform.py ${VIRTUAL_ENV_BIN}/loki-lint.py
-    COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}
-)
+if ( EDITABLE )
+    list ( APPEND PIP_OPTIONS "-e" )
+endif()
+add_custom_target ( loki ALL ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR} )
 
-# Create targets for Loki CLI executables
-add_custom_target ( loki-transform.py ALL DEPENDS ${VIRTUAL_ENV_BIN}/loki-transform.py )
-add_custom_target ( loki-lint.py ALL DEPENDS ${VIRTUAL_ENV_BIN}/loki-lint.py )
+# Make CLI executables available in add_custom_command
+add_executable ( loki-transform.py IMPORTED GLOBAL )
+add_dependencies ( loki-transform.py loki )
+set_property ( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
+add_executable ( loki-transform ALIAS loki-transform.py )
+
+add_executable ( loki-lint.py IMPORTED GLOBAL )
+add_dependencies ( loki-lint.py loki )
+set_property ( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-lint.py )
+add_executable ( loki-lint ALIAS loki-lint.py )
+
+# Install the project so it can be used within the bundle
+ecbuild_install_project( NAME loki )
