@@ -37,17 +37,11 @@ execute_process (
 if ( EDITABLE )
     list(APPEND PIP_OPTIONS "-e")
 endif()
-execute_process ( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR} )
+add_custom_command (
+    OUTPUT ${VIRTUAL_ENV_BIN}/loki-transform.py ${VIRTUAL_ENV_BIN}/loki-lint.py
+    COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
-# Make Loki CLI executables usable in add_custom_command, for example:
-#   add_custom_command(
-#       OUTPUT file.loki.F90
-#       COMMAND loki-transform.py convert -m idem -s file.F90 -out file.loki.F90
-#   )
-add_executable ( loki-transform.py IMPORTED GLOBAL )
-set_property ( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
-add_executable ( loki-transform ALIAS loki-transform.py )
-
-add_executable ( loki-lint.py IMPORTED GLOBAL )
-set_property ( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-lint.py )
-add_executable ( loki-lint ALIAS loki-lint.py )
+# Create targets for Loki CLI executables
+add_custom_target ( loki-transform.py ALL DEPENDS ${VIRTUAL_ENV_BIN}/loki-transform.py )
+add_custom_target ( loki-lint.py ALL DEPENDS ${VIRTUAL_ENV_BIN}/loki-lint.py )
