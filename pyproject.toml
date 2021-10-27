@@ -1,0 +1,12 @@
+# Make sure we use setuptools and have all required dependencies for that
+[build-system]
+requires = [
+  "setuptools >= 45",
+  "wheel",
+  "setuptools_scm >= 6.2",
+  "numpy"
+]
+build-backend = "setuptools.build_meta"
+
+# Enable SCM versioning
+[tool.setuptools_scm]

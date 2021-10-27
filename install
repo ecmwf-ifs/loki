@@ -229,14 +229,8 @@ fi
 
 print_step "Installing Loki and Python dependencies"
 
-pip install $PIPPROXYOPTIONS --upgrade pip
-pip install $PIPPROXYOPTIONS wheel
-pip install $PIPPROXYOPTIONS numpy  # Needed during next step
-
 cd "$loki_path"
-
-pip install $PIPPROXYOPTIONS -r requirements.txt
-pip install $PIPPROXYOPTIONS -e .  # Installs Loki dev copy in editable mode
+pip install $PIPPROXYOPTIONS -e .[tests]  # Installs Loki dev copy in editable mode
 
 #
 # Install Java
@@ -342,9 +336,11 @@ OFP_HOME=${venv_path}/src/open-fortran-parser
 if [ "$with_ofp" == true ]; then
   print_step "Patching OFP"
 
-  # HACK: Force OFP version and install Java deps
-  echo "VERSION = '0.5.3'" > "${OFP_HOME}/open_fortran_parser/_version.py"
+  # Reinstall OFP editable to enable below hack
+  pip install $PIPPROXYOPTIONS -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 
+  # HACK: Force OFP version
+  echo "VERSION = '0.5.3'" > "${OFP_HOME}/open_fortran_parser/_version.py"
 
   if [ "x$proxy_certificate" != "x" ]; then
   # Bypass certificate verification
@@ -366,7 +362,7 @@ if [ "$with_ofp" == true ]; then
   ' "${OFP_HOME}/open_fortran_parser/__main__.py"
   fi
 
-
+  # Install Java dependencies
   python3 -m open_fortran_parser --deps
 
   # Copy downloaded binaries to lib
