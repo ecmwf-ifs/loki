@@ -44,8 +44,10 @@ execute_process ( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${
 #       OUTPUT file.loki.F90
 #       COMMAND loki-transform.py convert -m idem -s file.F90 -out file.loki.F90
 #   )
-add_executable( loki-transform IMPORTED )
-set_property ( TARGET loki-transform PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
+add_executable ( loki-transform.py IMPORTED GLOBAL )
+set_property ( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
+add_executable ( loki-transform ALIAS loki-transform.py )
 
-add_executable( loki-lint IMPORTED )
-set_property ( TARGET loki-lint PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-lint.py )
+add_executable ( loki-lint.py IMPORTED GLOBAL )
+set_property ( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-lint.py )
+add_executable ( loki-lint ALIAS loki-lint.py )
