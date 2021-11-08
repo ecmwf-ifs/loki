@@ -26,11 +26,14 @@ endif()
 
 set( CLAW_DIR "" )
 if( ${HAVE_CLAW} )
+    if( NOT DEFINED ENV{BITBUCKET} )
+        set( ENV{BITBUCKET} ssh://git.ecmwf.int/ )
+    endif()
 
     # Bootstrap OpenJDK and Ant, if necessary
     FetchContent_Declare(
         cmake-jdk-ant
-        GIT_REPOSITORY https://git.ecmwf.int/scm/~nabr/cmake-jdk-ant.git
+        GIT_REPOSITORY $ENV{BITBUCKET}/~nabr/cmake-jdk-ant.git
     )
     FetchContent_MakeAvailable( cmake-jdk-ant )
 
