@@ -30,31 +30,31 @@ if( ${HAVE_CLAW} )
     # Bootstrap OpenJDK and Ant, if necessary
     FetchContent_Declare(
         cmake-jdk-ant
-        GIT_REPOSITORY ssh://git.ecmwf.int/~nabr/cmake-jdk-ant.git
+        GIT_REPOSITORY https://git.ecmwf.int/scm/~nabr/cmake-jdk-ant.git
     )
     FetchContent_MakeAvailable( cmake-jdk-ant )
 
     # Build OMNI Compiler and the CLAW
     FetchContent_Declare(
-        claw_compiler_src
+        claw_compiler
         GIT_REPOSITORY  https://github.com/reuterbal/claw-compiler.git
         GIT_TAG         mlange-dev
         GIT_SHALLOW     ON
     )
 
     # Need to fetch manually to be able to do an "in-build installation"
-    FetchContent_GetProperties( claw_compiler_src )
-    if( NOT claw_compiler_src_POPULATED )
-        FetchContent_Populate( claw_compiler_src )
+    FetchContent_GetProperties( claw_compiler )
+    if( NOT claw_compiler_POPULATED )
+        FetchContent_Populate( claw_compiler )
 
         set( CLAW_DIR ${CMAKE_CURRENT_BINARY_DIR}/claw-compiler )
 
     endif()
 
     ExternalProject_Add(
-        claw_compiler
-        SOURCE_DIR ${claw_compiler_src_SOURCE_DIR}
-        BINARY_DIR ${claw_compiler_src_BINARY_DIR}
+        claw
+        SOURCE_DIR ${claw_compiler_SOURCE_DIR}
+        BINARY_DIR ${claw_compiler_BINARY_DIR}
         INSTALL_DIR ${CLAW_DIR}
 
         # Can skip this as FetchContent will take care of it at configure time
@@ -138,19 +138,19 @@ endif()
 add_custom_target( loki ALL ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
 
 # Make CLI executables available in add_custom_command
-add_executable( loki-transform.py IMPORTED GLOBAL )
-add_dependencies( loki-transform.py loki )
-set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
-add_executable( loki-transform ALIAS loki-transform.py )
-
 add_executable( loki-lint.py IMPORTED GLOBAL )
-add_dependencies( loki-lint.py loki )
 set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-lint.py )
-add_executable( loki-lint ALIAS loki-lint.py )
+add_dependencies( loki-lint.py loki )
 
-# Declare dependencies
+add_executable( loki-transform.py IMPORTED GLOBAL )
+set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${VIRTUAL_ENV_BIN}/loki-transform.py )
+add_dependencies( loki-transform.py loki )
+
 if( ${HAVE_CLAW} )
-    add_dependencies( loki claw_compiler )
+    add_executable( clawfc IMPORTED GLOBAL )
+    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${CLAW_DIR}/bin/clawfc )
+    add_dependencies( clawfc claw )
+    add_dependencies( loki-transform.py loki )
 endif()
 
 # Install the project so it can be used within the bundle
