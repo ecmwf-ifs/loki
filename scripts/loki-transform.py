@@ -125,7 +125,7 @@ def idempotence(out_path, source, driver, header, cpp, include, define, omni_inc
         config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
     definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
@@ -201,7 +201,7 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
         config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
     definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
                                                frontend=frontend_type).modules for h in header)
 
@@ -291,7 +291,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     kernel_name = 'CLOUDSC'
 
     frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
 
     # Note, in order to get function inlinig correct, we need full knowledge
     # of any imported symbols and functions. Since we cannot yet retro-fit that
