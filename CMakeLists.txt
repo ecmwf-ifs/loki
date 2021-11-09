@@ -26,6 +26,9 @@ endif()
 
 set( CLAW_DIR "" )
 if( ${HAVE_CLAW} )
+
+    message( STATUS "Downloading OMNI Compiler and CLAW Compiler")
+
     if( NOT DEFINED ENV{BITBUCKET} )
         set( ENV{BITBUCKET} ssh://git.ecmwf.int/ )
     endif()
@@ -68,6 +71,7 @@ if( ${HAVE_CLAW} )
         # Specify in-build installation target and unset any CFLAGS
         CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CLAW_DIR} -DCFLAGS="" -DJAVA_HOME=${JAVA_HOME} -DANT_HOME=${ANT_HOME}
     )
+
 endif()
 
 # Discover only system install Python 3
@@ -75,6 +79,7 @@ set( Python3_FIND_VIRTUALENV STANDARD )
 find_package( Python3 COMPONENTS Interpreter REQUIRED )
 
 # Create a loki virtualenv
+message( STATUS "Create Python virtual environment for Loki" )
 execute_process( COMMAND ${Python3_EXECUTABLE} -m venv "${CMAKE_CURRENT_BINARY_DIR}/loki_venv" )
 
 # Update the environment with VIRTUAL_ENV variable (mimic the activate script)
@@ -122,6 +127,7 @@ if( ${ENABLE_TESTS} )
     )
 
     list( APPEND LOKI_INSTALL_OPTIONS "tests" )
+
 endif()
 
 # Install Loki with dependencies
