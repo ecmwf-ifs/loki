@@ -23,9 +23,10 @@
 ##############################################################################
 
 # Version 3.12 required to use FindPython
-# Version 3.15 required to use Python3_FIND_VIRTUALENV (use 3.17 for conda support)
-cmake_minimum_required( VERSION 3.15 FATAL_ERROR )
-find_package( ecbuild REQUIRED )
+# Version 3.15 officially required to use Python3_FIND_VIRTUALENV (not working on 3.15.3,
+# though, and use 3.17 for conda support anyway)
+cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
+find_package( ecbuild 3.4 REQUIRED HINTS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../ecbuild )
 
 # Specify project and configuration options
 project( loki VERSION 0.0.5 LANGUAGES NONE )
