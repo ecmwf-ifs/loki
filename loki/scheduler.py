@@ -329,7 +329,7 @@ class Scheduler:
                 obj_list += [Obj(source_path=f) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in obj.subroutines)
+        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in as_tuple(obj.subroutines))
 
     @property
     def routines(self):
