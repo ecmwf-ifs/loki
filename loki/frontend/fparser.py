@@ -348,6 +348,9 @@ class FParser2IR(GenericVisitor):
         """
         return DerivedType(o.tostr())
 
+    def visit_Type_Param_Value(self, o, **kwargs):
+        return sym.IntrinsicLiteral(o.string)
+
     def visit_Part_Ref(self, o, **kwargs):
         """
         A part of a data ref (e.g., flat variable or array name, or name of a
