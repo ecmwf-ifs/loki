@@ -9,7 +9,7 @@ from loki.visitors import FindNodes
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.logging import info, warning, error, debug
+from loki.logging import warning, debug
 
 
 __all__ = ['Item', 'Scheduler', 'SchedulerConfig']
@@ -114,30 +114,13 @@ class Item:
         Dict of build arguments to pass to ``SourceFile.from_file`` constructors
     """
 
-    def __init__(self, name, path, config=None, build_args=None):
-        # Essential item attributes
+    def __init__(self, name, path, source, config=None):
         self.name = name
         self.path = path
-        self.source = None
-        self.routine = None
-
+        self.source = source
         self.config = config or {}
-        self.build_args = build_args or {}
 
-        if path and path.exists():
-            try:
-                # Read and parse source file and extract subroutine
-                self.source = Sourcefile.from_file(path, **self.build_args)
-                self.routine = self.source[self.name]
-
-            except Exception as excinfo:  # pylint: disable=broad-except
-                warning('Could not parse %s:', path)
-                if self.strict:
-                    raise excinfo
-                error(excinfo)
-
-        else:
-            info("Could not find source file %s; skipping...", name)
+        self.routine = self.source[self.name]
 
     def __repr__(self):
         return f'loki.scheduler.Item<{self.name}>'
@@ -337,6 +320,8 @@ class Scheduler:
         # Create a map of all potential target routines for fast lookup later
         self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in as_tuple(obj.subroutines))
 
+        self.source_map = {}
+
     @property
     def routines(self):
         return [item.routine for item in self.item_graph.nodes]
@@ -395,8 +380,14 @@ class Scheduler:
                 raise fnferr
             return None
 
+        if path in self.source_map:
+            source = self.source_map[path]
+        else:
+            source = Sourcefile.from_file(filename=path, **self.build_args)
+            self.source_map[path]= source
+
         debug(f'[Loki] Scheduler creating item: {name} => {path}')
-        return Item(name=name, config=item_conf, path=path, build_args=self.build_args)
+        return Item(name=name, path=path, source=source, config=item_conf)
 
     def populate(self, routines):
         """
