@@ -177,14 +177,22 @@ class DependencyTransformation(Transformation):
         """
         Utility to derive a new module name from `suffix` and `module_suffix`
         """
-        if self.module_suffix:
-            # If a module suffix is provided, we insert suffix before that
-            if self.module_suffix.upper() in modname.upper():
-                idx = modname.upper().index(self.module_suffix.upper())
-                return f'{modname[:idx]}{self.suffix}{self.module_suffix}'
 
-            return f'{modname}{self.suffix}{self.module_suffix}'
-        return f'{modname}{self.suffix}'
+        # First step through known suffix variants to determine canonical basename
+        if modname.lower().endswith(self.suffix.lower()+self.module_suffix.lower()):
+            idx = modname.lower().index(self.suffix.lower()+self.module_suffix.lower())
+        elif modname.lower().endswith(self.suffix.lower()):
+            idx = modname.lower().index(self.suffix.lower())
+        elif modname.lower().endswith(self.module_suffix.lower()):
+            idx = modname.lower().index(self.module_suffix.lower())
+        else:
+            idx = len(modname)
+        base = modname[:idx]
+
+        # Suffix combination to canonical basename
+        if self.module_suffix:
+            return f'{base}{self.suffix}{self.module_suffix}'
+        return f'{base}{self.suffix}'
 
     def generate_interfaces(self, source):
         """
