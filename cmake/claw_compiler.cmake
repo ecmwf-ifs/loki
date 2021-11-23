@@ -51,7 +51,7 @@ function(install_claw_compiler VERSION)
     # Build OMNI Compiler and the CLAW
     FetchContent_Declare(
         claw_compiler
-        GIT_REPOSITORY  https://github.com/reuterbal/claw-compiler.git
+        GIT_REPOSITORY  https://github.com/mlange05/claw-compiler.git
         GIT_TAG         ${VERSION}
         GIT_SHALLOW     ON
     )
