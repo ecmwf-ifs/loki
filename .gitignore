@@ -39,6 +39,14 @@ tests/test_transpile/transpile_*_c.c
 tests/test_transpile/transpile_*_c.h
 tests/test_transpile/transpile_*_fc.f90
 
+tests/transpile*.f90
+
+tests/kernel_test.intfb.h
+tests/libsubroutine_external.a
+
+tests/subroutine_external.py
+tests/routine_axpy_scalar_py.py
+
 # CMake overhead of hand-crafted test
 tests/test_transpile/CMakeFiles/*
 tests/test_transpile/CMakeCache.txt
