@@ -694,7 +694,7 @@ end module transform_region_to_call_imports_mod
     module.routines += as_tuple(routines)
 
     # Hack: rename module to use a different filename in the build
-    module.name = '%s_' % module.name
+    module.name = '%s' % module.name
     obj = jit_compile_lib([module, ext_module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
     mod_function = getattr(getattr(obj, module.name), module.subroutines[0].name)
 
@@ -704,5 +704,5 @@ end module transform_region_to_call_imports_mod
     mod_function(a, b)
     assert np.all(a == [1] * 10)
     assert np.all(b == range(1,11))
-    #(here/'{}.f90'.format(module.name)).unlink()
+    (here/'{}.f90'.format(module.name)).unlink()
     (here/'{}.f90'.format(ext_module.name)).unlink()

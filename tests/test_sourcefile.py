@@ -218,7 +218,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend):
             assert var.type.dtype.procedure is decl
 
     # Generate code and compile
-    filepath = here/f'{module.name}.F90'
+    filepath = here/f'{module.name}.f90'
     mod = jit_compile(source, filepath=filepath, objname=module.name)
 
     # Verify it produces correct results
