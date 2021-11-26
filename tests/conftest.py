@@ -44,8 +44,17 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
 
 def jit_compile(source, filepath=None, objname=None):
     """
-    Generate, Just-in-Time compile and load a given item (`Module` or
-    `Subroutine`) for interactive execution.
+    Generate, Just-in-Time compile and load a given item
+    for interactive execution.
+
+    Parameters
+    ----------
+    source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
+        The item to compile and load
+    filepath : str or :any:`Path`, optional
+        Path of the source file to write (default: hashed name in :any:`gettempdir()`)
+    objname : str, optional
+        Return a specific object (module or subroutine) in :attr:`source`
     """
     if isinstance(source, Sourcefile):
         filepath = source.filepath if filepath is None else Path(filepath)
@@ -70,12 +79,18 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
     Generate, just-in-time compile and load a set of items into a
     library and import dynamically into the Python runtime.
 
-    :param source: Source items or filepath to compile and add to lib
-    :param path: Basepath for on-the-fly creation of source files
-    :param name: Name of created lib
-    :param wrap: Optional list of files names to pass to f90wrap.
-                 Defaults to list of source files.
-    :param builder: Builder object to use for lib compilation and linking
+    Parameters
+    ----------
+    source : list
+        Source items or filepaths to compile and add to lib
+    path : str or :any:`Path`
+        Basepath for on-the-fly creation of source files
+    name : str
+        Name of created lib
+    wrap : list, optional
+        File names to pass to ``f90wrap``. Defaults to list of source files.
+    builder : :any:`Builder`, optional
+        Builder object to use for lib compilation and linking
     """
     builder = builder or Builder(source_dirs=path, build_dir=path)
     sourcefiles = []
