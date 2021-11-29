@@ -1,5 +1,5 @@
 from pathlib import Path
-from importlib import import_module
+from importlib import import_module, reload
 import sys
 
 from loki.logging import info
@@ -39,13 +39,21 @@ def clean(filename, pattern=None):
 
 def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=unused-argument
     """
-    Just-in-time compiles Fortran source code and loads the respective
-    module or class. Both paths, classic subroutine-only and modern
-    module-based are support ed via the ``f2py`` and ``f90wrap`` packages.
+    Just-in-time compile Fortran source code and load the respective
+    module or class.
 
-    :param filename: The source file to be compiled.
-    :param use_f90wrap: Flag to trigger the ``f90wrap`` compiler required
-                        if the source code includes module or derived types.
+    Both paths, classic subroutine-only and modern module-based are
+    supported via the ``f2py`` and ``f90wrap`` packages.
+
+    Parameters
+    -----
+    filename : str
+        The source file to be compiled.
+    cwd : str, optional
+        Working directory to use for calls to compiler.
+    use_f90wrap : bool, optional
+        Flag to trigger the ``f90wrap`` compiler required
+        if the source code includes module or derived types.
     """
     info('Compiling: %s' % filename)
     filepath = Path(filename)
@@ -75,9 +83,17 @@ def compile_and_load(filename, cwd=None, use_f90wrap=True):  # pylint: disable=u
             f2py += [sourcefile]
     execute(f2py, cwd=cwd)
 
+    # Add directory to module search path
     moddir = str(filepath.parent)
     if moddir not in sys.path:
         sys.path.append(moddir)
+
+    if filepath.stem in sys.modules:
+        # Reload module if already imported
+        reload(sys.modules[filepath.stem])
+        return sys.modules[filepath.stem]
+
+    # Import module
     return import_module(filepath.stem)
 
 
