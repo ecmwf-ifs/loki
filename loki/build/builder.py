@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 from collections import deque
-from importlib import import_module
+from importlib import import_module, reload
 from operator import attrgetter
 import networkx as nx
 
@@ -145,6 +145,9 @@ class Builder:
         """
         if str(self.build_dir.absolute()) not in sys.path:
             sys.path.insert(0, str(self.build_dir.absolute()))
+        if module in sys.modules:
+            reload(sys.modules[module])
+            return sys.modules[module]
         return import_module(module)
 
     def wrap_and_load(self, sources, modname=None, build=True,

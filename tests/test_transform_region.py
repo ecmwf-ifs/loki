@@ -693,8 +693,6 @@ end module transform_region_to_call_imports_mod
     # Insert created routines into module
     module.routines += as_tuple(routines)
 
-    # Hack: rename module to use a different filename in the build
-    module.name = '%s' % module.name
     obj = jit_compile_lib([module, ext_module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
     mod_function = getattr(getattr(obj, module.name), module.subroutines[0].name)
 
