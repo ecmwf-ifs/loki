@@ -17,33 +17,6 @@ macro( _loki_transform_parse_args _func_name )
     endif()
     list( APPEND _ARGS --frontend ${_PAR_FRONTEND} )
 
-    if ( TARGET clawfc AND ${_PAR_FRONTEND} STREQUAL "omni" )
-        # Ugly hack but I don't have a better solution: We need to add F_FRONT
-        # (which is installed in the same directory as clawfc) to the PATH, if
-        # OMNI is used as a frontend. Hence we have to update the environment in the below
-        # add_custom_command calls to loki-transform.py.
-        # Unfortunately, this environment updated breaks the CMake feature of recognizing
-        # the executable in add_custom_command and choosing the correct path if it was
-        # previously declared as an executable. Therefore, we have to insert also
-        # loki-transform.py into the PATH variable.
-        get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
-        get_filename_component( _LOKI_TRANSFORM_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} DIRECTORY )
-        get_target_property( _CLAWFC_EXECUTABLE clawfc IMPORTED_LOCATION )
-        get_filename_component( _CLAWFC_LOCATION ${_CLAWFC_EXECUTABLE} DIRECTORY )
-        set( _LOKI_TRANSFORM_ENV PATH=${_LOKI_TRANSFORM_LOCATION}:${_CLAWFC_LOCATION}:$ENV{PATH} )
-        set( _LOKI_TRANSFORM ${CMAKE_COMMAND} -E env ${_LOKI_TRANSFORM_ENV} loki-transform.py )
-
-        # Also, now it breaks the dependency chain and we have to declare manual dependencies on
-        # loki-transform.py...
-        set( _LOKI_TRANSFORM_DEPENDENCY loki-transform.py )
-    else()
-        # This is how it is meant to be: We can rely on CMake's ability to set the correct
-        # path of loki-transform.py if it was declared as an executable before (otherwise it
-        # will assume it has been already on the path when CMake was called
-        set( _LOKI_TRANSFORM loki-transform.py )
-        set( _LOKI_TRANSFORM_DEPENDENCY "" )
-    endif()
-
     if( ${_PAR_CPP} )
         list( APPEND _ARGS --cpp )
     endif()
@@ -76,6 +49,55 @@ macro( _loki_transform_parse_args _func_name )
             file( MAKE_DIRECTORY ${XMOD_DIR} )
             list( APPEND _ARGS --xmod ${_XMOD} )
         endforeach()
+    endif()
+
+    set( _LOKI_TRANSFORM_ENV )
+    set( _LOKI_TRANSFORM_PATH )
+
+    if( TARGET clawfc AND ${_PAR_FRONTEND} STREQUAL "omni" )
+        # Ugly hack but I don't have a better solution: We need to add F_FRONT
+        # (which is installed in the same directory as clawfc) to the PATH, if
+        # OMNI is used as a frontend. Hence we have to update the environment in the below
+        # add_custom_command calls to loki-transform.py.
+        get_target_property( _CLAWFC_EXECUTABLE clawfc IMPORTED_LOCATION )
+        get_filename_component( _CLAWFC_LOCATION ${_CLAWFC_EXECUTABLE} DIRECTORY )
+        list( APPEND _LOKI_TRANSFORM_PATH ${_CLAWFC_LOCATION} )
+    endif()
+
+    if( _PAR_OUTPATH AND (${_PAR_FRONTEND} STREQUAL "omni" OR ${_PAR_FRONTEND} STREQUAL "ofp") )
+        # With pre-processing, we may end up having a race condition on the preprocessed
+        # source files in parallel builds. Ensuring we use the outpath of the call to Loki
+        # should ensure in most cases that parallel builds write to different directories
+        # Note: this does not affect Fparser as we don't have to write preprocessed files
+        # to disk there
+        list( APPEND _LOKI_TRANSFORM_ENV LOKI_TMP_DIR=${_PAR_OUTPATH} )
+    endif()
+
+    if( _LOKI_TRANSFORM_ENV OR _LOKI_TRANSFORM_PATH )
+        # Unfortunately, an environment update breaks the CMake feature of recognizing
+        # the executable in add_custom_command and choosing the correct path if it was
+        # previously declared as an executable. Therefore, we have to insert also
+        # loki-transform.py into the PATH variable.
+        get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
+        get_filename_component( _LOKI_TRANSFORM_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} DIRECTORY )
+        list( APPEND _LOKI_TRANSFORM_PATH ${_LOKI_TRANSFORM_LOCATION} )
+
+        # Join all declared paths
+        string( REPLACE ";" ":" _LOKI_TRANSFORM_PATH "${_LOKI_TRANSFORM_PATH}" )
+        list( APPEND _LOKI_TRANSFORM_ENV PATH=${_LOKI_TRANSFORM_PATH}:$ENV{PATH} )
+
+        # Run loki-transform.py via the CMake ENV wrapper
+        set( _LOKI_TRANSFORM ${CMAKE_COMMAND} -E env ${_LOKI_TRANSFORM_ENV} loki-transform.py )
+
+        # Also, now it breaks the dependency chain and we have to declare manual dependencies on
+        # loki-transform.py...
+        set( _LOKI_TRANSFORM_DEPENDENCY loki-transform.py )
+    else()
+        # This is how it is meant to be: We can rely on CMake's ability to set the correct
+        # path of loki-transform.py if it was declared as an executable before (otherwise it
+        # will assume it has been already on the path when CMake was called
+        set( _LOKI_TRANSFORM loki-transform.py )
+        set( _LOKI_TRANSFORM_DEPENDENCY "" )
     endif()
 
 endmacro()
