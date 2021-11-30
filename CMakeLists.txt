@@ -115,6 +115,8 @@ if( ${HAVE_CLAW} )
     add_dependencies( loki-transform.py clawfc )
 endif()
 
+include( loki_transform )
+
 # Install the project so it can be used within the bundle
 ecbuild_install_project( NAME loki )
 
