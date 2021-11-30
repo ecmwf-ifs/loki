@@ -1467,3 +1467,23 @@ end subroutine subroutine_stmt_func
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     assert function(3) == 14
     clean_test(filepath)
+
+@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+def test_mixed_declaration_interface(here, frontend):
+    """
+    A simple test to catch and shame mixed declarations.
+    """
+    fcode = """
+subroutine valid_fortran(i, m)
+   integer :: i, j, m
+   integer :: k,l
+end subroutine valid_fortran
+"""
+
+    with pytest.raises(AssertionError) as error:
+        routine = Subroutine.from_source(fcode, frontend=frontend)
+        assert isinstance(routine.body, Section)
+        assert isinstance(routine.spec, Section)
+        interface=routine.interface
+
+    assert "Declarations must have intents" in str(error.value)
