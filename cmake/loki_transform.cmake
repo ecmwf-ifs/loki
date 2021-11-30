@@ -243,6 +243,7 @@ endfunction()
 #       DIRECTIVE <openmp|openacc|none>
 #       [INCLUDE <include1> [<include2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
+#       [DEPENDS <dependency1> [<dependency2> ...]]
 #   )
 #
 ##############################################################################
@@ -250,7 +251,7 @@ function( claw_compile )
 
     set( options )
     set( oneValueArgs MODEL_CONFIG TARGET DIRECTIVE SOURCE OUTPUT )
-    set( multiValueArgs INCLUDE XMOD )
+    set( multiValueArgs INCLUDE XMOD DEPENDS )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
@@ -293,7 +294,7 @@ function( claw_compile )
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
         COMMAND clawfc -w 132 ${_ARGS} -o ${_PAR_OUTPUT} ${_PAR_SOURCE}
-        DEPENDS ${_PAR_SOURCE}
+        DEPENDS ${_PAR_SOURCE} ${_PAR_DEPENDS}
         COMMENT "[clawfc] Pre-processing: target=${_PAR_TARGET} directive=${_PAR_DIRECTIVE}"
     )
 
