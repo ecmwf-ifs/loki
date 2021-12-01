@@ -24,8 +24,12 @@ def fixture_bundle_create(here):
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
 def test_cloudsc(here, frontend):
+    # FIXME: We temporarily throttle the build to a single
+    # build-thread to avoid a race condition among loki invocations of
+    # the various build targets for OMNI and OFP frontends. Once fixed
+    # we should remove this!
     build_cmd = [
-        './cloudsc-bundle', 'build', '--verbose', '--clean',
+        './cloudsc-bundle', 'build', '--verbose', '--clean', '-j 1', '--with-hdf5',
         '--with-loki', '--loki-frontend=' + str(frontend),
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
         '--cmake="ENABLE_ACC=OFF"'
