@@ -1469,7 +1469,7 @@ end subroutine subroutine_stmt_func
     clean_test(filepath)
 
 @pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
-def test_mixed_declaration_interface(here, frontend):
+def test_mixed_declaration_interface(frontend):
     """
     A simple test to catch and shame mixed declarations.
     """
@@ -1484,6 +1484,6 @@ end subroutine valid_fortran
         routine = Subroutine.from_source(fcode, frontend=frontend)
         assert isinstance(routine.body, Section)
         assert isinstance(routine.spec, Section)
-        interface=routine.interface
+        routine.interface
 
     assert "Declarations must have intents" in str(error.value)

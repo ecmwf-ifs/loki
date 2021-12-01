@@ -540,8 +540,8 @@ class Subroutine(Scope):
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
         for decl in FindNodes(Declaration).visit(self.spec):
-            if any(v in self.arguments for v in decl.variables):
-                assert all(v in self.arguments and v.type.intent is not None for v in decl.variables), \
+            if any(v in arg_names for v in decl.variables):
+                assert all(v in arg_names and v.type.intent is not None for v in decl.variables), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."
                 # Replicate declaration with re-scoped variables
                 variables = as_tuple(v.clone(scope=routine) for v in decl.variables)
