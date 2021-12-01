@@ -533,14 +533,16 @@ class Subroutine(Scope):
         """
         Interface object that defines the `Subroutine` signature in header files.
         """
-        arg_names = [arg.name for arg in self.arguments]
 
         # Remove all local variable declarations from interface routine spec
         # and duplicate all argument symbols within a new subroutine scope
+        arg_names = [arg.name for arg in self.arguments]
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
         for decl in FindNodes(Declaration).visit(self.spec):
-            if all(v.name in arg_names for v in decl.variables):
+            if any(v in arg_names for v in decl.variables):
+                assert all(v in arg_names and v.type.intent is not None for v in decl.variables), \
+                    "Declarations must have intents and dummy and local arguments cannot be mixed."
                 # Replicate declaration with re-scoped variables
                 variables = as_tuple(v.clone(scope=routine) for v in decl.variables)
                 decl_map[decl] = decl.clone(variables=variables)
