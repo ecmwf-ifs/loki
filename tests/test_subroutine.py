@@ -1484,6 +1484,6 @@ end subroutine valid_fortran
         routine = Subroutine.from_source(fcode, frontend=frontend)
         assert isinstance(routine.body, Section)
         assert isinstance(routine.spec, Section)
-        routine.interface
+        _ = routine.interface
 
     assert "Declarations must have intents" in str(error.value)
