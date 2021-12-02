@@ -100,7 +100,7 @@ class JoinableStringList:
         #       the line limit if the chunks are too big! Safest option would
         #       be to have expression mapper etc. all return JoinableStringList instances
         #       and accept violations for the remaining cases.
-        chunk_list = re.split(r'(\s|\))', str(item))
+        chunk_list = re.split(r'(\s|\)(?!%))', str(item))  # split on ' ' and ')' (the latter not if followed by '%')
 
         # First, add as much as possible to the previous line
         next_chunk = 0

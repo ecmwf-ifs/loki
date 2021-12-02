@@ -137,6 +137,12 @@ def test_joinable_string_list_long():
            '      , n));')
     assert line == ref
 
+    args = ['my_long_var = 5+3*tendency_loc(ibl)%T(jl,jk)']
+    obj = JoinableStringList(args, sep=' ', width=40, cont=' &\n & ')
+    ref = ('my_long_var =  &\n'
+           ' & 5+3*tendency_loc(ibl)%T(jl,jk)')
+    assert str(obj) == ref
+
 
 @pytest.mark.parametrize('string, length, continuation, ref', [
     ('short string', 16, '...', 'short string'),
