@@ -100,18 +100,19 @@ def cli():
               help='Trigger C-preprocessing of source files.')
 @click.option('--include', '-I', type=click.Path(), multiple=True,
               help='Path for additional header file(s)')
-@click.option('--define', '-I', multiple=True,
-              help='Additional symbol definitions for C-preprocessor')
-@click.option('--omni-include', '-I', type=click.Path(), multiple=True,
+@click.option('--define', '-D', multiple=True,
+              help='Additional symbol definitions for the C-preprocessor')
+@click.option('--omni-include', type=click.Path(), multiple=True,
               help='Additional path for header files, specifically for OMNI')
 @click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional module file(s)')
+              help='Path for additional .xmod file(s) for OMNI')
 @click.option('--data-offload', is_flag=True, default=False,
-              help='Run transformation to insert custom data offload regions')
+              help='Run transformation to insert custom data offload regions.')
 @click.option('--remove-openmp', is_flag=True, default=False,
-              help='Removes existing OpenMP pragmas in "!$loki data" regions')
+              help='Removes existing OpenMP pragmas in "!$loki data" regions.')
 @click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
+              type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']),
+              help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--config', default=None, type=click.Path(),
