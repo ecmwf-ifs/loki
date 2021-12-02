@@ -1,3 +1,4 @@
+import re
 from copy import deepcopy
 
 from loki.tools.util import is_iterable
@@ -99,8 +100,7 @@ class JoinableStringList:
         #       the line limit if the chunks are too big! Safest option would
         #       be to have expression mapper etc. all return JoinableStringList instances
         #       and accept violations for the remaining cases.
-        chunk_list = str(item).split(' ')
-        chunk_list[:-1] = [chunk + ' ' for chunk in chunk_list[:-1]]
+        chunk_list = re.split(r'(\s|\))', str(item))
 
         # First, add as much as possible to the previous line
         next_chunk = 0
