@@ -480,8 +480,10 @@ class SingleColumnCoalescedTransformation(Transformation):
             in this call tree and should thus be processed accordingly.
         """
 
-        routine_pragmas = [p for p in FindNodes(ir.Pragma).visit(routine.body)
-                           if p.keyword.lower() == 'loki' and 'routine' in p.content.lower()]
+        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+        routine_pragmas = [p for p in pragmas if p.keyword.lower() in ['loki', 'acc']]
+        routine_pragmas = [p for p in routine_pragmas if 'routine' in p.content.lower()]
+
         seq_pragmas = [r for r in routine_pragmas if 'seq' in r.content.lower()]
         if seq_pragmas:
             if self.directive == 'openacc':
@@ -491,6 +493,13 @@ class SingleColumnCoalescedTransformation(Transformation):
 
             # Bail and leave sequential routines unchanged
             return
+
+        vec_pragmas = [r for r in routine_pragmas if 'vector' in r.content.lower()]
+        if vec_pragmas:
+            if self.directive == 'openacc':
+                # Bail routines that have already been marked and this processed
+                # TODO: This is a hack until we can avoid redundant re-application
+                return
 
         if self.horizontal.bounds[0] not in routine.variable_map:
             raise RuntimeError(f'No horizontal start variable found in {routine.name}')
