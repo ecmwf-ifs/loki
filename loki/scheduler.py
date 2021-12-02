@@ -119,7 +119,7 @@ class Item:
         if path and path.exists():
             try:
                 # Read and parse source file and extract subroutine
-                self.source = Sourcefile.from_file(path, preprocess=True, **self.build_args)
+                self.source = Sourcefile.from_file(path, **self.build_args)
                 self.routine = self.source[self.name]
 
             except Exception as excinfo:  # pylint: disable=broad-except
@@ -261,14 +261,39 @@ class Scheduler:
     automated discovery, to enable easy bulk-processing of large
     numbers of source files.
 
-    :param paths: List of locations to search for source files.
+    Parameters
+    ----------
+    paths : str or list of str
+        List of paths to search for automated source file detection.
+    config : dict or str, optional
+        Configuration dict or path to scheduler configuration file
+    preprocess : bool, optional
+        Flag to trigger CPP preprocessing (by default `False`).
+    includes : list of str, optional
+        Include paths to pass to the C-preprocessor.
+    defines : list of str, optional
+        Symbol definitions to pass to the C-preprocessor.
+    definitions : list of :any:`Module`, optional
+        :any:`Module` object(s) that may supply external type or procedure
+        definitions.
+    xmods : str, optional
+        Path to directory to find and store ``.xmod`` files when using
+        the OMNI frontend.
+    omni_includes: list of str, optional
+        Additional include paths to pass to the preprocessor run as part of
+        the OMNI frontend parse. If set, this **replaces** (!)
+        :data:`includes`, otherwise :data:`omni_includes` defaults to the
+        value of :data:`includes`.
+    frontend : :any:`Frontend`, optional
+        Frontend to use when parsing source files (default :any:`FP`).
     """
 
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '_mod.f90']
 
-    def __init__(self, paths, config=None, xmods=None, includes=None, defines=None,
-                 definitions=None, frontend=FP):
+    def __init__(self, paths, config=None, preprocess=False, includes=None,
+                 defines=None, definitions=None, xmods=None, omni_includes=None,
+                 frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -282,10 +307,12 @@ class Scheduler:
 
         # Accumulate all build arguments to pass to `Sourcefile` constructors
         self.build_args = {
-            'xmods': xmods,
+            'definitions': definitions,
+            'preprocess': preprocess,
             'includes': includes,
             'defines': defines,
-            'definitions': definitions,
+            'xmods': xmods,
+            'omni_includes': omni_includes,
             'frontend': frontend
         }
 
@@ -421,7 +448,7 @@ class Scheduler:
                     if self.config.default['strict']:
                         raise err
                     continue
-                source = Sourcefile.from_file(path, preprocess=True, **self.build_args)
+                source = Sourcefile.from_file(path, **self.build_args)
                 item.routine.enrich_calls(source.all_subroutines)
 
     def process(self, transformation):

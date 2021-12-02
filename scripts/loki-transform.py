@@ -200,16 +200,32 @@ def convert(out_path, path, source, driver, header, cpp, include, define, omni_i
     else:
         config = SchedulerConfig.from_file(config)
 
+    build_args = {
+        'preprocess': cpp,
+        'includes': include,
+        'defines': define,
+        'xmods': xmod,
+        'omni_includes': omni_include,
+    }
+
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-    definitions = flatten(Sourcefile.from_file(h, xmods=xmod,
-                                               frontend=frontend_type).modules for h in header)
+
+    # Note, in order to get function inlinig correct, we need full knowledge
+    # of any imported symbols and functions. Since we cannot yet retro-fit that
+    # after creation, we need to make sure that the order of definitions can
+    # be used to create a coherent stack of type definitions.
+    definitions = []
+    for h in header:
+        sfile = Sourcefile.from_file(h, frontend=frontend_type, **build_args)
+        definitions = definitions + list(sfile.modules)
 
     # Create a scheduler to bulk-apply source transformations
     paths = [Path(p).resolve() for p in as_tuple(path)]
     paths += [Path(s).resolve().parent for s in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
-    scheduler = Scheduler(paths=paths, config=config, defines=define, definitions=definitions)
+    scheduler = Scheduler(paths=paths, config=config, frontend=frontend,
+                          definitions=definitions, **build_args)
     scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!

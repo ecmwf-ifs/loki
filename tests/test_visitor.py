@@ -562,23 +562,23 @@ END MODULE some_mod
 
     # Test default
     ref_lines = ref.strip().replace('#', '  ').splitlines()
-    ref_lines[cont_index] = '      <Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + '
-    ref_lines[cont_index + 1] = '      1. + 1. + 1.>'
+    ref_lines[cont_index] = '      <Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1.'
+    ref_lines[cont_index + 1] = '       + 1. + 1.>'
     default_ref = '\n'.join(ref_lines)
     assert Stringifier().visit(module).strip() == default_ref
 
     # Test custom initial depth
     ref_lines = ['#' + line if line else '' for line in ref.splitlines()]
-    ref_lines[cont_index] = '####<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. '
-    ref_lines[cont_index + 1] = '...  + 1. + 1.>'
+    ref_lines[cont_index] = '####<Assignment:: y = my_sqrt(y) + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. +'
+    ref_lines[cont_index + 1] = '...   1. + 1.>'
     depth_ref = '\n'.join(ref_lines)
     assert Stringifier(indent='#', depth=1, line_cont=line_cont).visit(module).strip() == depth_ref
 
     # Test custom linewidth
     ref_lines = ref.strip().splitlines()
-    ref_lines = ref_lines[:cont_index] + ['###<Assignment:: y = my_sqrt(y) + 1. + 1. ',
-                                          '... + 1. + 1. + 1. + 1. + 1. + 1. + 1. + ',
-                                          '... 1. + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
+    ref_lines = ref_lines[:cont_index] + ['###<Assignment:: y = my_sqrt(y) + 1. + 1. +',
+                                          '...  1. + 1. + 1. + 1. + 1. + 1. + 1. + 1. ',
+                                          '... + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
     w_ref = '\n'.join(ref_lines)
     assert Stringifier(indent='#', linewidth=44, line_cont=line_cont).visit(module).strip() == w_ref
 

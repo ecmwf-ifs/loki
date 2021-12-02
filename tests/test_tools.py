@@ -93,7 +93,7 @@ def test_is_subset_raises(a, b):
     (('H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', '!'), '', 7, '\n', 'Hello \nworld!'),
     (('Hello', 'world!'), ' ', 90, '\n', 'Hello world!'),
     (('Hello', 'world!'), ' ', 7, '\n', 'Hello \nworld!'),
-    (('Hello', 'world!'), ' ', 5, '\n', 'Hello \nworld!'),
+    (('Hello', 'world!'), ' ', 5, '\n', 'Hello\n \nworld!'),
     ((JoinableStringList(['H', 'e', 'l', 'l', 'o'], '', 5, '\n'), 'world!'), ' ', 5, '\n',
      'Hell\no \nworld!'),
     (('Hello', JoinableStringList(['w', 'o', 'r', 'l', 'd', '!'], '', 8, '\n', separable=False)),
@@ -133,9 +133,15 @@ def test_joinable_string_list_long():
     items_list = JoinableStringList(items, sep='', width=90, cont='\n      ', separable=True)
     line = str(items_list)
     ref = ('    io.output("tensor_out", tensor_out, \n'
-           '      new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(dfeFloat(11, 53), \n'
-           '      m), n));')
+           '      new DFEVectorType<DFEVector<DFEVar>>(new DFEVectorType<DFEVar>(dfeFloat(11, 53), m)\n'
+           '      , n));')
     assert line == ref
+
+    args = ['my_long_var = 5+3*tendency_loc(ibl)%T(jl,jk)']
+    obj = JoinableStringList(args, sep=' ', width=40, cont=' &\n & ')
+    ref = ('my_long_var =  &\n'
+           ' & 5+3*tendency_loc(ibl)%T(jl,jk)')
+    assert str(obj) == ref
 
 
 @pytest.mark.parametrize('string, length, continuation, ref', [
