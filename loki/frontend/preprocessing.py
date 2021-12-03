@@ -43,7 +43,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
 
         def on_error(self, file, line, msg):
             # Redirect CPP error to our logger and increment return code
-            debug("[Loki-CPP] %s:%d error: %s" % (file, line, msg))
+            debug(f'[Loki-CPP] {file}:{line: d} error: {msg}')
             self.return_code += 1
 
     # Add include paths to PP
@@ -70,7 +70,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
         else:
             pp_path = filepath.with_suffix('.cpp.f90')
         pp_path = gettempdir()/pp_path.name
-        debug("[Loki] C-preprocessor, writing {}".format(str(pp_path)))
+        debug(f'[Loki] C-preprocessor, writing {str(pp_path)}')
 
         # Dump preprocessed source to file and read it
         with pp_path.open('w') as f:
@@ -99,24 +99,24 @@ def sanitize_input(source, frontend, filepath=None):
     for each frontend.
     """
     tmpdir = gettempdir()
-    pp_path = filepath.with_suffix('.{}{}'.format(str(frontend), filepath.suffix))
+    pp_path = filepath.with_suffix(f'.{str(frontend)}{filepath.suffix}')
     pp_path = tmpdir/pp_path.name
-    info_path = filepath.with_suffix('.{}.info'.format(str(frontend)))
+    info_path = filepath.with_suffix(f'.{str(frontend)}.info')
     info_path = tmpdir/info_path.name
 
-    debug("[Loki] Sanitizing source file {}".format(str(filepath)))
+    debug(f'[Loki] Sanitizing source file {str(filepath)}')
 
     # Check for previous preprocessing of this file
     if config['frontend-pp-cache'] and pp_path.exists() and info_path.exists():
         # Make sure the existing PP data belongs to this file
         if pp_path.stat().st_mtime > filepath.stat().st_mtime:
-            debug("[Loki] Frontend preprocessor, reading {}".format(str(info_path)))
+            debug(f'[Loki] Frontend preprocessor, reading {str(info_path)}')
             with info_path.open('rb') as f:
                 pp_info = pickle.load(f)
             if pp_info.get('original_file_path') == str(filepath):
                 # Already pre-processed this one,
                 # return the cached info and source.
-                debug("[Loki] Frontend preprocessor, reading {}".format(str(pp_path)))
+                debug(f'[Loki] Frontend preprocessor, reading {str(pp_path)}')
                 with pp_path.open() as f:
                     source = f.read()
                 return source, pp_info
@@ -138,10 +138,10 @@ def sanitize_input(source, frontend, filepath=None):
 
     if config['frontend-pp-cache']:
         # Write out the preprocessed source and according info file
-        debug("[Loki] Frontend preprocessor, storing {}".format(str(pp_path)))
+        debug(f'[Loki] Frontend preprocessor, storing {str(pp_path)}')
         with pp_path.open('w') as f:
             f.write(source)
-        debug("[Loki] Frontend preprocessor, storing {}".format(str(info_path)))
+        debug(f'[Loki] Frontend preprocessor, storing {str(info_path)}')
         with info_path.open('wb') as f:
             pickle.dump(pp_info, f)
 
@@ -273,7 +273,7 @@ sanitize_registry = {
             match=re.compile((
                 r'(?P<pp>^\s*#.*__(?:FILE|FILENAME|DATE|VERSION)__)|'  # Match inside a directive
                 r'(?P<else>__(?:FILE|FILENAME|DATE|VERSION)__)')),     # Match elsewhere
-            replace=lambda m: m['pp'] or '"{}"'.format(m['else'])),
+            replace=lambda m: m['pp'] or f'"{m["else"]}"'),
 
         # Replace integer CPP directives by 0
         'INTEGER_PP_DIRECTIVES': PPRule(match='__LINE__', replace='0'),
@@ -290,9 +290,8 @@ sanitize_registry = {
             match=re.compile((r'(?P<ws>^\s*)(?P<open>OPEN\s*\()(?P<args1>.*?)(?P<delim>,)?'
                               r'(?P<newunit_key>,?\s*NEWUNIT=)(?P<newunit_val>.*?(?=,|\)|&))'
                               r'(?P<args2>.*?$)'), re.I),
-            replace=lambda m: '{ws}{op}{unit}{delim}{args1}{args2}'.format(
-                ws=m['ws'], op=m['open'], unit=m['newunit_val'], delim=m['delim'] or '',
-                args1=m['args1'], args2=m['args2']),
+            replace=lambda m: f'{m["ws"]}{m["open"]}{m["newunit_val"]}{m["delim"] or ""}' +
+                              f'{m["args1"]}{m["args2"]}',
             postprocess=reinsert_open_newunit),
     }
 }

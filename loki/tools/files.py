@@ -40,17 +40,17 @@ def filehash(source, prefix=None, suffix=None):
     """
     prefix = '' if prefix is None else prefix
     suffix = '' if suffix is None else suffix
-    return '%s%s%s' % (prefix, str(md5(source.encode()).hexdigest()), suffix)
+    return f'{prefix}{str(md5(source.encode()).hexdigest())}{suffix}'
 
 
 def delete(filename, force=False):
     filepath = Path(filename)
-    debug('Deleting %s', filepath)
+    debug(f'Deleting {filepath}')
     if force:
-        shutil.rmtree('%s' % filepath, ignore_errors=True)
+        shutil.rmtree(f'{filepath}', ignore_errors=True)
     else:
         if filepath.exists():
-            os.remove('%s' % filepath)
+            os.remove(f'{filepath}')
 
 
 def find_paths(directory, pattern, ignore=None, sort=True):
@@ -103,7 +103,7 @@ def disk_cached(argname, suffix='cache'):
             to that file with the suffix ``.cache``.
             """
             filename = kwargs[argname]
-            cachefile = '%s.%s' % (filename, suffix)
+            cachefile = f'{filename}.{suffix}'
 
             # Read cached file from disc if it's been cached before
             if config['disk-cache'] and os.path.exists(cachefile):
@@ -112,7 +112,7 @@ def disk_cached(argname, suffix='cache'):
                 cachetime = os.path.getmtime(cachefile)
                 if cachetime >= filetime:
                     with open(cachefile, 'rb') as cachehandle:
-                        info("Loading cache: '%s'" % cachefile)
+                        info(f'Loading cache: "{cachefile}"')
                         return pickle.load(cachehandle)
 
             # Execute the function with all arguments passed
@@ -121,7 +121,7 @@ def disk_cached(argname, suffix='cache'):
             # Write to cache file
             if config['disk-cache']:
                 with open(cachefile, 'wb') as cachehandle:
-                    info("Saving cache: '%s'" % cachefile)
+                    info(f'Saving cache: "{cachefile}"')
                     pickle.dump(res, cachehandle)
 
             return res

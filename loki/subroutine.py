@@ -139,7 +139,7 @@ class Subroutine(Scope):
             f_ast = get_fparser_node(ast, ('Subroutine_Subprogram', 'Function_Subprogram'))
             return cls.from_fparser(ast=f_ast, raw_source=source, definitions=definitions)
 
-        raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
@@ -587,7 +587,7 @@ class Subroutine(Scope):
         """
         String representation.
         """
-        return '{}:: {}'.format('Function' if self.is_function else 'Subroutine', self.name)
+        return f'{"Function" if self.is_function else "Subroutine"}:: {self.name}'
 
     def clone(self, **kwargs):
         """

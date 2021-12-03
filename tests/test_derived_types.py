@@ -56,7 +56,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_simple_loops_%s.f90' % frontend)
+    filepath = here/(f'derived_types_simple_loops_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -98,7 +98,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_array_indexing_explicit_%s.f90' % frontend)
+    filepath = here/(f'derived_types_array_indexing_explicit_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -152,7 +152,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_array_indexing_deferred_%s.f90' % frontend)
+    filepath = here/(f'derived_types_array_indexing_deferred_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
@@ -201,7 +201,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_array_indexing_nested_%s.f90' % frontend)
+    filepath = here/(f'derived_types_array_indexing_nested_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.nested()
@@ -279,7 +279,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_deferred_array_%s.f90' % frontend)
+    filepath = here/(f'derived_types_deferred_array_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
@@ -335,7 +335,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_derived_type_caller_%s.f90' % frontend)
+    filepath = here/(f'derived_types_derived_type_caller_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     # Test the generated identity
@@ -430,7 +430,7 @@ end module
                 assert var.scope is routine
 
     # Test the generated module
-    filepath = here/('derived_types_associates_%s.f90' % frontend)
+    filepath = here/(f'derived_types_associates_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()
@@ -504,7 +504,7 @@ end subroutine associates_expr
     assert variables['b'].type.dtype is BasicType.DEFERRED  # TODO: support type derivation for expressions
     assert variables['b'].type.shape == (IntLiteral(3),)
 
-    filepath = here/('associates_expr_%s.f90' % frontend)
+    filepath = here/(f'associates_expr_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     a = np.array([1, 2, 3], dtype='i')
     b = np.zeros(3, dtype='i')
@@ -541,7 +541,7 @@ contains
 end module
 """
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_case_sensitivity_%s.f90' % frontend)
+    filepath = here/(f'derived_types_case_sensitivity_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.case_sensitive()
@@ -607,7 +607,7 @@ end module
 """
 
     module = Module.from_source(fcode, frontend=frontend)
-    filepath = here/('derived_types_check_alloc_source_%s.f90' % frontend)
+    filepath = here/(f'derived_types_check_alloc_source_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.explicit()

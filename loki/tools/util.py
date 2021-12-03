@@ -38,9 +38,9 @@ def as_tuple(item, type=None, length=None):
         except (TypeError, NotImplementedError):
             t = (item,) * (length or 1)
     if length and not len(t) == length:
-        raise ValueError("Tuple needs to be of length %d" % length)
+        raise ValueError(f'Tuple needs to be of length {length: d}')
     if type and not all(isinstance(i, type) for i in t):
-        raise TypeError("Items need to be of type %s" % type)
+        raise TypeError(f'Items need to be of type {type}')
     return t
 
 
@@ -181,8 +181,7 @@ def timeit(log_level=INFO, getter=None):
             te = time.time()
 
             argvals = ', '.join(g(kwargs) for g in getter)
-            log('[Loki::%s: %s] Executed in %.2fs' % (fn.__name__, argvals, (te - ts)),
-                level=log_level)
+            log(f'[Loki::{fn.__name__}: {argvals}] Executed in {te - ts:.2f}s', level=log_level)
             return result
 
         return timed

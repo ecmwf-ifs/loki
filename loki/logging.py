@@ -87,7 +87,7 @@ def set_log_level(level):
     Set the log level for the Loki logger.
     """
     if level not in log_levels.values():
-        raise ValueError("Illegal logging level %s" % level)
+        raise ValueError(f'Illegal logging level {level}')
 
     logger.setLevel(level)
 

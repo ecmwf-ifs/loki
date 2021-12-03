@@ -63,7 +63,7 @@ class Dimension:
         """
         String that matches the range expression of an iteration space (loop).
         """
-        return '{}:{}'.format(self._bounds[0], self._bounds[1])
+        return f'{self._bounds[0]}:{self._bounds[1]}'
 
     @property
     def size_expressions(self):
@@ -74,6 +74,6 @@ class Dimension:
         """
         exprs = as_tuple(self.size)
         exprs += as_tuple(self._aliases)
-        exprs += ('1:{}'.format(self.size), )
-        exprs += ('{} - {} + 1'.format(self._bounds[1], self._bounds[0]), )
+        exprs += (f'1:{self.size}', )
+        exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
         return exprs

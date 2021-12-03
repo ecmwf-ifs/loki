@@ -244,8 +244,8 @@ def kernel_annotate_vector_loops_openacc(routine, horizontal, vertical):
                 # Construct pragma and wrap entire body in vector loop
                 private_arrs = ', '.join(v.name for v in private_arrays)
                 pragma = None
-                private_clause = '' if not private_arrays else ' private({})'.format(private_arrs)
-                pragma = ir.Pragma(keyword='acc', content='loop vector{}'.format(private_clause))
+                private_clause = '' if not private_arrays else f' private({private_arrs})'
+                pragma = ir.Pragma(keyword='acc', content=f'loop vector{private_clause}')
                 mapper[loop] = loop.clone(pragma=pragma)
 
         routine.body = Transformer(mapper).visit(routine.body)
@@ -290,7 +290,7 @@ def kernel_annotate_subroutine_present_openacc(routine):
     args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
     argnames = [str(a.name) for a in args]
 
-    routine.body.prepend(ir.Pragma(keyword='acc', content='data present({})'.format(', '.join(argnames))))
+    routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
     routine.body.append(ir.Pragma(keyword='acc', content='end data'))
 
 
@@ -338,7 +338,7 @@ def resolve_vector_dimension(routine, loop_variable, bounds):
     bounds : tuple of :any:`Scalar`
         Tuple defining the iteration space of the inserted loops.
     """
-    bounds_str = '{}:{}'.format(bounds[0], bounds[1])
+    bounds_str = f'{bounds[0]}:{bounds[1]}'
 
     mapper = {}
     for stmt in FindNodes(ir.Assignment).visit(routine.body):
@@ -476,9 +476,9 @@ class SingleColumnCoalescedTransformation(Transformation):
         """
 
         if self.horizontal.bounds[0] not in routine.variable_map:
-            raise RuntimeError('No horizontal start variable found in {}'.format(routine.name))
+            raise RuntimeError(f'No horizontal start variable found in {routine.name}')
         if self.horizontal.bounds[1] not in routine.variable_map:
-            raise RuntimeError('No horizontal end variable found in {}'.format(routine.name))
+            raise RuntimeError(f'No horizontal end variable found in {routine.name}')
 
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)
@@ -636,8 +636,8 @@ class SingleColumnCoalescedTransformation(Transformation):
 
         if self.directive == 'openacc':
             vnames = _pragma_string(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content='enter data create({})'.format(vnames))
-            pragma_post = ir.Pragma(keyword='acc', content='exit data delete({})'.format(vnames))
+            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))

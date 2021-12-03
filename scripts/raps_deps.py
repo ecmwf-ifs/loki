@@ -73,7 +73,7 @@ class Dependency:
 
     def __repr__(self):
         deps = ' \\\n\t'.join(self.deps)
-        return '%s: %s' % (self.target, deps)
+        return f'{self.target}: {deps}'
 
     def find(self, name):
         hits = [d for d in self.deps if name == Path(d).name]
@@ -97,7 +97,7 @@ class Assignment:
 
     def __repr__(self):
         objects = ' \\\n\t'.join(self.objects)
-        return '%s = %s' % (self.target, objects)
+        return f'{self.target} = {objects}'
 
     def replace(self, target, replacement):
         if target in self.target:
@@ -123,4 +123,4 @@ class Rule:
     def __repr__(self):
         deps = ' '.join(self.deps)
         cmds = ' \n\t'.join(self.cmds)
-        return '%s: %s \n\t%s' % (self.target, deps, cmds)
+        return f'{self.target}: {deps} \n\t{cmds}'

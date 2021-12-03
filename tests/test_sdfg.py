@@ -29,7 +29,7 @@ def create_sdfg(routine, here):
     routine.apply(trafo, path=here, with_dace=True)
 
     mod = load_module(trafo.py_path)
-    function = getattr(mod, '{}_py'.format(routine.name))
+    function = getattr(mod, f'{routine.name}_py')
     return function.to_sdfg()
 
 
@@ -54,7 +54,7 @@ end subroutine routine_copy
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the reference solution
-    filepath = here/('routine_copy_%s.f90' % frontend)
+    filepath = here/(f'routine_copy_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy')
 
     n = 64
@@ -100,7 +100,7 @@ end subroutine routine_axpy_scalar
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the reference solution
-    filepath = here/('sdfg_routine_axpy_scalar_%s.f90' % frontend)
+    filepath = here/(f'sdfg_routine_axpy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     a = np.float64(23)
@@ -148,7 +148,7 @@ end subroutine routine_copy_stream
     # TODO: make alpha a true scalar, which doesn't seem to work with SDFG at the moment???
 
     # Test the reference solution
-    filepath = here/('sdfg_routine_copy_stream_%s.f90' % frontend)
+    filepath = here/(f'sdfg_routine_copy_stream_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     length = 32
@@ -200,7 +200,7 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
 end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('sdfg_routine_fixed_loop_%s.f90' % frontend)
+    filepath = here/(f'sdfg_routine_fixed_loop_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
 
     # Test the reference solution
@@ -257,7 +257,7 @@ subroutine routine_loop_carried_dependency(vector)
 end subroutine routine_loop_carried_dependency
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('sdfg_routine_loop_carried_dependency_%s.f90' % frontend)
+    filepath = here/(f'sdfg_routine_loop_carried_dependency_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_loop_carried_dependency')
 
     # Test the reference solution
@@ -330,7 +330,7 @@ subroutine routine_moving_average(length, data_in, data_out)
 end subroutine routine_moving_average
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('sdfg_routine_moving_average_%s.f90' % frontend)
+    filepath = here/(f'sdfg_routine_moving_average_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
 
     # Create random input data

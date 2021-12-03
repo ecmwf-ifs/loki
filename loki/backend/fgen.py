@@ -31,7 +31,7 @@ class FCodeMapper(LokiStringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            return '%s_%s' % (str(expr.value), str(expr.kind))
+            return f'{str(expr.value)}_{str(expr.kind)}'
         return str(expr.value)
 
     map_int_literal = map_float_literal
@@ -69,7 +69,7 @@ class FCodeMapper(LokiStringifyMapper):
         try:
             return super().map_foreign(expr, *args, **kwargs)
         except ValueError:
-            return '! Not supported: %s\n' % str(expr)
+            return f'! Not supported: {str(expr)}\n'
 
     def map_loop_range(self, expr, enclosing_prec, *args, **kwargs):
         children = [self.rec(child, PREC_NONE, *args, **kwargs) if child is not None else ''
@@ -161,7 +161,7 @@ class FortranCodegen(Stringifier):
         """
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         arguments = self.join_items(o.argnames)
-        bind_c = ' BIND(c, name=\'{}\')'.format(o.bind) if o.bind else ''
+        bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
         header = self.format_line(ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         contains = self.format_line('CONTAINS')
         footer = self.format_line('END ', ftype, ' ', o.name)
@@ -275,9 +275,9 @@ class FortranCodegen(Stringifier):
             var = self.visit(v, **kwargs) if o.dimensions is None else v.basename
             initial = ''
             if v.type.initial is not None:
-                initial = ' {} {}'.format('=>' if v.type.pointer else '=',
-                                          self.visit(v.type.initial, **kwargs))
-            variables += ['{}{}'.format(var, initial)]
+                op = '=>' if v.type.pointer else '='
+                initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
+            variables += [f'{var}{initial}']
         comment = None
         if o.comment:
             comment = str(self.visit(o.comment, **kwargs))
@@ -312,7 +312,7 @@ class FortranCodegen(Stringifier):
           USE <module> [, ONLY: <symbols>]
         """
         if o.c_import:
-            return '#include "%s"' % o.module
+            return f'#include "{o.module}"'
         if o.f_include:
             return self.format_line('include "', o.module, '"')
         if o.symbols:
@@ -327,7 +327,7 @@ class FortranCodegen(Stringifier):
             ...body...
           END INTERFACE
         """
-        spec = ' {}'.format(o.spec) if o.spec else ''
+        spec = f' {o.spec}' if o.spec else ''
         header = self.format_line('INTERFACE', spec)
         footer = self.format_line('END INTERFACE', spec)
         self.depth += 1
@@ -345,11 +345,11 @@ class FortranCodegen(Stringifier):
         pragma = self.visit(o.pragma, **kwargs)
         pragma_post = self.visit(o.pragma_post, **kwargs)
         control = '{}={}'.format(*self.visit_all(o.variable, o.bounds, **kwargs))
-        header_name = '{}: '.format(o.name) if o.name else ''
-        label = '{} '.format(o.loop_label) if o.loop_label else ''
+        header_name = f'{o.name}: ' if o.name else ''
+        label = f'{o.loop_label} ' if o.loop_label else ''
         header = self.format_line(header_name, 'DO ', label, control)
         if o.has_end_do:
-            footer_name = ' {}'.format(o.name) if o.name else ''
+            footer_name = f' {o.name}' if o.name else ''
             footer = self.format_line('END DO', footer_name)
             footer = self.apply_label(footer, o.loop_label)
         else:
@@ -370,12 +370,12 @@ class FortranCodegen(Stringifier):
         pragma_post = self.visit(o.pragma_post, **kwargs)
         control = ''
         if o.condition is not None:
-            control = ' WHILE ({})'.format(self.visit(o.condition, **kwargs))
-        header_name = '{}: '.format(o.name) if o.name else ''
-        label = ' {}'.format(o.loop_label) if o.loop_label else ''
+            control = f' WHILE ({self.visit(o.condition, **kwargs)})'
+        header_name = f'{o.name}: ' if o.name else ''
+        label = f' {o.loop_label}' if o.loop_label else ''
         header = self.format_line(header_name, 'DO', label, control)
         if o.has_end_do:
-            footer_name = ' {}'.format(o.name) if o.name else ''
+            footer_name = f' {o.name}' if o.name else ''
             footer = self.format_line('END DO', footer_name)
             footer = self.apply_label(footer, o.loop_label)
         else:
@@ -404,13 +404,13 @@ class FortranCodegen(Stringifier):
             body = self.visit(o.body, **kwargs)
             return self.format_line('IF (', cond, ') ', body)
 
-        name = kwargs.pop('name', ' {}'.format(o.name) if o.name else '')
+        name = kwargs.pop('name', f' {o.name}' if o.name else '')
         is_elseif = kwargs.pop('is_elseif', False)
 
         if is_elseif:
             header = self.format_line('ELSE IF', ' (', self.visit(o.condition, **kwargs), ') THEN', name)
         else:
-            header = '{}: IF'.format(name[1:]) if name else 'IF'
+            header = f'{name[1:]}: IF' if name else 'IF'
             header = self.format_line(header, ' (', self.visit(o.condition, **kwargs), ') THEN')
 
         self.depth += 1
@@ -439,10 +439,10 @@ class FortranCodegen(Stringifier):
             [...body...]
           END SELECT [name]
         """
-        header_name = '{}: '.format(o.name) if o.name else ''
+        header_name = f'{o.name}: ' if o.name else ''
         header = self.format_line(header_name, 'SELECT CASE (', self.visit(o.expr, **kwargs), ')')
         cases = []
-        name = ' {}'.format(o.name) if o.name else ''
+        name = f' {o.name}' if o.name else ''
         for value in o.values:
             case = self.visit_all(as_tuple(value), **kwargs)
             cases.append(self.format_line('CASE (', self.join_items(case), ')', name))
@@ -466,7 +466,7 @@ class FortranCodegen(Stringifier):
         rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
-            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+            comment = f'  {self.visit(o.comment, **kwargs)}'
         if o.ptr:
             return self.format_line(lhs, ' => ', rhs, comment=comment)
         return self.format_line(lhs, ' = ', rhs, comment=comment)
@@ -530,7 +530,7 @@ class FortranCodegen(Stringifier):
         """
         items = self.visit_all(o.variables, **kwargs)
         if o.data_source is not None:
-            items += ('SOURCE={}'.format(self.visit(o.data_source, **kwargs)), )
+            items += (f'SOURCE={self.visit(o.data_source, **kwargs)}', )
         return self.format_line('ALLOCATE (', self.join_items(items), ')')
 
     def visit_Deallocation(self, o, **kwargs):
@@ -565,18 +565,18 @@ class FortranCodegen(Stringifier):
             else:
                 typename = ''
         elif isinstance(o.dtype, DerivedType):
-            typename = 'TYPE({})'.format(o.dtype.name)
+            typename = f'TYPE({o.dtype.name})'
         else:
             typename = type_map[o.dtype]
         if o.length:
-            typename += '(LEN={})'.format(self.visit(o.length, **kwargs))
+            typename += f'(LEN={self.visit(o.length, **kwargs)})'
         if o.kind:
-            typename += '(KIND={})'.format(self.visit(o.kind, **kwargs))
+            typename += f'(KIND={self.visit(o.kind, **kwargs)})'
         if typename:
             attributes += [typename]
 
         if dimensions:
-            attributes += ['DIMENSION({})'.format(', '.join(self.visit_all(dimensions, **kwargs)))]
+            attributes += [f'DIMENSION({", ".join(self.visit_all(dimensions, **kwargs))})']
         if o.allocatable:
             attributes += ['ALLOCATABLE']
         if o.pointer:
@@ -592,7 +592,7 @@ class FortranCodegen(Stringifier):
         if o.contiguous:
             attributes += ['CONTIGUOUS']
         if o.intent:
-            attributes += ['INTENT({})'.format(o.intent.upper())]
+            attributes += [f'INTENT({o.intent.upper()})']
         return self.join_items(attributes)
 
     def visit_TypeDef(self, o, **kwargs):

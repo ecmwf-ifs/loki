@@ -51,7 +51,7 @@ class DaceCodegen(PyCodegen):
             if isinstance(arg, sym.Array):
                 shape_vars = retriever.retrieve(arg.shape)
                 symbols |= set(v.name.lower() for v in shape_vars)
-        arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
+        arguments = [f'{arg.name.lower()}: {self.visit(arg.type, **kwargs)}'
                      for arg in o.arguments if arg.name.lower() not in symbols]
         header += [self.format_line('{name} = dace.symbol("{name}")'.format(name=s))
                    for s in symbols]
@@ -87,9 +87,9 @@ class DaceCodegen(PyCodegen):
         end = self.visit(o.bounds.stop, **kwargs)
         if o.bounds.step:
             incr = self.visit(o.bounds.step, **kwargs)
-            cntrl = 'dace.map[{start}:{end}+{inc}:{inc}]'.format(start=start, end=end, inc=incr)
+            cntrl = f'dace.map[{start}:{end}+{incr}:{incr}]'
         else:
-            cntrl = 'dace.map[{start}:{end}+1]'.format(start=start, end=end)
+            cntrl = f'dace.map[{start}:{end}+1]'
         header = self.format_line('for ', var, ' in ', cntrl, ':')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
@@ -101,8 +101,8 @@ class DaceCodegen(PyCodegen):
         shape = ''
         if o.shape is not None:
             dims = [self.visit(dim, **kwargs) for dim in o.shape]
-            shape = '[{}]'.format(', '.join(d for d in dims if d))
-        return '{}{}'.format(dtype, shape)
+            shape = f'[{", ".join(d for d in dims if d)}]'
+        return f'{dtype}{shape}'
 
 
 

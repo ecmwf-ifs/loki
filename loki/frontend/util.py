@@ -148,8 +148,8 @@ def combine_multiline_pragmas(ir):
                 collected_pragmas += [pragma]
 
                 if pragma.keyword != collected_pragmas[0].keyword:
-                    raise RuntimeError('Pragma keyword mismatch after line continuation: {} != {}'.format(
-                        collected_pragmas[0].keyword, pragma.keyword))
+                    raise RuntimeError('Pragma keyword mismatch after line continuation: ' +
+                                       f'{collected_pragmas[0].keyword} != {pragma.keyword}')
 
                 if not pragma.content.rstrip().endswith('&'):
                     # This is the last line of a multiline pragma

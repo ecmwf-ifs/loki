@@ -251,7 +251,7 @@ class IsoFortranEnvMapper:
         ``iso_fortran_env`` that is able to represent all integers n
         in the range -10**r < n < 10**r.
         """
-        byte_kind_map = {b: 'INT{}'.format(8 * b) for b in [1, 2, 4, 8]}
+        byte_kind_map = {b: f'INT{8 * b}' for b in [1, 2, 4, 8]}
         kind = self._selected_int_kind(r)
         if kind in byte_kind_map:
             kind_name = byte_kind_map[kind]
@@ -297,7 +297,7 @@ class IsoFortranEnvMapper:
         for decimal precision (``p``), decimal exponent range (``r``) and
         radix (``r``).
         """
-        byte_kind_map = {b: 'REAL{}'.format(8 * b) for b in [4, 8, 16]}
+        byte_kind_map = {b: f'REAL{8 * b}' for b in [4, 8, 16]}
         kind = self._selected_real_kind(p, r, radix)
         if kind in byte_kind_map:
             kind_name = byte_kind_map[kind]
@@ -309,7 +309,7 @@ class IsoFortranEnvMapper:
         if not self.is_selected_kind_call(call):
             return call
 
-        func = getattr(self, 'map_{}'.format(call.name.lower()))
+        func = getattr(self, f'map_{call.name.lower()}')
         args = [int(arg) for arg in call.parameters]
         kwargs = {key: int(val) for key, val in call.kw_parameters.items()}
 

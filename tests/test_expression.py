@@ -40,7 +40,7 @@ subroutine arithmetic_expr(v1, v2, v3, v4, v5, v6)
   v6 = (v1 ** v2) - (v3 / v4)
 end subroutine arithmetic_expr
 """
-    filepath = here/('expression_arithmetic_%s.f90' % frontend)
+    filepath = here/(f'expression_arithmetic_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='arithmetic_expr')
 
@@ -68,7 +68,7 @@ subroutine math_intrinsics(v1, v2, vmin, vmax, vabs, vexp, vsqrt, vlog)
   vlog = log(v1 + v2)
 end subroutine math_intrinsics
 """
-    filepath = here/('expression_math_intrinsics_%s.f90' % frontend)
+    filepath = here/(f'expression_math_intrinsics_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
@@ -100,7 +100,7 @@ subroutine logicals(t, f, vand_t, vand_f, vor_t, vor_f, vnot_t, vnot_f, vtrue, v
   vneq = 3 /= 4
 end subroutine logicals
 """
-    filepath = here/('expression_logicals_%s.f90' % frontend)
+    filepath = here/(f'expression_logicals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='logicals')
 
@@ -130,7 +130,7 @@ subroutine literals(v1, v2, v3, v4, v5, v6)
   v6 = int(3.5)
 end subroutine literals
 """
-    filepath = here/('expression_literals_%s.f90' % frontend)
+    filepath = here/(f'expression_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='literals')
 
@@ -173,7 +173,7 @@ subroutine boz_literals(n1, n2, n3, n4, n5, n6)
   n6 = z"babe"
 end subroutine boz_literals
 """
-    filepath = here/('expression_boz_literals_%s.f90' % frontend)
+    filepath = here/(f'expression_boz_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='boz_literals')
 
@@ -210,7 +210,7 @@ subroutine complex_literals(c1, c2, c3)
   c3 = (21_2, 4._8)
 end subroutine complex_literals
 """
-    filepath = here/('expression_complex_literals_%s.f90' % frontend)
+    filepath = here/(f'expression_complex_literals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='complex_literals')
 
@@ -248,7 +248,7 @@ subroutine casts(v1, v2, v3, v4, v5)
   v5 = real(v1, kind=jprb) * max(v2, v3)  ! Cast as part of expression
 end subroutine casts
 """
-    filepath = here/('expression_casts_%s.f90' % frontend)
+    filepath = here/(f'expression_casts_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='casts')
 
@@ -286,7 +286,7 @@ subroutine logical_array(dim, arr, out)
   end do
 end subroutine logical_array
 """
-    filepath = here/('expression_logical_array_%s.f90' % frontend)
+    filepath = here/(f'expression_logical_array_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='logical_array')
 
@@ -416,7 +416,7 @@ subroutine strings()
   print *, "42!"
 end subroutine strings
 """
-    filepath = here/('expression_strings_%s.f90' % frontend)
+    filepath = here/(f'expression_strings_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     function = jit_compile(routine, filepath=filepath, objname='strings')
@@ -448,7 +448,7 @@ subroutine very_long_statement(scalar, res)
         - 9) + 10 - 8 + 7 - 6 + 5 - 4 + 3 - 2 + 1
 end subroutine very_long_statement
 """
-    filepath = here/('expression_very_long_statement_%s.f90' % frontend)
+    filepath = here/(f'expression_very_long_statement_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='very_long_statement')
 
@@ -534,7 +534,7 @@ subroutine nested_call_inline_call(v1, v2, v3)
   call very_long_statement(int(v2), v3)
 end subroutine nested_call_inline_call
 """
-    filepath = here/('expression_nested_call_inline_call_%s.f90' % frontend)
+    filepath = here/(f'expression_nested_call_inline_call_{frontend}.f90')
     routine = Sourcefile.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='nested_call_inline_call')
 
@@ -601,7 +601,7 @@ subroutine character_concat(string)
   string = trim(string) // "!"
 end subroutine character_concat
 """
-    filepath = here/('expression_character_concat_%s.f90' % frontend)
+    filepath = here/(f'expression_character_concat_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='character_concat')
 
@@ -635,7 +635,7 @@ subroutine masked_statements(length, vec1, vec2, vec3)
   where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
 end subroutine masked_statements
 """
-    filepath = here/('expression_masked_statements_%s.f90' % frontend)
+    filepath = here/(f'expression_masked_statements_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='masked_statements')
 
@@ -683,7 +683,7 @@ subroutine data_declaration(data_out)
   data_out(1:3,1) = data3
 end subroutine data_declaration
 """
-    filepath = here/('expression_data_declaration_%s.f90' % frontend)
+    filepath = here/(f'expression_data_declaration_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='data_declaration')
 
@@ -714,7 +714,7 @@ subroutine pointer_nullify()
   charp => NULL()
 end subroutine pointer_nullify
 """
-    filepath = here/('expression_pointer_nullify_%s.f90' % frontend)
+    filepath = here/(f'expression_pointer_nullify_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert np.all(v.type.pointer for v in routine.variables)
@@ -747,7 +747,7 @@ subroutine parameter_stmt(out1)
   out1 = param
 end subroutine parameter_stmt
 """
-    filepath = here/('expression_parameter_stmt_%s.f90' % frontend)
+    filepath = here/(f'expression_parameter_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='parameter_stmt')
 

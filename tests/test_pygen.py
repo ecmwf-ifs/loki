@@ -54,7 +54,7 @@ end subroutine pygen_simple_loops
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_simple_loops_%s.f90' % frontend)
+    filepath = here/(f'pygen_simple_loops_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_simple_loops')
 
     n, m = 3, 4
@@ -69,7 +69,7 @@ end subroutine pygen_simple_loops
                              [13., 23., 33., 43.]])
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()
@@ -142,7 +142,7 @@ end subroutine pygen_arguments
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_arguments_%s.f90' % frontend)
+    filepath = here/(f'pygen_arguments_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_arguments')
     a, b, c = function(n, array, array_io, a_io, b_io, c_io)
 
@@ -152,7 +152,7 @@ end subroutine pygen_arguments
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()
@@ -210,7 +210,7 @@ end subroutine pygen_vectorization
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_vectorization_%s.f90' % frontend)
+    filepath = here/(f'pygen_vectorization_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_vectorization')
 
     n, m = 3, 4
@@ -223,7 +223,7 @@ end subroutine pygen_vectorization
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()
@@ -268,7 +268,7 @@ end subroutine pygen_intrinsics
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_intrinsics_%s.f90' % frontend)
+    filepath = here/(f'pygen_intrinsics_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_intrinsics')
 
     # Test the reference solution
@@ -278,7 +278,7 @@ end subroutine pygen_intrinsics
     assert vmin_nested == 1. and vmax_nested == 5.
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()
@@ -327,7 +327,7 @@ end subroutine pygen_loop_indices
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_loop_indices_%s.f90' % frontend)
+    filepath = here/(f'pygen_loop_indices_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_loop_indices')
 
     # Test the reference solution
@@ -346,7 +346,7 @@ end subroutine pygen_loop_indices
     assert mask3[-1] == 3.
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()
@@ -392,7 +392,7 @@ end subroutine pygen_logical_statements
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('pygen_logical_statements_%s.f90' % frontend)
+    filepath = here/(f'pygen_logical_statements_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='pygen_logical_statements')
 
     # Test the reference solution
@@ -407,7 +407,7 @@ end subroutine pygen_logical_statements
             assert v_val[0] and not v_val[1]
 
     # Rename routine to avoid problems with module import caching
-    routine.name = '{}_{}'.format(routine.name, str(frontend))
+    routine.name = f'{routine.name}_{str(frontend)}'
 
     # Generate and test the transpiled Python kernel
     f2p = FortranPythonTransformation()

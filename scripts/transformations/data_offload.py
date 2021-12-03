@@ -105,9 +105,8 @@ class DataOffloadTransformation(Transformation):
 
                 for call in calls:
                     if not call.context:
-                        warning('[Loki] Data offload: Routine {} not attached to call context in {}'.format(
-                            routine.name, str(call.name).lower()
-                        ))
+                        warning(f'[Loki] Data offload: Routine {routine.name} not attached to call context' +
+                                f'in {str(call.name).lower()}')
 
                         continue
 
@@ -127,7 +126,7 @@ class DataOffloadTransformation(Transformation):
                 copyin = '!$acc & copyin(' + _pragma_string(inargs) + ')'
                 copy = '!$acc & copy(' + _pragma_string(inoutargs) + ')'
                 copyout = '!$acc & copyout(' + _pragma_string(outargs) + ')'
-                pragma = Pragma(keyword='acc', content='data &\n{} &\n{} &\n{}'.format(copyin, copy, copyout))
+                pragma = Pragma(keyword='acc', content=f'data &\n{copyin} &\n{copy} &\n{copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post

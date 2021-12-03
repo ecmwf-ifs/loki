@@ -55,7 +55,7 @@ end subroutine routine_simple
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])  # OMNI
 
     # Generate code, compile and load
-    filepath = here/('routine_simple_%s.f90' % frontend)
+    filepath = here/(f'routine_simple_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_simple')
 
     # Test the generated identity results
@@ -111,7 +111,7 @@ end subroutine routine_arguments
                             ['x', 'y', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/('routine_arguments_%s.f90' % frontend)
+    filepath = here/(f'routine_arguments_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_arguments')
 
     # Test results of the generated and compiled code
@@ -157,7 +157,7 @@ end subroutine routine_arguments_multiline
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/('routine_arguments_multiline_%s.f90' % frontend)
+    filepath = here/(f'routine_arguments_multiline_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_arguments_multiline')
 
     # Test results of the generated and compiled code
@@ -296,7 +296,7 @@ end subroutine routine_variables_local
         ['jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
     # Generate code, compile and load
-    filepath = here/('routine_variables_local_%s.f90' % frontend)
+    filepath = here/(f'routine_variables_local_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_variables_local')
 
     # Test results of the generated and compiled code
@@ -848,7 +848,7 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
 """
     fcode = pre + body + post
 
-    filepath = here/('routine_convert_endian_%s.F90' % frontend)
+    filepath = here/(f'routine_convert_endian_{frontend}.f90')
     Sourcefile.to_file(fcode, filepath)
     routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
 
@@ -882,7 +882,7 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
 """
     fcode = pre + body + post
 
-    filepath = here/('routine_open_newunit_%s.F90' % frontend)
+    filepath = here/(f'routine_open_newunit_{frontend}.f90')
     Sourcefile.to_file(fcode, filepath)
     routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
 
@@ -972,7 +972,7 @@ end subroutine routine_member_procedures
     assert routine.get_symbol_scope('in2') is routine
 
     # Generate code, compile and load
-    filepath = here/('routine_member_procedures_%s.f90' % frontend)
+    filepath = here/(f'routine_member_procedures_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_member_procedures')
 
     # Test results of the generated and compiled code
@@ -1131,10 +1131,10 @@ end subroutine routine_call_external_stmt
                 assert v.type.dtype.return_type.compare(SymbolAttributes(BasicType.INTEGER))
 
     # Generate code, compile and load
-    extpath = here/('subroutine_routine_external_%s.f90' % frontend)
+    extpath = here/(f'subroutine_routine_external_{frontend}.f90')
     with extpath.open('w') as f:
         f.write(fcode_external)
-    filepath = here/('subroutine_routine_external_stmt_%s.f90' % frontend)
+    filepath = here/(f'subroutine_routine_external_stmt_{frontend}.f90')
     source.path = filepath
     lib = jit_compile_lib([source, extpath], path=here, name='subroutine_external')
     function = lib.routine_call_external_stmt
@@ -1159,7 +1159,7 @@ subroutine routine_contiguous(vec)
 end subroutine routine_contiguous
     """
     # We need to write this one to file as OFP has to preprocess the file
-    filepath = here/('routine_contiguous_%s.f90' % frontend)
+    filepath = here/(f'routine_contiguous_{frontend}.f90')
     Sourcefile.to_file(fcode, filepath)
 
     routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']

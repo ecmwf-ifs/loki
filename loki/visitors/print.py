@@ -293,7 +293,7 @@ class Stringifier(Visitor):
         self.depth += 1
         values = []
         for expr in o.values:
-            value = '({})'.format(', '.join(self.visit_all(expr, **kwargs)))
+            value = f'({", ".join(self.visit_all(expr, **kwargs))})'
             values += [self.format_node('Case', value)]
         if o.else_body:
             values += [self.format_node('Default')]

@@ -348,7 +348,7 @@ def test_scheduler_process(here, config, frontend):
         """
         def transform_subroutine(self, routine, **kwargs):
             role = kwargs.get('role', None)
-            routine.name += '_{}'.format(role)
+            routine.name += f'_{role}'
 
     # Apply re-naming transformation and check result
     scheduler.process(transformation=AppendRole())

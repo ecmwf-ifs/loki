@@ -80,7 +80,7 @@ class Module(Scope):
             m_ast = get_fparser_node(ast, 'Module')
             return cls.from_fparser(ast=m_ast, definitions=definitions, raw_source=source)
 
-        raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
     def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
@@ -297,7 +297,7 @@ class Module(Scope):
         """
         String representation.
         """
-        return 'Module:: {}'.format(self.name)
+        return f'Module:: {self.name}'
 
     def clone(self, **kwargs):
         """

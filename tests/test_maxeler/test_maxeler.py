@@ -30,9 +30,9 @@ def fixture_simulator():
     class MaxCompilerSim:
 
         def __init__(self):
-            name = '%s_pytest' % os.getlogin()
+            name = f'{os.getlogin()}_pytest'
             self.base_cmd = ['maxcompilersim', '-n', name]
-            os.environ['SLIC_CONF'] = 'use_simulation=%s' % name
+            os.environ['SLIC_CONF'] = f'use_simulation={name}'
             self.maxeleros = ct.CDLL(os.environ['MAXELEROSDIR'] + '/lib/libmaxeleros.so')
 
         def __del__(self):
@@ -53,8 +53,9 @@ def fixture_simulator():
                 cmd += [str(a) for a in args]
             self.restart()
             env = os.environ.copy()
-            env['LD_PRELOAD'] = '%s/lib/libmaxeleros.so:%s' % (os.environ['MAXELEROSDIR'],
-                                                               os.environ.get('LD_PRELOAD', ''))
+            maxelerosdir = os.environ['MAXELEROSDIR']
+            ld_preload = os.environ.get('LD_PRELOAD', '')
+            env['LD_PRELOAD'] = f'{maxelerosdir}/lib/libmaxeleros.so:{ld_preload}'
             execute(cmd, env=env)
             self.stop()
 
@@ -90,15 +91,15 @@ def max_transpile(routine, path, builder, frontend, objects=None, wrap=None):
     max_path = generate_max(manager=f2max.maxj_manager_path.stem, maxj_src=f2max.maxj_src,
                             max_filename=routine.name, build_dir=builder.build_dir,
                             package=routine.name)
-    max_obj = compile_max(max_path, '%s_max.o' % max_path.stem, build_dir=builder.build_dir)
-    max_include = max_obj.parent/('%s_MAX5C_DFE_SIM/results' % routine.name)
+    max_obj = compile_max(max_path, f'{max_path.stem}_max.o', build_dir=builder.build_dir)
+    max_include = max_obj.parent/(f'{routine.name}_MAX5C_DFE_SIM/results')
 
     # Build and wrap the cross-compiled library
     objects = (objects or []) + [Obj(source_path=f2max.c_path), Obj(source_path=f2max.wrapperpath)]
-    lib = Lib(name='fmax_%s_%s' % (routine.name, frontend), objs=objects, shared=False)
+    lib = Lib(name=f'fmax_{routine.name}_{frontend}', objs=objects, shared=False)
     lib.build(builder=builder, include_dirs=[max_include], external_objs=[max_obj])
 
-    return lib.wrap(modname='mod_%s_%s' % (routine.name, frontend), builder=builder,
+    return lib.wrap(modname=f'mod_{routine.name}_{frontend}', builder=builder,
                     sources=(wrap or []) + [f2max.wrapperpath.name],
                     libs=get_max_libs(), lib_dirs=get_max_libdirs())
 
@@ -177,7 +178,7 @@ subroutine routine_axpy_scalar(a, x, y)
 end subroutine routine_axpy_scalar
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_axpy_scalar_%s.f90' % frontend)
+    filepath = here/(f'routine_axpy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
 
     # Test the reference solution
@@ -225,7 +226,7 @@ subroutine routine_copy_scalar(x, y)
 end subroutine routine_copy_scalar
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_copy_scalar_%s.f90' % frontend)
+    filepath = here/(f'routine_copy_scalar_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_scalar')
 
     # Test the reference solution
@@ -278,7 +279,7 @@ subroutine routine_fixed_loop(scalar, vector, vector_out, tensor, tensor_out)
 end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_fixed_loop_%s.f90' % frontend)
+    filepath = here/(f'routine_fixed_loop_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
 
     # Test the reference solution
@@ -333,7 +334,7 @@ subroutine routine_copy_stream(length, scalar, vector_in, vector_out)
 end subroutine routine_copy_stream
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_copy_stream_%s.f90' % frontend)
+    filepath = here/(f'routine_copy_stream_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
 
     # Test the reference solution
@@ -391,7 +392,7 @@ subroutine routine_moving_average(length, data_in, data_out)
 end subroutine routine_moving_average
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_moving_average_%s.f90' % frontend)
+    filepath = here/(f'routine_moving_average_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
 
     # Create random input data
@@ -464,7 +465,7 @@ subroutine routine_laplace(h, data_in, data_out)
 end subroutine routine_laplace
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('routine_laplace_%s.f90' % frontend)
+    filepath = here/(f'routine_laplace_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='routine_laplace')
 
     # Create random input data

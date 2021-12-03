@@ -99,7 +99,7 @@ class GenericVisitor:
                     # Save it on this type name for faster lookup next time
                     self._handlers[cls.__name__] = entry
                     return entry
-        raise RuntimeError("No handler found for class %s" % cls.__name__)
+        raise RuntimeError(f'No handler found for class {cls.__name__}')
 
     def visit(self, o, *args, **kwargs):
         """

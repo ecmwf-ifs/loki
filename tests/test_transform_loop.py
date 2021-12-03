@@ -130,7 +130,7 @@ subroutine transform_loop_interchange_plain(a, m, n)
 end subroutine transform_loop_interchange_plain
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n = 10, 20
     ref = np.array([[i+j for i in range(n)] for j in range(m)], order='F')
@@ -147,7 +147,7 @@ end subroutine transform_loop_interchange_plain
     # Apply transformation
     loop_interchange(routine)
 
-    interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -197,7 +197,7 @@ subroutine transform_loop_interchange(a, m, n, nclv)
 end subroutine transform_loop_interchange
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n, nclv = 10, 20, 5
     ref = np.array([[[i+j+k for k in range(nclv)] for i in range(n)] for j in range(m)], order='F')
@@ -218,7 +218,7 @@ end subroutine transform_loop_interchange
     # Apply transformation
     loop_interchange(routine)
 
-    interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -260,7 +260,7 @@ subroutine transform_loop_interchange_project(a, m, n)
 end subroutine transform_loop_interchange_project
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     m, n = 10, 20
     ref = np.array([[i+j if j>=i else 0 for i in range(1, n+1)]
@@ -278,7 +278,7 @@ end subroutine transform_loop_interchange_project
     # Apply transformation
     loop_interchange(routine, project_bounds=True)
 
-    interchanged_filepath = here/('%s_interchanged_%s.f90' % (routine.name, frontend))
+    interchanged_filepath = here/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
 
     # Test transformation
@@ -317,7 +317,7 @@ subroutine transform_loop_fuse_matching(a, b, n)
 end subroutine transform_loop_fuse_matching
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -333,7 +333,7 @@ end subroutine transform_loop_fuse_matching
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -379,7 +379,7 @@ subroutine transform_loop_fuse_subranges(a, b, n)
 end subroutine transform_loop_fuse_subranges
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -395,7 +395,7 @@ end subroutine transform_loop_fuse_subranges
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -449,7 +449,7 @@ subroutine transform_loop_fuse_groups(a, b, c, n)
 end subroutine transform_loop_fuse_groups
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -467,7 +467,7 @@ end subroutine transform_loop_fuse_groups
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 2
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -530,7 +530,7 @@ subroutine transform_loop_fuse_alignment(a, b, n)
 end subroutine transform_loop_fuse_alignment
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -546,7 +546,7 @@ end subroutine transform_loop_fuse_alignment
     loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -580,7 +580,7 @@ subroutine transform_loop_fuse_nonmatching_lower(a, b, nclv, klev)
 end subroutine transform_loop_fuse_nonmatching_lower
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -601,7 +601,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     assert loops[0].bounds.stop == 'klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -636,7 +636,7 @@ subroutine transform_loop_fuse_nonmatching_lower_annotated(a, b, nclv, klev)
 end subroutine transform_loop_fuse_nonmatching_lower_annotated
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -657,7 +657,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     assert loops[0].bounds.stop == 'klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -692,7 +692,7 @@ subroutine transform_loop_fuse_nonmatching_upper(a, b, klev)
 end subroutine transform_loop_fuse_nonmatching_upper
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -713,7 +713,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     assert loops[0].bounds.stop == '1 + klev'
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -752,7 +752,7 @@ subroutine transform_loop_fuse_collapse(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -773,7 +773,7 @@ end subroutine transform_loop_fuse_collapse
     assert sum([loop.bounds.stop == 'klev' for loop in loops]) == 1
     assert sum([loop.bounds.stop == 'klon' for loop in loops]) == 1
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -813,7 +813,7 @@ subroutine transform_loop_fuse_collapse_nonmatching(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse_nonmatching
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -835,7 +835,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
     assert sum([loop.bounds.stop == '1 + klon' for loop in loops]) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -875,7 +875,7 @@ subroutine transform_loop_fuse_collapse_range(a, b, klon, klev)
 end subroutine transform_loop_fuse_collapse_range
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -897,7 +897,7 @@ end subroutine transform_loop_fuse_collapse_range
     assert sum([loop.bounds.stop == 'klon + 1' for loop in loops]) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fused_filepath = here/('%s_fused_%s.f90' % (routine.name, frontend))
+    fused_filepath = here/(f'{routine.name}_fused_{frontend}.f90')
     fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
@@ -929,7 +929,7 @@ subroutine transform_loop_fission_single(a, b, n)
 end subroutine transform_loop_fission_single
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -950,7 +950,7 @@ end subroutine transform_loop_fission_single
         assert loop.bounds.start == '1'
         assert loop.bounds.stop == 'n'
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -983,7 +983,7 @@ subroutine transform_loop_fission_nested(a, b, n)
 end subroutine transform_loop_fission_nested
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1006,7 +1006,7 @@ end subroutine transform_loop_fission_nested
         assert loop.bounds.stop == 'n + 1'
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1043,7 +1043,7 @@ end subroutine transform_loop_fission_nested_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     normalize_range_indexing(routine)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1069,7 +1069,7 @@ end subroutine transform_loop_fission_nested_promote
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert all(d == ref for d, ref in zip(routine.variable_map['zqxfg'].shape, ['5', '1 + n']))
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1111,7 +1111,7 @@ subroutine transform_loop_fission_collapse(a, n)
 end subroutine transform_loop_fission_collapse
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1132,7 +1132,7 @@ end subroutine transform_loop_fission_collapse
         assert loop.bounds.stop == {'j': 'n + 1', 'k': 'n'}[str(loop.variable).lower()]
     assert len(FindNodes(Assignment).visit(routine.body)) == 8
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1163,7 +1163,7 @@ subroutine transform_loop_fission_multiple(a, b, c, n)
 end subroutine transform_loop_fission_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1186,7 +1186,7 @@ end subroutine transform_loop_fission_multiple
         assert loop.bounds.start == '1'
         assert loop.bounds.stop == 'n'
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1220,7 +1220,7 @@ subroutine transform_loop_fission_promote(a, b, n)
 end subroutine transform_loop_fission_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1242,7 +1242,7 @@ end subroutine transform_loop_fission_promote
         assert loop.bounds.stop == 'n'
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['n']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1279,7 +1279,7 @@ subroutine transform_loop_fission_promote_conflicting_lengths(a, b, n)
 end subroutine transform_loop_fission_promote_conflicting_lengths
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1304,7 +1304,7 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
     assert loops[3].bounds.stop == 'n + 1'
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['1 + n']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1338,7 +1338,7 @@ subroutine transform_loop_fission_promote_array(a, klon, klev)
 end subroutine transform_loop_fission_promote_array
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1360,7 +1360,7 @@ end subroutine transform_loop_fission_promote_array
     else:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1393,7 +1393,7 @@ subroutine transform_loop_fission_promote_multiple(a, klon, klev)
 end subroutine transform_loop_fission_promote_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1417,7 +1417,7 @@ end subroutine transform_loop_fission_promote_multiple
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1460,7 +1460,7 @@ subroutine transform_loop_fission_multiple_promote(a, b, klon, klev, nclv)
 end subroutine transform_loop_fission_multiple_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1489,7 +1489,7 @@ end subroutine transform_loop_fission_multiple_promote
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['klon', 'nclv', 'klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1525,7 +1525,7 @@ subroutine transform_loop_fission_promote_read_after_write(a, klon, klev)
 end subroutine transform_loop_fission_promote_read_after_write
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1549,7 +1549,7 @@ end subroutine transform_loop_fission_promote_read_after_write
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1593,7 +1593,7 @@ subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
 end subroutine transform_loop_fission_promote_mult_r_a_w
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1622,7 +1622,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
         assert [str(d) for d in routine.variable_map['zqxn'].shape] == ['nclv', 'klon', 'klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
@@ -1664,7 +1664,7 @@ subroutine transform_loop_fusion_fission(a, b, klon, klev)
 end subroutine transform_loop_fusion_fission
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
@@ -1692,7 +1692,7 @@ end subroutine transform_loop_fusion_fission
     else:
         assert [str(d) for d in routine.variable_map['zsupsat'].shape] == ['klon', 'klev']
 
-    fissioned_filepath = here/('%s_fissioned_%s.f90' % (routine.name, frontend))
+    fissioned_filepath = here/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation

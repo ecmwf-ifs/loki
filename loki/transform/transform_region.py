@@ -65,9 +65,9 @@ def region_hoist(routine):
     starts, stops = [], []
     for group, regions in hoist_regions.items():
         if not group in hoist_targets or not hoist_targets[group]:
-            raise RuntimeError('No region-hoist target for group {} defined.'.format(group))
+            raise RuntimeError(f'No region-hoist target for group {group} defined.')
         if len(hoist_targets[group]) > 1:
-            raise RuntimeError('Multiple region-hoist targets given for group {}'.format(group))
+            raise RuntimeError(f'Multiple region-hoist targets given for group {group}')
 
         hoist_body = ()
         for start, stop in regions:
@@ -78,7 +78,7 @@ def region_hoist(routine):
             if collapse > 0:
                 scopes = FindScopes(start).visit(routine.body)[0]
                 if len(scopes) <= collapse:
-                    RuntimeError('Not enough enclosing scopes for collapse({})'.format(collapse))
+                    RuntimeError(f'Not enough enclosing scopes for collapse({collapse})')
                 scopes = scopes[-(collapse+1):]
                 region = NestedMaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(scopes[0])
 
@@ -92,8 +92,8 @@ def region_hoist(routine):
                 region = MaskedTransformer(start=start, stop=stop, mapper={start: None}).visit(routine.body)
 
             # Append it to the group's body, wrapped in comments
-            begin_comment = Comment('! Loki {}'.format(start.content))
-            end_comment = Comment('! Loki {}'.format(stop.content))
+            begin_comment = Comment(f'! Loki {start.content}')
+            end_comment = Comment(f'! Loki {stop.content}')
             hoist_body += as_tuple(flatten([begin_comment, region, end_comment]))
 
             # Register start and end nodes for transformer mask
@@ -101,7 +101,7 @@ def region_hoist(routine):
             stops += [start]
 
             # Replace end pragma by comment
-            comment = Comment('! Loki {} - region hoisted'.format(start.content))
+            comment = Comment(f'! Loki {start.content} - region hoisted')
             hoist_map[stop] = comment
 
         # Insert target <-> hoisted regions into map
@@ -149,7 +149,7 @@ def region_to_call(routine):
 
                 # Name the external routine
                 parameters = get_pragma_parameters(region.pragma, starts_with='region-to-call')
-                name = parameters.get('name', '{}_region_to_call_{}'.format(routine.name, counter))
+                name = parameters.get('name', f'{routine.name}_region_to_call_{counter}')
                 counter += 1
 
                 # Create the external subroutine containing the routine's imports and the region's body

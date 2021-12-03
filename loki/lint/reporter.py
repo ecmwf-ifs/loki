@@ -72,7 +72,7 @@ class FileReport:
         :param :py:class:`RuleReport` rule_report: the report to be stored.
         """
         if not isinstance(rule_report, RuleReport):
-            raise TypeError('{} given, {} expected'.format(type(rule_report), RuleReport))
+            raise TypeError(f'{type(rule_report)} given, {RuleReport} expected')
         self.reports.append(rule_report)
 
     @property
@@ -131,7 +131,7 @@ class Reporter:
         :param :py:class:`FileReport` file_report: the file report to be processed.
         """
         if not isinstance(file_report, FileReport):
-            raise TypeError('{} given, {} expected'.format(type(file_report), FileReport))
+            raise TypeError(f'{type(file_report)} given, {FileReport} expected')
         for handler, reports in self.handlers_reports.items():
             reports.append(handler.handle(file_report))
 
@@ -198,15 +198,15 @@ class GenericHandler:
         source = getattr(location, '_source', getattr(location, 'source', None))
         if source is not None:
             if source.lines[0] == source.lines[1]:
-                line = ' (l. {})'.format(source.lines[0])
+                line = f' (l. {source.lines[0]})'
             else:
-                line = ' (ll. {}-{})'.format(*source.lines)
+                line = f' (ll. {source.lines[0]}-{source.lines[1]})'
         scope = ''
         if isinstance(location, Subroutine):
-            scope = ' in routine "{}"'.format(location.name)
+            scope = f' in routine "{location.name}"'
         if isinstance(location, Module):
-            scope = ' in module "{}"'.format(location.name)
-        return '{}{}{}'.format(filename, line, scope)
+            scope = f' in module "{location.name}"'
+        return f'{filename}{line}{scope}'
 
     def handle(self, file_report):
         """
@@ -257,7 +257,7 @@ class DefaultHandler(GenericHandler):
             rule = rule_report.rule.__name__
             if hasattr(rule_report.rule, 'docs') and rule_report.rule.docs:
                 if 'id' in rule_report.rule.docs:
-                    rule = '[{}] '.format(rule_report.rule.docs['id']) + rule
+                    rule = f'[{rule_report.rule.docs["id"]}] ' + rule
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)

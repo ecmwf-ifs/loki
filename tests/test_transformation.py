@@ -371,7 +371,7 @@ end subroutine transform_replace_selected_kind
     assert len(imports[0].symbols) == 1 and imports[0].symbols[0].name.lower() == 'int8'
 
     # Test the original implementation
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     i, a = function()
@@ -401,7 +401,7 @@ end subroutine transform_replace_selected_kind
     assert {s.name.lower() for s in imports[0].symbols} == symbols
 
     # Test the transformed implementation
-    iso_filepath = here/('%s_replaced_%s.f90' % (routine.name, frontend))
+    iso_filepath = here/(f'{routine.name}_replaced_{frontend}.f90')
     iso_function = jit_compile(routine, filepath=iso_filepath, objname=routine.name)
 
     i, a = iso_function()
@@ -441,7 +441,7 @@ end subroutine transformation_post_apply
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     i = function()
@@ -451,7 +451,7 @@ end subroutine transformation_post_apply
     routine.apply(ScopingErrorTransformation())
     assert routine.variable_map['j'].scope is routine
 
-    new_filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    new_filepath = here/(f'{routine.name}_{frontend}.f90')
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     i = new_function()
@@ -496,7 +496,7 @@ end module transformation_module_post_apply
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/('%s_%s.f90' % (module.name, frontend))
+    filepath = here/(f'{module.name}_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname=module.name)
 
     i = mod.test_post_apply()
@@ -506,7 +506,7 @@ end module transformation_module_post_apply
     module.apply(ScopingErrorTransformation())
     assert module.variable_map['j'].scope is module
 
-    new_filepath = here/('%s_%s.f90' % (module.name, frontend))
+    new_filepath = here/(f'{module.name}_{frontend}.f90')
     new_mod = jit_compile(module, filepath=new_filepath, objname=module.name)
 
     i = new_mod.test_post_apply()
