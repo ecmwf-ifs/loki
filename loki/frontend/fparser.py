@@ -1,10 +1,16 @@
 # pylint: disable=too-many-lines
 import re
 
-from fparser.two.parser import ParserFactory
-from fparser.two.utils import get_child, BlockBase
-from fparser.two import Fortran2003
-from fparser.common.readfortran import FortranStringReader
+try:
+    from fparser.two.parser import ParserFactory
+    from fparser.two.utils import get_child, BlockBase
+    from fparser.two import Fortran2003
+    from fparser.common.readfortran import FortranStringReader
+
+    HAVE_FP = True
+    """Indicate whether fparser frontend is available."""
+except ImportError:
+    HAVE_FP = False
 
 from loki.visitors import GenericVisitor
 from loki.frontend.source import Source
@@ -28,8 +34,8 @@ from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
 
-__all__ = ['FParser2IR', 'parse_fparser_file', 'parse_fparser_source', 'parse_fparser_ast',
-           'parse_fparser_expression']
+__all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source',
+           'parse_fparser_ast', 'parse_fparser_expression']
 
 
 @timeit(log_level=DEBUG)
@@ -46,6 +52,8 @@ def parse_fparser_source(source):
     """
     Generate a parse tree from string
     """
+    if not HAVE_FP:
+        error('Fparser is not available. Try "pip install fparser".')
     reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
@@ -76,7 +84,6 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
     :any:`Node`
         The control flow tree
     """
-
     # Parse the raw FParser language AST into our internal IR
     _ir = FParser2IR(raw_source=raw_source, definitions=definitions, scope=scope).visit(ast)
 
@@ -116,6 +123,9 @@ def parse_fparser_expression(source, scope):
     :any:`Expression`
         The expression tree corresponding to the expression
     """
+    if not HAVE_FP:
+        error('Fparser is not installed')
+
     _ = ParserFactory().create(std='f2008')
     # Wrap source in brackets to make sure it appears like a valid expression
     # for fparser, and strip that Parenthesis node from the ast immediately after

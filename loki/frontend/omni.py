@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import which
 import xml.etree.ElementTree as ET
 
 from loki.frontend.source import Source
@@ -17,7 +18,11 @@ from loki.tools import (
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 
 
-__all__ = ['parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
+__all__ = ['HAVE_OMNI', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
+
+
+HAVE_OMNI = which('F_Front') is not None
+"""Indicate whether OMNI frontend is available."""
 
 
 @timeit(log_level=DEBUG)
@@ -28,6 +33,9 @@ def parse_omni_file(filename, xmods=None):
     Note that the intermediate XML files can be dumped to file via by setting
     the environment variable ``LOKI_OMNI_DUMP_XML``.
     """
+    if not HAVE_OMNI:
+        error('OMNI is not available. Is "F_Front" in the search path?')
+
     dump_xml_files = config['omni-dump-xml']
 
     filepath = Path(filename)

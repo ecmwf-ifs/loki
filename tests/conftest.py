@@ -2,9 +2,11 @@ from pathlib import Path
 import contextlib
 import os
 import io
+import pytest
 
 from loki import (
-    Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement
+    Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
+    as_tuple, Frontend, frontend
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
@@ -202,9 +204,73 @@ def stdchannel_is_captured(capsys):
 
     This hinders redirecting stdout/stderr for f2py/f90wrap functions.
 
-    :param capsys: the capsys fixture of the test.
-    :returns: True if pytest captures output, otherwise False.
+    Parameters
+    ----------
+    capsys :
+        The capsys fixture of the test.
+
+    Returns
+    -------
+    bool
+        `True` if pytest captures output, otherwise `False`.
     """
 
     capturemanager = capsys.request.config.pluginmanager.getplugin("capturemanager")
     return capturemanager._global_capturing.out is not None
+
+
+def parametrize_frontend(test, xfail=None, skip=None):
+    """
+    Decorator to parameterize tests with a :attr:`frontend` argument to run
+    them with all available frontends
+
+    For any unavailable frontends where ``HAVE_<frontend>`` is `False` (e.g.
+    because required dependencies are not installed), :attr:`test` is marked as
+    skipped.
+
+    Use as
+
+    ..code-block::
+        @parametrize_frontend
+        def my_test(frontend):
+            source = Sourcefile.from_file('some.F90', frontend=frontend)
+            # ...
+
+    Parameters
+    ----------
+    test :
+        The function implementing the test.
+    xfail : list, optional
+        Provide frontends that are expected to fail, optionally as tuple with reason
+        provided as string. By default `None`
+    skip : list, optional
+        Provide frontends that are always skipped, optionally as tuple with reason
+        provided as string. By default `None`
+    """
+    if xfail:
+        xfail = dict((as_tuple(f) + (None,))[:2] for f in xfail)
+    else:
+        xfail = ()
+
+    if skip:
+        skip = dict((as_tuple(f) + (None,))[:2] for f in skip)
+    else:
+        skip = {}
+
+    # Unavailable frontends
+    unavailable_frontends = {
+        f: f'{f} is not available' for f in Frontend
+        if not getattr(frontend, f'HAVE_{str(f).upper}')
+    }
+    skip.update(unavailable_frontends)
+
+    params = []
+    for f in Frontend:
+        if f in skip:
+            params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
+        elif f in xfail:
+            params += [pytest.param(f, marks=pytest.mark.xfail(reason=xfail[f]))]
+        else:
+            params += [f]
+
+    return pytest.mark.parametrize(test, 'frontend', params)
