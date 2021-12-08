@@ -29,6 +29,9 @@ with_ant=false
 with_claw=false
 claw_install_env=""
 with_ofp=true
+with_docs=false
+with_dace=true
+with_tests=true
 with_max=false
 
 # Helper functions
@@ -104,6 +107,24 @@ while getopts "$optspec" optchar; do
         without-claw) # Disable installation of OMNI+CLAW
           with_claw=false
           ;;
+        with-dace)    # Enable installation of DaCe
+          with_dace=true
+          ;;
+        without-dace) # Disable installation of DaCe
+          with_dace=false
+          ;;
+        with-tests)    # Enable installation of dependencies for running tests
+          with_tests=true
+          ;;
+        without-tests) # Disable installation of dependencies for running tests
+          with_tests=false
+          ;;
+        with-docs)    # Enable installation of dependencies for docs generation
+          with_docs=true
+          ;;
+        without-docs) # Disable installation of dependencies for docs generation
+          with_docs=false
+          ;;
         with-max)    # Enable experimental use of Maxeler simulator
           with_max=true
           ;;
@@ -134,6 +155,9 @@ while getopts "$optspec" optchar; do
       echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
       echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
       echo "  --with[out]-ofp              Install Open Fortran Parser (default: enabled)"
+      echo "  --with[out]-dace             Install DaCe (default: enabled)"
+      echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
+      echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
       echo "  --with[out]-max              Enable experimental use of Maxeler simulator, requires --ecmwf (default: disabled)"
       echo "  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install"
       exit 2
@@ -160,6 +184,9 @@ if [ "$verbose" == true ]; then
   [[ "$with_ant" == true ]]  && echo "    --with-ant"
   [[ "$with_claw" == true ]] && echo "    --with-claw"
   [[ "$with_ofp" == false ]] && echo "    --without-ofp"
+  [[ "$with_dace" == false ]] && echo "    --without-dace"
+  [[ "$with_tests" == false ]] && echo "    --without-tests"
+  [[ "$with_docs" == false ]] && echo "    --without-docs"
   [[ "$with_max" == true ]]  && echo "    --with-max"
   [[ "$proxy_certificate" != "" ]] && echo "    --proxy-certificate='$proxy_certificate'"
   [[ "$jdk_certificate" != "" ]]   && echo "    --jdk-certificate='$jdk_certificate'"
@@ -230,7 +257,20 @@ fi
 print_step "Installing Loki and Python dependencies"
 
 cd "$loki_path"
-pip install $PIPPROXYOPTIONS -e .[tests,dace]  # Installs Loki dev copy in editable mode
+
+pip_opts=()
+[[ "$with_tests" == true ]] && pip_opts+=(tests)
+[[ "$with_ofp" == true ]] && pip_opts+=(ofp)
+[[ "$with_dace" == true ]] && pip_opts+=(dace)
+[[ "$with_docs" == true ]] && pip_opts+=(docs)
+pip_opts=$(printf ",%s" "${pip_opts[@]}")
+
+if [ "$pip_opts" == "," ]; then
+  pip_opts=
+else
+  pip_opts=[${pip_opts:1}]
+
+pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 
 #
 # Install Java
