@@ -6,14 +6,15 @@ import pytest
 
 from loki import (
     Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
-    as_tuple, Frontend, frontend
+    as_tuple, Frontend
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
+import loki.frontend
 
 
 __all__ = ['generate_identity', 'jit_compile', 'jit_compile_lib', 'clean_test',
-           'stdchannel_redirected', 'stdchannel_is_captured']
+           'stdchannel_redirected', 'stdchannel_is_captured', 'available_frontends']
 
 
 def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
@@ -219,10 +220,12 @@ def stdchannel_is_captured(capsys):
     return capturemanager._global_capturing.out is not None
 
 
-def parametrize_frontend(test, xfail=None, skip=None):
+def available_frontends(xfail=None, skip=None):
     """
-    Decorator to parameterize tests with a :attr:`frontend` argument to run
-    them with all available frontends
+    Provide list of available frontends to parametrize tests with
+
+    To run tests for every frontend, an argument :attr:`frontend` can be added to
+    a test with the return value of this function as parameter.
 
     For any unavailable frontends where ``HAVE_<frontend>`` is `False` (e.g.
     because required dependencies are not installed), :attr:`test` is marked as
@@ -231,15 +234,13 @@ def parametrize_frontend(test, xfail=None, skip=None):
     Use as
 
     ..code-block::
-        @parametrize_frontend
+        @pytest.mark.parametrize('frontend', available_frontends(xfail=[OMNI, (OFP, 'Because...')]))
         def my_test(frontend):
             source = Sourcefile.from_file('some.F90', frontend=frontend)
             # ...
 
     Parameters
     ----------
-    test :
-        The function implementing the test.
     xfail : list, optional
         Provide frontends that are expected to fail, optionally as tuple with reason
         provided as string. By default `None`
@@ -260,10 +261,11 @@ def parametrize_frontend(test, xfail=None, skip=None):
     # Unavailable frontends
     unavailable_frontends = {
         f: f'{f} is not available' for f in Frontend
-        if not getattr(frontend, f'HAVE_{str(f).upper}')
+        if not getattr(loki.frontend, f'HAVE_{str(f).upper()}')
     }
     skip.update(unavailable_frontends)
 
+    # Build the list of parameters
     params = []
     for f in Frontend:
         if f in skip:
@@ -273,4 +275,4 @@ def parametrize_frontend(test, xfail=None, skip=None):
         else:
             params += [f]
 
-    return pytest.mark.parametrize(test, 'frontend', params)
+    return params

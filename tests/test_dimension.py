@@ -1,9 +1,10 @@
 import pytest
 
-from loki import OFP, OMNI, FP, Subroutine, Dimension, FindNodes, Loop
+from conftest import available_frontends
+from loki import Subroutine, Dimension, FindNodes, Loop
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dimension_size(frontend):
     """
     Test that :any:`Dimension` objects match size expressions.
@@ -31,7 +32,7 @@ end subroutine test_dimension_size
     assert routine.variable_map['range_arr'].dimensions[0] in dim.size_expressions
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dimension_index_range(frontend):
     """
     Test that :any:`Dimension` objects match index and range expressions.

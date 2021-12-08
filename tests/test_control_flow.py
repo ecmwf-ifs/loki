@@ -2,8 +2,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import OFP, OMNI, FP, Subroutine, FindNodes, Loop, Conditional
+from conftest import jit_compile, clean_test, available_frontends
+from loki import OMNI, Subroutine, FindNodes, Loop, Conditional
 
 
 @pytest.fixture(scope='module', name='here')
@@ -11,7 +11,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_nest_fixed(here, frontend):
     """
     Test basic loops and reductions with fixed sizes.
@@ -60,7 +60,7 @@ end subroutine loop_nest_fixed
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_nest_variable(here, frontend):
     """
     Test basic loops and reductions with passed sizes.
@@ -110,7 +110,7 @@ end subroutine loop_nest_variable
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_scalar_logical_expr(here, frontend):
     """
     Test a while loop with a logical expression as condition.
@@ -135,7 +135,7 @@ end subroutine loop_scalar_logical_expr
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_unbounded(here, frontend):
     """
     Test unbounded loops.
@@ -163,7 +163,7 @@ end subroutine loop_unbounded
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_labeled_continue(here, frontend):
     """
     Test labeled loops with continue statement.
@@ -197,7 +197,7 @@ end subroutine loop_labeled_continue
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_conditionals(here, frontend):
     """
     Test the use of inline conditionals.
@@ -229,7 +229,7 @@ end subroutine inline_conditionals
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_multi_body_conditionals(here, frontend):
     fcode = """
 subroutine multi_body_conditionals(in1, out1, out2)
@@ -278,7 +278,7 @@ end subroutine multi_body_conditionals
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_goto_stmt(here, frontend):
     fcode = """
 subroutine goto_stmt(var)
@@ -300,7 +300,7 @@ end subroutine goto_stmt
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_select_case(here, frontend):
     fcode = """
 subroutine select_case(cmd, out1)
@@ -331,7 +331,7 @@ end subroutine select_case
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_cycle_stmt(here, frontend):
     fcode = """
 subroutine cycle_stmt(var)

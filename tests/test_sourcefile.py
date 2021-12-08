@@ -2,9 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    Sourcefile, OFP, OMNI, FP, FindNodes, PreprocessorDirective,
+    Sourcefile, OFP, OMNI, FindNodes, PreprocessorDirective,
     Intrinsic, Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction
 )
@@ -15,7 +15,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sourcefile_properties(here, frontend):
     """
     Test that all subroutines and functions are discovered
@@ -40,7 +40,7 @@ def test_sourcefile_properties(here, frontend):
     assert sum(routine.name in contained_routines for routine in source.all_subroutines) == 0
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sourcefile_from_source(frontend):
     """
     Test the `from_source` constructor for `Sourcefile` objects.
@@ -99,11 +99,7 @@ end function function_d
     assert sum(routine.name in contained_routines for routine in source.all_subroutines) == 0
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Files are preprocessed')]))
 def test_sourcefile_pp_macros(here, frontend):
     filepath = here/'sources/sourcefile_pp_macros.F90'
     routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_macros']
@@ -112,11 +108,9 @@ def test_sourcefile_pp_macros(here, frontend):
     assert all(node.text.startswith('#') for node in directives)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Cannot handle directives')),
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Files are preprocessed')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OFP, 'Cannot handle directives'), (OMNI, 'Files are preprocessed')
+]))
 def test_sourcefile_pp_directives(here, frontend):
     filepath = here/'sources/sourcefile_pp_directives.F90'
     routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_directives']
@@ -135,7 +129,7 @@ def test_sourcefile_pp_directives(here, frontend):
     assert fgen(statements[0]) == 'y = 0*5 + 0'
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sourcefile_pp_include(here, frontend):
     filepath = here/'sources/sourcefile_pp_include.F90'
     sourcefile = Sourcefile.from_file(filepath, frontend=frontend, includes=[here/'include'])
@@ -157,7 +151,7 @@ def test_sourcefile_pp_include(here, frontend):
         assert imports[0].module == 'some_header.h'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sourcefile_cpp_preprocessing(here, frontend):
     """
     Test the use of the external CPP-preprocessor.
@@ -188,11 +182,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
     assert 'b = 6' in fgen(routine)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='No support for statement functions')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=(OFP, 'No support for statement functions')))
 def test_sourcefile_cpp_stmt_func(here, frontend):
     """
     Test the correct identification of statement functions

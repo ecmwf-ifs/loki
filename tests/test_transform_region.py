@@ -2,9 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
+from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Builder, Module, Subroutine, OFP, OMNI, FP, as_tuple,
+    Builder, Module, Subroutine, as_tuple,
     FindNodes, Loop, Assignment, CallStatement
 )
 from loki.expression import symbols as sym
@@ -21,7 +21,7 @@ def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_hoist(here, frontend):
     """
     A very simple hoisting example
@@ -64,7 +64,7 @@ end subroutine transform_region_hoist
     clean_test(hoisted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_hoist_inlined_pragma(here, frontend):
     """
     Hoisting when pragmas are potentially inlined into other nodes.
@@ -140,7 +140,7 @@ end subroutine transform_region_hoist_inlined_pragma
     clean_test(hoisted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_hoist_multiple(here, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
@@ -191,7 +191,7 @@ end subroutine transform_region_hoist_multiple
     clean_test(hoisted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_hoist_collapse(here, frontend):
     """
     Use collapse with region-hoist.
@@ -267,7 +267,7 @@ end subroutine transform_region_hoist_collapse
     clean_test(hoisted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_hoist_promote(here, frontend):
     """
     Use collapse with region-hoist.
@@ -354,7 +354,7 @@ end subroutine transform_region_hoist_promote
     clean_test(hoisted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_to_call(here, frontend):
     """
     A very simple region-to-call test case
@@ -405,7 +405,7 @@ end subroutine transform_region_to_call
     clean_test(mod_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_to_call_multiple(here, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
@@ -465,7 +465,7 @@ end subroutine transform_region_to_call_multiple
     clean_test(mod_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_to_call_arguments(here, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
@@ -538,7 +538,7 @@ end subroutine transform_region_to_call_arguments
     clean_test(mod_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_to_call_arrays(here, frontend):
     """
     Test hoisting with array variables
@@ -615,7 +615,7 @@ end subroutine transform_region_to_call_arrays
     clean_test(mod_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_to_call_imports(here, builder, frontend):
     """
     Test hoisting with correct treatment of imports

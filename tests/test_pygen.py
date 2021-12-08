@@ -4,8 +4,8 @@ from importlib import import_module
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FortranPythonTransformation
+from conftest import available_frontends, jit_compile, clean_test
+from loki import Subroutine, FortranPythonTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -23,7 +23,7 @@ def load_module(here, module):
     return import_module(module)
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_simple_loops(here, frontend):
     """
     A simple test routine to test Python transpilation of loops
@@ -92,7 +92,7 @@ end subroutine pygen_simple_loops
     f2p.py_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_arguments(here, frontend):
     """
     Test the correct exchange of arguments with varying intents
@@ -183,7 +183,7 @@ end subroutine pygen_arguments
 # TODO: implement and test transpilation of modules
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_vectorization(here, frontend):
     """
     Tests vector-notation conversion and local multi-dimensional arrays.
@@ -245,7 +245,7 @@ end subroutine pygen_vectorization
     f2p.py_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_intrinsics(here, frontend):
     """
     A simple test routine to test supported intrinsic functions
@@ -294,7 +294,7 @@ end subroutine pygen_intrinsics
     f2p.py_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_loop_indices(here, frontend):
     """
     Test to ensure loop indexing translates correctly
@@ -369,7 +369,7 @@ end subroutine pygen_loop_indices
     f2p.py_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_logical_statements(here, frontend):
     """
     A simple test routine to test logical statements

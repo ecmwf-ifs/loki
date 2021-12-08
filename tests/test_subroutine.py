@@ -2,9 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
+from conftest import available_frontends, jit_compile, jit_compile_lib, clean_test
 from loki import (
-    Sourcefile, Subroutine, OFP, OMNI, FP, FindVariables, FindNodes,
+    Sourcefile, Subroutine, OFP, OMNI, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
     SymbolAttributes, StringLiteral, fgen, fexprgen, Declaration,
     Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
@@ -22,7 +22,7 @@ def fixture_header_path(here):
     return here/'sources/header.f90'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_simple(here, frontend):
     """
     A simple standard looking routine to test argument declarations.
@@ -69,7 +69,7 @@ end subroutine routine_simple
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_arguments(here, frontend):
     """
     A set of test to test internalisation and handling of arguments.
@@ -125,7 +125,7 @@ end subroutine routine_arguments
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_arguments_multiline(here, frontend):
     """
     Test argument declarations with comments interjectected between dummies.
@@ -171,7 +171,7 @@ end subroutine routine_arguments_multiline
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_arguments_order(frontend):
     """
     Test argument ordering honours singateu (dummy list) instead of
@@ -194,7 +194,7 @@ end subroutine routine_arguments_order
                             ['x', 'y', 'scalar', 'vector(1:x)', 'matrix(1:x, 1:y)'])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_arguments_add_remove(frontend):
     """
     Test addition and removal of subroutine arguments.
@@ -262,7 +262,7 @@ integer, intent(in) :: c
     assert 'b(x)' in routine_vars
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variables_local(here, frontend):
     """
     Test local variables and types
@@ -305,7 +305,7 @@ end subroutine routine_variables_local
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variable_caching(frontend):
     """
     Test that equivalent names in distinct routines don't cache.
@@ -360,7 +360,7 @@ end subroutine routine_simple_caching
     assert routine.arguments[3].type.dtype == BasicType.INTEGER
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variables_add_remove(frontend):
     """
     Test local variable addition and removal.
@@ -433,7 +433,7 @@ integer :: c
     )
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variables_find(frontend):
     """
     Tests the `FindVariables` utility (not the best place to put this).
@@ -482,7 +482,7 @@ end subroutine routine_variables_find
     assert sum(1 for s in vars_unique if str(s) == 'y') == 1
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variables_dim_shapes(frontend):
     """
     A set of test to ensure matching different dimension and shape
@@ -521,7 +521,7 @@ end subroutine routine_dim_shapes
                         ['(v1,)', '(v1,)', '(1:v1, 1:v2)', '(1:v1, 1:v2 - 1)'])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_variables_shape_propagation(header_path, frontend):
     """
     Test for the correct identification and forward propagation of variable shapes
@@ -598,10 +598,7 @@ end subroutine routine_typedefs_simple
     assert fexprgen(vmap['item%matrix'].shape) in ['(3, 3)', '(1:3, 1:3)']
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI does not like loki pragmas, yet!')),
-    FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
 def test_routine_variables_dimension_pragmas(frontend):
     """
     Test that `!$loki dimension` pragmas can be used to verride the
@@ -633,7 +630,7 @@ end subroutine routine_variables_dimensions
     assert fexprgen(routine.variable_map['v6'].shape) == '(x+y,)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_type_propagation(header_path, frontend):
     """
     Test for the forward propagation of derived-type information from
@@ -730,7 +727,7 @@ end subroutine routine_typedefs_simple
     assert str(vmap['item%matrix'].type.kind) in ('jprb', 'selected_real_kind(13, 300)')
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_routine_call_arrays(header_path, frontend):
     """
     Test that arrays passed down a subroutine call are treated as arrays.
@@ -774,7 +771,7 @@ end subroutine routine_call_caller
     assert fgen(call) == 'CALL routine_call_callee(x, y, vector, matrix, item%matrix)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_call_no_arg(frontend):
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_call_no_arg()
@@ -789,7 +786,7 @@ end subroutine routine_call_no_arg
     assert calls[0].kwarguments == ()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_call_kwargs(frontend):
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_call_kwargs()
@@ -814,7 +811,7 @@ end subroutine routine_call_kwargs
     assert calls[0].kwarguments[1] == ('cdstring', StringLiteral('routine_call_kwargs'))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_call_args_kwargs(frontend):
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
@@ -832,7 +829,7 @@ end subroutine routine_call_args_kwargs
     assert calls[0].kwarguments == (('cdstring', StringLiteral('routine_call_args_kwargs')),)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_convert_endian(here, frontend):
     pre = """
 SUBROUTINE ROUTINE_CONVERT_ENDIAN()
@@ -865,7 +862,7 @@ END SUBROUTINE ROUTINE_CONVERT_ENDIAN
     filepath.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_open_newunit(here, frontend):
     pre = """
 SUBROUTINE ROUTINE_OPEN_NEWUNIT()
@@ -898,7 +895,7 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
     filepath.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_empty_spec(frontend):
     routine = Subroutine.from_source(frontend=frontend, source="""
 subroutine routine_empty_spec
@@ -913,7 +910,7 @@ end subroutine routine_empty_spec
     assert len(routine.body.body) == 1
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_member_procedures(here, frontend):
     """
     Test member subroutine and function
@@ -985,7 +982,7 @@ end subroutine routine_member_procedures
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_member_routine_clone(frontend):
     """
     Test that member subroutine scopes get cloned correctly.
@@ -1029,7 +1026,7 @@ end subroutine
     assert new_routine.members[0].parent == new_routine
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_external_stmt(here, frontend):
     """
     Tests procedures passed as dummy arguments and declared as EXTERNAL.
@@ -1147,7 +1144,7 @@ end subroutine routine_call_external_stmt
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_contiguous(here, frontend):
     """
     Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
@@ -1171,7 +1168,7 @@ end subroutine routine_contiguous
     filepath.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_interface(here, frontend):
     """
     Test auto-generation of an interface block for a given subroutine.
@@ -1216,11 +1213,7 @@ END INTERFACE
 """.strip()
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails without dummy module provided')]))
 def test_subroutine_rescope_variables(frontend):
     """
     Test the rescoping of variables.
@@ -1329,11 +1322,7 @@ end subroutine test_subroutine_rescope
         )
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails without dummy module provided')]))
 def test_subroutine_rescope_clone(frontend):
     """
     Test the rescoping of variables in clone.
@@ -1420,11 +1409,7 @@ end subroutine test_subroutine_rescope_clone
         )
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='No support for statement functions')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
 def test_subroutine_stmt_func(here, frontend):
     """
     Test the correct identification of statement functions
@@ -1468,7 +1453,7 @@ end subroutine subroutine_stmt_func
     assert function(3) == 14
     clean_test(filepath)
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_mixed_declaration_interface(frontend):
     """
     A simple test to catch and shame mixed declarations.

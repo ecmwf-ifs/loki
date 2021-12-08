@@ -1,9 +1,13 @@
+import importlib
 import pytest
-
-import rules
 
 from loki.lint import GenericHandler, Reporter, Linter, GenericRule
 from loki.sourcefile import Sourcefile
+
+@pytest.fixture(scope='module', name='rules')
+def fixture_rules():
+    rules = importlib.import_module('rules')
+    return rules
 
 
 @pytest.mark.parametrize('rule_names, num_rules', [
@@ -11,13 +15,13 @@ from loki.sourcefile import Sourcefile
     (['FooRule'], 0),
     (['DummyRule'], 1)
 ])
-def test_linter_lookup_rules(rule_names, num_rules):
+def test_linter_lookup_rules(rules, rule_names, num_rules):
     '''Make sure that linter picks up all rules by default.'''
     rule_list = Linter.lookup_rules(rules, rule_names=rule_names)
     assert len(rule_list) == num_rules
 
 
-def test_linter_fail():
+def test_linter_fail(rules):
     '''Make sure that linter fails if it is not given a source file.'''
     with pytest.raises(TypeError, match=r'.*Sourcefile.*expected.*'):
         Linter(None, rules).check(None)

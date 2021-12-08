@@ -1,8 +1,9 @@
 import pytest
 from pymbolic.primitives import Expression
 
+from conftest import available_frontends
 from loki import (
-    OFP, OMNI, FP,
+    OMNI, FP,
     Module, Subroutine, Section, Loop, Assignment, Conditional, Sum, Associate,
     Array, ArraySubscript, LoopRange, IntLiteral, FloatLiteral, LogicLiteral, Comparison, Cast,
     FindNodes, FindExpressions, FindVariables, ExpressionFinder, FindExpressionRoot,
@@ -11,7 +12,7 @@ from loki import (
 )
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_find_nodes_greedy(frontend):
     """
     Test the FindNodes visitor's greedy property.
@@ -41,7 +42,7 @@ end subroutine routine_find_nodes_greedy
     assert str(outer_cond[0].condition) == 'n > m'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_find_scopes(frontend):
     """
     Test the FindScopes visitor.
@@ -85,7 +86,7 @@ end subroutine routine_find_nodes_greedy
     assert outer is scopes[0][-1]  # node itself should be last in list
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_finder(frontend):
     """
     Test the expression finder's ability to yield only all variables.
@@ -116,7 +117,7 @@ end subroutine routine_simple
         ['i'] * 6 + ['matrix(i, :)', 'scalar'] + ['vector(i)'] * 3 + ['x'])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_finder_unique(frontend):
     """
     Test the expression finder's ability to yield unique variables.
@@ -147,7 +148,7 @@ end subroutine routine_simple
     assert sorted([str(v) for v in variables]) == ['i', 'matrix(i, :)', 'scalar', 'vector(i)', 'x']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_finder_with_ir_node(frontend):
     """
     Test the expression finder's ability to yield the root node.
@@ -187,7 +188,7 @@ end subroutine routine_simple
     assert sorted([str(v) for v in stmts[1][1]]) == ['i', 'i', 'i', 'matrix(i, :)', 'vector(i)']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_finder_unique_with_ir_node(frontend):
     """
     Test the expression finder's ability to yield the ir node combined with only unique
@@ -228,7 +229,7 @@ end subroutine routine_simple
     assert sorted([str(v) for v in stmts[1][1]]) == ['i', 'matrix(i, :)', 'vector(i)']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_callback_mapper(frontend):
     """
     Test the ExpressionFinder together with ExpressionCallbackMapper. This is just a very basic
@@ -274,7 +275,7 @@ end subroutine routine_simple
     assert str(matrix_count.pop()) == 'matrix(i, j)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_expression_retriever_recurse_query(frontend):
     """
     Test the ExpressionRetriever with a custom recurse query that allows to terminate recursion
@@ -319,7 +320,7 @@ end subroutine routine_simple
         assert sorted([str(l) for l in literals]) == ['1.', '2']
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_find_expression_root(frontend):
     """
     Test basic functionality of FindExpressionRoot.
@@ -381,7 +382,7 @@ end subroutine routine_simple
         assert cast_root[0].source.lines == (13, 13)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_find_variables_associates(frontend):
     """
     Test correct discovery of variables in associates.
@@ -417,7 +418,7 @@ end subroutine find_variables_associates
     assert len([v for v in variables if v.name == 'm']) == 2
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_stringifier(frontend):
     """
     Test basic stringifier capability for most IR nodes.
@@ -583,7 +584,7 @@ END MODULE some_mod
     assert Stringifier(indent='#', linewidth=44, line_cont=line_cont).visit(module).strip() == w_ref
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformer_source_invalidation_replace(frontend):
     """
     Test basic transformer functionality and verify source invalidation
@@ -658,7 +659,7 @@ end subroutine routine_simple
     assert get_else_stmt(body_with_source).source == else_stmt.source
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformer_source_invalidation_prepend(frontend):
     """
     Test basic transformer functionality and verify source invalidation
@@ -730,7 +731,7 @@ end subroutine routine_simple
         assert node_with_src.source and node_with_src.source == orig_node.source
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformer_rebuild(frontend):
     """
     Test basic transformer functionality with and without node rebuilding.
@@ -804,7 +805,7 @@ end subroutine routine_simple
     assert all(c in conds for c in conds_no_rebuild)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformer_multinode_keys(frontend):
     """
     Test basic transformer functionality with nulti-node keys
@@ -840,7 +841,7 @@ end subroutine routine_simple
     assert len(FindNodes(Assignment).visit(transformed)) == 4
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_transformer(frontend):
     """
     A very basic sanity test for the MaskedTransformer class.
@@ -916,7 +917,7 @@ end subroutine masked_transformer
     assert str(FindNodes(Assignment).visit(body)[0]) == str(assignments[0])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_transformer_minimum_set(frontend):
     """
     A very basic sanity test for the MaskedTransformer class with
@@ -958,7 +959,7 @@ end subroutine masked_transformer_minimum_set
     assert fgen(body) == fgen(assignments[0])
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_transformer_associates(frontend):
     """
     Test the masked transformer in conjunction with associate blocks
@@ -1024,7 +1025,7 @@ end subroutine masked_transformer
     assert not FindNodes(Associate).visit(body)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_nested_masked_transformer(frontend):
     """
     Test the masked transformer in conjunction with nesting
@@ -1135,7 +1136,7 @@ end subroutine nested_masked_transformer
     assert len(FindNodes(Conditional).visit(body)) == 1
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_is_parent_of(frontend):
     """
     Test the ``is_parent_of`` utility.
@@ -1167,7 +1168,7 @@ end subroutine test_is_parent_of
         assert all(not is_parent_of(a, node) for a in assignments)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_is_child_of(frontend):
     """
     Test the ``is_child_of`` utility.
@@ -1199,7 +1200,7 @@ end subroutine test_is_child_of
         assert all(not is_child_of(node, a) for a in assignments)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_attach_scopes_associates(frontend):
     fcode = """
 module attach_scopes_associates_mod

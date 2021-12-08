@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FortranPythonTransformation
+from conftest import jit_compile, clean_test, available_frontends
+from loki import Subroutine, FortranPythonTransformation
 
 
 @pytest.fixture(scope='module', name='here')
@@ -27,7 +27,7 @@ def create_sdfg(routine, here):
     return function.to_sdfg()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_copy(here, frontend):
 
     fcode = """
@@ -76,7 +76,7 @@ end subroutine routine_copy
 
 
 @pytest.mark.xfail(reason='Scalar inout arguments do not work in dace')
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_axpy_scalar(here, frontend):
 
     fcode = """
@@ -120,7 +120,7 @@ end subroutine routine_axpy_scalar
     (here / (routine.name + '_py.py')).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_copy_stream(here, frontend):
 
     fcode = """
@@ -169,7 +169,7 @@ end subroutine routine_copy_stream
     (here / (routine.name + '_py.py')).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_fixed_loop(here, frontend):
 
     fcode = """
@@ -234,7 +234,7 @@ end subroutine routine_fixed_loop
 @pytest.mark.skip(reason=('This translates successfully but the generated OpenMP code does not '
                           'honour the loop-carried dependency, thus creating data races for more '
                           'than 1 thread.'))
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_loop_carried_dependency(here, frontend):
 
     fcode = """
@@ -279,7 +279,7 @@ end subroutine routine_loop_carried_dependency
     (here / (routine.name + '_py.py')).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_moving_average(here, frontend):
     # TODO: This needs more work to properly handle boundary values.
     # In the current form, these values seem to be handled in a way

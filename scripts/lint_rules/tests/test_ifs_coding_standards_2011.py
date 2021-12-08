@@ -2,14 +2,24 @@ import importlib
 from pathlib import Path
 import pytest
 
-from loki import FP, Sourcefile
+from loki import FP, HAVE_FP, Sourcefile
 from loki.lint import Reporter, Linter, DefaultHandler
+
+
+pytestmark = pytest.mark.skipif(not HAVE_FP,
+                                reason='Fparser frontend not available')
 
 
 @pytest.fixture(scope='module', name='rules')
 def fixture_rules():
     rules = importlib.import_module('lint_rules.ifs_coding_standards_2011')
     return rules
+
+
+@pytest.fixture(scope='module', name='frontend')
+def fixture_frontend():
+    """Choose frontend to use (Linter currently relies exclusively on Fparser)"""
+    return FP
 
 
 def run_linter(sourcefile, rule_list, config=None, handlers=None):
@@ -88,7 +98,6 @@ end subroutine routine_nesting
         assert 'l. {}'.format(ref_line) in msg
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_module_naming(rules, frontend):
     '''Test file and modules for checking that naming is correct and matches each other.'''
     fcode = """
@@ -133,7 +142,6 @@ end module module_naming
     assert all(keyword in messages[2] for keyword in ('module_naming_mod.f90', 'filename'))
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_dr_hook_okay(rules, frontend):
     fcode = """
 subroutine routine_okay
@@ -179,7 +187,6 @@ end subroutine routine_okay
     assert len(messages) == 0
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_dr_hook_routine(rules, frontend):
     fcode = """
 subroutine routine_not_okay_a
@@ -301,7 +308,6 @@ end subroutine routine_not_okay_e
                for letter, i in (('a', 0), ('c', 4), ('c', 5), ('d', 6), ('e', 7)))
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_dr_hook_module(rules, frontend):
     fcode = """
 module some_mod
@@ -434,7 +440,6 @@ end subroutine routine_max_dummy_args
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_mpl_cdstring(rules, frontend):
     fcode = """
 subroutine routine_okay
@@ -470,7 +475,6 @@ end subroutine routine_also_not_okay
     assert sum('(l. 18)' in msg for msg in messages) == 1
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_implicit_none(rules, frontend):
     fcode = """
 subroutine routine_okay
@@ -556,7 +560,6 @@ end module mod_also_not_okay
     assert sum('"contained_contained_routine_not_okay"' in msg for msg in messages) == 1
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_explicit_kind(rules, frontend):
     fcode = """
 subroutine routine_okay
@@ -614,7 +617,6 @@ end subroutine routine_not_okay
         assert all(kw in msg for kw in keys if kw is not None)
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_banned_statements_default(rules, frontend):
     '''Test for banned statements with default.'''
     fcode = """
@@ -669,7 +671,6 @@ end subroutine banned_statements
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
 
-@pytest.mark.parametrize('frontend', [FP])
 def test_fortran_90_operators(rules, frontend):
     '''Test for existence of non Fortran 90 comparison operators.'''
     fcode = """

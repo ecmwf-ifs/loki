@@ -1,14 +1,15 @@
 import pytest
 
+from conftest import available_frontends
 from loki import (
-    FP, OFP, OMNI, Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen
+    Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen
 )
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_live_symbols(frontend):
     fcode = """
 subroutine analyse_live_symbols(v1, v2, v3)
@@ -60,7 +61,7 @@ end subroutine analyse_live_symbols
             _ = assignment.live_symbols
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_analyse_defines_uses_symbols(frontend):
     fcode = """
 subroutine analyse_defines_uses_symbols(a, j, m, n)
@@ -119,7 +120,7 @@ end subroutine analyse_defines_uses_symbols
             _ = cond.uses_symbols
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_read_after_write_vars(frontend):
     fcode = """
 subroutine analyse_read_after_write_vars
@@ -159,7 +160,7 @@ end subroutine analyse_read_after_write_vars
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_read_after_write_vars_conditionals(frontend):
     fcode = """
 subroutine analyse_read_after_write_vars_conditionals(a, b, c, d, e, f)
@@ -205,7 +206,7 @@ end subroutine analyse_read_after_write_vars_conditionals
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_loop_carried_dependencies(frontend):
     fcode = """
 subroutine analyse_loop_carried_dependencies(a, b, c)

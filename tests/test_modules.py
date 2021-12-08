@@ -1,13 +1,14 @@
 import pytest
 
+from conftest import available_frontends
 from loki import (
-    OFP, OMNI, FP, Module, Subroutine, Declaration, TypeDef, fexprgen,
+    OMNI, Module, Subroutine, Declaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable
 )
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_from_source(frontend):
     """
     Test the creation of `Module` objects from raw source strings.
@@ -39,7 +40,7 @@ end module a_module
         assert module.source.lines == (1, fcode.count('\n') + 1)
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_external_typedefs_subroutine(frontend):
     """
     Test that externally provided type information is correctly
@@ -95,7 +96,7 @@ end module a_module
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_external_typedefs_type(frontend):
     """
     Test that externally provided type information is correctly
@@ -201,7 +202,7 @@ end module a_module
     assert fexprgen(pt_ext_arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', [FP, OFP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_nested_types(frontend):
     """
     Test that ensure that nested internal derived type definitions are
@@ -234,11 +235,7 @@ end module type_mod
     assert fexprgen(arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', [
-    FP,
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
 def test_dimension_pragmas(frontend):
     """
     Test that loki-specific dimension annotations are detected and
@@ -259,11 +256,7 @@ end module type_mod
     assert fexprgen(mytype.variables[0].shape) == '(size,)'
 
 
-@pytest.mark.parametrize('frontend', [
-    FP,
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
 def test_nested_types_dimension_pragmas(frontend):
     """
     Test that loki-specific dimension annotations are detected and
@@ -292,7 +285,7 @@ end module type_mod
     assert fexprgen(pt_x.shape) == '(size,)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_internal_function_call(frontend):
     """
     Test the use of `InlineCall` symbols linked to an module function.
@@ -341,7 +334,7 @@ end module
     assert module.symbols['util_fct'].dtype.is_function
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_external_function_call(frontend):
     """
     Test the use of `InlineCall` symbols linked to an external function definition.
@@ -388,7 +381,7 @@ end module
     assert inline_calls[0].parameters[1] == 'v1'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_variables_add_remove(frontend):
     """
     Test local variable addition and removal.
@@ -445,11 +438,7 @@ integer :: c
     assert module_vars == ['jprb', 'x', 'y', 'a', 'b(x)', 'c']
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
 def test_module_rescope_variables(frontend):
     """
     Test the rescoping of variables.
@@ -489,11 +478,7 @@ end module test_module_rescope
         fgen(other_module_copy)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Parsing fails without providing the dummy module...')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
 def test_module_rescope_clone(frontend):
     """
     Test the rescoping of variables in clone.

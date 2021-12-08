@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FindNodes, Loop, Conditional, Scope, Assignment
+from conftest import jit_compile, clean_test, available_frontends
+from loki import Subroutine, OMNI, FindNodes, Loop, Conditional, Scope, Assignment
 from loki.frontend.fparser import parse_fparser_expression
 from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, normalize_range_indexing
 from loki.expression import symbols as sym
@@ -99,7 +99,7 @@ def test_polyhedron_bounds(A, b, variable_names, lower_bounds, upper_bounds):
         assert all(str(b1) == b2 for b1, b2 in zip(ubounds, ref_bounds))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_interchange_plain(here, frontend):
     """
     Apply loop interchange for two loops without further arguments.
@@ -159,7 +159,7 @@ end subroutine transform_loop_interchange_plain
     clean_test(interchanged_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_interchange(here, frontend):
     """
     Apply loop interchange for three loops with specified order.
@@ -236,7 +236,7 @@ end subroutine transform_loop_interchange
     clean_test(interchanged_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_interchange_project(here, frontend):
     """
     Apply loop interchange for two loops with bounds projection.
@@ -290,7 +290,7 @@ end subroutine transform_loop_interchange_project
     clean_test(interchanged_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_matching(here, frontend):
     """
     Apply loop fusion for two loops with matching iteration spaces.
@@ -343,7 +343,7 @@ end subroutine transform_loop_fuse_matching
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_subranges(here, frontend):
     """
     Apply loop fusion with annotated range for loops with
@@ -405,7 +405,7 @@ end subroutine transform_loop_fuse_subranges
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_groups(here, frontend):
     """
     Apply loop fusion for multiple loop fusion groups.
@@ -479,7 +479,7 @@ end subroutine transform_loop_fuse_groups
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_failures(frontend):
     """
     Test that loop-fusion fails for known mistakes.
@@ -506,7 +506,7 @@ end subroutine transform_loop_fuse_failures
         loop_fusion(routine)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_alignment(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_alignment(a, b, n)
@@ -556,7 +556,7 @@ end subroutine transform_loop_fuse_alignment
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_nonmatching_lower(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_lower(a, b, nclv, klev)
@@ -612,7 +612,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_nonmatching_lower_annotated(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_lower_annotated(a, b, nclv, klev)
@@ -668,7 +668,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_nonmatching_upper(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_nonmatching_upper(a, b, klev)
@@ -724,7 +724,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_collapse(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse(a, b, klon, klev)
@@ -785,7 +785,7 @@ end subroutine transform_loop_fuse_collapse
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_collapse_nonmatching(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse_nonmatching(a, b, klon, klev)
@@ -847,7 +847,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_collapse_range(here, frontend):
     fcode = """
 subroutine transform_loop_fuse_collapse_range(a, b, klon, klev)
@@ -909,7 +909,7 @@ end subroutine transform_loop_fuse_collapse_range
     clean_test(fused_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_single(here, frontend):
     fcode = """
 subroutine transform_loop_fission_single(a, b, n)
@@ -961,7 +961,7 @@ end subroutine transform_loop_fission_single
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_nested(here, frontend):
     fcode = """
 subroutine transform_loop_fission_nested(a, b, n)
@@ -1017,7 +1017,7 @@ end subroutine transform_loop_fission_nested
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_nested_promote(here, frontend):
     fcode = """
 subroutine transform_loop_fission_nested_promote(a, b, n)
@@ -1080,7 +1080,7 @@ end subroutine transform_loop_fission_nested_promote
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_collapse(here, frontend):
     fcode = """
 subroutine transform_loop_fission_collapse(a, n)
@@ -1141,7 +1141,7 @@ end subroutine transform_loop_fission_collapse
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_multiple(here, frontend):
     fcode = """
 subroutine transform_loop_fission_multiple(a, b, c, n)
@@ -1199,7 +1199,7 @@ end subroutine transform_loop_fission_multiple
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote(a, b, n)
@@ -1253,7 +1253,7 @@ end subroutine transform_loop_fission_promote
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote_conflicting_lengths(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_conflicting_lengths(a, b, n)
@@ -1315,7 +1315,7 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote_array(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_array(a, klon, klev)
@@ -1369,7 +1369,7 @@ end subroutine transform_loop_fission_promote_array
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote_multiple(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_multiple(a, klon, klev)
@@ -1427,7 +1427,7 @@ end subroutine transform_loop_fission_promote_multiple
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_multiple_promote(here, frontend):
     fcode = """
 subroutine transform_loop_fission_multiple_promote(a, b, klon, klev, nclv)
@@ -1501,7 +1501,7 @@ end subroutine transform_loop_fission_multiple_promote
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote_read_after_write(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_read_after_write(a, klon, klev)
@@ -1559,7 +1559,7 @@ end subroutine transform_loop_fission_promote_read_after_write
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fission_promote_multiple_read_after_write(here, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
@@ -1634,7 +1634,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     clean_test(fissioned_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fusion_fission(here, frontend):
     fcode = """
 subroutine transform_loop_fusion_fission(a, b, klon, klev)
