@@ -39,6 +39,7 @@ Test directory structure
        * routine_two
 """
 
+import importlib
 import re
 from pathlib import Path
 import pytest
@@ -106,6 +107,7 @@ class VisGraphWrapper:
         return list(self._re_edges.findall(self.text))
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_simple(here, config, frontend):
     """
     Create a simple task graph from a single sub-project:
@@ -144,6 +146,7 @@ def test_scheduler_graph_simple(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_partial(here, config, frontend):
     """
     Create a sub-graph from a select set of branches in  single project:
@@ -197,6 +200,7 @@ def test_scheduler_graph_partial(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_config_file(here, frontend):
     """
     Create a sub-graph from a branches using a config file:
@@ -235,6 +239,7 @@ def test_scheduler_graph_config_file(here, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_blocked(here, config, frontend):
     """
     Create a simple task graph with a single branch blocked:
@@ -353,6 +358,7 @@ def test_scheduler_process(here, config, frontend):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_multiple_combined(here, config, frontend):
     """
     Create a single task graph spanning two projects
@@ -392,6 +398,7 @@ def test_scheduler_graph_multiple_combined(here, config, frontend):
     cg_path.with_suffix('.pdf').unlink()
 
 
+@pytest.mark.skipif(importlib.util.find_spec('graphviz') is None, reason='Graphviz is not installed')
 def test_scheduler_graph_multiple_separate(here, config, frontend):
     """
     Tests combining two scheduler graphs, where that an individual
