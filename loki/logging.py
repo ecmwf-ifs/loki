@@ -11,8 +11,6 @@ def FileLogger(name, filename, level=None, file_level=None, fmt=None,
     """
     Logger that emits to a single logfile, as well as stdout/stderr.
     """
-    import coloredlogs  # pylint: disable=import-outside-toplevel
-
     level = level or INFO
     file_level = file_level or level
 
@@ -26,7 +24,11 @@ def FileLogger(name, filename, level=None, file_level=None, fmt=None,
     _logger.addHandler(fh)
 
     # Install the colored logging handlers
-    coloredlogs.install(level=level, logger=_logger)
+    try:
+        import coloredlogs  # pylint: disable=import-outside-toplevel
+        coloredlogs.install(level=level, logger=_logger)
+    except ImportError:
+        pass
 
     # TODO: For concurrent file writes, initialize queue and
     # main logging thread.
