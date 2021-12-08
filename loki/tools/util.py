@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from shlex import split
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from contextlib import contextmanager
-from fastcache import clru_cache
 
 from loki.logging import log, debug, error, INFO
 
@@ -374,7 +373,21 @@ def cached_func(func):
     """
     Decorator that memoizes (caches) the result of a function
     """
-    return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
+    # pylint:disable=import-outside-toplevel
+    try:
+        from fastcache import clru_cache
+        return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
+    except ImportError:
+        pass
+
+    try:
+        from functools import cache
+        return cache(func)
+    except ImportError:
+        pass
+
+    from functools import lru_cache
+    return lru_cache(maxsize=None, typed=False)(func)
 
 
 @contextmanager
