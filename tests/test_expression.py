@@ -14,7 +14,7 @@ from loki import (
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module
+    DeferredTypeSymbol, Module, HAVE_FP
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -808,6 +808,7 @@ def test_string_compare():
     assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr, string, ref', [
     ('a + 1', 'a', True),
     ('u(a)', 'a', True),
@@ -826,6 +827,7 @@ def test_subexpression_match(expr, string, ref):
     assert (string in expr) == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '1 + 1'),
     ('1+2+3+4', '1 + 2 + 3 + 4'),
@@ -1036,6 +1038,7 @@ def test_variable_without_scope():
     assert scope.symbols['var'].dtype is BasicType.LOGICAL
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr', [
     ('1.8 - 3.E-03*ztp1'),
     ('1.8 - 0.003*ztp1'),

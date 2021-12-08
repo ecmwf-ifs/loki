@@ -1,10 +1,7 @@
-from fparser.two import Fortran2003
-from fparser.two.utils import get_child, walk
-
 from loki.frontend import Frontend, Source, extract_source, inject_statement_functions
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
-from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
+from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
     Declaration, Allocation, Import, Section, CallStatement,
@@ -139,8 +136,7 @@ class Subroutine(Scope):
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
-            routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            f_ast = [r for r in ast.content if isinstance(r, routine_types)].pop()
+            f_ast = get_fparser_node(ast, ('Subroutine_Subprogram', 'Function_Subprogram'))
             return cls.from_fparser(ast=f_ast, raw_source=source, definitions=definitions)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
@@ -294,12 +290,12 @@ class Subroutine(Scope):
 
     @classmethod
     def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
-        is_function = isinstance(ast, Fortran2003.Function_Subprogram)
+        routine_stmt = get_fparser_node(ast, 'Function_Stmt')
+        is_function = routine_stmt is not None
         if is_function:
-            routine_stmt = get_child(ast, Fortran2003.Function_Stmt)
             name = name or routine_stmt.items[1].tostr()
         else:
-            routine_stmt = get_child(ast, Fortran2003.Subroutine_Stmt)
+            routine_stmt = get_fparser_node(ast, 'Subroutine_Stmt')
             name = name or routine_stmt.get_name().string
 
         source = extract_fparser_source(ast, raw_source)
@@ -312,12 +308,11 @@ class Subroutine(Scope):
         # Hack: Collect all spec and body parts and use all but the
         # last body as spec. Reason is that Fparser misinterprets statement
         # functions as array assignments and thus breaks off spec early
-        part_asts = [c for c in ast.children
-                     if isinstance(c, (Fortran2003.Specification_Part, Fortran2003.Execution_Part))]
+        part_asts = get_fparser_node(ast, ('Specification_Part', 'Execution_Part'), first_only=False)
         if not part_asts:
             spec_asts = []
             body_ast = None
-        elif isinstance(part_asts[-1], Fortran2003.Execution_Part):
+        elif type(part_asts[-1]).__name__ == 'Execution_Part':
             *spec_asts, body_ast = part_asts
         else:
             spec_asts = part_asts
@@ -333,20 +328,23 @@ class Subroutine(Scope):
                 spec.append(part.body)
 
         # Parse "member" subroutines recursively
-        contains_ast = get_child(ast, Fortran2003.Internal_Subprogram_Part)
+        contains_ast = get_fparser_node(ast, 'Internal_Subprogram_Part')
         if contains_ast:
             # We need to pre-populate the ProcedureType type table to
             # correctly class inline function calls within the module
-            routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            routine_asts = list(walk(contains_ast, routine_types))
+            # TODO: Do we need recurse=True here?
+            routine_asts = get_fparser_node(
+                contains_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
+                first_only=False
+            )
             for s in routine_asts:
-                if isinstance(s, Fortran2003.Function_Subprogram):
-                    routine_stmt = get_child(s, Fortran2003.Function_Stmt)
+                if type(s).__name__ == 'Function_Subprogram':
+                    routine_stmt = get_fparser_node(s, 'Function_Stmt')
                     fname = routine_stmt.items[1].tostr()
                     return_type = SymbolAttributes(BasicType.DEFERRED)
                     dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
-                    routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
+                    routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
                     fname = routine_stmt.get_name().string
                     dtype = ProcedureType(fname, is_function=False)
                 routine.symbols[fname] = SymbolAttributes(dtype)

@@ -1,10 +1,7 @@
 """
 Contains the declaration of :any:`Module` to represent Fortran modules.
 """
-from fparser.two import Fortran2003
-from fparser.two.utils import get_child
-
-from loki.frontend import Frontend, Source, extract_source
+from loki.frontend import Frontend, Source, extract_source, get_fparser_node
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
@@ -80,7 +77,7 @@ class Module(Scope):
 
         if frontend == Frontend.FP:
             ast = parse_fparser_source(source)
-            m_ast = get_child(ast, Fortran2003.Module)
+            m_ast = get_fparser_node(ast, 'Module')
             return cls.from_fparser(ast=m_ast, definitions=definitions, raw_source=source)
 
         raise NotImplementedError('Unknown frontend: %s' % frontend)
@@ -149,7 +146,7 @@ class Module(Scope):
 
         module = cls(name=name, ast=ast, source=source)
 
-        spec_ast = get_child(ast, Fortran2003.Specification_Part)
+        spec_ast = get_fparser_node(ast, 'Specification_Part')
         if spec_ast is not None:
             spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=module,
                                      pp_info=pp_info, raw_source=raw_source)
@@ -157,21 +154,23 @@ class Module(Scope):
             spec = Section(body=())
         module.spec = spec
 
-        routines_ast = get_child(ast, Fortran2003.Module_Subprogram_Part)
+        routines_ast = get_fparser_node(ast, 'Module_Subprogram_Part')
         routines = None
         if routines_ast is not None:
             # We need to pre-populate the ProcedureType type table to
             # correctly class inline function calls within the module
-            routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-            routine_asts = [s for s in routines_ast.content if isinstance(s, routine_types)]
+            routine_asts = get_fparser_node(
+                routines_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
+                first_only=False
+            )
             for s in routine_asts:
-                if isinstance(s, Fortran2003.Function_Subprogram):
-                    routine_stmt = get_child(s, Fortran2003.Function_Stmt)
+                if type(s).__name__ == 'Function_Subprogram':
+                    routine_stmt = get_fparser_node(s, 'Function_Stmt')
                     fname = routine_stmt.items[1].tostr()
                     return_type = SymbolAttributes(BasicType.DEFERRED)
                     dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
-                    routine_stmt = get_child(s, Fortran2003.Subroutine_Stmt)
+                    routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
                     fname = routine_stmt.get_name().string
                     dtype = ProcedureType(fname, is_function=False)
                 module.symbols[fname] = SymbolAttributes(dtype)
@@ -179,7 +178,7 @@ class Module(Scope):
             # Now create the actual Subroutine objects
             routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=module,
                                                 pp_info=pp_info, raw_source=raw_source)
-                        for s in routines_ast.content if isinstance(s, routine_types)]
+                        for s in routine_asts]
             module.routines = as_tuple(routines)
 
         return module

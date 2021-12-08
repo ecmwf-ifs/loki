@@ -44,8 +44,12 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, FP, Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
+    Scheduler, FP, OFP, HAVE_FP, HAVE_OFP,
+    Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
 )
+
+
+pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
 
 
 @pytest.fixture(scope='module', name='here')
@@ -69,6 +73,18 @@ def fixture_config():
     }
 
 
+@pytest.fixture(name='frontend')
+def fixture_frontend():
+    """
+    Frontend to use.
+
+    Not parametrizing the tests as the scheduler functionality should be
+    independent from the specific frontend used. Cannot use OMNI for this
+    as not all tests have dependencies fully resolved.
+    """
+    return FP if HAVE_FP else OFP
+
+
 class VisGraphWrapper:
     """
     Testing utility to parse the generated callgraph visualisation.
@@ -90,7 +106,7 @@ class VisGraphWrapper:
         return list(self._re_edges.findall(self.text))
 
 
-def test_scheduler_graph_simple(here, config):
+def test_scheduler_graph_simple(here, config, frontend):
     """
     Create a simple task graph from a single sub-project:
 
@@ -100,7 +116,7 @@ def test_scheduler_graph_simple(here, config):
     """
     projA = here/'sources/projA'
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverA')
 
     expected_items = [
@@ -128,7 +144,7 @@ def test_scheduler_graph_simple(here, config):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_graph_partial(here, config):
+def test_scheduler_graph_partial(here, config, frontend):
     """
     Create a sub-graph from a select set of branches in  single project:
 
@@ -150,7 +166,7 @@ def test_scheduler_graph_partial(here, config):
         },
     ]
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate(scheduler.config.routines)
 
     expected_items = [
@@ -181,7 +197,7 @@ def test_scheduler_graph_partial(here, config):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_graph_config_file(here):
+def test_scheduler_graph_config_file(here, frontend):
     """
     Create a sub-graph from a branches using a config file:
 
@@ -192,7 +208,7 @@ def test_scheduler_graph_config_file(here):
     projA = here/'sources/projA'
     config = projA/'scheduler_partial.config'
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate(scheduler.config.routines)
 
     expected_items = ['compute_l1', 'another_l1', 'another_l2']
@@ -219,7 +235,7 @@ def test_scheduler_graph_config_file(here):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_graph_blocked(here, config):
+def test_scheduler_graph_blocked(here, config, frontend):
     """
     Create a simple task graph with a single branch blocked:
 
@@ -231,7 +247,7 @@ def test_scheduler_graph_blocked(here, config):
 
     config['default']['block'] = ['another_l1']
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverA')
 
     expected_items = [
@@ -268,7 +284,7 @@ def test_scheduler_graph_blocked(here, config):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_definitions(here, config):
+def test_scheduler_definitions(here, config, frontend):
     """
     Create a simple task graph with and inject type info via `definitions`.
 
@@ -279,10 +295,10 @@ def test_scheduler_definitions(here, config):
     """
     projA = here/'sources/projA'
 
-    header = Sourcefile.from_file(projA/'module/header_mod.f90', frontend=FP)
+    header = Sourcefile.from_file(projA/'module/header_mod.f90', frontend=frontend)
 
     scheduler = Scheduler(paths=projA, definitions=header['header_mod'],
-                          includes=projA/'include', config=config)
+                          includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverA')
 
     driver = scheduler.item_map['driverA'].routine
@@ -293,7 +309,7 @@ def test_scheduler_definitions(here, config):
     assert fexprgen(call.arguments[1].shape) == '(3, 3)'
 
 
-def test_scheduler_process(here, config):
+def test_scheduler_process(here, config, frontend):
     """
     Create a simple task graph from a single sub-project
     and apply a simple transformation to it.
@@ -318,7 +334,7 @@ def test_scheduler_process(here, config):
         },
     ]
 
-    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=projA, includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate([r['name'] for r in config['routine']])
 
     class AppendRole(Transformation):
@@ -337,7 +353,7 @@ def test_scheduler_process(here, config):
     assert scheduler.item_map['another_l2'].routine.name == 'another_l2_kernel'
 
 
-def test_scheduler_graph_multiple_combined(here, config):
+def test_scheduler_graph_multiple_combined(here, config, frontend):
     """
     Create a single task graph spanning two projects
 
@@ -348,7 +364,7 @@ def test_scheduler_graph_multiple_combined(here, config):
     projA = here/'sources/projA'
     projB = here/'sources/projB'
 
-    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA, projB], includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverB')
 
     expected_items = [
@@ -376,7 +392,7 @@ def test_scheduler_graph_multiple_combined(here, config):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_graph_multiple_separate(here, config):
+def test_scheduler_graph_multiple_separate(here, config, frontend):
     """
     Tests combining two scheduler graphs, where that an individual
     sub-branch is pruned in the driver schedule, while IPA meta-info
@@ -402,7 +418,7 @@ def test_scheduler_graph_multiple_separate(here, config):
         },
     ]
 
-    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA)
+    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
     schedulerA.populate('driverB')
 
     expected_itemsA = [
@@ -439,7 +455,7 @@ def test_scheduler_graph_multiple_separate(here, config):
         },
     ]
 
-    schedulerB = Scheduler(paths=projB, config=configB)
+    schedulerB = Scheduler(paths=projB, config=configB, frontend=frontend)
     schedulerB.populate('ext_driver')
 
     # TODO: Technically we should check that the role=kernel has been honoured in B
@@ -465,7 +481,7 @@ def test_scheduler_graph_multiple_separate(here, config):
     cg_path.with_suffix('.pdf').unlink()
 
 
-def test_scheduler_module_dependency(here, config):
+def test_scheduler_module_dependency(here, config, frontend):
     """
     Ensure dependency chasing is done correctly, even with surboutines
     that do not match module names.
@@ -477,7 +493,7 @@ def test_scheduler_module_dependency(here, config):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverC')
 
     expected_items = [
@@ -498,7 +514,7 @@ def test_scheduler_module_dependency(here, config):
     assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
 
 
-def test_scheduler_module_dependencies_unqualified(here, config):
+def test_scheduler_module_dependencies_unqualified(here, config, frontend):
     """
     Ensure dependency chasing is done correctly for unqualified module imports.
 
@@ -511,7 +527,7 @@ def test_scheduler_module_dependencies_unqualified(here, config):
     projA = here/'sources/projA'
     projC = here/'sources/projC'
 
-    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA, projC], includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverD')
 
     expected_items = [
@@ -532,7 +548,7 @@ def test_scheduler_module_dependencies_unqualified(here, config):
     assert scheduler.item_map['routine_two'].routine.name == 'routine_two'
 
 
-def test_scheduler_missing_files(here, config):
+def test_scheduler_missing_files(here, config, frontend):
     """
     Ensure that ``strict=True`` triggers failure if source paths are
     missing and that ``strict=Files`` goes through gracefully.
@@ -544,12 +560,12 @@ def test_scheduler_missing_files(here, config):
     projA = here/'sources/projA'
 
     config['default']['strict'] = True
-    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config, frontend=frontend)
     with pytest.raises(FileNotFoundError):
         scheduler.populate('driverC')
 
     config['default']['strict'] = False
-    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config)
+    scheduler = Scheduler(paths=[projA], includes=projA/'include', config=config, frontend=frontend)
     scheduler.populate('driverC')
 
     expected_items = ['driverC', 'kernelC', 'compute_l1', 'compute_l2']

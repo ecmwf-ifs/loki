@@ -3,7 +3,7 @@ import re
 
 try:
     from fparser.two.parser import ParserFactory
-    from fparser.two.utils import get_child, BlockBase
+    from fparser.two.utils import get_child, walk, BlockBase
     from fparser.two import Fortran2003
     from fparser.common.readfortran import FortranStringReader
 
@@ -35,7 +35,7 @@ from loki.config import config
 
 
 __all__ = ['HAVE_FP', 'FParser2IR', 'parse_fparser_file', 'parse_fparser_source',
-           'parse_fparser_ast', 'parse_fparser_expression']
+           'parse_fparser_ast', 'parse_fparser_expression', 'get_fparser_node']
 
 
 @timeit(log_level=DEBUG)
@@ -54,6 +54,7 @@ def parse_fparser_source(source):
     """
     if not HAVE_FP:
         error('Fparser is not available. Try "pip install fparser".')
+        raise RuntimeError
     reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
@@ -125,6 +126,7 @@ def parse_fparser_expression(source, scope):
     """
     if not HAVE_FP:
         error('Fparser is not installed')
+        raise RuntimeError
 
     _ = ParserFactory().create(std='f2008')
     # Wrap source in brackets to make sure it appears like a valid expression
@@ -135,6 +137,43 @@ def parse_fparser_expression(source, scope):
     rescope_map = {v: v.clone(scope=scope) for v in FindTypedSymbols().visit(_ir)}
     _ir = SubstituteExpressions(rescope_map).visit(_ir)
     return _ir
+
+
+def get_fparser_node(ast, node_type_name, first_only=True, recurse=False):
+    """
+    Extract child nodes with type given by :attr:`node_type_name` from an fparser
+    parse tree
+
+    Parameters
+    ----------
+    ast :
+        The fparser parse tree as created by :any:`parse_fparser_source` or
+        :any:`parse_fparser_file`
+    node_type_name : str or list of str
+        The name of the node type to extract, e.g. `Module`,
+        `Specification_Part` etc.
+    first_only : bool, optional
+        Return only first instance matching :attr:`node_type_name`.
+        Defaults to `True`.
+    recurse : bool, optional
+        Walk the entire parse tree instead of looking only in the children
+        of :attr:`ast`. Defaults to `False`.
+
+    Returns
+    -------
+    :any:`fparser.two.Fortran2003.Base`
+        The node of requested type (or a list of these nodes if :attr:`all` is `True`)
+    """
+    node_types = tuple(getattr(Fortran2003, name) for name in as_tuple(node_type_name))
+
+    if recurse:
+        nodes = walk(ast, node_types)
+    else:
+        nodes = [c for c in ast.children if isinstance(c, node_types)]
+
+    if first_only:
+        return nodes[0] if nodes else None
+    return nodes
 
 
 def node_sublist(nodelist, starttype, endtype):

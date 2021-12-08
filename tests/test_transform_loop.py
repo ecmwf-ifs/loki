@@ -5,10 +5,14 @@ import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import Subroutine, OMNI, FindNodes, Loop, Conditional, Scope, Assignment
-from loki.frontend.fparser import parse_fparser_expression
+from loki.frontend.fparser import parse_fparser_expression, HAVE_FP
 from loki.transform import loop_interchange, loop_fusion, loop_fission, Polyhedron, normalize_range_indexing
 from loki.expression import symbols as sym
 from loki.pragma_utils import is_loki_pragma, pragmas_attached
+
+
+# Polyhedron functionality relies on FParser's expression parsing
+pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
 @pytest.fixture(scope='module', name='here')
