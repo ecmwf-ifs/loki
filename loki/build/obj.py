@@ -1,6 +1,14 @@
 import re
 from pathlib import Path
-from cached_property import cached_property
+
+try:
+    from cached_property import cached_property
+except ImportError:
+    try:
+        from functools import cached_property
+    except ImportError:
+        def cached_property(func):
+            return func
 
 from loki.logging import debug
 from loki.tools import execute, as_tuple, flatten, cached_func
