@@ -1,11 +1,17 @@
-import importlib
 import itertools
+import importlib
 from pathlib import Path
 import numpy as np
 import pytest
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import Subroutine, FortranPythonTransformation
+
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec('dace') is None,
+    reason='DaCe is not installed'
+)
 
 
 @pytest.fixture(scope='module', name='here')

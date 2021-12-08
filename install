@@ -230,7 +230,7 @@ fi
 print_step "Installing Loki and Python dependencies"
 
 cd "$loki_path"
-pip install $PIPPROXYOPTIONS -e .[tests]  # Installs Loki dev copy in editable mode
+pip install $PIPPROXYOPTIONS -e .[tests,dace]  # Installs Loki dev copy in editable mode
 
 #
 # Install Java
