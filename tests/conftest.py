@@ -251,7 +251,7 @@ def available_frontends(xfail=None, skip=None):
     if xfail:
         xfail = dict((as_tuple(f) + (None,))[:2] for f in xfail)
     else:
-        xfail = ()
+        xfail = {}
 
     if skip:
         skip = dict((as_tuple(f) + (None,))[:2] for f in skip)

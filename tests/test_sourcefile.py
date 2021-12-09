@@ -182,7 +182,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
     assert 'b = 6' in fgen(routine)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=(OFP, 'No support for statement functions')))
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
 def test_sourcefile_cpp_stmt_func(here, frontend):
     """
     Test the correct identification of statement functions
