@@ -332,7 +332,6 @@ class Subroutine(Scope):
         if contains_ast:
             # We need to pre-populate the ProcedureType type table to
             # correctly class inline function calls within the module
-            # TODO: Do we need recurse=True here?
             routine_asts = get_fparser_node(
                 contains_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
                 first_only=False
