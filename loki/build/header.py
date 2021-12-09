@@ -2,10 +2,10 @@ import re
 from pathlib import Path
 
 try:
-    from cached_property import cached_property
+    from functools import cached_property
 except ImportError:
     try:
-        from functools import cached_property
+        from cached_property import cached_property
     except ImportError:
         def cached_property(func):
             return func
