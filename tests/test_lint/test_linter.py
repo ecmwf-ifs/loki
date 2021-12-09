@@ -207,11 +207,20 @@ end subroutine linter_disable_inline
 
 
 @pytest.mark.parametrize('disable_config,count', [
-    ({}, 8),
-    ({'file.F90': {'rules': ['AssignmentComplainRule']}}, 5),
-    ({'file.f90': {'rules': ['AssignmentComplainRule']}}, 8),
-    ({'file.F90': {'rules': ['VariableComplainRule']}}, 3),
-    ({'file.F90': {'rules': ['AssignmentComplainRule', 'VariableComplainRule']}}, 0),
+    ({}, 8),  # Empty 'disable' section in config should work
+    ({'file.F90': {'rules': ['MyMadeUpRule']}}, 8),  # Disables non-existent rule, no effect
+    ({'file.F90': {'rules': ['AssignmentComplainRule']}}, 5),  # Disables one rule
+    ({'file.f90': {'rules': ['AssignmentComplainRule']}}, 8),  # Filename spelled wrong, no effect
+    ({'file.F90': {'rules': ['VariableComplainRule']}}, 3),  # Disables another rule
+    ({'file.F90': {'rules': ['AssignmentComplainRule', 'VariableComplainRule']}}, 0),  # Disables all rules
+    ({'file.F90': {  # Disables rule with correct filehash
+        'filehash': 'd0d8dd935d0e98a951cbd6c703847bac',
+        'rules': ['AssignmentComplainRule']
+    }}, 5),
+    ({'file.F90': {  # Wrong filehash, no effect
+        'filehash': 'd0d8dd935d0e98a951cbd6c703847baa',
+        'rules': ['AssignmentComplainRule']
+    }}, 8)
 ])
 def test_linter_disable_config(disable_config, count):
     class AssignmentComplainRule(GenericRule):
