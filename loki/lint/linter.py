@@ -123,14 +123,26 @@ class Linter:
         """
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError(f'{type(sourcefile)} given, {Sourcefile} expected')
-        # Prepare list of rules and configuration
-        rules = overwrite_rules if overwrite_rules is not None else self.rules
+
+        # Prepare config
         config = self.config
         if overwrite_config:
             config.update(overwrite_config)
+        disable_config = config.get('disable', {})
+
+        # Prepare list of rules
+        disabled_rules = []
+        disable_file_key = next((key for key in disable_config if sourcefile.path.match(key)), None)
+        if disable_file_key:
+            disabled_rules = disable_config[disable_file_key].get('rules', [])
+
+        rules = overwrite_rules if overwrite_rules is not None else self.rules
+        rules = [rule for rule in rules if not rule.__name__ in disabled_rules]
+
         # Initialize report for this file
         filename = str(sourcefile.path) if sourcefile.path else None
         file_report = FileReport(filename)
+
         # Run all the rules on that file
         for rule in rules:
             start_time = time.time()
@@ -139,6 +151,7 @@ class Linter:
             end_time = time.time()
             rule_report.elapsed_sec = end_time - start_time
             file_report.add(rule_report)
+
         # Store the file report
         self.reporter.add_file_report(file_report)
         return file_report

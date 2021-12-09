@@ -1,3 +1,4 @@
+from pathlib import Path
 import importlib
 import pytest
 
@@ -200,6 +201,71 @@ end subroutine linter_disable_inline
     reporter = Reporter(handlers=[handler])
     rule_list = [AssignmentComplainRule, VariableComplainRule]
     linter = Linter(reporter, rule_list)
+    linter.check(sourcefile)
+
+    assert reporter.handlers_reports[handler] == [count]
+
+
+@pytest.mark.parametrize('disable_config,count', [
+    ({}, 8),
+    ({'file.F90': {'rules': ['AssignmentComplainRule']}}, 5),
+    ({'file.f90': {'rules': ['AssignmentComplainRule']}}, 8),
+    ({'file.F90': {'rules': ['VariableComplainRule']}}, 3),
+    ({'file.F90': {'rules': ['AssignmentComplainRule', 'VariableComplainRule']}}, 0),
+])
+def test_linter_disable_config(disable_config, count):
+    class AssignmentComplainRule(GenericRule):
+        docs = {'id': '13.37'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+            for node in FindNodes(Assignment).visit(subroutine.ir):
+                rule_report.add(cls.__name__ + '_' + str(node.source.lines[0]), node)
+
+    class VariableComplainRule(GenericRule):
+        docs = {'id': '23.42'}
+
+        @classmethod
+        def check_subroutine(cls, subroutine, rule_report, config):  # pylint: disable=unused-argument
+            for node, variables in FindVariables(with_ir_node=True).visit(subroutine.body):
+                for var in variables:
+                    rule_report.add(cls.__name__ + '_' + str(var), node)
+
+    class TestHandler(GenericHandler):
+        def handle(self, file_report):
+            return sum(len(report.problem_reports) for report in file_report.reports)
+
+        def output(self, handler_reports):
+            pass
+
+    fcode = """
+module linter_disable_config_mod
+    implicit none
+
+    integer :: modvar
+
+contains
+
+    subroutine linter_disable_inline
+        integer :: a, b, c
+
+        a = 1
+        b = 2
+        c = a + b
+    end subroutine linter_disable_inline
+end module linter_disable_config_mod
+    """.strip()
+
+    sourcefile = Sourcefile.from_source(fcode)
+    sourcefile.path = Path('file.F90')  # specify a dummy filename
+    rule_list = [AssignmentComplainRule, VariableComplainRule]
+
+    config = Linter.default_config(rules=rule_list)
+    config['disable'] = disable_config
+
+    handler = TestHandler()
+    reporter = Reporter(handlers=[handler])
+    linter = Linter(reporter, rule_list, config=config)
     linter.check(sourcefile)
 
     assert reporter.handlers_reports[handler] == [count]
