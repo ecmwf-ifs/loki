@@ -1105,7 +1105,7 @@ end subroutine nested_masked_transformer
     assert len(FindNodes(Conditional).visit(body)) == 0
 
     # Should produce the original body
-    start = [a for a in assignments if a.lhs == 'a' or a.lhs == 'd']
+    start = [a for a in assignments if a.lhs in ('a', 'd')]
     body = NestedMaskedTransformer(start=start).visit(routine.body)
     assert fgen(routine.body).strip() == fgen(body).strip()
 
@@ -1122,7 +1122,7 @@ end subroutine nested_masked_transformer
     assert not body
 
     # Should drop the else-if branch
-    start = [a for a in assignments if a.lhs == 'b' or a.lhs == 'd']
+    start = [a for a in assignments if a.lhs in ('b', 'd')]
     stop = [a for a in assignments if a.lhs == 'c']
     body = NestedMaskedTransformer(start=start, stop=stop).visit(routine.body)
     assert len(FindNodes(Assignment).visit(body)) == 2
