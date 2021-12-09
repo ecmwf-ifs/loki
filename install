@@ -269,6 +269,7 @@ if [ "$pip_opts" == "," ]; then
   pip_opts=
 else
   pip_opts=[${pip_opts:1}]
+fi
 
 pip install $PIPPROXYOPTIONS -e .$pip_opts  # Installs Loki dev copy in editable mode
 
@@ -323,7 +324,7 @@ if [ "$with_ant" == true ]; then
   cd "${ANT_INSTALL_DIR}"
 
   set +e
-  for mirror in http://ftp.fau.de/apache http://mirror.ox.ac.uk/sites/rsync.apache.org https://apache.mirrors.benatherton.com
+  for mirror in http://ftp.fau.de/apache http://mirror.ox.ac.uk/sites/rsync.apache.org http://archive.apache.org/dist
   do
     wget --tries 3 $WGETPROXYOPTIONS -O "${ANT_ARCHIVE}" $mirror/ant/binaries/${ANT_ARCHIVE}
     if [ $? -eq 0 ]
