@@ -67,7 +67,7 @@ class RuleReport:
             The IR node or expression node in which the problem exists.
         """
         if not isinstance(location, (Sourcefile, Module, Subroutine, Node)):
-            raise TypeError('Invalid type for report location: {}'.format(type(location).__name__))
+            raise TypeError(f'Invalid type for report location: {type(location).__name__}')
         if not is_rule_disabled(location, self.rule.identifiers()):
             self.problem_reports.append(ProblemReport(msg, location))
 
@@ -323,7 +323,7 @@ class DefaultHandler(GenericHandler):
             rule = rule_report.rule.__name__
             if hasattr(rule_report.rule, 'docs') and rule_report.rule.docs:
                 if 'id' in rule_report.rule.docs:
-                    rule = f'[{rule_report.rule.docs["id"]}] ' + rule
+                    rule = f'[{rule_report.rule.docs["id"]}] {rule}'
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)

@@ -53,7 +53,7 @@ def get_rules(module):
     """
     Return the list of all available rules in the named module.
     """
-    rules_module = importlib.import_module('lint_rules.{}'.format(module))
+    rules_module = importlib.import_module(f'lint_rules.{module}')
     return Linter.lookup_rules(rules_module)
 
 
