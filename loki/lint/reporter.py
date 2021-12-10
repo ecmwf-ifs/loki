@@ -1,4 +1,5 @@
 from pathlib import Path
+import yaml
 
 try:
     from junit_xml import TestSuite, TestCase
@@ -6,7 +7,7 @@ try:
 except ImportError:
     HAVE_JUNIT_XML = False
 
-from loki import Sourcefile, Module, Subroutine, Node
+from loki import Sourcefile, Module, Subroutine, Node, filehash
 from loki.logging import logger, error
 from loki.lint.utils import get_filename_from_parent, is_rule_disabled
 
@@ -37,14 +38,15 @@ class RuleReport:
 
     Parameters
     ----------
-    :param rule: the rule that generated the report.
-    :type rule: subclass of :py:class:`GenericRule`
-    :param list problem_reports: (optional) list of :py:class:`ProblemReport`.
+    rule : :any:`GenericRule`
+        The rule that generated the report
+    reports : list of :any:`ProblemReport`
+        List of problem reports for this rule
     """
 
-    def __init__(self, rule, problem_reports=None):
+    def __init__(self, rule, reports=None):
         self.rule = rule
-        self.problem_reports = problem_reports or []
+        self.problem_reports = reports or []
         self.elapsed_sec = 0.
 
     def add(self, msg, location):
@@ -63,14 +65,21 @@ class RuleReport:
 
 class FileReport:
     """
-    Container type to collect all rule reports for a file.
+    Container type to collect all rule reports for a file
 
-    :param str filename: the filename of the file the reports belong to.
-    :param list reports: (optional) list of :py:class:`RuleReport`.
+    Parameters
+    ----------
+    filename : str
+        The filename of the file the report is for
+    hash : str, optional
+        Provide a hash for the file's content to identify the file version
+    reports : list, optional
+        List of :py:class:`RuleReport`.
     """
 
-    def __init__(self, filename, reports=None):
+    def __init__(self, filename, hash=None, reports=None):
         self.filename = filename
+        self.hash = hash or filehash(Path(filename).read_text())
         self.reports = reports or []
 
     def add(self, rule_report):
@@ -155,8 +164,8 @@ class Reporter:
         :param str msg: the description of the problem.
         """
         problem_report = ProblemReport(msg, None)
-        rule_report = RuleReport(rule, [problem_report])
-        file_report = FileReport(filename, [rule_report])
+        rule_report = RuleReport(rule, reports=[problem_report])
+        file_report = FileReport(filename, reports=[rule_report])
         self.add_file_report(file_report)
 
     def output(self):
@@ -176,6 +185,15 @@ class GenericHandler:
 
     def __init__(self, basedir=None):
         self.basedir = basedir
+
+    def get_relative_filename(self, filename):
+        if filename and self.basedir:
+            try:
+                filename = Path(filename).relative_to(self.basedir)
+            except ValueError:
+                pass
+        return filename
+
 
     def format_location(self, filename, location):
         """
@@ -197,11 +215,7 @@ class GenericHandler:
         """
         if not filename:
             filename = get_filename_from_parent(location) or ''
-        if filename and self.basedir:
-            try:
-                filename = Path(filename).relative_to(self.basedir)
-            except ValueError:
-                pass
+        filename = self.get_relative_filename(filename)
         line = ''
         source = getattr(location, '_source', getattr(location, 'source', None))
         if source is not None:
@@ -287,13 +301,75 @@ class DefaultHandler(GenericHandler):
                     self.target(report)
 
 
+class ViolationFileHandler(GenericHandler):
+    """
+    Report handler class that writes a YAML file with rules violated per file
+
+    The content of the YAML file has the form
+
+    .. code-block:: yaml
+
+        'path/to/my/file.F90':
+            filehash: 'abc123'
+            rules:
+              - SomeRule
+              - SomeOtherRule
+
+    This YAML file can be included into a linter config file to disable reporting
+    of these rules on that version of the file (source modifications identified by
+    :any:`filehash`) in future runs.
+
+    Parameters
+    ----------
+    target :
+        The output destination
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
+    """
+    def __init__(self, target=logger.warning, basedir=None):
+        super().__init__(basedir)
+        self.target = target
+
+    def handle(self, file_report):
+        """
+        Create YAML block for this file
+
+        Parameters
+        ----------
+        file_report : :any:`FileReport`
+            The file report to be processed
+
+        Returns
+        -------
+        str
+            YAML block for this file
+        """
+        file_report = {
+            str(self.get_relative_filename(file_report.filename)): {
+                'filehash': file_report.hash,
+                'rules': [rule_report.rule.__name__ for rule_report in file_report.reports]
+            }
+        }
+        return yaml.dump(file_report)
+
+    def output(self, handler_reports):
+        """
+        Generate the YAML output from the list of reports.
+        """
+        self.target('\n'.join(handler_reports))
+
+
 class JunitXmlHandler(GenericHandler):
     """
     Report handler class that generates JUnit-compatible XML output that can be understood
-    by CI platforms such as Jenkins or Bamboo.
+    by CI platforms such as Jenkins or Bamboo
 
-    :param target: the output destination.
-    :param str basedir: (optional) basedir relative to which file paths are given.
+    Parameters
+    ----------
+    target :
+        The output destination
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
     """
 
     fmt_string = '{location} - {msg}'
@@ -310,7 +386,17 @@ class JunitXmlHandler(GenericHandler):
         """
         Creates tuples of string arguments for :py:class:`junit_xml.TestCase`
 
-        :param FileReport file_report: the file report to be processed.
+        Parameters
+        ----------
+        file_report : :any:`FileReport`
+            The file report to be processed
+
+        Returns
+        -------
+        tuple(str, list)
+            Tuples of the form ``(filename, [(kwargs, messages)])`` with :attr:`kwargs`
+            being the constructor arguments for :any:`junit_xml.TestCase` and
+            :attr:`messages` a list of strings.
         """
         filename = file_report.filename
         classname = str(Path(filename).with_suffix(''))

@@ -14,7 +14,7 @@ from loki.logging import logger, DEBUG, warning, info, debug
 from loki.sourcefile import Sourcefile
 from loki.frontend import FP
 from loki.build import workqueue
-from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler
+from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
 
 # Bootstrap the local linting rules directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -198,12 +198,17 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
 @click.option('--worker', type=int, default=4, show_default=True,
               help=('Number of worker processes to use. With --debug enabled '
                     'this option is ignored and only one worker is used.'))
+@click.option('--write-violation-file', is_flag=False,
+              flag_value='violations.yml', default=None,
+              help=('Write a YAML file that lists for every file the rules '
+                    'violated. Can be included into a config to disable them in '
+                    'future linting runs.'))
 # @click.option('--preprocess/--no-preprocess', default=False, show_default=True,
 #               help='Enable C-preprocessing of files before parsing them.')
 @click.option('--junitxml', type=click.Path(dir_okay=False, writable=True),
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
-def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, junitxml):
+def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, write_violation_file, junitxml):
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -232,6 +237,9 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, ju
     if junitxml:
         junitxml_file = OutputFile(junitxml)
         handlers.append(JunitXmlHandler(target=junitxml_file.write, basedir=basedir))
+    if write_violation_file:
+        violation_file = OutputFile(write_violation_file)
+        handlers.append(ViolationFileHandler(target=violation_file.write, basedir=basedir))
 
     linter = Linter(reporter=Reporter(handlers), rules=rule_list, config=config_values)
     info('Checking against %d rules.', len(linter.rules))
