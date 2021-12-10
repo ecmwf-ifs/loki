@@ -129,7 +129,9 @@ class Linter:
         config = self.config
         if overwrite_config:
             config.update(overwrite_config)
-        disable_config = config.get('disable', {})
+        disable_config = config.get('disable')
+        if not isinstance(disable_config, dict):
+            disable_config = {}
 
         # Initialize report for this file
         filename = str(sourcefile.path) if sourcefile.path else None
