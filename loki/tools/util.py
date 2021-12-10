@@ -1,7 +1,7 @@
 import time
 import operator as op
 import weakref
-from functools import wraps
+from functools import wraps, lru_cache
 from collections import OrderedDict
 from collections.abc import Sequence
 from shlex import split
@@ -373,20 +373,6 @@ def cached_func(func):
     """
     Decorator that memoizes (caches) the result of a function
     """
-    # pylint:disable=import-outside-toplevel
-    try:
-        from fastcache import clru_cache
-        return clru_cache(maxsize=None, typed=False, unhashable='ignore')(func)
-    except ImportError:
-        pass
-
-    try:
-        from functools import cache
-        return cache(func)
-    except ImportError:
-        pass
-
-    from functools import lru_cache
     return lru_cache(maxsize=None, typed=False)(func)
 
 
