@@ -15,6 +15,7 @@ from loki.sourcefile import Sourcefile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
+from loki.tools import yaml_include_constructor
 
 # Bootstrap the local linting rules directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -218,6 +219,7 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, wr
         info('  - %s', p)
     info('')
 
+    yaml.add_constructor('!include', yaml_include_constructor, yaml.SafeLoader)
     config_values = yaml.safe_load(config) if config else {}
     if ctx.obj['DEBUG']:
         worker = 1
