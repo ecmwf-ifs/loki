@@ -131,21 +131,21 @@ class Linter:
             config.update(overwrite_config)
         disable_config = config.get('disable', {})
 
+        # Initialize report for this file
+        filename = str(sourcefile.path) if sourcefile.path else None
+        file_report = FileReport(filename, hash=filehash(sourcefile.source.string))
+
         # Check "disable" config section for an entry matching the file name and, if given, filehash
         disabled_rules = []
         disable_file_key = next((key for key in disable_config if sourcefile.path.match(key)), None)
         if disable_file_key:
             disable_file = disable_config[disable_file_key]
-            if 'filehash' not in disable_file or disable_file['filehash'] == filehash(sourcefile.source.string):
+            if 'filehash' not in disable_file or disable_file['filehash'] == file_report.hash:
                 disabled_rules = disable_file.get('rules', [])
 
         # Prepare list of rules
         rules = overwrite_rules if overwrite_rules is not None else self.rules
         rules = [rule for rule in rules if not rule.__name__ in disabled_rules]
-
-        # Initialize report for this file
-        filename = str(sourcefile.path) if sourcefile.path else None
-        file_report = FileReport(filename)
 
         # Run all the rules on that file
         for rule in rules:

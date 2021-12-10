@@ -2,8 +2,6 @@ from pathlib import Path
 import importlib
 import pytest
 
-import rules
-
 from loki import Sourcefile, Assignment, FindNodes, FindVariables
 from loki.lint import GenericHandler, Reporter, Linter, GenericRule
 
@@ -11,6 +9,24 @@ from loki.lint import GenericHandler, Reporter, Linter, GenericRule
 def fixture_rules():
     rules = importlib.import_module('rules')
     return rules
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='dummy_file')
+def dummy_file_fixture(here):
+    file_path = here/'test_linter_dummy_file.F90'
+    fcode = """
+! dummy file for linter tests
+subroutine dummy
+end subroutine dummy
+    """.strip()
+    file_path.write_text(fcode)
+    yield file_path
+    file_path.unlink()
 
 
 @pytest.mark.parametrize('rule_names, num_rules', [
@@ -30,7 +46,7 @@ def test_linter_fail(rules):
         Linter(None, rules).check(None)
 
 
-def test_linter_check():
+def test_linter_check(dummy_file):
     '''Make sure that linter runs through all given and hands them
     the right config.'''
     class TestRule(GenericRule):
@@ -61,10 +77,10 @@ def test_linter_check():
             assert len(file_report.reports) == 2
             assert len(file_report.reports[0].problem_reports) == 1
             assert file_report.reports[0].problem_reports[0].msg == 'TestRule2'
-            assert str(file_report.reports[0].problem_reports[0].location.path) == 'test_file'
+            assert file_report.reports[0].problem_reports[0].location.path == dummy_file
             assert file_report.reports[0].rule == TestRule2
             assert file_report.reports[1].problem_reports[0].msg == 'TestRule'
-            assert str(file_report.reports[1].problem_reports[0].location.path) == 'test_file'
+            assert file_report.reports[1].problem_reports[0].location.path == dummy_file
             assert file_report.reports[1].rule == TestRule
 
         def output(self, handler_reports):
@@ -79,7 +95,7 @@ def test_linter_check():
     reporter = Reporter(handlers=[TestHandler()])
     rule_list = [TestRule2, TestRule]
     linter = Linter(reporter, rule_list, config=config)
-    linter.check(Sourcefile('test_file'))
+    linter.check(Sourcefile.from_file(dummy_file))
 
 
 @pytest.mark.parametrize('file_rule,module_rule,subroutine_rule,assignment_rule,report_counts', [
