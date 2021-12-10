@@ -1,13 +1,8 @@
-import sys
-from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, Sourcefile, Dimension
-
-# Bootstrap the local transformations directory for custom transformations
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-# pylint: disable=wrong-import-position,wrong-import-order
+from conftest import available_frontends
 from transformations import ExtractSCATransformation
+from loki import Sourcefile, Dimension
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -15,7 +10,7 @@ def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_sca_horizontal(frontend, horizontal):
     """
     Test removal of loops that traverse the full horizontal dimension.
@@ -59,7 +54,7 @@ def test_extract_sca_horizontal(frontend, horizontal):
     assert "q(nz) = q(nz)*c" in source.to_fortran().lower()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_sca_iteration(frontend, horizontal):
     """
     Test removal of loops that traverse a defined iterations space.
@@ -104,7 +99,7 @@ def test_extract_sca_iteration(frontend, horizontal):
     assert "q(nz) = q(nz)*c" in source.to_fortran().lower()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_sca_nested_level_zero(frontend, horizontal):
     """
     Test nested subroutine call outside the vertical loop.
@@ -165,7 +160,7 @@ def test_extract_sca_nested_level_zero(frontend, horizontal):
     assert "q(nz) = q(nz)*c" in source.to_fortran().lower()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_sca_nested_level_one(frontend, horizontal):
     """
     Test nested subroutine call inside vertical loop.

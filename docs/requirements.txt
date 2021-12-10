@@ -1,5 +1,0 @@
-sphinx  # to build documentation
-recommonmark  # to allow parsing markdown
-sphinx-rtd-theme  # ReadTheDocs theme
-myst-parser  # Markdown parser for sphinx
-sphinx-panels  # Add panels, cards and dropdowns for sphinx

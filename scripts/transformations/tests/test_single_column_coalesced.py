@@ -1,16 +1,11 @@
-import sys
-from pathlib import Path
 import pytest
 
+from conftest import available_frontends
+from transformations import SingleColumnCoalescedTransformation
 from loki import (
-    OFP, OMNI, FP, Subroutine, Dimension, FindNodes, Loop, Assignment,
+    OMNI, Subroutine, Dimension, FindNodes, Loop, Assignment,
     CallStatement, Scalar, Array, Pragma, pragmas_attached, fgen
 )
-
-# Bootstrap the local transformations directory for custom transformations
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-# pylint: disable=wrong-import-position,wrong-import-order
-from transformations import SingleColumnCoalescedTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -28,7 +23,7 @@ def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b')
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     """
     Test removal of vector loops in kernel and re-insertion of the
@@ -112,7 +107,7 @@ def test_single_column_coalesced_simple(frontend, horizontal, vertical):
     assert kernel_calls[0].name == 'compute_column'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_demote(frontend, horizontal, vertical):
     """
     Test that local array variables that do not contain the
@@ -198,7 +193,7 @@ def test_single_column_coalesced_demote(frontend, horizontal, vertical):
     assert fgen(assigns[7]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking):
     """
     Test hoisting of column temporaries to "driver" level.
@@ -292,7 +287,7 @@ def test_single_column_coalesced_hoist(frontend, horizontal, vertical, blocking)
     assert kernel.variable_map['jl'].type.intent.lower() == 'in'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blocking):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
@@ -383,7 +378,7 @@ def test_single_column_coalesced_openacc(frontend, horizontal, vertical, blockin
         assert driver_loops[0].pragma[0].content == 'parallel loop gang'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, blocking):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
@@ -482,7 +477,7 @@ def test_single_column_coalesced_hoist_openacc(frontend, horizontal, vertical, b
         assert driver_pragmas[1].content == 'exit data delete(t)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking):
     """
     Test the correct handling of nested vector-level routines in SCC.
@@ -620,7 +615,7 @@ def test_single_column_coalesced_nested(frontend, horizontal, vertical, blocking
         assert outer_kernel_pragmas[1].content == 'data present(q)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, blocking):
     """
     Test the correct handling of an outer loop that breaks scoping.

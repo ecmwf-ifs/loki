@@ -1,9 +1,9 @@
 from pathlib import Path
 import pytest
 
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    OFP, OMNI, FP, Sourcefile, Subroutine, CallStatement, Import,
+    OMNI, Sourcefile, Subroutine, CallStatement, Import,
     FindNodes, FindInlineCalls, fgen,
     Assignment, IntLiteral, Module
 )
@@ -32,7 +32,7 @@ def fixture_rename_transform():
     return RenameTransform()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformation_apply(rename_transform, frontend):
     """
     Apply a simple transformation that renames routines and modules
@@ -65,7 +65,7 @@ end subroutine myroutine
     assert source['myroutine_test'] == source.subroutines[0]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformation_apply_subroutine(rename_transform, frontend):
     """
     Apply a simple transformation that renames routines and modules
@@ -121,7 +121,7 @@ end subroutine myroutine
     assert source['module_routine'] == source.all_subroutines[1]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformation_apply_module(rename_transform, frontend):
     """
     Apply a simple transformation that renames routines and modules
@@ -170,7 +170,7 @@ end subroutine myroutine
     assert source['module_routine_test'] == source.all_subroutines[1]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_module_imports(frontend):
     """
     Test injection of suffixed kernels into unchanged driver
@@ -229,11 +229,7 @@ END MODULE driver_mod
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    FP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='C-imports need pre-processing for OMNI')),
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 def test_dependency_transformation_header_includes(here, frontend):
     """
     Test injection of suffixed kernels into unchanged driver
@@ -290,11 +286,7 @@ END SUBROUTINE kernel
     header_file.unlink()
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    FP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='C-imports need pre-processing for OMNI')),
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 def test_dependency_transformation_module_wrap(frontend):
     """
     Test injection of suffixed kernels into unchanged driver
@@ -350,7 +342,7 @@ END SUBROUTINE kernel
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_replace_selected_kind(here, frontend):
     """
     Test correct replacement of all `selected_x_kind` calls by
@@ -420,7 +412,7 @@ end subroutine transform_replace_selected_kind
     clean_test(iso_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformation_post_apply_subroutine(here, frontend):
     """Verify that post_apply is called for subroutines."""
 
@@ -469,7 +461,7 @@ end subroutine transformation_post_apply
     clean_test(new_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transformation_post_apply_module(here, frontend):
     """Verify that post_apply is called for modules."""
 

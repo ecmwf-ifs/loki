@@ -3,16 +3,16 @@ Contains the declaration of :any:`Sourcefile` that is used to represent and
 manipulate (Fortran) source code files.
 """
 from pathlib import Path
-from fparser.two import Fortran2003
 
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.tools import flatten, as_tuple
 from loki.logging import info
-from loki.frontend import OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp
-from loki.frontend.omni import parse_omni_source
-from loki.frontend.ofp import parse_ofp_source
-from loki.frontend.fparser import parse_fparser_source
+from loki.frontend import (
+    OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
+    parse_omni_source, parse_ofp_source, parse_fparser_source,
+    get_fparser_node
+)
 from loki.backend.fgen import fgen
 
 
@@ -201,13 +201,14 @@ class Sourcefile:
         """
         Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
         """
-        routine_types = (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram)
-        routines = [Subroutine.from_fparser(ast=routine, definitions=definitions,
-                                            pp_info=pp_info, raw_source=raw_source)
-                    for routine in ast.content if isinstance(routine, routine_types)]
-        modules = [Module.from_fparser(ast=module, definitions=definitions,
-                                       pp_info=pp_info, raw_source=raw_source)
-                   for module in ast.content if isinstance(module, Fortran2003.Module)]
+        routines = [
+            Subroutine.from_fparser(ast=routine, definitions=definitions, pp_info=pp_info, raw_source=raw_source)
+            for routine in get_fparser_node(ast, ('Subroutine_Subprogram', 'Function_Subprogram'), first_only=False)
+        ]
+        modules = [
+            Module.from_fparser(ast=module, definitions=definitions, pp_info=pp_info, raw_source=raw_source)
+            for module in get_fparser_node(ast, 'Module', first_only=False)
+        ]
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)

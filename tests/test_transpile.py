@@ -2,9 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, jit_compile_lib, clean_test
+from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-  Subroutine, Module, OFP, OMNI, FP, FortranCTransformation, cgen
+  Subroutine, Module, FortranCTransformation, cgen
 )
 from loki.build import Builder
 
@@ -19,7 +19,7 @@ def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_simple_loops(here, builder, frontend):
     """
     A simple test routine to test C transpilation of loops
@@ -88,7 +88,7 @@ end subroutine transpile_simple_loops
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_arguments(here, builder, frontend):
     """
     A test the correct exchange of arguments with varying intents
@@ -172,7 +172,7 @@ end subroutine transpile_arguments
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_derived_type(here, builder, frontend):
     """
     Tests handling and type-conversion of various argument types
@@ -250,7 +250,7 @@ end subroutine transpile_derived_type
     (here/'{}.f90'.format(module.name)).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_associates(here, builder, frontend):
     """
     Tests C-transpilation of associate statements
@@ -361,7 +361,7 @@ def test_transpile_derived_type_array():
 ! end subroutine transpile_derived_type_array
     """
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_module_variables(here, builder, frontend):
     """
     Tests the use of imported module variables (via getter routines in C)
@@ -434,7 +434,7 @@ end subroutine transpile_module_variables
     (here/'{}.f90'.format(module.name)).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_vectorization(here, builder, frontend):
     """
     Tests vector-notation conversion and local multi-dimensional arrays.
@@ -496,7 +496,7 @@ end subroutine transpile_vectorization
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_intrinsics(here, builder, frontend):
     """
     A simple test routine to test supported intrinsic functions
@@ -545,7 +545,7 @@ end subroutine transpile_intrinsics
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_loop_indices(here, builder, frontend):
     """
     Test to ensure loop indexing translates correctly
@@ -620,7 +620,7 @@ end subroutine transpile_loop_indices
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OMNI, OFP, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_logical_statements(here, builder, frontend):
     """
     A simple test routine to test logical statements
@@ -680,7 +680,7 @@ end subroutine transpile_logical_statements
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_multibody_conditionals(here, builder, frontend):
     """
     Test correct transformation of multi-body conditionals.
@@ -750,7 +750,7 @@ end subroutine transpile_multibody_conditionals
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_inline_elemental_functions(here, builder, frontend):
     """
     Test correct inlining of elemental functions in C transpilation.
@@ -812,7 +812,7 @@ end subroutine transpile_inline_elemental_functions
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_inline_elementals_recursive(here, builder, frontend):
     """
     Test correct inlining of nested elemental functions.
@@ -888,7 +888,7 @@ end subroutine transpile_inline_elementals_recursive
     f2c.c_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_expressions(here, builder, frontend):
     """
     A simple test to verify expression parenthesis and resolution

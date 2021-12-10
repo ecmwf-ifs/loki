@@ -9,7 +9,11 @@ from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
 )
-from fparser.two.Fortran2003 import Intrinsic_Name
+try:
+    from fparser.two.Fortran2003 import Intrinsic_Name
+    _intrinsic_fortran_names = Intrinsic_Name.function_names
+except ImportError:
+    _intrinsic_fortran_names = ()
 
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
@@ -18,7 +22,6 @@ __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMa
            'ExpressionCallbackMapper', 'SubstituteExpressionsMapper',
            'LokiIdentityMapper', 'AttachScopesMapper']
 
-_intrinsic_fortran_names = Intrinsic_Name.function_names
 
 
 class LokiStringifyMapper(StringifyMapper):

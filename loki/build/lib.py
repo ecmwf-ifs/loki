@@ -1,7 +1,12 @@
 from operator import attrgetter
 from pathlib import Path
-from tqdm import tqdm
 import networkx as nx
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, *args, **kwargs):  # pylint: disable=unused-argument
+        return iterable
 
 from loki.logging import warning
 from loki.tools import as_tuple, find_paths

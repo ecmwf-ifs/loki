@@ -1,8 +1,8 @@
 from io import StringIO
 import pytest
 
+from conftest import available_frontends
 from loki import Module, Subroutine, FindNodes, flatten, pprint
-from loki.frontend import OFP, OMNI, FP
 from loki.ir import Pragma, Loop, Declaration, PragmaRegion
 from loki.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
@@ -65,7 +65,7 @@ def test_get_pragma_parameters(content, starts_with, ref):
         assert get_pragma_parameters(pragma_list, starts_with=starts_with) == ref
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_inlining(frontend):
     """
     A short test that verifies pragmas that are the first statement
@@ -100,7 +100,7 @@ end subroutine test_tools_pragma_inlining
     assert loops[0].pragma[0].keyword == 'loki' and loops[0].pragma[0].content == 'some pragma'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_inlining_multiple(frontend):
     """
     A short test that verifies that multiple pragmas are inlined
@@ -150,7 +150,7 @@ end subroutine test_tools_pragma_inlining_multiple
             {'some': None, 'pragma': '5', 'more': None, 'other': None}
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_detach(frontend):
     """
     A short test that verifies that multiple pragmas are inlined
@@ -223,7 +223,7 @@ end subroutine test_tools_pragma_detach
         assert '\n'.join(pragma) == '\n'.join(orig_pragma)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragmas_attached_loop(frontend):
     """
     A short test that verifies that the context manager to attach
@@ -280,7 +280,7 @@ end subroutine test_tools_pragmas_attached_loop
     assert all(loop.pragma is None for loop in attached_loops)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragmas_attached_example(frontend):
     """
     A short test that verifies that the example from the docstring works.
@@ -316,7 +316,7 @@ end subroutine test_tools_pragmas_attached_example
     assert loop_of_interest.pragma is None
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragmas_attached_post(frontend):
     """
     Verify the inlining of pragma_post.
@@ -366,7 +366,7 @@ end subroutine test_tools_pragmas_attached_post
     assert len(FindNodes(Pragma).visit(routine.body)) == 2
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragmas_attached_module(frontend):
     """
     Verify pragmas_attached works for Module objects.
@@ -393,7 +393,7 @@ end module test_tools_pragmas_attached_module
     assert len(FindNodes(Pragma).visit(module.spec)) == 1
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_regions_attached(frontend):
     """
     Verify ``pragma_regions_attached`` creates and removes `PragmaRegion` objects.
@@ -456,7 +456,7 @@ end subroutine test_tools_pragmas_attached_region
     assert len(FindNodes(Pragma).visit(routine.body)) == 5
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_tools_pragma_regions_attached_nested(frontend):
     """
     Verify ``pragma_regions_attached`` creates and removes `PragmaRegion` objects.

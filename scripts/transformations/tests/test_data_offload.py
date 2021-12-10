@@ -1,19 +1,14 @@
-import sys
-from pathlib import Path
 import pytest
 
+from conftest import available_frontends
+from transformations import DataOffloadTransformation
 from loki import (
-    OFP, OMNI, FP, Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
+    Sourcefile, FindNodes, Pragma, PragmaRegion, Loop,
     CallStatement, pragma_regions_attached
 )
 
-# Bootstrap the local transformations directory for custom transformations
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-# pylint: disable=wrong-import-position,wrong-import-order
-from transformations import DataOffloadTransformation
 
-
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_data_offload_region_openacc(frontend):
     """
     Test the creation of a simple device data offload region
@@ -64,7 +59,7 @@ def test_data_offload_region_openacc(frontend):
     assert 'copyout(c)' in transformed
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_data_offload_region_complex_remove_openmp(frontend):
     """
     Test the creation of a data offload region (OpenACC) with

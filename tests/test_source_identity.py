@@ -7,9 +7,9 @@ they mostly check whether at the end comes out what went in at the beginning.
 """
 from pathlib import Path
 import pytest
-from conftest import clean_test
+from conftest import clean_test, available_frontends
 from loki import (
-  Sourcefile, Subroutine, OFP, OMNI, FP, fgen, FindNodes, as_tuple, ir
+  Sourcefile, Subroutine, OMNI, fgen, FindNodes, as_tuple, ir
 )
 
 
@@ -18,10 +18,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
-    FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_loop(here, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for loops."""
@@ -88,10 +85,7 @@ end subroutine routine_raw_source_loop
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
-    FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_conditional(here, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for conditionals."""
@@ -151,10 +145,7 @@ end subroutine routine_raw_source_cond
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI stores no source.string')),
-    FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_multicond(here, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for multi conditionals."""
@@ -217,11 +208,7 @@ end subroutine routine_raw_source_multicond
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='This is outright impossible')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'This is outright impossible')]))
 def test_subroutine_conservative(frontend):
     """
     Test that conservative output of fgen reproduces the original source string for
@@ -253,11 +240,7 @@ END SUBROUTINE CONSERVATIVE
     assert source == fcode
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='This is outright impossible')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'This is outright impossible')]))
 def test_subroutine_simple_fgen(frontend):
     """
     Test that non-conservative output produces the original source string for
@@ -296,11 +279,9 @@ END SUBROUTINE SIMPLE_FGEN
     assert source == fcode
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI does it for you BUT WITHOUT DELETING THE KEYWORD!!!')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does it for you BUT WITHOUT DELETING THE KEYWORD!!!')])
+)
 def test_multiline_pragma(frontend):
     """
     Test that multi-line pragmas are combined correctly.

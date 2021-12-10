@@ -1,9 +1,14 @@
 from pathlib import Path
-from junit_xml import TestSuite, TestCase
+
+try:
+    from junit_xml import TestSuite, TestCase
+    HAVE_JUNIT_XML = True
+except ImportError:
+    HAVE_JUNIT_XML = False
 
 from loki.subroutine import Subroutine
 from loki.module import Module
-from loki.logging import logger
+from loki.logging import logger, error
 from loki.lint.utils import get_filename_from_parent
 
 
@@ -286,6 +291,10 @@ class JunitXmlHandler(GenericHandler):
     fmt_string = '{location} - {msg}'
 
     def __init__(self, target=logger.warning, basedir=None):
+        if not HAVE_JUNIT_XML:
+            error('junit_xml is not available')
+            raise RuntimeError
+
         super().__init__(basedir)
         self.target = target
 

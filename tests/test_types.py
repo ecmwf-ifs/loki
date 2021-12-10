@@ -1,8 +1,9 @@
 from random import choice
 import pytest
 
+from conftest import available_frontends
 from loki import (
-    OFP, OMNI, FP, Sourcefile, Module, Subroutine, BasicType,
+    OFP, OMNI, Sourcefile, Module, Subroutine, BasicType,
     SymbolAttributes, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
     DataType
 )
@@ -54,13 +55,13 @@ def test_symbol_attributes():
     assert _type.a == 'a'
     assert _type.b
     assert _type.c is None
-    assert _type.foo is None
+    assert _type.foofoo is None
 
-    _type.foo = 'bar'
-    assert _type.foo == 'bar'
+    _type.foofoo = 'bar'
+    assert _type.foofoo == 'bar'
 
-    delattr(_type, 'foo')
-    assert _type.foo is None
+    delattr(_type, 'foofoo')
+    assert _type.foofoo is None
 
 
 def test_symbol_attributes_compare():
@@ -79,11 +80,9 @@ def test_symbol_attributes_compare():
     assert not someint.compare(somereal)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='OFP needs preprocessing to support contiguous keyword')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+  (OFP, 'OFP needs preprocessing to support contiguous keyword'
+)]))
 def test_type_declaration_attributes(frontend):
     """
     Test recognition of different declaration attributes.
@@ -108,11 +107,7 @@ end subroutine test_type_declarations
     assert routine.symbols['e'].contiguous
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Segfault with pragmas in derived types')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Segfault with pragmas in derived types')]))
 def test_pragmas(frontend):
     """
     Test detection of `!$loki dimension` pragmas to indicate intended shapes.
@@ -154,7 +149,7 @@ end module types
     assert fsymgen(pragma_type.variable_map['tensor'].shape) == '(klon, klat, 2)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_type_derived_type(frontend):
     """
     Test the detection of known derived type definitions.
@@ -209,10 +204,7 @@ end module test_type_derived_type_mod
     assert routine.symbols['c%b'].shape == (':',':')
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI cannot deal with deferred type info')),
-    FP])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot deal with deferred type info')]))
 def test_type_module_imports(frontend):
     """
     Test the detection of known / unknown symbols types from module imports.

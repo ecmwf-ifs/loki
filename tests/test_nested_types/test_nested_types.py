@@ -1,13 +1,10 @@
 from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, Sourcefile, fexprgen
+from conftest import available_frontends
+from loki import OMNI, Sourcefile, fexprgen
 
-@pytest.mark.parametrize('frontend', [
-    FP,
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Loki annotations break frontend parser'))
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotations break frontend parser')]))
 def test_nested_types(frontend):
     """
     Regression test that ensures that nested types are correctly

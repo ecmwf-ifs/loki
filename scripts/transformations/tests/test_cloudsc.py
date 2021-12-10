@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from loki import execute, OFP, OMNI, FP
+from conftest import available_frontends
+from loki import execute, OMNI, HAVE_FP
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
 
@@ -22,7 +23,9 @@ def fixture_bundle_create(here):
     execute('./cloudsc-bundle create', cwd=here, silent=False)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
+))
 def test_cloudsc(here, frontend):
     # FIXME: We temporarily throttle the build to a single
     # build-thread to avoid a race condition among loki invocations of

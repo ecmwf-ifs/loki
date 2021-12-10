@@ -3,7 +3,13 @@ from collections.abc import Iterable
 from pathlib import Path
 import re
 
-import open_fortran_parser
+try:
+    import open_fortran_parser
+
+    HAVE_OFP = True
+    """Indicate whether OpenFortranParser frontend is available."""
+except ImportError:
+    HAVE_OFP = False
 
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
@@ -27,7 +33,7 @@ from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
 
-__all__ = ['parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
+__all__ = ['HAVE_OFP', 'parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
 
 
 @timeit(log_level=DEBUG)
@@ -38,6 +44,9 @@ def parse_ofp_file(filename):
 
     Note: The parsing is cached on disk in ``<filename>.cache``.
     """
+    if not HAVE_OFP:
+        error('OpenFortranParser is not available.')
+
     filepath = Path(filename)
     info("[Loki::OFP] Parsing %s" % filepath)
     return open_fortran_parser.parse(filepath, raise_on_error=True)

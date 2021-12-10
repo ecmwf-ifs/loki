@@ -1,8 +1,8 @@
 from pathlib import Path
 import pytest
 
-from conftest import jit_compile_lib
-from loki import Builder, Module, Subroutine, OFP, OMNI, FP, FindNodes, Import, FindVariables
+from conftest import jit_compile_lib, available_frontends
+from loki import Builder, Module, Subroutine, FindNodes, Import, FindVariables
 from loki.transform import inline_elemental_functions, inline_constant_parameters, replace_selected_kind
 
 
@@ -16,7 +16,7 @@ def fixture_builder(here):
     return Builder(source_dirs=here, build_dir=here/'build')
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_inline_elemental_functions(here, builder, frontend):
     """
     Test correct inlining of elemental functions.
@@ -79,7 +79,7 @@ end subroutine transform_inline_elemental_functions
     (here/'{}.f90'.format(routine.name)).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_inline_constant_parameters(here, builder, frontend):
     """
     Test correct inlining of constant parameters.
@@ -141,7 +141,7 @@ end module transform_inline_constant_parameters_mod
     (here/'{}.f90'.format(module.name)).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_inline_constant_parameters_kind(here, builder, frontend):
     """
     Test correct inlining of constant parameters for kind symbols.
@@ -193,7 +193,7 @@ end module transform_inline_constant_parameters_kind_mod
     (here/'{}.f90'.format(module.name)).unlink()
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_inline_constant_parameters_replace_kind(here, builder, frontend):
     """
     Test correct inlining of constant parameters for kind symbols.

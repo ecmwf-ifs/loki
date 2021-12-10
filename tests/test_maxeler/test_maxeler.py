@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import jit_compile, clean_test
-from loki import Subroutine, OFP, OMNI, FP, FortranMaxTransformation, execute, delete
+from conftest import jit_compile, clean_test, available_frontends
+from loki import Subroutine, FortranMaxTransformation, execute, delete
 from loki.build import Builder, Obj, Lib
 from loki.build.max_compiler import (compile_all, compile_maxj, compile_max, generate_max,
                                      get_max_includes, get_max_libs, get_max_libdirs)
@@ -161,7 +161,7 @@ def test_max_passthrough_ctypes(simulator, here):
     assert list(data_in) == list(data_out)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_axpy_scalar(here, builder, simulator, frontend):
 
     fcode = """
@@ -209,7 +209,7 @@ end subroutine routine_axpy_scalar
     delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_copy_scalar(here, builder, simulator, frontend):
 
     fcode = """
@@ -252,7 +252,7 @@ end subroutine routine_copy_scalar
     delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_fixed_loop(here, builder, simulator, frontend):
 
     fcode = """
@@ -314,7 +314,7 @@ end subroutine routine_fixed_loop
     delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_copy_stream(here, builder, simulator, frontend):
 
     fcode = """
@@ -358,7 +358,7 @@ end subroutine routine_copy_stream
     delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_moving_average(here, builder, simulator, frontend):
 
     fcode = """
@@ -422,7 +422,7 @@ end subroutine routine_moving_average
     delete(here/routine.name, force=True)  # Delete MaxJ sources
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_max_routine_laplace(here, builder, simulator, frontend):
     fcode = """
 subroutine routine_laplace(h, data_in, data_out)

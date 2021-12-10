@@ -5,7 +5,7 @@ import operator as op
 import pytest
 
 import pymbolic.primitives as pmbl
-from loki import parse_fparser_expression, Scope
+from loki import parse_fparser_expression, Scope, HAVE_FP
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op
 
 
@@ -64,6 +64,7 @@ def test_symbolic_literal_comparison(a, b, lt, eq):
     assert (a == b) is eq
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('a, _op, b, ref', [
     ('1', op.eq, '2', False),
     ('1', op.ne, '2', True),
@@ -99,6 +100,7 @@ def test_symbolic_op(a, _op, b, ref):
         assert ret == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '1 + 1'),
     ('1 + (2 + (3 + (4 + 5) + 6)) + 7', '1 + 2 + 3 + 4 + 5 + 6 + 7'),
@@ -124,6 +126,7 @@ def test_simplify_flattened(source, ref):
     assert str(expr) == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '2'),
     ('2 - 1', '1'),
@@ -152,6 +155,7 @@ def test_simplify_integer_arithmetic(source, ref):
     assert str(expr) == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
@@ -174,6 +178,7 @@ def test_simplify_collect_coefficients(source, ref):
     assert str(expr) == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('5 * (4 + 3 * (2 + 1) )', '65'),
     ('1 - (-1 - (-1 - (-1 - (-1 - 1) - 1) - 1) - 1) - 1', '0'),

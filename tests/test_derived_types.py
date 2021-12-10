@@ -2,9 +2,9 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
+from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    OFP, OMNI, FP, Module, Subroutine, FindVariables, IntLiteral,
+    OMNI, Module, Subroutine, FindVariables, IntLiteral,
     RangeIndex, BasicType, DeferredTypeSymbol, Array, DerivedType, TypeDef,
     config, fgen, FindNodes, Associate
 )
@@ -22,7 +22,7 @@ def fixture_reset_frontend_mode():
     config['frontend-strict-mode'] = original_frontend_mode
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_simple_loops(here, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
@@ -69,7 +69,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_explicit(here, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
@@ -109,7 +109,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_deferred(here, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
@@ -165,7 +165,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_nested(here, frontend):
     """
     Test simple vector/matrix arithmetic with a nested derived type
@@ -215,7 +215,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_deferred_array(here, frontend):
     """
     Test simple vector/matrix with an array of derived types
@@ -292,7 +292,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_caller(here, frontend):
     """
     Test a simple call to another routine specifying a derived type as argument
@@ -350,7 +350,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_associates(here, frontend):
     """
     Test the use of associate to access and modify other items
@@ -443,11 +443,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='OMNI fails to read without full module')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
 def test_associates_deferred(frontend):
     """
     Verify that reading in subroutines with deferred external type definitions
@@ -476,7 +472,7 @@ END SUBROUTINE
     assert some_var.scope is FindNodes(Associate).visit(routine.body)[0]
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_associates_expr(here, frontend):
     """
     Verify that associates with expressions are supported
@@ -517,7 +513,7 @@ end subroutine associates_expr
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_case_sensitivity(here, frontend):
     """
     Some abuse of the case agnostic behaviour of Fortran
@@ -561,7 +557,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_check_alloc_source(here, frontend):
     """
     Test the use of SOURCE in allocate
@@ -631,7 +627,7 @@ end module
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_procedure_designator(frontend):
     mcode = """
 module derived_type_procedure_designator_mod
@@ -701,7 +697,7 @@ end subroutine derived_type_procedure_designator
     # TODO: actually verify representation of type-bound procedures
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_frontend_strict_mode(frontend, reset_frontend_mode):  # pylint: disable=unused-argument
     """
     Verify that frontends fail on unsupported features if strict mode is enabled
@@ -727,7 +723,7 @@ end module frontend_strict_mode
     assert 'other_type' in module.symbols
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_clone(frontend):
     """
     Test cloning of derived types

@@ -1,16 +1,11 @@
-import sys
-from pathlib import Path
 import pytest
 
-from loki import OFP, OMNI, FP, Module, FindNodes, CallStatement
-
-# Bootstrap the local transformations directory for custom transformations
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-# pylint: disable=wrong-import-position,wrong-import-order
+from conftest import available_frontends
 from transformations import DerivedTypeArgumentsTransformation
+from loki import OMNI, Module, FindNodes, CallStatement
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_derived_type_arguments(frontend):
     fcode = f"""
 module transform_derived_type_arguments_mod

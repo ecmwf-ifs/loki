@@ -7,14 +7,14 @@ import numpy as np
 import pymbolic.primitives as pmbl
 
 from conftest import (
-    jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
+    available_frontends, jit_compile, clean_test, stdchannel_redirected, stdchannel_is_captured
 )
 from loki import (
     OFP, OMNI, FP, Sourcefile, fgen, Cast, RangeIndex, Assignment, Intrinsic, Variable,
     Nullify, IntLiteral, FloatLiteral, IntrinsicLiteral, InlineCall, Subroutine,
     FindVariables, FindNodes, SubstituteExpressions, Scope, BasicType, SymbolAttributes,
     parse_fparser_expression, Sum, DerivedType, ProcedureType, ProcedureSymbol,
-    DeferredTypeSymbol, Module
+    DeferredTypeSymbol, Module, HAVE_FP
 )
 from loki.expression import symbols
 from loki.tools import gettempdir, filehash
@@ -25,7 +25,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_arithmetic(here, frontend):
     """
     Test simple floating point arithmetic expressions (+,-,*,/,**).
@@ -49,7 +49,7 @@ end subroutine arithmetic_expr
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_math_intrinsics(here, frontend):
     """
     Test supported math intrinsic functions (min, max, exp, abs, sqrt, log)
@@ -78,7 +78,7 @@ end subroutine math_intrinsics
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_logicals(here, frontend):
     """
     Test logical expressions (and, or, not, tru, false, equal, not nequal).
@@ -110,7 +110,7 @@ end subroutine logicals
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_literals(here, frontend):
     """
     Test simple literal values.
@@ -156,7 +156,7 @@ end subroutine literals
     assert isinstance(stmts[6].rhs, Cast)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_boz_literals(here, frontend):
     """
     Test boz literal values.
@@ -194,11 +194,9 @@ end subroutine boz_literals
         assert isinstance(stmts[5].rhs, IntrinsicLiteral) and stmts[5].rhs.value == 'z"babe"'
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='They are represented too stupid in OFP parse tree')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OFP: "Not implemented because too stupid in OFP parse tree"})
+)
 def test_complex_literals(here, frontend):
     """
     Test complex literal values.
@@ -234,7 +232,7 @@ end subroutine complex_literals
         raise excinfo
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_casts(here, frontend):
     """
     Test data type casting expressions.
@@ -259,7 +257,7 @@ end subroutine casts
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_logical_array(here, frontend):
     """
     Test logical arrays for masking.
@@ -298,11 +296,7 @@ end subroutine logical_array
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Precedence not honoured')),
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Precedence not honoured')]))
 def test_parenthesis(frontend):
     """
     Test explicit parenthesis in provided source code.
@@ -351,7 +345,7 @@ end subroutine parenthesis
     assert fgen(stmts[2]) == fcode.splitlines()[-2].lstrip()
 
 
-@pytest.mark.parametrize('frontend', [OFP, FP, OMNI])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_commutativity(frontend):
     """
     Verifies the strict adherence to ordering of commutative terms,
@@ -373,7 +367,7 @@ end subroutine commutativity
                           'v3(:) = 1._jprb + v2*v1(:) - v2 - v3(:)')
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_index_ranges(frontend):
     """
     Test index range expressions for array accesses.
@@ -406,7 +400,7 @@ end subroutine index_ranges
     assert str(vmap_body['v5']) == 'v5(:)'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_strings(here, frontend, capsys):
     """
     Test recognition of literal strings.
@@ -439,7 +433,7 @@ end subroutine strings
     assert output_str == ' Hello world!\n 42!\n'
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_very_long_statement(here, frontend):
     """
     Test a long statement with line breaks.
@@ -464,7 +458,7 @@ end subroutine very_long_statement
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_output_intrinsics(frontend):
     """
     Some collected intrinsics or other edge cases that failed in cloudsc.
@@ -501,7 +495,7 @@ end subroutine output_intrinsics
     assert fgen(intrinsics).lower() == '{} {}\n{}'.format('1002', *ref)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_nested_call_inline_call(here, frontend):
     """
     The purpose of this test is to highlight the differences between calls in expression
@@ -550,7 +544,7 @@ end subroutine nested_call_inline_call
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_no_arg_inline_call(frontend):
     """
     Make sure that no-argument function calls are recognized as such,
@@ -591,7 +585,7 @@ end subroutine my_routine
     assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_character_concat(here, frontend):
     """
     Concatenation operator ``//``
@@ -616,11 +610,7 @@ end subroutine character_concat
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    pytest.param(OFP, marks=pytest.mark.xfail(reason='Inline WHERE not implemented')),
-    OMNI,
-    FP
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Inline WHERE not implemented')]))
 def test_masked_statements(here, frontend):
     """
     Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
@@ -668,11 +658,9 @@ end subroutine masked_statements
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [
-    OFP,  # This "works" because OFP keeps it as Intrinsic with a warning
-    pytest.param(OMNI, marks=pytest.mark.xfail(reason='Not implemented')),
-    pytest.param(FP, marks=pytest.mark.xfail(reason='Not implemented')),
-])
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OMNI, 'Not implemented'), (FP, 'Not implemented')
+]))
 def test_data_declaration(here, frontend):
     """
     Variable initialization with DATA statements
@@ -707,7 +695,7 @@ end subroutine data_declaration
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pointer_nullify(here, frontend):
     """
     POINTERS and their nullification via '=> NULL()'
@@ -743,7 +731,7 @@ end subroutine pointer_nullify
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_parameter_stmt(here, frontend):
     """
     PARAMETER(...) statement
@@ -820,6 +808,7 @@ def test_string_compare():
     assert symbols.Literal('u') != u  # The `Variable(name='u', ...) from above
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr, string, ref', [
     ('a + 1', 'a', True),
     ('u(a)', 'a', True),
@@ -838,6 +827,7 @@ def test_subexpression_match(expr, string, ref):
     assert (string in expr) == ref
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('source, ref', [
     ('1 + 1', '1 + 1'),
     ('1+2+3+4', '1 + 2 + 3 + 4'),
@@ -1048,6 +1038,7 @@ def test_variable_without_scope():
     assert scope.symbols['var'].dtype is BasicType.LOGICAL
 
 
+@pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 @pytest.mark.parametrize('expr', [
     ('1.8 - 3.E-03*ztp1'),
     ('1.8 - 0.003*ztp1'),

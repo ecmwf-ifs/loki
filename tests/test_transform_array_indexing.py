@@ -2,8 +2,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test
-from loki import OFP, OMNI, FP, Subroutine
+from conftest import jit_compile, clean_test, available_frontends
+from loki import Subroutine
 from loki.expression import symbols as sym
 from loki.transform import promote_variables, normalize_range_indexing
 
@@ -13,7 +13,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_variable_scalar(here, frontend):
     """
     Apply variable promotion for a single scalar variable.
@@ -54,7 +54,7 @@ end subroutine transform_promote_variable_scalar
     clean_test(promoted_filepath)
 
 
-@pytest.mark.parametrize('frontend', [OFP, OMNI, FP])
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_variables(here, frontend):
     """
     Apply variable promotion for scalar and array variables.
