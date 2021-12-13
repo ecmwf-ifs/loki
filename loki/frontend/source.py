@@ -19,8 +19,8 @@ class Source:
         self.file = file
 
     def __repr__(self):
-        line_end = '-{}'.format(self.lines[1]) if self.lines[1] else ''
-        return 'Source<line {start}{end}>'.format(start=self.lines[0], end=line_end)
+        line_end = f'-{self.lines[1]}' if self.lines[1] else ''
+        return f'Source<line {self.lines[0]}{line_end}>'
 
     def find(self, string, ignore_case=True, ignore_space=True):
         """

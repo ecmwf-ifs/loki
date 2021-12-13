@@ -189,14 +189,14 @@ class Polyhedron:
         """
         supported_types = (sym.TypedSymbol, sym.MetaSymbol, sym.Sum, sym.Product)
         if not (is_constant(bound) or isinstance(bound, supported_types)):
-            raise ValueError('Cannot derive inequality from bound {}'.format(str(bound)))
+            raise ValueError(f'Cannot derive inequality from bound {str(bound)}')
         summands = accumulate_polynomial_terms(bound)
         b = -summands.pop(1, 0)  # Constant term or 0
         A = np.zeros([1, len(variables)], dtype=np.dtype(int))
         A[0, index] = -1
         for base, coef in summands.items():
             if not len(base) == 1:
-                raise ValueError('Non-affine bound {}'.format(str(bound)))
+                raise ValueError(f'Non-affine bound {str(bound)}')
             A[0, variables.index(base[0].name.lower())] = coef
         return A, b
 
@@ -445,7 +445,7 @@ def loop_interchange(routine, project_bounds=False):
             # Annotate loop-interchange in a comment
             old_vars = ', '.join(loop_variable_names)
             new_vars = ', '.join(var_order)
-            comment = Comment('! Loki loop-interchange ({} <--> {})'.format(old_vars, new_vars))
+            comment = Comment(f'! Loki loop-interchange ({old_vars} <--> {new_vars})')
 
             # Strip loop-interchange pragma and register new loop nest in map
             pragmas = tuple(p for p in as_tuple(loops[0].pragma)
@@ -498,7 +498,7 @@ def loop_fusion(routine):
         # First, determine the collapse depth and extract user-annotated loop ranges from pragmas
         collapse = [param.get('collapse', None) for param in parameters]
         if collapse != [collapse[0]] * len(collapse):
-            raise RuntimeError('Conflicting collapse values in group "{}"'.format(group))
+            raise RuntimeError(f'Conflicting collapse values in group "{group}"')
         collapse = int(collapse[0]) if collapse[0] is not None else 1
 
         pragma_ranges = [pragma_ranges_to_loop_ranges(param, routine) for param in parameters]
@@ -506,7 +506,7 @@ def loop_fusion(routine):
         # If we have a pragma somewhere with an explicit loop range, we use that for the fused loop
         range_set = {r for r in pragma_ranges if r is not None}
         if len(range_set) not in (0, 1):
-            raise RuntimeError('Pragma-specified loop ranges in group "{}" do not match'.format(group))
+            raise RuntimeError(f'Pragma-specified loop ranges in group "{group}" do not match')
 
         fusion_ranges = None
         if range_set:
@@ -579,9 +579,9 @@ def loop_fusion(routine):
         for idx, (variables, ranges, bodies, p) in enumerate(
                 zip(loop_variables, loop_ranges, loop_bodies, iteration_spaces)):
             # TODO: This throws away anything that is not in the inner-most loop body.
-            body = flatten([Comment('! Loki loop-fusion - body {} begin'.format(idx)),
+            body = flatten([Comment(f'! Loki loop-fusion - body {idx} begin'),
                             bodies[-1],
-                            Comment('! Loki loop-fusion - body {} end'.format(idx))])
+                            Comment(f'! Loki loop-fusion - body {idx} end')])
 
             # Replace loop variables if necessary
             var_map = {}
@@ -613,9 +613,9 @@ def loop_fusion(routine):
         for fusion_variable, fusion_range in zip(reversed(fusion_variables), reversed(fusion_ranges)):
             fusion_loop = Loop(variable=fusion_variable, body=as_tuple(fusion_loop), bounds=fusion_range)
 
-        comment = Comment('! Loki loop-fusion group({})'.format(group))
+        comment = Comment(f'! Loki loop-fusion group({group})')
         loop_map[loop_list[0]] = (comment, fusion_loop)
-        comment = Comment('! Loki loop-fusion group({}) - loop hoisted'.format(group))
+        comment = Comment(f'! Loki loop-fusion group({group}) - loop hoisted')
         loop_map.update({loop: comment for loop in loop_list[1:]})
 
     # Apply transformation
@@ -690,7 +690,7 @@ class FissionTransformer(NestedMaskedTransformer):
             if not body:
                 return [()]
             # inject a comment to mark where the loop was split
-            comment = [] if start_node is None else [Comment('! Loki - {}'.format(start_node.content))]
+            comment = [] if start_node is None else [Comment(f'! Loki - {start_node.content}')]
             return comment + [self._rebuild(o, visited[:body_index] + (body,) + visited[body_index:])]
 
         # Use masked transformer to build subtrees from/to pragma
@@ -797,10 +797,10 @@ def loop_fission(routine, promote=True, warn_loop_carries=True):
 
                 if broken_loop_carries:
                     if pragma.source and pragma.source.lines:
-                        line_info = ' at l. {}'.format(pragma.source.lines[0])
+                        line_info = f' at l. {pragma.source.lines[0]}'
                     else:
                         line_info = ''
-                    warning('Loop-fission{} potentially breaks loop-carried dependencies for variables: {}'.format(
-                        line_info, ', '.join(str(v) for v in broken_loop_carries)))
+                    warning(f'Loop-fission{line_info} potentially breaks loop-carried dependencies' +
+                            f'for variables: {", ".join(str(v) for v in broken_loop_carries)}')
 
     promote_nonmatching_variables(routine, promotion_vars_dims, promotion_vars_index)

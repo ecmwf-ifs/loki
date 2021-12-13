@@ -108,7 +108,7 @@ class Sourcefile:
         if frontend == FP:
             return cls.from_fparser(source, filepath, definitions=definitions)
 
-        raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
     def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
@@ -231,7 +231,7 @@ class Sourcefile:
             ast = parse_fparser_source(source)
             return cls._from_fparser_ast(path=None, ast=ast, raw_source=source, definitions=definitions)
 
-        raise NotImplementedError('Unknown frontend: %s' % frontend)
+        raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @property
     def source(self):
@@ -303,6 +303,6 @@ class Sourcefile:
         Same as ``write(source, filename)``, but can be called from a
         static context.
         """
-        info("Writing %s" % path)
+        info(f'Writing {path}')
         with path.open('w') as f:
             f.write(source)

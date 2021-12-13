@@ -50,7 +50,7 @@ end subroutine transpile_simple_loops
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_simple_loops_%s.f90' % frontend)
+    filepath = here/(f'transpile_simple_loops_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_simple_loops')
 
     n, m = 3, 4
@@ -67,7 +67,7 @@ end subroutine transpile_simple_loops
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_simple_loops_fc_mod.transpile_simple_loops_fc
 
@@ -138,7 +138,7 @@ end subroutine transpile_arguments
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_arguments_%s.f90' % frontend)
+    filepath = here/(f'transpile_arguments_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_arguments')
     a, b, c = function(n, array, array_io, a_io, b_io, c_io)
 
@@ -150,7 +150,7 @@ end subroutine transpile_arguments
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc
 
@@ -206,7 +206,7 @@ end subroutine transpile_derived_type
 
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     # Test the reference solution
@@ -229,7 +229,7 @@ end subroutine transpile_derived_type
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
 
     a_struct = c_kernel.transpile_type_mod.my_struct()
@@ -247,7 +247,7 @@ end subroutine transpile_derived_type
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -287,7 +287,7 @@ end subroutine transpile_associates
 
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     # Test the reference solution
@@ -310,7 +310,7 @@ end subroutine transpile_associates
 
     # Build and wrap the cross-compiled library
     sources = [module, f2c.wrapperpath, f2c.c_path]
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, path=here, name=libname, builder=builder)
 
     a_struct = c_kernel.transpile_type_mod.my_struct()
@@ -328,7 +328,7 @@ end subroutine transpile_associates
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.skip(reason='More thought needed on how to test structs-of-arrays')
@@ -397,7 +397,7 @@ end subroutine transpile_module_variables
 
     module = Module.from_source(fcode_type, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     reference.transpile_type_mod.param1 = 2
@@ -417,7 +417,7 @@ end subroutine transpile_module_variables
     # Build and wrap the cross-compiled library
     sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
     wrap = [here/'transpile_type_mod.f90', f2c.wrapperpath.name]
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, wrap=wrap, path=here, name=libname, builder=builder)
 
     c_kernel.transpile_type_mod.param1 = 2
@@ -431,7 +431,7 @@ end subroutine transpile_module_variables
     mod2c.c_path.unlink()
     f2c.wrapperpath.unlink()
     f2c.c_path.unlink()
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -461,7 +461,7 @@ end subroutine transpile_vectorization
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_vectorization_%s.f90' % frontend)
+    filepath = here/(f'transpile_vectorization_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_vectorization')
 
     n, m = 3, 4
@@ -476,7 +476,7 @@ end subroutine transpile_vectorization
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_vectorization_fc_mod.transpile_vectorization_fc
 
@@ -519,7 +519,7 @@ end subroutine transpile_intrinsics
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_intrinsics_%s.f90' % frontend)
+    filepath = here/(f'transpile_intrinsics_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_intrinsics')
 
     # Test the reference solution
@@ -531,7 +531,7 @@ end subroutine transpile_intrinsics
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc
 
@@ -578,7 +578,7 @@ end subroutine transpile_loop_indices
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_loop_indices_%s.f90' % frontend)
+    filepath = here/(f'transpile_loop_indices_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_loop_indices')
 
     # Test the reference solution
@@ -599,7 +599,7 @@ end subroutine transpile_loop_indices
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_loop_indices_fc_mod.transpile_loop_indices_fc
 
@@ -643,7 +643,7 @@ end subroutine transpile_logical_statements
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_logical_statements_%s.f90' % frontend)
+    filepath = here/(f'transpile_logical_statements_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_logical_statements')
 
     # Test the reference solution
@@ -660,7 +660,7 @@ end subroutine transpile_logical_statements
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_logical_statements_fc_mod.transpile_logical_statements_fc
 
@@ -710,7 +710,7 @@ end subroutine transpile_multibody_conditionals
 """
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = here/('transpile_multibody_conditionals_%s.f90' % frontend)
+    filepath = here/(f'transpile_multibody_conditionals_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname='transpile_multibody_conditionals')
 
     out1, out2 = function(5)
@@ -730,7 +730,7 @@ end subroutine transpile_multibody_conditionals
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_multibody_conditionals_fc_mod.transpile_multibody_conditionals_fc
 
@@ -784,22 +784,22 @@ end subroutine transpile_inline_elemental_functions
     # Generate reference code, compile run and verify
     module = Module.from_source(fcode_module, frontend=frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     v2, v3 = reference.transpile_inline_elemental_functions(11.)
     assert v2 == 66.
     assert v3 == 666.
 
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{routine.name}.f90').unlink()
 
     # Now transpile with supplied elementals but without module
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
 
     f2c = FortranCTransformation(inline_elementals=True)
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_mod = c_kernel.transpile_inline_elemental_functions_fc_mod
 
@@ -860,22 +860,22 @@ end subroutine transpile_inline_elementals_recursive
     # Generate reference code, compile run and verify
     module = Module.from_source(fcode_module, frontend=frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     v2, v3 = reference.transpile_inline_elementals_recursive(10.)
     assert v2 == 66.
     assert v3 == 666.
 
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{routine.name}.f90').unlink()
 
     # Now transpile with supplied elementals but without module
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
 
     f2c = FortranCTransformation(inline_elementals=True)
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_mod = c_kernel.transpile_inline_elementals_recursive_fc_mod
 
@@ -927,7 +927,7 @@ end subroutine transpile_expressions
     # Generate and test the transpiled C kernel
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=here)
-    libname = 'fc_{}_{}'.format(routine.name, frontend)
+    libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=here, name=libname, builder=builder)
     fc_function = c_kernel.transpile_expressions_fc_mod.transpile_expressions_fc
 

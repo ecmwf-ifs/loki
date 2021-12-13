@@ -45,7 +45,7 @@ subroutine loop_nest_fixed(in1, in2, out1, out2)
   end do
 end subroutine loop_nest_fixed
 """
-    filepath = here/('control_flow_loop_nest_fixed_%s.f90' % frontend)
+    filepath = here/(f'control_flow_loop_nest_fixed_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_nest_fixed')
 
@@ -95,7 +95,7 @@ subroutine loop_nest_variable(dim1, dim2, in1, in2, out1, out2)
   end do
 end subroutine loop_nest_variable
 """
-    filepath = here/('control_flow_loop_nest_variable_%s.f90' % frontend)
+    filepath = here/(f'control_flow_loop_nest_variable_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_nest_variable')
 
@@ -126,7 +126,7 @@ subroutine loop_scalar_logical_expr(outvar)
   end do
 end subroutine loop_scalar_logical_expr
 """
-    filepath = here/('control_flow_loop_scalar_logical_expr_%s.f90' % frontend)
+    filepath = here/(f'control_flow_loop_scalar_logical_expr_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_scalar_logical_expr')
 
@@ -154,7 +154,7 @@ subroutine loop_unbounded(out)
   enddo
 end subroutine loop_unbounded
 """
-    filepath = here/('control_flow_loop_unbounded_%s.f90' % frontend)
+    filepath = here/(f'control_flow_loop_unbounded_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='loop_unbounded')
 
@@ -184,7 +184,7 @@ subroutine loop_labeled_continue(out)
 101 continue
 end subroutine loop_labeled_continue
 """
-    filepath = here/('control_flow_loop_labeled_continue_%s.f90' % frontend)
+    filepath = here/(f'control_flow_loop_labeled_continue_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     if frontend != OMNI:  # OMNI doesn't read the Loop label...
@@ -215,7 +215,7 @@ subroutine inline_conditionals(in1, in2, out1, out2)
   if (in2 > 5) out2 = 5
 end subroutine inline_conditionals
 """
-    filepath = here/('control_flow_inline_conditionals_%s.f90' % frontend)
+    filepath = here/(f'control_flow_inline_conditionals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='inline_conditionals')
 
@@ -254,7 +254,7 @@ subroutine multi_body_conditionals(in1, out1, out2)
   end if
 end subroutine multi_body_conditionals
 """
-    filepath = here/('control_flow_multi_body_conditionals_%s.f90' % frontend)
+    filepath = here/(f'control_flow_multi_body_conditionals_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     conditionals = FindNodes(Conditional).visit(routine.body)
@@ -291,7 +291,7 @@ subroutine goto_stmt(var)
   var = 7
 end subroutine goto_stmt
 """
-    filepath = here/('control_flow_goto_stmt_%s.f90' % frontend)
+    filepath = here/(f'control_flow_goto_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='goto_stmt')
 
@@ -320,7 +320,7 @@ subroutine select_case(cmd, out1)
   end select
 end subroutine select_case
 """
-    filepath = here/('control_flow_select_case_%s.f90' % frontend)
+    filepath = here/(f'control_flow_select_case_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='select_case')
 
@@ -346,7 +346,7 @@ subroutine cycle_stmt(var)
   end do
 end subroutine cycle_stmt
 """
-    filepath = here/('control_flow_cycle_stmt_%s.f90' % frontend)
+    filepath = here/(f'control_flow_cycle_stmt_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
     function = jit_compile(routine, filepath=filepath, objname='cycle_stmt')
 

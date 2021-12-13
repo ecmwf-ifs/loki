@@ -257,9 +257,8 @@ class CLAWTransformation(ExtractSCATransformation):
                 if call.context:
                     self.item_depth[call_name] = self.item_depth[routine.name.lower()] + 1
                 else:
-                    warning('[Loki] CLAWTransform: Routine {} not attached to call context in {}'.format(
-                        routine.name, call_name
-                    ))
+                    warning(f'[Loki] CLAWTransform: Routine {routine.name} not attached to call context ' +
+                            f'in {call_name}')
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables

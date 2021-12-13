@@ -378,7 +378,7 @@ class FParser2IR(GenericVisitor):
         for c in o.children[1:]:
             parent = var
             var = self.visit(c, **kwargs)
-            var = var.clone(name='{}%{}'.format(parent.name, var.name), parent=parent)
+            var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
         return var
 
     #
@@ -423,7 +423,7 @@ class FParser2IR(GenericVisitor):
             # Rename list
             self.warn_or_fail('rename lists not implemented for USE statements')
         else:
-            raise ValueError('Unexpected list only/rename-list value in USE statement: {}'.format(o.children[3]))
+            raise ValueError(f'Unexpected list only/rename-list value in USE statement: {o.children[3]}')
 
         return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
 
@@ -503,7 +503,7 @@ class FParser2IR(GenericVisitor):
                 return SymbolAttributes(dtype, kind=self.visit(o.children[1], **kwargs))
             if dtype is BasicType.CHARACTER:
                 return SymbolAttributes(dtype, length=self.visit(o.children[1], **kwargs))
-            raise ValueError('Unknown kind for intrinsic type: {}'.format(o.children[0]))
+            raise ValueError(f'Unknown kind for intrinsic type: {o.children[0]}')
         return SymbolAttributes(dtype)
 
     def visit_Kind_Selector(self, o, **kwargs):
@@ -650,7 +650,7 @@ class FParser2IR(GenericVisitor):
             return self.visit(o.items[1], **kwargs)
         if o.children[0] == '=>':
             return self.visit(o.items[1], **kwargs)
-        raise ValueError('Invalid assignment operator {}'.format(o.children[0]))
+        raise ValueError(f'Invalid assignment operator {o.children[0]}')
 
     def visit_External_Stmt(self, o, **kwargs):
         """
@@ -1428,7 +1428,7 @@ class FParser2IR(GenericVisitor):
         if o.children[0].lower() == 'source':
             return 'source', self.visit(o.children[1], **kwargs)
         # TODO: implement other alloc options
-        self.warn_or_fail('Unsupported allocation option: {}'.format(o.children[0]))
+        self.warn_or_fail(f'Unsupported allocation option: {o.children[0]}')
         return None
 
     def visit_Deallocate_Stmt(self, o, **kwargs):
@@ -1441,7 +1441,7 @@ class FParser2IR(GenericVisitor):
         """
         variables = self.visit(o.children[0], **kwargs)
         if o.children[1] is not None:
-            self.warn_or_fail('deallocate options {} not implemented'.format(','.join(o.children[1])))
+            self.warn_or_fail(f'deallocate options {",".join(o.children[1])} not implemented')
         return ir.Deallocation(variables=variables, source=kwargs.get('source'),
                                label=kwargs.get('label'))
 
@@ -1482,7 +1482,7 @@ class FParser2IR(GenericVisitor):
         assert o.children[1] == '%'
         parent = self.visit(o.children[0], **kwargs)
         name = self.visit(o.children[2], **kwargs)
-        name = name.clone(name='{}%{}'.format(parent.name, name.name), parent=parent)
+        name = name.clone(name=f'{parent.name}%{name.name}', parent=parent)
         return name
 
     visit_Actual_Arg_Spec_List = visit_List
@@ -1579,7 +1579,7 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``Base`` FParser-AST nodes
         """
-        self.warn_or_fail('No specific handler for node type {}'.format(o.__class__.name))
+        self.warn_or_fail(f'No specific handler for node type {o.__class__.name}')
         children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
@@ -1589,7 +1589,7 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``BlockBase`` FParser-AST nodes
         """
-        self.warn_or_fail('No specific handler for node type {}'.format(o.__class__.name))
+        self.warn_or_fail(f'No specific handler for node type {o.__class__.name}')
         children = tuple(self.visit(c, **kwargs) for c in o.content)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
@@ -1648,11 +1648,11 @@ class FParser2IR(GenericVisitor):
                          label=kwargs.get('label'))
 
     def visit_Implicit_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text='IMPLICIT %s' % o.items[0], source=kwargs.get('source'),
+        return ir.Intrinsic(text=f'IMPLICIT {o.items[0]}', source=kwargs.get('source'),
                             label=kwargs.get('label'))
 
     def visit_Print_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text='PRINT %s' % (', '.join(str(i) for i in o.items)),
+        return ir.Intrinsic(text=f'PRINT {", ".join(str(i) for i in o.items)}',
                             source=kwargs.get('source'), label=kwargs.get('label'))
 
     # TODO: Deal with line-continuation pragmas!

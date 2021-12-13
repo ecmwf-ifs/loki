@@ -39,19 +39,19 @@ def parse_omni_file(filename, xmods=None):
     dump_xml_files = config['omni-dump-xml']
 
     filepath = Path(filename)
-    info("[Loki::OMNI] Parsing %s" % filepath)
+    info(f'[Loki::OMNI] Parsing {filepath}')
 
     xml_path = filepath.with_suffix('.xml')
     xmods = xmods or []
 
     cmd = ['F_Front', '-fleave-comment']
     for m in xmods:
-        cmd += ['-M', '%s' % Path(m)]
-    cmd += ['%s' % filepath]
+        cmd += ['-M', f'{Path(m)}']
+    cmd += [f'{filepath}']
 
     if dump_xml_files:
         # Parse AST from xml file dumped to disk
-        cmd += ['-o', '%s' % xml_path]
+        cmd += ['-o', f'{xml_path}']
         execute(cmd)
         return ET.parse(str(xml_path)).getroot()
 
@@ -68,12 +68,12 @@ def parse_omni_source(source, filepath=None, xmods=None):
     if filepath is None:
         filepath = Path(filehash(source, prefix='omni-', suffix='.f90'))
     else:
-        filepath = filepath.with_suffix('.omni{}'.format(filepath.suffix))
+        filepath = filepath.with_suffix(f'.omni{filepath.suffix}')
 
     # Always store intermediate flies in tmp dir
     filepath = gettempdir()/filepath.name
 
-    debug('[Loki::OMNI] Writing temporary source {}'.format(str(filepath)))
+    debug(f'[Loki::OMNI] Writing temporary source {filepath}')
     with filepath.open('w') as f:
         f.write(source)
 
@@ -137,7 +137,7 @@ class OMNI2IR(GenericVisitor):
         for s in o.find('symbols'):
             vname = s.find('name').text
             if parent is not None:
-                vname = '%s%%%s' % (parent, vname)
+                vname = f'{parent}%%{vname}'
             dimensions = None
 
             t = s.attrib['type']
@@ -572,7 +572,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
-        name = '{}%{}'.format(parent.name, o.attrib['member'])
+        name = f'{parent.name}%{o.attrib["member"]}'
         variable = sym.Variable(name=name, parent=parent)
         return variable
 
@@ -620,7 +620,7 @@ class OMNI2IR(GenericVisitor):
         return sym.Literal(value=o.text, type=BasicType.LOGICAL, source=kwargs['source'])
 
     def visit_FcharacterConstant(self, o, **kwargs):
-        return sym.Literal(value='"%s"' % o.text, type=BasicType.CHARACTER, source=kwargs['source'])
+        return sym.Literal(value=f'"{o.text}"', type=BasicType.CHARACTER, source=kwargs['source'])
 
     def visit_FintConstant(self, o, **kwargs):
         if 'kind' in o.attrib:
@@ -629,8 +629,8 @@ class OMNI2IR(GenericVisitor):
         return sym.Literal(value=int(o.text), type=BasicType.INTEGER, source=kwargs['source'])
 
     def visit_FcomplexConstant(self, o, **kwargs):
-        value = '({})'.format(', '.join('{}'.format(self.visit(v, **kwargs)) for v in list(o)))
-        return sym.IntrinsicLiteral(value=value, source=kwargs['source'])
+        value = ', '.join(f'{self.visit(v, **kwargs)}' for v in list(o))
+        return sym.IntrinsicLiteral(value=f'({value})', source=kwargs['source'])
 
     def visit_FarrayConstructor(self, o, **kwargs):
         values = as_tuple(self.visit(v, **kwargs) for v in o)
@@ -683,36 +683,36 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FopenStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
-        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return ir.Intrinsic(text='open(%s)' % nargs, source=kwargs['source'])
+        nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
+        return ir.Intrinsic(text=f'open({nargs})', source=kwargs['source'])
 
     def visit_FcloseStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
-        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        return ir.Intrinsic(text='close(%s)' % nargs, source=kwargs['source'])
+        nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
+        return ir.Intrinsic(text=f'close({nargs})', source=kwargs['source'])
 
     def visit_FreadStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
-        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        args = ', '.join('%s' % v for v in values)
-        return ir.Intrinsic(text='read(%s) %s' % (nargs, args), source=kwargs['source'])
+        nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
+        args = ', '.join(f'{v}' for v in values)
+        return ir.Intrinsic(text=f'read({nargs}) {args}', source=kwargs['source'])
 
     def visit_FwriteStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
-        nargs = ', '.join('%s=%s' % (k, v) for k, v in nvalues)
-        args = ', '.join('%s' % v for v in values)
-        return ir.Intrinsic(text='write(%s) %s' % (nargs, args), source=kwargs['source'])
+        nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
+        args = ', '.join(f'{v}' for v in values)
+        return ir.Intrinsic(text=f'write({nargs}) {args}', source=kwargs['source'])
 
     def visit_FprintStatement(self, o, **kwargs):
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
-        args = ', '.join('%s' % v for v in values)
+        args = ', '.join(f'{v}' for v in values)
         fmt = o.attrib['format']
-        return ir.Intrinsic(text='print %s, %s' % (fmt, args), source=kwargs['source'])
+        return ir.Intrinsic(text=f'print {fmt}, {args}', source=kwargs['source'])
 
     def visit_FformatDecl(self, o, **kwargs):
-        fmt = 'FORMAT%s' % o.attrib['format']
+        fmt = f'FORMAT{o.attrib["format"]}'
         return ir.Intrinsic(text=fmt, source=kwargs['source'])
 
     def visit_namedValue(self, o, **kwargs):
@@ -832,7 +832,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_gotoStatement(self, o, **kwargs):
         label = int(o.attrib['label_name'])
-        return ir.Intrinsic(text='go to %d' % label, source=kwargs['source'])
+        return ir.Intrinsic(text=f'go to {label: d}', source=kwargs['source'])
 
     def visit_statementLabel(self, o, **kwargs):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])

@@ -132,7 +132,7 @@ class Item:
             info("Could not find source file %s; skipping...", name)
 
     def __repr__(self):
-        return 'loki.scheduler.Item<{}>'.format(self.name)
+        return f'loki.scheduler.Item<{self.name}>'
 
     def __eq__(self, other):
         if isinstance(other, Item):
@@ -324,7 +324,7 @@ class Scheduler:
         obj_list = []
         for path in self.paths:
             for ext in Obj._ext:
-                obj_list += [Obj(source_path=f) for f in path.glob('**/*%s' % ext)]
+                obj_list += [Obj(source_path=f) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
         self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in obj.subroutines)
@@ -357,7 +357,7 @@ class Scheduler:
         if routine in self.obj_map:
             return self.obj_map[routine].source_path
 
-        raise FileNotFoundError("Source path not found for routine: %s" % routine)
+        raise FileNotFoundError(f'Source path not found for routine: {routine}')
 
     def create_item(self, source):
         """
@@ -382,12 +382,12 @@ class Scheduler:
         try:
             path = self.find_path(source)
         except FileNotFoundError as fnferr:
-            warning('Scheduler could not create item: {}'.format(source))
+            warning(f'Scheduler could not create item: {source}')
             if self.config.default['strict']:
                 raise fnferr
             return None
 
-        debug('[Loki] Scheduler creating item: {} => {}'.format(name, path))
+        debug(f'[Loki] Scheduler creating item: {name} => {path}')
         return Item(name=name, config=item_conf, path=path, build_args=self.build_args)
 
     def populate(self, routines):
@@ -444,7 +444,7 @@ class Scheduler:
                 try:
                     path = self.find_path(routine)
                 except FileNotFoundError as err:
-                    warning('Scheduler could not find file for enrichment:\n{}'.format(path))
+                    warning(f'Scheduler could not find file for enrichment:\n{path}')
                     if self.config.default['strict']:
                         raise err
                     continue

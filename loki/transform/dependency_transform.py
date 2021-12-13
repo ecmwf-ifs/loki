@@ -108,7 +108,7 @@ class DependencyTransformation(Transformation):
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if targets is None or call.name in targets:
-                name = call.name.clone(name='{}{}'.format(call.name, self.suffix))
+                name = call.name.clone(name=f'{call.name}{self.suffix}')
                 call._update(name=name)
 
     def rename_imports(self, source, imports, **kwargs):
@@ -132,13 +132,13 @@ class DependencyTransformation(Transformation):
                 if targets is not None and target_symbol.upper() in targets:
                     if self.mode == 'strict':
                         # Modify the the basename of the C-style header import
-                        im._update(module='{}{}.{}'.format(target_symbol, self.suffix,
-                                                           '.'.join(im.module.split('.')[1:])))
+                        s = '.'.join(im.module.split('.')[1:])
+                        im._update(module=f'{target_symbol}{self.suffix}.{s}')
 
                     else:
                         # Create a new module import with explicitly qualified symbol
                         new_module = self.derive_module_name(im.module.split('.')[0])
-                        new_symbol = Variable(name='{}{}'.format(target_symbol, self.suffix), scope=source)
+                        new_symbol = Variable(name=f'{target_symbol}{self.suffix}', scope=source)
                         new_import = im.clone(module=new_module, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
 
@@ -149,7 +149,7 @@ class DependencyTransformation(Transformation):
                 # Modify module import if it imports any targets
                 if targets is not None and any(s in targets for s in im.symbols):
                     # Append suffix to all target symbols
-                    symbols = as_tuple(s.clone(name='{}{}'.format(s.name, self.suffix))
+                    symbols = as_tuple(s.clone(name=f'{s.name}{self.suffix}')
                                        if s in targets else s for s in im.symbols)
                     module_name = self.derive_module_name(im.module)
                     im._update(module=module_name, symbols=symbols)
@@ -169,10 +169,10 @@ class DependencyTransformation(Transformation):
             # If a module suffix is provided, we insert suffix before that
             if self.module_suffix.upper() in modname.upper():
                 idx = modname.upper().index(self.module_suffix.upper())
-                return '{}{}{}'.format(modname[:idx], self.suffix, self.module_suffix)
+                return f'{modname[:idx]}{self.suffix}{self.module_suffix}'
 
-            return '{}{}{}'.format(modname, self.suffix, self.module_suffix)
-        return '{}{}'.format(modname, self.suffix)
+            return f'{modname}{self.suffix}{self.module_suffix}'
+        return f'{modname}{self.suffix}'
 
     def generate_interfaces(self, source):
         """
@@ -180,7 +180,7 @@ class DependencyTransformation(Transformation):
         """
         if isinstance(source, Subroutine):
             # No need to rename here, as this has already happened before
-            intfb_path = self.include_path/'{}.intfb.h'.format(source.name.lower())
+            intfb_path = self.include_path/f'{source.name.lower()}.intfb.h'
             with intfb_path.open('w') as f:
                 f.write(fgen(source.interface))
 
@@ -197,7 +197,7 @@ class DependencyTransformation(Transformation):
             if routine not in module_routines:
                 if targets is None or routine.name in targets:
                     # Create wrapper module and insert into file
-                    modname = '{}{}'.format(routine.name, self.module_suffix)
+                    modname = f'{routine.name}{self.module_suffix}'
                     module = Module(name=modname, routines=[routine])
                     sourcefile._modules += (module, )
 

@@ -65,7 +65,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
-            return '%s_%s' % (str(expr.value), str(expr.kind))
+            return f'{str(expr.value)}_{str(expr.kind)}'
         return str(expr.value)
 
     map_int_literal = map_logic_literal
@@ -135,7 +135,7 @@ class LokiStringifyMapper(StringifyMapper):
 
         # Remove leading '+'
         if terms[0] == '-':
-            terms[1] = '%s%s' % (terms[0], terms[1])
+            terms[1] = f'{terms[0]}{terms[1]}'
         terms = terms[1:]
 
         return self.parenthesize_if_needed(self.join(' ', terms), enclosing_prec, PREC_SUM)
@@ -145,7 +145,7 @@ class LokiStringifyMapper(StringifyMapper):
             # Negative values are encoded as multiplication by (-1) (constant, not IntLiteral).
             # We replace this by a minus again
             return self.parenthesize_if_needed(
-                '-{}'.format(self.join_rec('*', expr.children[1:], PREC_PRODUCT, *args, **kwargs)),
+                f'-{self.join_rec("*", expr.children[1:], PREC_PRODUCT, *args, **kwargs)}',
                 enclosing_prec, PREC_PRODUCT)
         # Make Pymbolic's default bracketing less conservative by not enforcing
         # parenthesis around products nested in a product, which can cause
@@ -186,7 +186,7 @@ class LokiStringifyMapper(StringifyMapper):
     def map_array_subscript(self, expr, enclosing_prec, *args, **kwargs):
         name_str = self.rec(expr.aggregate, PREC_NONE, *args, **kwargs)
         index_str = self.join_rec(', ', expr.index_tuple, PREC_NONE, *args, **kwargs)
-        return '%s(%s)' % (name_str, index_str)
+        return f'{name_str}({index_str})'
 
     def map_procedure_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return expr.name
@@ -342,7 +342,7 @@ class ExpressionDimensionsMapper(Mapper):
     map_scalar = map_algebraic_leaf
 
     def map_deferred_type_symbol(self, expr, *args, **kwargs):
-        raise ValueError('Symbol with deferred type encountered: {}'.format(expr))
+        raise ValueError(f'Symbol with deferred type encountered: {expr}')
 
     def map_array(self, expr, *args, **kwargs):
         if not expr.dimensions:
@@ -378,7 +378,7 @@ class ExpressionDimensionsMapper(Mapper):
             if dim == (1,):
                 dim = child_dim
             elif child_dim not in (dim, 1):
-                raise ValueError('Non-matching dimensions: {} and {}'.format(str(dim), str(child_dim)))
+                raise ValueError(f'Non-matching dimensions: {str(dim)} and {str(child_dim)}')
         return dim
 
     map_product = map_sum

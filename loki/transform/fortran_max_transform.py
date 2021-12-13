@@ -63,11 +63,11 @@ class FortranMaxTransformation(Transformation):
         wrapper = FortranCTransformation.generate_iso_c_wrapper_routine(
             host_interface, self.c_structs, bind_name=host_interface.name)
         self.wrapperpath = (self.maxj_src / wrapper.name.lower()).with_suffix('.f90')
-        module = Module(name='%s_MOD' % wrapper.name.upper(), routines=[wrapper])
+        module = Module(name=f'{wrapper.name.upper()}_MOD', routines=[wrapper])
         Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
         # Generate C host code
-        host_interface.spec.prepend(ir.Import('{}.h'.format(routine.name), c_import=True))
+        host_interface.spec.prepend(ir.Import(f'{routine.name}.h', c_import=True))
         host_interface = self._convert_arguments_to_pointer(host_interface)
         self.c_path = (self.maxj_src / host_interface.name).with_suffix('.c')
         Sourcefile.to_file(source=cgen(host_interface), path=self.c_path)
@@ -118,7 +118,7 @@ class FortranMaxTransformation(Transformation):
             if arg.type.intent.lower() == 'inout':
                 # Create matching instream argument
                 in_type = arg.type.clone(intent='in', dfevar=True)
-                arg_in = arg.clone(name='{}_in'.format(arg.name), type=in_type)
+                arg_in = arg.clone(name=f'{arg.name}_in', type=in_type)
                 # Modify existing argument
                 arg_out = arg.clone(type=arg.type.clone(dfevar=True, initial=arg_in))
                 var_map[arg] = arg_out
@@ -165,7 +165,7 @@ class FortranMaxTransformation(Transformation):
 
     def _generate_dfe_kernel(self, routine, **kwargs):  # pylint: disable=unused-argument
         # Create a copy for the MaxJ kernel
-        max_kernel = routine.clone(name='{}Kernel'.format(routine.name))
+        max_kernel = routine.clone(name=f'{routine.name}Kernel')
 
         # Transform arguments list
         max_kernel = self._split_and_order_arguments(max_kernel)
@@ -206,8 +206,7 @@ class FortranMaxTransformation(Transformation):
             body = []
 
             # Extract conditions as separate variables
-            cond_var = sym.Variable(name='cond_{cnt}'.format(cnt=cnt),
-                                    type=cond_type.clone(), scope=max_kernel)
+            cond_var = sym.Variable(name=f'cond_{cnt}', type=cond_type.clone(), scope=max_kernel)
             body += [ir.Assignment(lhs=cond_var, rhs=cond.condition)]
             max_kernel.variables += as_tuple(cond_var)
 
@@ -307,7 +306,7 @@ class FortranMaxTransformation(Transformation):
                         fct_symbol = sym.ProcedureSymbol('stream.offset', scope=max_kernel)
                         initial = sym.InlineCall(fct_symbol, parameters=(stream, offset))
                         var_hash = sha256(str(v).encode('utf-8')).hexdigest()[:10]
-                        name = '{}_{}'.format(v.name, var_hash)
+                        name = f'{v.name}_{var_hash}'
                         vmap[v] = v.clone(name=name, dimensions=None,
                                           type=stream.type.clone(intent=None, initial=initial))
             max_kernel.spec = SubstituteExpressions(vmap).visit(max_kernel.spec)
@@ -335,7 +334,7 @@ class FortranMaxTransformation(Transformation):
         for stmt in FindNodes(ir.Assignment).visit(max_kernel.body):
             if stmt.lhs.type.dfevar:
                 if isinstance(stmt.rhs, (sym.FloatLiteral, sym.IntLiteral)):
-                    _type = sym.InlineCall(sym.ProcedureSymbol('%s.getType' % stmt.lhs.name,
+                    _type = sym.InlineCall(sym.ProcedureSymbol(f'{stmt.lhs.name}.getType',
                                                                scope=max_kernel))
                     rhs = sym.InlineCall(sym.ProcedureSymbol('constant.var', scope=max_kernel),
                                          parameters=(_type, stmt.rhs))
@@ -363,14 +362,14 @@ class FortranMaxTransformation(Transformation):
             # TODO: put this somewhere else
             if not var_type.shape:
                 return 'DFEVar'
-            return 'DFEVector<{}>'.format(decl_type(var_type.clone(shape=var_type.shape[:-1])))
+            return f'DFEVector<{decl_type(var_type.clone(shape=var_type.shape[:-1]))}>'
 
         def init_type(var_type):
             # TODO: put this somewhere else
             if not var_type.shape:
                 return base_type(var_type)
             sub_type = var_type.clone(shape=var_type.shape[:-1])
-            name = 'new DFEVectorType<{}>'.format(decl_type(sub_type))
+            name = f'new DFEVectorType<{decl_type(sub_type)}>'
             parameters = (init_type(sub_type), var_type.shape[-1])
             return sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel), parameters=parameters)
 
@@ -383,12 +382,12 @@ class FortranMaxTransformation(Transformation):
                         name = 'io.input'
                     else:
                         name = 'io.scalarInput'
-                    parameters = (sym.StringLiteral('"{}"'.format(var.name)), init_type(var.type))
+                    parameters = (sym.StringLiteral(f'"{var.name}"'), init_type(var.type))
                     initial = sym.InlineCall(sym.ProcedureSymbol(name, scope=max_kernel),
                                              parameters=parameters)
                     var_map[var] = var.clone(type=var.type.clone(initial=initial))
                 elif var.initial is None:
-                    name = '{}.newInstance'.format(init_type(var.type))
+                    name = f'{init_type(var.type)}.newInstance'
                     if isinstance(var, sym.Array):
                         parameters = (sym.IntrinsicLiteral('this'),)
                     else:
@@ -405,7 +404,7 @@ class FortranMaxTransformation(Transformation):
                     name = sym.Variable(name='io.output')
                 else:
                     name = sym.Variable(name='io.scalarOutput')
-                parameters = (sym.StringLiteral('"{}"'.format(var.name)),
+                parameters = (sym.StringLiteral(f'"{var.name}"'),
                               var.clone(dimensions=None), init_type(var.type))
                 stmt = ir.CallStatement(name, arguments=parameters)
                 max_kernel.body.append(stmt)
@@ -454,14 +453,13 @@ class FortranMaxTransformation(Transformation):
         spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock')]
         spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerPCIe')]
         spec += [ir.Import('com.maxeler.maxcompiler.v2.managers.custom.api.ManagerKernel')]
-        spec += [ir.Intrinsic('static final String kernelName = "{}";'.format(kernel.name))]
-        manager = Module(name='{}Manager'.format(name), spec=ir.Section(body=as_tuple(spec)))
+        spec += [ir.Intrinsic(f'static final String kernelName = "{kernel.name}";')]
+        manager = Module(name=f'{name}Manager', spec=ir.Section(body=as_tuple(spec)))
 
         # Create the setup
         setup = Subroutine(name='default void setup', parent=manager, spec=ir.Section(body=()))
 
-        body = [ir.Intrinsic('Kernel kernel = new {}(makeKernelParameters(kernelName));'.format(
-            kernel.name))]
+        body = [ir.Intrinsic(f'Kernel kernel = new {kernel.name}(makeKernelParameters(kernelName));')]
 
         # Insert in/out streams
         streams = defaultdict(list)
@@ -476,12 +474,10 @@ class FortranMaxTransformation(Transformation):
 
         for stream in streams['in']:
             body += [ir.Intrinsic(
-                'kernelBlock.getInput("{name}") <== addStreamFromCPU("{name}");'.format(
-                    name=stream.name))]
+                f'kernelBlock.getInput("{stream.name}") <== addStreamFromCPU("{name}");')]
         for stream in streams['inout'] + streams['out']:
             body += [ir.Intrinsic(
-                'addStreamToCPU("{name}") <== kernelBlock.getOutput("{name}");'.format(
-                    name=stream.name))]
+                f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{name}");')]
         setup.body = ir.Section(body=body)
 
         # Insert functions into manager class
@@ -501,7 +497,7 @@ class FortranMaxTransformation(Transformation):
                             'platform.max5.manager.MAX5CManager']
         standard_imports_basepath = 'com.maxeler.'
         spec = [ir.Import(standard_imports_basepath + imprt) for imprt in standard_imports]
-        manager = Module(name='{}ManagerMAX5C'.format(name), spec=ir.Section(body=as_tuple(spec)))
+        manager = Module(name=f'{name}ManagerMAX5C', spec=ir.Section(body=as_tuple(spec)))
 
         # Create the constructor
         constructor = Subroutine(name=manager.name, parent=manager, spec=ir.Section(body=()))
@@ -525,7 +521,7 @@ class FortranMaxTransformation(Transformation):
         params = sym.Variable(name='params', type=params_type, scope=main)
         mgr_type = SymbolAttributes(
             DerivedType('MAX5CManager'), initial=sym.InlineCall(
-                sym.ProcedureSymbol('new {}'.format(manager.name), scope=main), parameters=(params,)))
+                sym.ProcedureSymbol(f'new {manager.name}', scope=main), parameters=(params,)))
         mgr = sym.Variable(name='manager', type=mgr_type, scope=main)
         main.variables += as_tuple([params, mgr])
         body = [ir.CallStatement(sym.Variable(name='manager.build'), arguments=())]
@@ -541,7 +537,7 @@ class FortranMaxTransformation(Transformation):
         Create the SLiC interface that calls the DFE kernel.
         """
         # Create a copy of the routine that has only the routine's spec
-        slic_routine = routine.clone(name='{}_c'.format(routine.name), body=None)
+        slic_routine = routine.clone(name=f'{routine.name}_c', body=None)
 
         # Add an argument for ticks
         size_t_type = SymbolAttributes(BasicType.INTEGER, intent='in')  # TODO: make this size_t
@@ -551,8 +547,7 @@ class FortranMaxTransformation(Transformation):
         # The DFE wants to know array sizes, so we replace array arguments by pairs (arg, arg_size)
         def generate_arg_tuple(arg):
             if isinstance(arg, sym.Array):
-                return (arg, sym.Variable(name='{}_size'.format(arg.name), type=size_t_type,
-                                          scope=slic_routine))
+                return (arg, sym.Variable(name=f'{arg.name}_size', type=size_t_type, scope=slic_routine))
             return arg
         arguments = flatten([generate_arg_tuple(arg) for arg in arguments])
 
@@ -574,12 +569,12 @@ class FortranMaxTransformation(Transformation):
                 if isinstance(arg, sym.Array) or arg.type.dfestream:
                     call_arguments += [arg.name[:-3]]
                 else:
-                    call_arguments += ['*{}'.format(arg.name[:-3])]
+                    call_arguments += [f'*{arg.name[:-3]}']
             else:
                 call_arguments += [arg.name]
             if isinstance(arg, sym.Array) or arg.type.dfestream:
-                call_arguments += ['{}_size'.format(call_arguments[-1])]
-        call = ir.Intrinsic('{}({});'.format(routine.name, ', '.join(call_arguments)))
+                call_arguments += [f'{call_arguments[-1]}_size']
+        call = ir.Intrinsic(f'{routine.name}({", ".join(call_arguments)});')
 
         # Assign the body of the SLiC interface routine
         slic_routine.body = ir.Section(body=as_tuple(call))

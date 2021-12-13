@@ -31,17 +31,17 @@ class CCodeMapper(LokiStringifyMapper):
     def map_float_literal(self, expr, enclosing_prec, *args, **kwargs):
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.REAL, kind=expr.kind)
-            return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_int_literal(self, expr, enclosing_prec, *args, **kwargs):  # pylint: disable=no-self-use
         if expr.kind is not None:
             _type = SymbolAttributes(BasicType.INTEGER, kind=expr.kind)
-            return '(%s) %s' % (c_intrinsic_type(_type), str(expr.value))
+            return f'({c_intrinsic_type(_type)}) {str(expr.value)}'
         return str(expr.value)
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
-        return '"%s"' % expr.value
+        return f'"{expr.value}"'
 
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
         _type = SymbolAttributes(BasicType.from_fortran_type(expr.name), kind=expr.kind)
@@ -161,7 +161,7 @@ class CCodegen(Stringifier):
                 aptr += ['*']
             else:
                 aptr += ['']
-        arguments = ['%s %s%s' % (self.visit(a.type, **kwargs), p, a.name.lower())
+        arguments = [f'{self.visit(a.type, **kwargs)} {p}{a.name.lower()}'
                      for a, p in zip(o.arguments, aptr)]
         header += [self.format_line('int ', o.name, '(', self.join_items(arguments), ') {')]
 
@@ -177,7 +177,7 @@ class CCodegen(Stringifier):
                 if isinstance(a, Array):
                     dtype = self.visit(a.type, **kwargs)
                     # str(d).lower() is a bad hack to ensure caps-alignment
-                    outer_dims = ''.join('[%s]' % self.visit(d, **kwargs).lower()
+                    outer_dims = ''.join(f'[{self.visit(d, **kwargs).lower()}]'
                                          for d in a.dimensions[1:])
                     body += [self.format_line(dtype, ' (*', a.name.lower(), ')', outer_dims, ' = (',
                                               dtype, ' (*)', outer_dims, ') v_', a.name.lower(), ';')]
@@ -242,10 +242,10 @@ class CCodegen(Stringifier):
             var = self.visit(v, **kwargs)
             initial = ''
             if v.initial is not None:
-                initial = ' = {}'.format(self.visit(v.initial, **kwargs))
+                initial = f' = {self.visit(v.initial, **kwargs)}'
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
-            variables += ['{}{}'.format(var, initial)]
+            variables += [f'{var}{initial}']
         if not variables:
             return None
         comment = None
@@ -337,7 +337,7 @@ class CCodegen(Stringifier):
         rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
-            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+            comment = f'  {self.visit(o.comment, **kwargs)}'
         return self.format_line(lhs, ' = ', rhs, ';', comment=comment)
 
     def visit_Section(self, o, **kwargs):
@@ -357,7 +357,7 @@ class CCodegen(Stringifier):
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):
-            return 'struct %s' % o.dtype.name
+            return f'struct {o.dtype.name}'
         return c_intrinsic_type(o)
 
     def visit_TypeDef(self, o, **kwargs):

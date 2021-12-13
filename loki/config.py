@@ -76,7 +76,7 @@ class Configuration(OrderedDict):
         from loki.logging import info  # pylint: disable=import-outside-toplevel
         info("[Loki] global config:")
         for k, v in self.items():
-            info('  %s: %s' % (k, v))
+            info(f'  {k}: {v}')
 
     def _updated(self, key, value):
         # Execute callback function for ``key``

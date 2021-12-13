@@ -62,7 +62,7 @@ class BasicType(DataType, IntEnum):
                 return meth(value)
             except KeyError:
                 pass
-        return ValueError('Unknown data type: %s' % value)
+        return ValueError(f'Unknown data type: {value}')
 
     @classmethod
     def from_name(cls, value):
@@ -88,7 +88,7 @@ class BasicType(DataType, IntEnum):
         """
         logical_types = ['bool', '_Bool']
         integer_types = ['short', 'int', 'long', 'long long']
-        integer_types += flatten([('signed %s' % t, 'unsigned %s' % t) for t in integer_types])
+        integer_types += flatten([(f'signed {t}', f'unsigned {t}') for t in integer_types])
         real_types = ['float', 'double', 'long double']
         character_types = ['char']
         complex_types = ['float _Complex', 'double _Complex', 'long double _Complex']
@@ -132,7 +132,7 @@ class DerivedType(DataType):
         return self.name
 
     def __repr__(self):
-        return '<DerivedType {}>'.format(self.name)
+        return f'<DerivedType {self.name}>'
 
 
 class ProcedureType(DataType):
@@ -196,7 +196,7 @@ class ProcedureType(DataType):
         return self.name
 
     def __repr__(self):
-        return '<ProcedureType {}>'.format(self.name)
+        return f'<ProcedureType {self.name}>'
 
 
 class SymbolAttributes:
@@ -256,11 +256,11 @@ class SymbolAttributes:
                 if v:
                     parameters += [str(k)]
             elif k == 'parent' and v is not None:
-                parameters += ['parent=%s(%s)' % ('Type' if isinstance(v, SymbolAttributes)
-                                                  else 'Variable', v.name)]
+                typename = 'Type' if isinstance(v, SymbolAttributes) else 'Variable'
+                parameters += [f'parent={typename}({v.name})']
             else:
-                parameters += ['%s=%s' % (k, str(v))]
-        return '<{} {}>'.format(self.__class__.__name__, ', '.join(parameters))
+                parameters += [f'{k}={str(v)}']
+        return f'<{self.__class__.__name__} {", ".join(parameters)}>'
 
     def __getinitargs__(self):
         args = [self.dtype]

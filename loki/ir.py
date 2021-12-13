@@ -362,9 +362,9 @@ class Associate(ScopedNode, Section):
 
     def __repr__(self):
         if self.associations:
-            associations = ', '.join('{}={}'.format(str(var), str(expr))
+            associations = ', '.join(f'{str(var)}={str(expr)}'
                                      for var, expr in self.associations)
-            return 'Associate:: {}'.format(associations)
+            return f'Associate:: {associations}'
         return 'Associate::'
 
 
@@ -424,8 +424,8 @@ class Loop(InternalNode):
         label = ', '.join(l for l in [self.name, self.loop_label] if l is not None)
         if label:
             label = ' ' + label
-        control = '{}={}'.format(str(self.variable), str(self.bounds))
-        return 'Loop::{} {}'.format(label, control)
+        control = f'{str(self.variable)}={str(self.bounds)}'
+        return f'Loop::{label} {control}'
 
 
 class WhileLoop(InternalNode):
@@ -487,7 +487,7 @@ class WhileLoop(InternalNode):
         if label:
             label = ' ' + label
         control = str(self.condition) if self.condition else ''
-        return 'WhileLoop::{} {}'.format(label, control)
+        return f'WhileLoop::{label} {control}'
 
 
 class Conditional(InternalNode):
@@ -537,7 +537,7 @@ class Conditional(InternalNode):
 
     def __repr__(self):
         if self.name:
-            return 'Conditional:: {}'.format(self.name)
+            return f'Conditional:: {self.name}'
         return 'Conditional::'
 
 
@@ -570,7 +570,7 @@ class MaskedStatement(InternalNode):
         self.default = as_tuple(default)  # The ELSEWHERE stmt
 
     def __repr__(self):
-        return 'MaskedStatement:: {}'.format(str(self.condition))
+        return f'MaskedStatement:: {str(self.condition)}'
 
 
 class PragmaRegion(InternalNode):
@@ -676,7 +676,7 @@ class Assignment(LeafNode):
         self.comment = comment
 
     def __repr__(self):
-        return 'Assignment:: {} = {}'.format(str(self.lhs), str(self.rhs))
+        return f'Assignment:: {str(self.lhs)} = {str(self.rhs)}'
 
 
 class ConditionalAssignment(LeafNode):
@@ -722,8 +722,7 @@ class ConditionalAssignment(LeafNode):
         self.else_rhs = else_rhs
 
     def __repr__(self):
-        return 'CondAssign:: %s = %s ? %s : %s' % (self.lhs, self.condition, self.rhs,
-                                                   self.else_rhs)
+        return f'CondAssign:: {self.lhs} = {self.condition} ? {self.rhs} : {self.else_rhs}'
 
 
 class CallStatement(LeafNode):
@@ -769,7 +768,7 @@ class CallStatement(LeafNode):
         self.pragma = pragma
 
     def __repr__(self):
-        return 'Call:: {}'.format(self.name)
+        return f'Call:: {self.name}'
 
 
 class CallContext(LeafNode):
@@ -816,7 +815,7 @@ class CallContext(LeafNode):
         return chain(args, kwargs)
 
     def __repr__(self):
-        return 'CallContext:: {}'.format(self.routine.name)
+        return f'CallContext:: {self.routine.name}'
 
 
 class Allocation(LeafNode):
@@ -844,7 +843,7 @@ class Allocation(LeafNode):
         self.data_source = data_source  # Argh, Fortran...!
 
     def __repr__(self):
-        return 'Allocation:: {}'.format(', '.join(str(var) for var in self.variables))
+        return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
 
 
 class Deallocation(LeafNode):
@@ -868,7 +867,7 @@ class Deallocation(LeafNode):
         self.variables = as_tuple(variables)
 
     def __repr__(self):
-        return 'Deallocation:: {}'.format(', '.join(str(var) for var in self.variables))
+        return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
 
 
 class Nullify(LeafNode):
@@ -892,7 +891,7 @@ class Nullify(LeafNode):
         self.variables = as_tuple(variables)
 
     def __repr__(self):
-        return 'Nullify:: {}'.format(', '.join(str(var) for var in self.variables))
+        return f'Nullify:: {", ".join(str(var) for var in self.variables)}'
 
 
 class Comment(LeafNode):
@@ -913,7 +912,7 @@ class Comment(LeafNode):
         self.text = text
 
     def __repr__(self):
-        return 'Comment:: {}'.format(truncate_string(self.text))
+        return f'Comment:: {truncate_string(self.text)}'
 
 
 class CommentBlock(LeafNode):
@@ -936,7 +935,7 @@ class CommentBlock(LeafNode):
 
     def __repr__(self):
         string = ''.join(comment.text for comment in self.comments)
-        return 'CommentBlock:: {}'.format(truncate_string(string))
+        return f'CommentBlock:: {truncate_string(string)}'
 
 
 class Pragma(LeafNode):
@@ -963,7 +962,7 @@ class Pragma(LeafNode):
         self.content = content
 
     def __repr__(self):
-        return 'Pragma:: {} {}'.format(self.keyword, truncate_string(self.content))
+        return f'Pragma:: {self.keyword} {truncate_string(self.content)}'
 
 
 class PreprocessorDirective(LeafNode):
@@ -987,7 +986,7 @@ class PreprocessorDirective(LeafNode):
         self.text = text
 
     def __repr__(self):
-        return 'PreprocessorDirective:: {}'.format(truncate_string(self.text))
+        return f'PreprocessorDirective:: {truncate_string(self.text)}'
 
 
 class Import(LeafNode):
@@ -1025,7 +1024,7 @@ class Import(LeafNode):
 
     def __repr__(self):
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
-        return '{}Import:: {} => {}'.format(_c, self.module, self.symbols)
+        return f'{_c}Import:: {self.module} => {self.symbols}'
 
 
 class Declaration(LeafNode):
@@ -1072,7 +1071,7 @@ class Declaration(LeafNode):
 
     def __repr__(self):
         variables = ', '.join(str(var) for var in self.variables)
-        return 'Declaration:: {}'.format(variables)
+        return f'Declaration:: {variables}'
 
 
 class DataDeclaration(LeafNode):
@@ -1104,7 +1103,7 @@ class DataDeclaration(LeafNode):
         self.values = as_tuple(values)
 
     def __repr__(self):
-        return 'DataDeclaration:: {}'.format(str(self.variable))
+        return f'DataDeclaration:: {str(self.variable)}'
 
 
 class StatementFunction(LeafNode):
@@ -1227,7 +1226,7 @@ class TypeDef(ScopedNode, LeafNode):
         return DerivedType(name=self.name, typedef=self)
 
     def __repr__(self):
-        return 'TypeDef:: {}'.format(self.name)
+        return f'TypeDef:: {self.name}'
 
     def clone(self, **kwargs):
         from loki.visitors import Transformer  # pylint: disable=import-outside-toplevel
@@ -1274,8 +1273,8 @@ class MultiConditional(LeafNode):
         self.name = name
 
     def __repr__(self):
-        label = ' {}'.format(self.name) if self.name else ''
-        return 'MultiConditional::{} {}'.format(label, str(self.expr))
+        label = f' {self.name}' if self.name else ''
+        return f'MultiConditional::{label} {str(self.expr)}'
 
 
 class Intrinsic(LeafNode):
@@ -1301,4 +1300,4 @@ class Intrinsic(LeafNode):
         self.text = text
 
     def __repr__(self):
-        return 'Intrinsic:: {}'.format(truncate_string(self.text))
+        return f'Intrinsic:: {truncate_string(self.text)}'

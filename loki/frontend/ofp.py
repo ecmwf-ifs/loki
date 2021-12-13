@@ -48,7 +48,7 @@ def parse_ofp_file(filename):
         error('OpenFortranParser is not available.')
 
     filepath = Path(filename)
-    info("[Loki::OFP] Parsing %s" % filepath)
+    info(f'[Loki::OFP] Parsing {filepath}')
     return open_fortran_parser.parse(filepath, raise_on_error=True)
 
 
@@ -61,12 +61,12 @@ def parse_ofp_source(source, filepath=None):
     if filepath is None:
         filepath = Path(filehash(source, prefix='ofp-', suffix='.f90'))
     else:
-        filepath = filepath.with_suffix('.ofp{}'.format(filepath.suffix))
+        filepath = filepath.with_suffix(f'.ofp{filepath.suffix}')
 
     # Always store intermediate flies in tmp dir
     filepath = gettempdir()/filepath.name
 
-    debug('[Loki::OFP] Writing temporary source {}'.format(str(filepath)))
+    debug(f'[Loki::OFP] Writing temporary source {filepath}')
     with filepath.open('w') as f:
         f.write(source)
 
@@ -339,7 +339,7 @@ class OFP2IR(GenericVisitor):
             return as_tuple(stmts)
         if o.find('goto-stmt') is not None:
             target_label = o.find('goto-stmt').attrib['target_label']
-            return ir.Intrinsic(text='go to %s' % target_label, label=kwargs['label'], source=kwargs['source'])
+            return ir.Intrinsic(text=f'go to {target_label}', label=kwargs['label'], source=kwargs['source'])
         return self.visit_Element(o, **kwargs)
 
     def visit_elsewhere_stmt(self, o, **kwargs):
@@ -379,7 +379,7 @@ class OFP2IR(GenericVisitor):
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
-        raise ValueError('Unknown type {}'.format(o.attrib('type')))
+        raise ValueError(f'Unknown type {o.attrib("type")}')
 
     def visit_intrinsic_type_spec(self, o, **kwargs):
         dtype = BasicType.from_str(o.attrib['keyword1'])
@@ -426,7 +426,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_derived_type_stmt(self, o, **kwargs):
         if o.attrib['keyword'].lower() != 'type':
-            self.warn_or_fail('Type keyword {} not implemented'.format(o.attrib['keyword']))
+            self.warn_or_fail(f'Type keyword {o.attrib["keyword"]} not implemented')
         if o.attrib['hasTypeAttrSpecList'] != 'false':
             self.warn_or_fail('type-attr-spec-list not implemented')
         if o.attrib['hasGenericNameList'] != 'false':
@@ -733,7 +733,7 @@ class OFP2IR(GenericVisitor):
         return ir.PreprocessorDirective(text=source.string.strip(), source=source)
 
     def visit_exit(self, o, **kwargs):
-        stmt_tag = '{}-stmt'.format(o.tag)
+        stmt_tag = f'{o.tag}-stmt'
         stmt = self.visit(o.find(stmt_tag), **kwargs)
         if o.find('label') is not None:
             stmt._update(label=o.find('label').attrib['lbl'])
@@ -845,7 +845,7 @@ class OFP2IR(GenericVisitor):
         for i, part_ref in enumerate(o.findall('part-ref')):
             name, parent = self.visit(part_ref, **kwargs), name
             if parent:
-                name = name.clone(name='{}%{}'.format(parent.name, name.name), parent=parent)
+                name = name.clone(name=f'{parent.name}%{name.name}', parent=parent)
 
             if part_ref.attrib['hasSectionSubscriptList'] == 'true':
                 if i < num_part_ref - 1 or o.attrib['type'] == 'variable':
@@ -995,7 +995,7 @@ class OFP2IR(GenericVisitor):
             elif op == '//':
                 expression = StringConcat((expression, exprs.popleft()), source=source)
             else:
-                raise RuntimeError('OFP: Unknown expression operator: %s' % op)
+                raise RuntimeError(f'OFP: Unknown expression operator: {op}')
 
         if o.find('parenthesized_expr') is not None:
             # Force explicitly parenthesised operations

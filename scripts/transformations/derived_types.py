@@ -132,7 +132,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 # Create a new variable with a new type mimicking the old one
                 new_type = SymbolAttributes(type_var.type.dtype, kind=type_var.type.kind,
                                             intent=arg.type.intent, shape=type_var.type.shape)
-                new_name = '%s_%s' % (arg.name, type_var.basename)
+                new_name = f'{arg.name}_{type_var.basename}'
                 new_dimensions = new_type.shape if new_type.shape else None
                 new_var = Variable(name=new_name, type=new_type, dimensions=new_dimensions, scope=routine)
                 new_vars += [new_var]

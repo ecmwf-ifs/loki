@@ -38,7 +38,7 @@ class FortranPythonTransformation(Transformation):
         # Replicate the kernel to strip the Fortran-specific boilerplate
         spec = ir.Section(body=())
         body = ir.Section(body=Transformer({}).visit(routine.body))
-        kernel = Subroutine(name='{}_py'.format(routine.name), spec=spec, body=body)
+        kernel = Subroutine(name=f'{routine.name}_py', spec=spec, body=body)
         kernel.arguments = routine.arguments
         kernel.variables = routine.variables
 

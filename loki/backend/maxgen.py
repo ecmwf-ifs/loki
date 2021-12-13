@@ -41,7 +41,7 @@ class MaxjCodeMapper(LokiStringifyMapper):
         return super().map_logic_literal(expr, enclosing_prec, *args, **kwargs).lower()
 
     def map_string_literal(self, expr, enclosing_prec, *args, **kwargs):
-        return '"%s"' % expr.value
+        return f'"{expr.value}"'
 
     def map_variable_symbol(self, expr, enclosing_prec, *args, **kwargs):
         # TODO: Big hack, this is completely agnostic to whether value or address is to be assigned
@@ -72,7 +72,7 @@ class MaxjCodeMapper(LokiStringifyMapper):
     def map_cast(self, expr, enclosing_prec, *args, **kwargs):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
-        kind = '%s, ' % maxj_dfevar_type(expr.kind) if expr.kind else ''
+        kind = f'{maxj_dfevar_type(expr.kind)}, ' if expr.kind else ''
         return self.format('%s(%s%s)', name, kind, expression)
 
     def map_comparison(self, expr, enclosing_prec, *args, **kwargs):
@@ -192,7 +192,7 @@ class MaxjCodegen(Stringifier):
           }
         """
         # Constructor signature
-        args = ['{} {}'.format(self.visit(arg.type, **kwargs), self.visit(arg, **kwargs))
+        args = [f'{self.visit(arg.type, **kwargs)} {self.visit(arg, **kwargs)}'
                 for arg in o.arguments]
         header = [self.format_line(o.name, '(', self.join_items(args), ') {')]
         self.depth += 1
@@ -289,7 +289,7 @@ class MaxjCodegen(Stringifier):
         rhs = self.visit(o.rhs, **kwargs)
         comment = ''
         if o.comment:
-            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+            comment = f'  {self.visit(o.comment, **kwargs)}'
         if o.lhs.type.dfevar and o.lhs.type.shape:
             return self.format_line(lhs, ' <== ', rhs, ';', comment=comment)
         return self.format_line(lhs, ' = ', rhs, ';', comment=comment)
@@ -337,7 +337,7 @@ class MaxjCodegen(Stringifier):
         #    return 'DFEStructType {}'.format(o.name)
         if o.dfevar:
             if o.shape:
-                return 'DFEVector<{}>'.format(self.visit(o.clone(shape=o.shape[:-1]), **kwargs))
+                return f'DFEVector<{self.visit(o.clone(shape=o.shape[:-1]), **kwargs)}>'
             return 'DFEVar'
         return maxj_local_type(o)
 
@@ -345,7 +345,7 @@ class MaxjCodegen(Stringifier):
         self.depth += 1
         decls = self.visit(o.declarations)
         self.depth -= 1
-        return 'DFEStructType %s {\n%s\n} ;' % (o.name, decls)
+        return f'DFEStructType {o.name} {{\n{decls}\n}} ;'
 
 
 def maxjgen(ir):

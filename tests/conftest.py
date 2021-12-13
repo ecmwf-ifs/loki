@@ -21,20 +21,20 @@ def generate_identity(refpath, routinename, modulename=None, frontend=OFP):
     """
     Generate the "identity" of a single subroutine with a frontend-specific suffix.
     """
-    testname = refpath.parent/('%s_%s_%s.f90' % (refpath.stem, routinename, frontend))
+    testname = refpath.parent/(f'{refpath.stem}_{routinename}_{frontend}.f90')
     source = Sourcefile.from_file(refpath, frontend=frontend)
 
     if modulename:
         module = [m for m in source.modules if m.name == modulename][0]
-        module.name += '_%s_%s' % (routinename, frontend)
+        module.name += f'_{routinename}_{frontend}'
         for routine in source.all_subroutines:
-            routine.name += '_%s' % frontend
+            routine.name += f'_{frontend}'
             for call in FindNodes(CallStatement).visit(routine.body):  # pylint: disable=no-member
-                call.name += '_%s' % frontend
+                call.name += f'_{frontend}'
         source.write(path=testname, source=fgen(module))
     else:
         routine = [r for r in source.subroutines if r.name == routinename][0]
-        routine.name += '_%s' % frontend
+        routine.name += f'_{frontend}'
         source.write(path=testname, source=fgen(routine))
 
     pymod = compile_and_load(testname, cwd=str(refpath.parent), use_f90wrap=True)
@@ -103,18 +103,18 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
             sourcefiles.append(source)
 
         if isinstance(source, Sourcefile):
-            filepath = source.path or path/'{}.f90'.format(source.name)
+            filepath = source.path or path/f'{source.name}.f90'
             source.write(path=filepath)
             sourcefiles.append(source.path)
 
         elif isinstance(source, Module):
-            filepath = path/'{}.f90'.format(source.name)
+            filepath = path/f'{source.name}.f90'
             source = Sourcefile(filepath, modules=[source])
             source.write(path=filepath)
             sourcefiles.append(source.path)
 
         elif isinstance(source, Subroutine):
-            filepath = path/'{}.f90'.format(source.name)
+            filepath = path/f'{source.name}.f90'
             source = Sourcefile(filepath, routines=[source])
             source.write(path=filepath)
             sourcefiles.append(source.path)
@@ -135,9 +135,9 @@ def clean_test(filepath):
     for f in file_list:
         if f.exists():
             f.unlink()
-    for sofile in filepath.parent.glob('_%s.*.so' % filepath.stem):
+    for sofile in filepath.parent.glob(f'_{filepath.stem}.*.so'):
         sofile.unlink()
-    f90wrap_path = filepath.parent/'f90wrap_{}'.format(filepath.name)
+    f90wrap_path = filepath.parent/f'f90wrap_{filepath.name}'
     if f90wrap_path.exists():
         f90wrap_path.unlink()
 

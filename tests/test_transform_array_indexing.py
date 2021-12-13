@@ -34,7 +34,7 @@ end subroutine transform_promote_variable_scalar
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # Test the original implementation
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     ret = function()
     assert ret == 55
@@ -45,7 +45,7 @@ end subroutine transform_promote_variable_scalar
     assert isinstance(routine.variable_map['tmp'], sym.Array)
     assert routine.variable_map['tmp'].shape == (sym.Literal(10),)
 
-    promoted_filepath = here/('%s_promoted_%s.f90' % (routine.name, frontend))
+    promoted_filepath = here/(f'{routine.name}_promoted_{frontend}.f90')
     promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
     ret = promoted_function()
     assert ret == 55
@@ -92,7 +92,7 @@ end subroutine transform_promote_variables
     normalize_range_indexing(routine) # Fix OMNI nonsense
 
     # Test the original implementation
-    filepath = here/('%s_%s.f90' % (routine.name, frontend))
+    filepath = here/(f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     n = 10
@@ -132,7 +132,7 @@ end subroutine transform_promote_variables
     assert routine.variable_map['tmp_matrix'].shape == (routine.variable_map['n'], ) * 3
 
     # Test promoted routine
-    promoted_filepath = here/('%s_promoted_%s.f90' % (routine.name, frontend))
+    promoted_filepath = here/(f'{routine.name}_promoted_{frontend}.f90')
     promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
 
     scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)

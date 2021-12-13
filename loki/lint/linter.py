@@ -92,7 +92,7 @@ class Linter:
         :return: the `FileReport`.
         """
         if not isinstance(sourcefile, Sourcefile):
-            raise TypeError('{} given, {} expected'.format(type(sourcefile), Sourcefile))
+            raise TypeError(f'{type(sourcefile)} given, {Sourcefile} expected')
         # Prepare list of rules and configuration
         rules = overwrite_rules if overwrite_rules is not None else self.rules
         config = self.config
@@ -124,7 +124,7 @@ class Linter:
             stored configuration.
         """
         if not isinstance(sourcefile, Sourcefile):
-            raise TypeError('{} given, {} expected'.format(type(sourcefile), Sourcefile))
+            raise TypeError(f'{type(sourcefile)} given, {Sourcefile} expected')
         file_path = Path(sourcefile.path)
         assert file_path == Path(file_report.filename)
 

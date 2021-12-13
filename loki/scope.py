@@ -157,7 +157,7 @@ class SymbolTable(dict):
         return hash(tuple(self.keys()))
 
     def __repr__(self):
-        return '<loki.types.SymbolTable object at %s>' % hex(id(self))
+        return f'<loki.types.SymbolTable object at {hex(id(self))}>'
 
     def setdefault(self, key, default=None):
         """
@@ -248,7 +248,7 @@ class Scope:
         """
         String representation.
         """
-        return 'Scope<{}>'.format(id(self))
+        return f'Scope<{id(self)}>'
 
     @property
     def parent(self):

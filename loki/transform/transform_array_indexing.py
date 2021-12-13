@@ -88,12 +88,12 @@ def resolve_vector_notation(routine):
             if not isinstance(v, sym.Array):
                 continue
 
-            ivar_basename = 'i_%s' % stmt.lhs.basename
+            ivar_basename = f'i_{stmt.lhs.basename}'
             for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
                     # Create new index variable
                     vtype = SymbolAttributes(BasicType.INTEGER)
-                    ivar = sym.Variable(name='%s_%s' % (ivar_basename, i), type=vtype, scope=routine)
+                    ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
                     shape_index_map[s] = ivar
                     index_range_map[ivar] = s
 

@@ -50,15 +50,15 @@ end subroutine transform_inline_elemental_functions
     # Generate reference code, compile run and verify
     module = Module.from_source(fcode_module, frontend=frontend)
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (routine.name, frontend)
+    refname = f'ref_{routine.name}_{frontend}'
     reference = jit_compile_lib([module, routine], path=here, name=refname, builder=builder)
 
     v2, v3 = reference.transform_inline_elemental_functions(11.)
     assert v2 == 66.
     assert v3 == 666.
 
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{routine.name}.f90').unlink()
 
     # Now inline elemental functions
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
@@ -68,7 +68,7 @@ end subroutine transform_inline_elemental_functions
     assert all(v.scope is routine for v in FindVariables().visit(routine.body))
 
     # Hack: rename routine to use a different filename in the build
-    routine.name = '%s_' % routine.name
+    routine.name = f'{routine.name}_'
     kernel = jit_compile_lib([routine], path=here, name=routine.name, builder=builder)
 
     v2, v3 = kernel.transform_inline_elemental_functions_(11.)
@@ -76,7 +76,7 @@ end subroutine transform_inline_elemental_functions
     assert v3 == 666.
 
     builder.clean()
-    (here/'{}.f90'.format(routine.name)).unlink()
+    (here/f'{routine.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -114,14 +114,14 @@ end module transform_inline_constant_parameters_mod
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
     module = Module.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (module.name, frontend)
+    refname = f'ref_{module.name}_{ frontend}'
     reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
 
     v2, v3 = reference.transform_inline_constant_parameters_mod.transform_inline_constant_parameters(10)
     assert v2 == 8
     assert v3 == 2
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(param_module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
@@ -131,14 +131,14 @@ end module transform_inline_constant_parameters_mod
     assert not FindNodes(Import).visit(module['transform_inline_constant_parameters'].spec)
 
     # Hack: rename module to use a different filename in the build
-    module.name = '%s_' % module.name
-    obj = jit_compile_lib([module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+    module.name = f'{module.name}_'
+    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
 
     v2, v3 = obj.transform_inline_constant_parameters_mod_.transform_inline_constant_parameters(10)
     assert v2 == 8
     assert v3 == 2
 
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -168,13 +168,13 @@ end module transform_inline_constant_parameters_kind_mod
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
     module = Module.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (module.name, frontend)
+    refname = f'ref_{module.name}_{frontend}'
     reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
 
     v1 = reference.transform_inline_constant_parameters_kind_mod.transform_inline_constant_parameters_kind()
     assert v1 == 5.
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(param_module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
@@ -184,13 +184,13 @@ end module transform_inline_constant_parameters_kind_mod
     assert not FindNodes(Import).visit(module['transform_inline_constant_parameters_kind'].spec)
 
     # Hack: rename module to use a different filename in the build
-    module.name = '%s_' % module.name
-    obj = jit_compile_lib([module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+    module.name = f'{module.name}_'
+    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
 
     v1 = obj.transform_inline_constant_parameters_kind_mod_.transform_inline_constant_parameters_kind()
     assert v1 == 5.
 
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -221,14 +221,14 @@ end module transform_inline_constant_parameters_replace_kind_mod
     # Generate reference code, compile run and verify
     param_module = Module.from_source(fcode_module, frontend=frontend)
     module = Module.from_source(fcode, frontend=frontend)
-    refname = 'ref_%s_%s' % (module.name, frontend)
+    refname = f'ref_{module.name}_{frontend}'
     reference = jit_compile_lib([module, param_module], path=here, name=refname, builder=builder)
     func = getattr(getattr(reference, module.name), module.subroutines[0].name)
 
     v1 = func()
     assert v1 == 6.
-    (here/'{}.f90'.format(module.name)).unlink()
-    (here/'{}.f90'.format(param_module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()
+    (here/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
     module = Module.from_source(fcode, definitions=param_module, frontend=frontend)
@@ -241,11 +241,11 @@ end module transform_inline_constant_parameters_replace_kind_mod
     assert len(imports) == 1 and imports[0].module.lower() == 'iso_fortran_env'
 
     # Hack: rename module to use a different filename in the build
-    module.name = '%s_' % module.name
-    obj = jit_compile_lib([module], path=here, name='%s_%s' % (module.name, frontend), builder=builder)
+    module.name = f'{module.name}_'
+    obj = jit_compile_lib([module], path=here, name=f'{module.name}_{frontend}', builder=builder)
 
     func = getattr(getattr(obj, module.name), module.subroutines[0].name)
     v1 = func()
     assert v1 == 6.
 
-    (here/'{}.f90'.format(module.name)).unlink()
+    (here/f'{module.name}.f90').unlink()

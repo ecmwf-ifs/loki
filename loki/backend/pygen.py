@@ -60,7 +60,7 @@ class PyCodeMapper(LokiStringifyMapper):
         if not dims:
             index_str = ''
         else:
-            index_str = '[{}]'.format(', '.join(dims))
+            index_str = f'[{", ".join(dims)}]'
         return self.format('%s%s', name_str, index_str)
 
     def map_string_concat(self, expr, enclosing_prec, *args, **kwargs):
@@ -114,7 +114,7 @@ class PyCodegen(Stringifier):
                       if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'inout']
         out_args = [arg for arg in o.arguments
                     if isinstance(arg, sym.Scalar) and arg.type.intent.lower() == 'out']
-        arguments = ['{}: {}'.format(arg.name.lower(), self.visit(arg.type, **kwargs))
+        arguments = [f'{arg.name.lower()}: {self.visit(arg.type, **kwargs)}'
                      for arg in o.arguments if arg not in out_args]
         header += [self.format_line('def ', o.name.lower(), '(', self.join_items(arguments), '):')]
 
@@ -190,9 +190,9 @@ class PyCodegen(Stringifier):
         end = self.visit(o.bounds.stop, **kwargs)
         if o.bounds.step:
             incr = self.visit(o.bounds.step, **kwargs)
-            cntrl = 'range({start}, {end} + {inc}, {inc})'.format(start=start, end=end, inc=incr)
+            cntrl = f'range({start}, {end} + {incr}, {incr})'
         else:
-            cntrl = 'range({start}, {end} + 1)'.format(start=start, end=end)
+            cntrl = f'range({start}, {end} + 1)'
         header = self.format_line('for ', var, ' in ', cntrl, ':')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
@@ -249,7 +249,7 @@ class PyCodegen(Stringifier):
         rhs = self.visit(o.rhs, **kwargs)
         comment = None
         if o.comment:
-            comment = '  {}'.format(self.visit(o.comment, **kwargs))
+            comment = f'  {self.visit(o.comment, **kwargs)}'
         return self.format_line(lhs, ' = ', rhs, comment=comment)
 
     def visit_Section(self, o, **kwargs):
@@ -264,7 +264,7 @@ class PyCodegen(Stringifier):
           <name>(<args>)
         """
         args = self.visit_all(o.arguments, **kwargs)
-        kw_args = ['{}={}'.format(kw, self.visit(arg, **kwargs)) for kw, arg in o.kwarguments]
+        kw_args = [f'{kw}={self.visit(arg, **kwargs)}' for kw, arg in o.kwarguments]
         return self.format_line(o.name, '(', self.join_items(args + kw_args), ')')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument

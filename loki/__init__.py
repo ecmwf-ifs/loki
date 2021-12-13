@@ -17,7 +17,6 @@ from loki.logging import *  # noqa
 from loki.backend import *  # noqa
 from loki.transform import * # noqa
 from loki.build import *  # noqa  # pylint: disable=redefined-builtin
-from loki.debug import *  # noqa
 from loki.scheduler import *  # noqa
 from loki.lint import *  # noqa
 from loki.pragma_utils import *  # noqa
