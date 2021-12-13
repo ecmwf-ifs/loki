@@ -145,8 +145,9 @@ end module types
     source = Sourcefile.from_source(fcode, frontend=frontend)
     pragma_type = source['types'].symbols['pragma_type'].dtype
 
-    assert fsymgen(pragma_type.variable_map['matrix'].shape) == '(3, 3)'
-    assert fsymgen(pragma_type.variable_map['tensor'].shape) == '(klon, klat, 2)'
+    assert pragma_type.typedef is source['types'].typedefs['pragma_type']
+    assert fsymgen(pragma_type.typedef.variables[0].shape) == '(3, 3)'
+    assert fsymgen(pragma_type.typedef.variables[1].shape) == '(klon, klat, 2)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -188,12 +189,13 @@ end module test_type_derived_type_mod
     assert c.type.pointer
 
     # Ensure derived types have links to type definition and correct scope
-    assert len(a.type.dtype.variables) == 2
-    assert len(b.type.dtype.variables) == 2
-    assert len(c.type.dtype.variables) == 2
-    assert all(v.scope is routine for v in a.type.dtype.variables)
-    assert all(v.scope is routine for v in b.type.dtype.variables)
-    assert all(v.scope is routine for v in c.type.dtype.variables)
+    for var_getter in [lambda v: v.type.dtype.typedef.variables, lambda v: v.variables]:
+      assert len(var_getter(a)) == 2
+      assert len(var_getter(b)) == 2
+      assert len(var_getter(c)) == 2
+    assert all(v.scope is routine for v in a.variables)
+    assert all(v.scope is routine for v in b.variables)
+    assert all(v.scope is routine for v in c.variables)
 
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbols['a%a'].shape == (':',)
@@ -259,7 +261,7 @@ end module my_types_mod
     assert routine.variable_map['arg_b'].type.dtype.typedef.symbols != routine.symbols
 
     # Check that we correctly re-scoped the member variable
-    a, b = routine.variable_map['arg_b'].type.dtype.variables
+    a, b = routine.variable_map['arg_b'].variables
     assert ','.join(str(d) for d in a.dimensions) == ':'
     assert ','.join(str(d) for d in b.dimensions) == ':,:'
     assert a.type.kind == b.type.kind == 'a_kind'
