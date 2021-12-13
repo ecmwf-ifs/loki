@@ -68,8 +68,7 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
     def check_subroutine(cls, subroutine, rule_report, config):
         '''Check the code body: Nesting of conditional blocks.'''
         too_deep = cls.NestingDepthVisitor(config['max_nesting_depth']).visit(subroutine.body)
-        fmt_string = 'Nesting of conditionals exceeds limit of {}'
-        msg = fmt_string.format(config['max_nesting_depth'])
+        msg = f'Nesting of conditionals exceeds limit of {config["max_nesting_depth"]}'
         for node in too_deep:
             rule_report.add(msg, node)
 
@@ -88,15 +87,13 @@ class ModuleNamingRule(GenericRule):  # Coding standards 1.5
     def check_module(cls, module, rule_report, config):
         '''Check the module name and the name of the source file.'''
         if not module.name.lower().endswith('_mod'):
-            fmt_string = 'Name of module "{}" should end with "_mod"'
-            msg = fmt_string.format(module.name)
+            msg = f'Name of module "{module.name}" should end with "_mod"'
             rule_report.add(msg, module)
 
         if module.source.file:
             path = Path(module.source.file)
             if module.name.lower() != path.stem.lower():
-                fmt_string = 'Module filename "{}" does not match module name "{}"'
-                msg = fmt_string.format(path.name, module.name)
+                msg = f'Module filename "{path.name}" does not match module name "{module.name}"'
                 rule_report.add(msg, module)
 
 
@@ -153,21 +150,18 @@ class DrHookRule(GenericRule):  # Coding standards 1.9
     @classmethod
     def _check_lhook_call(cls, call, subroutine, rule_report, pos='First'):
         if call is None:
-            fmt_string = '{} executable statement must be call to DR_HOOK'
-            msg = fmt_string.format(pos)
+            msg = f'{pos} executable statement must be call to DR_HOOK'
             rule_report.add(msg, subroutine)
         elif call.arguments:
             string_arg = cls._get_string_argument(subroutine)
             if not isinstance(call.arguments[0], sym.StringLiteral) or \
                     call.arguments[0].value.upper() != string_arg:
-                fmt_string = 'String argument to DR_HOOK call should be "{}"'
-                msg = fmt_string.format(string_arg)
+                msg = f'String argument to DR_HOOK call should be "{string_arg}"'
                 rule_report.add(msg, call)
             second_arg = {'First': '0', 'Last': '1'}
             if not (len(call.arguments) > 1 and isinstance(call.arguments[1], sym.IntLiteral) and
                     str(call.arguments[1].value) == second_arg[pos]):
-                fmt_string = 'Second argument to DR_HOOK call should be "{}"'
-                msg = fmt_string.format(second_arg[pos])
+                msg = f'Second argument to DR_HOOK call should be "{second_arg[pos]}"'
                 rule_report.add(msg, call)
             if not (len(call.arguments) > 2 and call.arguments[2] == 'ZHOOK_HANDLE'):
                 msg = 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".'
@@ -232,8 +226,8 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
             lambda node: cls.match_non_exec_intrinsic_node.match(node.text), intrinsic_nodes))
 
         if num_nodes > config['max_num_statements']:
-            fmt_string = 'Subroutine has {} executable statements (should not have more than {})'
-            msg = fmt_string.format(num_nodes, config['max_num_statements'])
+            msg = (f'Subroutine has {num_nodes} executable statements '
+                   f'(should not have more than {config["max_num_statements"]})')
             rule_report.add(msg, subroutine)
 
 
@@ -258,8 +252,8 @@ class MaxDummyArgsRule(GenericRule):  # Coding standards 3.6
         """
         num_arguments = len(subroutine.arguments)
         if num_arguments > config['max_num_arguments']:
-            fmt_string = 'Subroutine has {} dummy arguments (should not have more than {})'
-            msg = fmt_string.format(num_arguments, config['max_num_arguments'])
+            msg = (f'Subroutine has {num_arguments} dummy arguments '
+                   f'(should not have more than {config["max_num_arguments"]})')
             rule_report.add(msg, subroutine)
 
 
@@ -281,8 +275,7 @@ class MplCdstringRule(GenericRule):  # Coding standards 3.12
                     if kw.upper() == 'CDSTRING':
                         break
                 else:
-                    fmt_string = 'No "CDSTRING" provided in call to {}'
-                    msg = fmt_string.format(call.name)
+                    msg = f'No "CDSTRING" provided in call to {call.name}'
                     rule_report.add(msg, call)
 
 
@@ -358,13 +351,14 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
             if decl_type.dtype in types:
                 if not decl_type.kind:
                     # Declared without any KIND specification
-                    rule_report.add('{} without explicit KIND declared'.format(
-                        ', '.join(str(var) for var in decl.variables)), decl)
+                    msg = f'{", ".join(str(var) for var in decl.variables)} without explicit KIND declared'
+                    rule_report.add(msg, decl)
                 elif allowed_type_kinds.get(decl_type.dtype):
                     if decl_type.kind not in allowed_type_kinds[decl_type.dtype]:
                         # We have a KIND but it does not match any of the allowed kinds
-                        rule_report.add('{} is not an allowed KIND value for {}'.format(
-                                decl_type.kind, ', '.join(str(var) for var in decl.variables)), decl)
+                        msg = (f'{decl_type.kind!s} is not an allowed KIND value for '
+                               f'{", ".join(str(var) for var in decl.variables)}')
+                        rule_report.add(msg, decl)
 
     @staticmethod
     def check_kind_literals(subroutine, types, allowed_type_kinds, rule_report):
@@ -382,11 +376,11 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         for node, exprs in finder.visit(subroutine.ir):
             for literal in exprs:
                 if not literal.kind:
-                    rule_report.add('{} used without explicit KIND'.format(literal), node)
+                    rule_report.add(f'{literal} used without explicit KIND', node)
                 elif allowed_type_kinds.get(literal.__class__):
                     if str(literal.kind).upper() not in allowed_type_kinds[literal.__class__]:
-                        rule_report.add('{} is not an allowed KIND value for {}'.format(
-                            literal.kind, literal), node)
+                        msg = f'{literal.kind} is not an allowed KIND value for {literal}'
+                        rule_report.add(msg, node)
 
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config):
@@ -444,8 +438,7 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
         for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
             for keyword in config['banned']:
                 if keyword.lower() in intr.text.lower():
-                    msg = 'Banned keyword "{}"'.format(keyword)
-                    rule_report.add(msg, intr)
+                    rule_report.add(f'Banned keyword "{keyword}"', intr)
 
 
 class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
@@ -499,8 +492,8 @@ class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
                     matches = cls._op_patterns[op].findall(source_string)
                     for f77, _ in matches:
                         if f77:
-                            fmt_string = 'Use Fortran 90 comparison operator "{}" instead of "{}"'
-                            msg = fmt_string.format(op if op != '!=' else '/=', f77)
+                            op_str = op if op != '!=' else '/='
+                            msg = f'Use Fortran 90 comparison operator "{op_str}" instead of "{f77}"'
                             rule_report.add(msg, node)
 
     @classmethod
