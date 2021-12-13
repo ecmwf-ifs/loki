@@ -1073,7 +1073,10 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
-        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol))
+        # Unfortunately, have to accept MetaSymbol here for the time being as
+        # rescoping before injecting statement functions may create InlineCalls
+        # with Scalar/Variable function names.
+        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol, MetaSymbol))
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
