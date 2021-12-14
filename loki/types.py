@@ -5,7 +5,6 @@ throughout Loki's :ref:`internal_representation:internal representation`
 
 import weakref
 from enum import IntEnum
-from collections import OrderedDict
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 

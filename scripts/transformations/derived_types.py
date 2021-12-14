@@ -11,7 +11,7 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
-    DerivedType, BasicType, RangeIndex, as_tuple
+    RangeIndex, as_tuple
 )
 
 

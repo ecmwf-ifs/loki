@@ -190,9 +190,9 @@ end module test_type_derived_type_mod
 
     # Ensure derived types have links to type definition and correct scope
     for var_getter in [lambda v: v.type.dtype.typedef.variables, lambda v: v.variables]:
-      assert len(var_getter(a)) == 2
-      assert len(var_getter(b)) == 2
-      assert len(var_getter(c)) == 2
+        assert len(var_getter(a)) == 2
+        assert len(var_getter(b)) == 2
+        assert len(var_getter(c)) == 2
     assert all(v.scope is routine for v in a.variables)
     assert all(v.scope is routine for v in b.variables)
     assert all(v.scope is routine for v in c.variables)

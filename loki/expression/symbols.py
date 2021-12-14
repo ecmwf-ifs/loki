@@ -803,10 +803,10 @@ class Variable:
                 # Build the parent if not given
                 parent_type = scope.symbols.lookup(name_parts[0])
                 parent = Variable(name=name_parts[0], scope=scope, type=parent_type)
-                for name in name_parts[1:-1]:
+                for pname in name_parts[1:-1]:
                     if not parent:
                         return None
-                    parent = parent.variable_map.get(name)  # pylint: disable=no-member
+                    parent = parent.variable_map.get(pname)  # pylint: disable=no-member
             if parent:
                 # Lookup type in parent's typedef
                 tdef_var = parent.variable_map.get(name_parts[-1])
@@ -1142,7 +1142,8 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
     mapper_method = intern('map_literal_list')
 
     def __getinitargs__(self):
-        return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
+        elements = ','.join(repr(c) for c in self.elements)
+        return (f'[{elements}]',)
 
 
 class Sum(ExprMetadataMixin, StrCompareMixin, pmbl.Sum):

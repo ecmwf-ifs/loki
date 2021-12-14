@@ -105,7 +105,7 @@ class FortranCodegen(Stringifier):
         if label is not None:
             # Replace indentation by label
             indent = max(1, len(line) - len(line.lstrip()) - 1)
-            line = '{:{indent}} {}'.format(label, line.lstrip(), indent=indent)
+            line = f'{label:{indent}} {line.lstrip()}'
         return line
 
     def visit(self, o, *args, **kwargs):
@@ -344,7 +344,7 @@ class FortranCodegen(Stringifier):
         """
         pragma = self.visit(o.pragma, **kwargs)
         pragma_post = self.visit(o.pragma_post, **kwargs)
-        control = '{}={}'.format(*self.visit_all(o.variable, o.bounds, **kwargs))
+        control = f'{self.visit(o.variable, **kwargs)}={self.visit(o.bounds, **kwargs)}'
         header_name = f'{o.name}: ' if o.name else ''
         label = f'{o.loop_label} ' if o.loop_label else ''
         header = self.format_line(header_name, 'DO ', label, control)
@@ -504,7 +504,7 @@ class FortranCodegen(Stringifier):
             ...body...
           END ASSOCIATE
         """
-        assocs = ['{1}=>{0}'.format(*self.visit_all(a, **kwargs)) for a in o.associations]
+        assocs = [f'{self.visit(a[1], **kwargs)}=>{self.visit(a[0], **kwargs)}' for a in o.associations]
         header = self.format_line('ASSOCIATE (', self.join_items(assocs), ')')
         footer = self.format_line('END ASSOCIATE')
         body = self.visit(o.body, **kwargs)
@@ -519,7 +519,7 @@ class FortranCodegen(Stringifier):
         name = self.visit(o.name, **kwargs)
         args = self.visit_all(o.arguments, **kwargs)
         if o.kwarguments:
-            args += tuple('{}={}'.format(*self.visit_all(arg, **kwargs)) for arg in o.kwarguments)
+            args += tuple(f'{self.visit(arg[0], **kwargs)}={self.visit(arg[1], **kwargs)}' for arg in o.kwarguments)
         call = self.format_line('CALL ', name, '(', self.join_items(args), ')')
         return self.join_lines(pragma, call)
 
