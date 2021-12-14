@@ -372,6 +372,10 @@ class OMNI2IR(GenericVisitor):
         _type.parameter = o.attrib.get('is_parameter', 'false') == 'true'
         _type.target = o.attrib.get('is_target', 'false') == 'true'
         _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
+        if 'is_private' in o.attrib:
+            _type.private = o.attrib.get('is_private', 'false') == 'true'
+        if 'is_public' in o.attrib:
+            _type.public = o.attrib.get('is_public', 'false') == 'true'
         return _type
 
     def visit_FfunctionType(self, o, **kwargs):

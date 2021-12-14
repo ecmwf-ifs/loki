@@ -514,3 +514,47 @@ end module test_module_rescope_clone
     # fgen of the not rescoped copy should fail because the scope of the variables went away
     with pytest.raises(AttributeError):
         fgen(other_module_copy)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_access_spec(frontend):
+    """
+    Test correct parsing of access-spec attributes
+    """
+    fcode = """
+module test_access_spec_mod
+    implicit none
+    private
+    integer, public :: pub_var
+    integer :: unspecified_var
+    integer, private :: priv_var
+    integer :: other_var
+end module test_access_spec_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    code = module.to_fortran().upper()
+
+    priv_var = module.variable_map['priv_var']
+    assert priv_var.type.private is True
+    assert priv_var.type.public is None
+
+    pub_var = module.variable_map['pub_var']
+    assert pub_var.type.public is True
+    assert pub_var.type.private is None
+
+    unspecified_var = module.variable_map['unspecified_var']
+    other_var = module.variable_map['other_var']
+
+    assert unspecified_var.type.public is None
+    assert other_var.type.public is None
+
+    if frontend == OMNI:  # OMNI applies access spec to each variable
+        assert code.count('PRIVATE') == 3
+        assert unspecified_var.type.private is True
+        assert other_var.type.private is True
+    else:
+        assert code.count('PRIVATE') == 2
+        assert unspecified_var.type.private is None
+        assert other_var.type.private is None
+    assert code.count('PUBLIC') == 1

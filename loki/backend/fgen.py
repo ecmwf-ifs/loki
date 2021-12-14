@@ -593,6 +593,10 @@ class FortranCodegen(Stringifier):
             attributes += ['CONTIGUOUS']
         if o.intent:
             attributes += [f'INTENT({o.intent.upper()})']
+        if o.private:
+            attributes += [f'PRIVATE']
+        if o.public:
+            attributes += [f'PUBLIC']
         return self.join_items(attributes)
 
     def visit_TypeDef(self, o, **kwargs):
