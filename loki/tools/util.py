@@ -7,13 +7,21 @@ from collections.abc import Sequence
 from shlex import split
 from subprocess import run, PIPE, STDOUT, CalledProcessError
 from contextlib import contextmanager
+from pathlib import Path
+
+try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
 
 from loki.logging import log, debug, error, INFO
 
 
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
-           'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup']
+           'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
+           'yaml_include_constructor']
 
 
 def as_tuple(item, type=None, length=None):
@@ -441,3 +449,74 @@ class LazyNodeLookup:
 
     def __call__(self):
         return self.query(self.anchor)
+
+
+def yaml_include_constructor(loader, node):
+    """
+    Add support for ``!include`` tags to YAML load
+
+    Activate via ``yaml.add_constructor("!include", yaml_include_constructor)``
+    or ``yaml.add_constructor("!include", yaml_include_constructor, yaml.SafeLoader)``
+    (for use with :any:`yaml.safe_load`).
+
+    Adapted from JUBE2 (https://fz-juelich.de/jsc/jube) and
+    http://code.activestate.com/recipes/577612-yaml-include-support/
+
+    This allows to include other YAML files or parts of them inside a YAML file:
+
+    .. code-block:: yaml
+        # include.yml
+        tag0:
+          foo: bar
+
+        tag1:
+          baz: bar
+
+    .. code-block:: yaml
+        # main.yml
+        nested: !include include.yml
+
+        nested_filtered: !include include.yml:["tag0"]
+
+    which is equivalent to the following:
+
+    ..code-block:: yaml
+        nested:
+          tag0:
+            foo: bar
+          tag1:
+            baz: bar
+        nested_filtered:
+          baz: bar
+    """
+    if not HAVE_YAML:
+        error('Pyyaml is not installed')
+        raise RuntimeError
+
+    # Load the content of the included file
+    yaml_node_data = node.value.split(":")
+    file = Path(yaml_node_data[0])
+    try:
+        with file.open() as inputfile:
+            content = yaml.load(inputfile.read(), type(loader))
+    except OSError:
+        error(f'Cannot open include file {file}')
+        return f'!include {node.value}'
+
+    # Filter included content if subscripts given
+    if len(yaml_node_data) > 1:
+        try:
+            subscripts = yaml_node_data[1].strip().lstrip('[').rstrip(']').split('][')
+
+            for subscript in subscripts:
+                if subscript.isnumeric():
+                    content = content[int(subscript)]
+                elif subscript[0] == subscript[-1] and subscript[0] in '"\'':
+                    content = content[subscript.strip('"\'')]
+                else:
+                    content = content[subscript]
+        except KeyError as e:
+            error(f'Cannot extract {yaml_node_data[1]} from {file}')
+            raise e
+
+    return content

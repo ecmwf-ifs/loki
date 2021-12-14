@@ -4,11 +4,24 @@ Unit tests for utility functions and classes in loki.tools.
 
 import operator as op
 from contextlib import contextmanager
+from pathlib import Path
 import pytest
+
+try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
+
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
-    optional
+    optional, yaml_include_constructor
 )
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.mark.parametrize('a, b, ref', [
@@ -185,3 +198,55 @@ def test_optional():
 
     with optional(False, dummy_manager, 1, c=10, b=100) as val:
         assert val is None
+
+
+@pytest.mark.skipif(not HAVE_YAML, reason="Pyyaml is not installed")
+def test_yaml_include(here):
+    include_yaml = """
+foo:
+  bar:
+  - abc
+  - def
+
+foobar:
+  - baz:
+      dummy: value
+  - 42:
+      dummy: other_value
+    """.strip()
+
+    include_path = here/'include.yml'
+    include_path.write_text(include_yaml)
+
+    main_yaml = f"""
+include: !include {include_path}
+
+nested_foo: !include {include_path}:["foo"]
+
+nested_foo_list: !include {include_path}:["foo"]["bar"][1]
+
+nested_foobar: !include {include_path}:["foobar"][0]['baz']["dummy"]
+    """.strip()
+
+    main_path = here/'main.yml'
+    main_path.write_text(main_yaml)
+
+    nested_yaml = f"""
+main: !include {main_path}
+    """.strip()
+
+    yaml.add_constructor('!include', yaml_include_constructor, yaml.SafeLoader)
+
+    included = yaml.safe_load(include_yaml)
+    main = yaml.safe_load(main_yaml)
+
+    assert main['include'] == included
+    assert main['nested_foo'] == included['foo']
+    assert main['nested_foo_list'] == included['foo']['bar'][1]
+    assert main['nested_foobar'] == included['foobar'][0]['baz']['dummy']
+
+    nested = yaml.safe_load(nested_yaml)
+    assert nested['main'] == main
+
+    include_path.unlink()
+    main_path.unlink()

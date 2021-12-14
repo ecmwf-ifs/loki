@@ -1,23 +1,32 @@
 from pathlib import Path
 
 try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
+
+try:
     from junit_xml import TestSuite, TestCase
     HAVE_JUNIT_XML = True
 except ImportError:
     HAVE_JUNIT_XML = False
 
-from loki.subroutine import Subroutine
-from loki.module import Module
+from loki import Sourcefile, Module, Subroutine, Node, filehash
 from loki.logging import logger, error
-from loki.lint.utils import get_filename_from_parent
+from loki.lint.utils import get_filename_from_parent, is_rule_disabled
 
 
 class ProblemReport:
     """
-    Data type to represent a problem reported for a node in the IR or expression tree.
+    Data type to represent a problem reported for a node in the IR
 
-    :param str msg: the message describing the problem.
-    :param location: the IR node or expression node in which the problem exists.
+    Parameters
+    ----------
+    msg : str
+        The message describing the problem.
+    location : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine` or :any:`Node`
+        The IR component in which the problem exists.
     """
 
     def __init__(self, msg, location):
@@ -27,19 +36,22 @@ class ProblemReport:
 
 class RuleReport:
     """
-    Container type to collect all individual problems reported by a rule.
+    Container type to collect all individual problems reported by a rule
 
-    All :py:class:`RuleReport`s that belong to a file are typically collected in
-    a :py:class:`FileReport`.
+    All :class:`RuleReport` instances that belong to a file are
+    collected in a :class:`FileReport`.
 
-    :param rule: the rule that generated the report.
-    :type rule: subclass of :py:class:`GenericRule`
-    :param list problem_reports: (optional) list of :py:class:`ProblemReport`.
+    Parameters
+    ----------
+    rule : :any:`GenericRule`
+        The rule that generated the report
+    reports : list of :any:`ProblemReport`
+        List of problem reports for this rule
     """
 
-    def __init__(self, rule, problem_reports=None):
+    def __init__(self, rule, reports=None):
         self.rule = rule
-        self.problem_reports = problem_reports or []
+        self.problem_reports = reports or []
         self.elapsed_sec = 0.
 
     def add(self, msg, location):
@@ -47,29 +59,46 @@ class RuleReport:
         Convenience function to append a problem report to the list of problems
         reported by the rule.
 
-        :param str msg: the message describing the problem.
-        :param location: the IR node or expression node in which the problem exists.
+        Parameters
+        ----------
+        msg : str
+            The message describing the problem.
+        location : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine` or :any:`Node`
+            The IR node or expression node in which the problem exists.
         """
-        self.problem_reports.append(ProblemReport(msg, location))
+        if not isinstance(location, (Sourcefile, Module, Subroutine, Node)):
+            raise TypeError(f'Invalid type for report location: {type(location).__name__}')
+        if not is_rule_disabled(location, self.rule.identifiers()):
+            self.problem_reports.append(ProblemReport(msg, location))
 
 
 class FileReport:
     """
-    Container type to collect all rule reports for a file.
+    Container type to collect all rule reports for a file
 
-    :param str filename: the filename of the file the reports belong to.
-    :param list reports: (optional) list of :py:class:`RuleReport`.
+    Parameters
+    ----------
+    filename : str
+        The filename of the file the report is for
+    hash : str, optional
+        Provide a hash for the file's content to identify the file version
+    reports : list, optional
+        List of :py:class:`RuleReport`.
     """
 
-    def __init__(self, filename, reports=None):
+    def __init__(self, filename, hash=None, reports=None):  # pylint: disable=redefined-builtin
         self.filename = filename
+        self.hash = hash or filehash(Path(filename).read_text())
         self.reports = reports or []
 
     def add(self, rule_report):
         """
         Append a rule report to the list of reports.
 
-        :param :py:class:`RuleReport` rule_report: the report to be stored.
+        Parameters
+        -----------
+        rule_report : :any:`RuleReport`
+            The report to be stored.
         """
         if not isinstance(rule_report, RuleReport):
             raise TypeError(f'{type(rule_report)} given, {RuleReport} expected')
@@ -103,8 +132,10 @@ class Reporter:
     In a parallel setting, this needs to be initialized explicitly to enable thread
     safe data structures by calling `init_parallel()`.
 
-    :param list handlers: (optional) list of enabled handlers. If none given,
-        :py:class:`DefaultHandler` will be used.
+    Parameters
+    ----------
+    list handlers : list of :any:`GenericHandler`, optional
+        The enabled handlers. If none given, :any:`DefaultHandler` will be used.
     """
 
     def __init__(self, handlers=None):
@@ -116,8 +147,10 @@ class Reporter:
         """
         Additional initialization step when using the reporter in a parallel setting.
 
-        :param :py:class:`multiprocessing.Manager` manager: the multiprocessing manager
-            that can be used to create thread safe data structures.
+        Parameters
+        ----------
+        manager : :any:`multiprocessing.Manager`
+            The multiprocessing manager that should be used to create thread safe data structures.
         """
         parallel_reports = manager.dict()
         for handler, reports in self.handlers_reports.items():
@@ -142,13 +175,18 @@ class Reporter:
         This is a convenience function that can be used, e.g., to report a failing rule
         or other problems with a certain file.
 
-        :param str filename: the file name of the corresponding file.
-        :param rule: the rule that exposed the problem or `None`.
-        :param str msg: the description of the problem.
+        Parameters
+        ----------
+        filename : str
+            The file name of the corresponding file.
+        rule : :any:`GenericRule`
+            The rule that exposed the problem or `None`.
+        msg : str
+            A description of the problem.
         """
         problem_report = ProblemReport(msg, None)
-        rule_report = RuleReport(rule, [problem_report])
-        file_report = FileReport(filename, [rule_report])
+        rule_report = RuleReport(rule, reports=[problem_report])
+        file_report = FileReport(filename, reports=[rule_report])
         self.add_file_report(file_report)
 
     def output(self):
@@ -163,11 +201,23 @@ class GenericHandler:
     """
     Base class for report handler.
 
-    :param str basedir: (optional) basedir relative to which file paths are given.
+    Parameters
+    ----------
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
     """
 
     def __init__(self, basedir=None):
         self.basedir = basedir
+
+    def get_relative_filename(self, filename):
+        if filename and self.basedir:
+            try:
+                filename = Path(filename).relative_to(self.basedir)
+            except ValueError:
+                pass
+        return filename
+
 
     def format_location(self, filename, location):
         """
@@ -178,22 +228,22 @@ class GenericHandler:
             - the source line(s)
             - the name of the scope (i.e., enclosing subroutine or module)
 
-        :param str filename: the file name of the source file.
-        :param location: the AST node that triggered the problem report.
-        :type location: an IR or expression node, or a Subroutine, Sourcefile or Module
-            object.
+        Parameters
+        ----------
+        filename : str
+            The file name of the source file.
+        location : :any:`Node` or :any:`Subroutine` or :any:`Sourcefile` or :any:`Module`
+            The AST node that triggered the problem report.
 
-        :return: the formatted string in the form
+        Returns
+        -------
+        str
+            The formatted string in the form
             "<filename> (l. <line(s)>) [in routine/module ...]"
-        :rtype: str
         """
         if not filename:
             filename = get_filename_from_parent(location) or ''
-        if filename and self.basedir:
-            try:
-                filename = Path(filename).relative_to(self.basedir)
-            except ValueError:
-                pass
+        filename = self.get_relative_filename(filename)
         line = ''
         source = getattr(location, '_source', getattr(location, 'source', None))
         if source is not None:
@@ -208,19 +258,23 @@ class GenericHandler:
             scope = f' in module "{location.name}"'
         return f'{filename}{line}{scope}'
 
-    def handle(self, file_report):
+    def handle(self, file_report):  # pylint: disable=unused-argument
         """
-        Handle the given `file_report`.
+        Handle the given :attr:`file_report`.
 
         This routine has to be implemented by the handler class.
         It should either print/save the report immediately or return a picklable
-        object that is later to be printed/saved via `output()`.
+        object that is later to be printed/saved via :meth:`output`.
+
+        Note that the only requirement is that :meth:`handle` and
+        :meth:`output` are compatible in the sense that a list of objects
+        returned by :meth:`handle` can be processed by :meth:`output`.
         """
         raise NotImplementedError()
 
     def output(self, handler_reports):
         """
-        Output the list of report objects created by `handle()`.
+        Output the list of report objects created by :meth:`handle`.
         """
         raise NotImplementedError()
 
@@ -229,10 +283,16 @@ class DefaultHandler(GenericHandler):
     """
     The default report handler for command line output of problems.
 
-    :param target: the output destination.
-    :param bool immediate_output: print problems immediately if True, otherwise
-        collect messages and print when calling `output()`.
-    :param str basedir: (optional) basedir relative to which file paths are given.
+    Parameters
+    ----------
+    target : optional
+        The output destination as a callback. Will be called with a string.
+        Defaults to :any:`looger.warning`
+    immediate_output : bool, optional
+        Print problems immediately if `True`, otherwise
+        collect messages and print when calling `output()`. Defaults to `True`
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
     """
 
     fmt_string = '{rule}: {location} - {msg}'
@@ -247,9 +307,15 @@ class DefaultHandler(GenericHandler):
         Creates a string output of all problem reports and (by default) prints them
         immediately to `target`.
 
-        :param FileReport file_report: the file report to be processed.
-        :return: the list of problem report strings.
-        :rtype: list of str
+        Parameters
+        ----------
+        file_report : :any:`FileReport`
+            The file report to be processed.
+
+        Returns
+        -------
+        list of str
+            The list of problem report strings.
         """
         filename = file_report.filename
         reports_list = []
@@ -257,7 +323,7 @@ class DefaultHandler(GenericHandler):
             rule = rule_report.rule.__name__
             if hasattr(rule_report.rule, 'docs') and rule_report.rule.docs:
                 if 'id' in rule_report.rule.docs:
-                    rule = f'[{rule_report.rule.docs["id"]}] ' + rule
+                    rule = f'[{rule_report.rule.docs["id"]}] {rule}'
             for problem in rule_report.problem_reports:
                 location = self.format_location(filename, problem.location)
                 msg = self.fmt_string.format(rule=rule, location=location, msg=problem.msg)
@@ -270,8 +336,10 @@ class DefaultHandler(GenericHandler):
         """
         Print all reports to `target` if `immediate_output` is disabled.
 
-        :param handler_reports: the list of lists of reports.
-        :type handler_reports: list of list of str
+        Parameters
+        ----------
+        handler_reports : list of list of str
+            The list of lists of reports.
         """
         if not self.immediate_output:
             for reports in handler_reports:
@@ -279,13 +347,79 @@ class DefaultHandler(GenericHandler):
                     self.target(report)
 
 
+class ViolationFileHandler(GenericHandler):
+    """
+    Report handler class that writes a YAML file with rules violated per file
+
+    The content of the YAML file has the form
+
+    .. code-block:: yaml
+
+        'path/to/my/file.F90':
+            filehash: 'abc123'
+            rules:
+              - SomeRule
+              - SomeOtherRule
+
+    This YAML file can be included into a linter config file to disable reporting
+    of these rules on that version of the file (source modifications identified by
+    :any:`filehash`) in future runs.
+
+    Parameters
+    ----------
+    target :
+        The output destination
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
+    """
+    def __init__(self, target=logger.warning, basedir=None):
+        if not HAVE_YAML:
+            error('Pyyaml is not available')
+            raise RuntimeError
+
+        super().__init__(basedir)
+        self.target = target
+
+    def handle(self, file_report):
+        """
+        Create YAML block for this file
+
+        Parameters
+        ----------
+        file_report : :any:`FileReport`
+            The file report to be processed
+
+        Returns
+        -------
+        str
+            YAML block for this file
+        """
+        file_report = {
+            str(self.get_relative_filename(file_report.filename)): {
+                'filehash': file_report.hash,
+                'rules': [rule_report.rule.__name__ for rule_report in file_report.reports]
+            }
+        }
+        return yaml.dump(file_report)
+
+    def output(self, handler_reports):
+        """
+        Generate the YAML output from the list of reports.
+        """
+        self.target('\n'.join(handler_reports))
+
+
 class JunitXmlHandler(GenericHandler):
     """
     Report handler class that generates JUnit-compatible XML output that can be understood
-    by CI platforms such as Jenkins or Bamboo.
+    by CI platforms such as Jenkins or Bamboo
 
-    :param target: the output destination.
-    :param str basedir: (optional) basedir relative to which file paths are given.
+    Parameters
+    ----------
+    target :
+        The output destination
+    basedir : str, optional
+        Base directory path relative to which file paths are given.
     """
 
     fmt_string = '{location} - {msg}'
@@ -302,7 +436,17 @@ class JunitXmlHandler(GenericHandler):
         """
         Creates tuples of string arguments for :py:class:`junit_xml.TestCase`
 
-        :param FileReport file_report: the file report to be processed.
+        Parameters
+        ----------
+        file_report : :any:`FileReport`
+            The file report to be processed
+
+        Returns
+        -------
+        tuple(str, list)
+            Tuples of the form ``(filename, [(kwargs, messages)])`` with :attr:`kwargs`
+            being the constructor arguments for :any:`junit_xml.TestCase` and
+            :attr:`messages` a list of strings.
         """
         filename = file_report.filename
         classname = str(Path(filename).with_suffix(''))

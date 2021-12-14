@@ -292,11 +292,11 @@ end subroutine routine_not_okay_e
     keywords = ('DrHookRule', 'DR_HOOK', '[1.9]')
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
-    assert all('First executable statement must be call to DR_HOOK.' in messages[i] for i in [0, 4, 6])
-    assert all('Last executable statement must be call to DR_HOOK.' in messages[i] for i in [5, 7])
+    assert all('First executable statement must be call to DR_HOOK' in messages[i] for i in [0, 4, 6])
+    assert all('Last executable statement must be call to DR_HOOK' in messages[i] for i in [5, 7])
     assert all('String argument to DR_HOOK call should be "' in messages[i] for i in [1, 8])
-    assert 'Second argument to DR_HOOK call should be "0".' in messages[2]
-    assert 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE".' in messages[3]
+    assert 'Second argument to DR_HOOK call should be "0"' in messages[2]
+    assert 'Third argument to DR_HOOK call should be "ZHOOK_HANDLE"' in messages[3]
 
     # Later lines come first as modules are checked before subroutines
     assert '(l. 12)' in messages[1]
@@ -369,7 +369,7 @@ end module some_mod
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
     assert all('String argument to DR_HOOK call should be "' in messages[i] for i in [0, 1, 2])
-    assert 'Second argument to DR_HOOK call should be "1".' in messages[3]
+    assert 'Second argument to DR_HOOK call should be "1"' in messages[3]
 
     # Later lines come first as modules are checked before subroutines
     assert '(l. 30)' in messages[0]
@@ -724,7 +724,7 @@ end subroutine test_routine
                     ('.le.', '<=', '5'), ('.ge.', '>=', '5'),
                     ('.gt.', '>', '26'), ('.gt.', '>', '32'),
                     ('.eq.', '==', '29'), ('.gt.', '>', '25'),
-                    ('.le.', '<=', '23-24'))
+                    ('.le.', '<=', '23-34'))
 
     for keywords, message in zip(f77_f90_line, messages):
         assert all(str(keyword) in message for keyword in keywords)

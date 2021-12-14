@@ -524,13 +524,26 @@ class FParser2IR(GenericVisitor):
 
         :class:`fparser.two.Fortran2003.Length_Selector` has 3 children:
             * '(' (str)
-            * :class:`fparser.two.Fortran2003.Char_Length`
+            * :class:`fparser.two.Fortran2003.Char_Length` or
+              :class:`fparser.two.Fortran2003.Type_Param_Value`
             * ')' (str)
         """
         if o.children[0] == '*':
             self.warn_or_fail('* specifier for character length not implemented')
         assert o.children[0] == '(' and o.children[2] == ')'
         return self.visit(o.children[1], **kwargs)
+
+    def visit_Type_Param_Value(self, o, **kwargs):
+        """
+        The value of a type parameter in a type spefication (such as
+        length of a CHARACTER)
+
+        :class:`fparser.two.Fortran2003.Type_Param_Value` has only 1 attribute:
+          * :attr:`string` : the value of the parameter (str)
+        """
+        if o.string == '*':
+            self.warn_or_fail('LEN=* specifier for character length not implemented')
+        return self.visit(o.string, **kwargs)
 
     def visit_Declaration_Type_Spec(self, o, **kwargs):
         """
@@ -599,7 +612,7 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
 
         if o.children[1]:
-            dimensions = self.visit(o.children[1], **kwargs)
+            dimensions = as_tuple(self.visit(o.children[1], **kwargs))
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
 
         if o.children[2]:
@@ -651,6 +664,8 @@ class FParser2IR(GenericVisitor):
         if o.children[0] == '=>':
             return self.visit(o.items[1], **kwargs)
         raise ValueError(f'Invalid assignment operator {o.children[0]}')
+
+    visit_Component_Initialization = visit_Initialization
 
     def visit_External_Stmt(self, o, **kwargs):
         """
@@ -1884,6 +1899,7 @@ class FParser2IR(GenericVisitor):
     visit_Stop_Stmt = visit_Intrinsic_Stmt
     visit_Backspace_Stmt = visit_Intrinsic_Stmt
     visit_Rewind_Stmt = visit_Intrinsic_Stmt
+    visit_Entry_Stmt = visit_Intrinsic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
         return ir.PreprocessorDirective(text=o.tostr(), source=kwargs.get('source'))
