@@ -353,7 +353,16 @@ class OMNI2IR(GenericVisitor):
         if ref in self._omni_types:
             dtype = BasicType.from_fortran_type(self._omni_types[ref])
             kind = self.visit(o.find('kind'), **kwargs) if o.find('kind') is not None else None
-            length = self.visit(o.find('len'), **kwargs) if o.find('len') is not None else None
+            length = o.find('len')
+            if length is not None:
+                if length == '*':
+                    pass
+                elif length.attrib.get('is_assumed_size') == 'true':
+                    length = '*'
+                elif length.attrib.get('is_assumed_shape') == 'true':
+                    length = ':'
+                else:
+                    length = self.visit(length, **kwargs)
             _type = SymbolAttributes(dtype, kind=kind, length=length)
         elif ref in self.type_map:
             _type = self.visit(self.type_map[ref], **kwargs)

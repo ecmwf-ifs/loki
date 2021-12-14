@@ -528,9 +528,7 @@ class FParser2IR(GenericVisitor):
               :class:`fparser.two.Fortran2003.Type_Param_Value`
             * ')' (str)
         """
-        if o.children[0] == '*':
-            self.warn_or_fail('* specifier for character length not implemented')
-        assert o.children[0] == '(' and o.children[2] == ')'
+        assert o.children[0] == '*' or (o.children[0] == '(' and o.children[2] == ')')
         return self.visit(o.children[1], **kwargs)
 
     def visit_Type_Param_Value(self, o, **kwargs):
@@ -541,8 +539,8 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Type_Param_Value` has only 1 attribute:
           * :attr:`string` : the value of the parameter (str)
         """
-        if o.string == '*':
-            self.warn_or_fail('LEN=* specifier for character length not implemented')
+        if o.string in '*:':
+            return o.string
         return self.visit(o.string, **kwargs)
 
     def visit_Declaration_Type_Spec(self, o, **kwargs):

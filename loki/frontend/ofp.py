@@ -365,6 +365,8 @@ class OFP2IR(GenericVisitor):
             if o.attrib['hasKind'] == 'true':
                 kind = self.visit(o.find('kind'), **kwargs)
                 _type = _type.clone(kind=kind)
+            if o.find('length'):
+                _type = _type.clone(length=self.visit(o.find('length'), **kwargs))
             return _type
 
         if o.attrib['type'] == 'derived':
@@ -404,6 +406,13 @@ class OFP2IR(GenericVisitor):
 
     def visit_access_spec(self, o, **kwargs):
         return (o.attrib['keyword'], True)
+
+    def visit_type_param_value(self, o, **kwargs):
+        if o.attrib['hasAsterisk'] == 'true':
+            return '*'
+        if o.attrib['hasColon'] == 'true':
+            return ':'
+        return None
 
     def visit_entity_decl(self, o, **kwargs):
         return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
@@ -558,9 +567,12 @@ class OFP2IR(GenericVisitor):
             access_spec = self.visit(o.find('access-spec'), **kwargs)
             attrs.update((access_spec,))
 
-        if _type.dtype == BasicType.CHARACTER and o.find('char-selector') is not None:
-            length = self.visit(o[0], **kwargs)
-            attrs['length'] = length
+        if _type.dtype == BasicType.CHARACTER:
+            if _type.length is None and o.find('char-selector') is not None:
+                # For _NO_ good reason, the char-length property seems to be
+                # always the first item (fingers crossed) but it is not identified
+                # by any sensible unique tag...
+                attrs['length'] = self.visit(o[0], **kwargs)
 
         # Then, build the common symbol type for all variables
         _type = _type.clone(**attrs)
