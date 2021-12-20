@@ -474,10 +474,10 @@ class FortranMaxTransformation(Transformation):
 
         for stream in streams['in']:
             body += [ir.Intrinsic(
-                f'kernelBlock.getInput("{stream.name}") <== addStreamFromCPU("{name}");')]
+                f'kernelBlock.getInput("{stream.name}") <== addStreamFromCPU("{stream.name}");')]
         for stream in streams['inout'] + streams['out']:
             body += [ir.Intrinsic(
-                f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{name}");')]
+                f'addStreamToCPU("{stream.name}") <== kernelBlock.getOutput("{stream.name}");')]
         setup.body = ir.Section(body=body)
 
         # Insert functions into manager class
