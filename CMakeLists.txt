@@ -56,7 +56,23 @@ if( NOT ${HAVE_EDITABLE} )
     message( FATAL_ERROR "Loki currently supports only editable install" )
 endif()
 
-if( NOT HAVE_NO_INSTALL )
+if( HAVE_NO_INSTALL )
+
+    # Find loki-transform.py and loki-lint.py on the PATH to make available as targets
+    find_program ( _LOKI_LINT_EXECUTABLE NAMES loki-lint.py )
+    add_executable( loki-lint.py IMPORTED GLOBAL )
+    set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${_LOKI_LINT_EXECUTABLE} )
+
+    find_program ( _LOKI_TRANSFORM_EXECUTABLE NAMES loki-transform.py )
+    add_executable( loki-transform.py IMPORTED GLOBAL )
+    set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} )
+
+    # Find clawfc on the PATH to make available as target
+    find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
+    add_executable( clawfc IMPORTED GLOBAL )
+    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
+
+else()
 
     if( ${HAVE_CLAW} )
         install_claw_compiler( mlange-dev )

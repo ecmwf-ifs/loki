@@ -74,13 +74,15 @@ macro( _loki_transform_parse_args _func_name )
     endif()
 
     if( _LOKI_TRANSFORM_ENV OR _LOKI_TRANSFORM_PATH )
-        # Unfortunately, an environment update breaks the CMake feature of recognizing
-        # the executable in add_custom_command and choosing the correct path if it was
-        # previously declared as an executable. Therefore, we have to insert also
-        # loki-transform.py into the PATH variable.
-        get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
-        get_filename_component( _LOKI_TRANSFORM_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} DIRECTORY )
-        list( APPEND _LOKI_TRANSFORM_PATH ${_LOKI_TRANSFORM_LOCATION} )
+        if( TARGET loki-transform.py )
+            # Unfortunately, an environment update breaks the CMake feature of recognizing
+            # the executable in add_custom_command as a previously declared target, which would
+            # enable choosing the correct path automatically. Therefore, we have to insert also
+            # loki-transform.py into the PATH variable.
+            get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
+            get_filename_component( _LOKI_TRANSFORM_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} DIRECTORY )
+            list( APPEND _LOKI_TRANSFORM_PATH ${_LOKI_TRANSFORM_LOCATION} )
+        endif()
 
         # Join all declared paths
         string( REPLACE ";" ":" _LOKI_TRANSFORM_PATH "${_LOKI_TRANSFORM_PATH}" )
@@ -114,7 +116,8 @@ endmacro()
 #       OUTPUT <outfile1> [<outfile2> ...]
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
-#       FRONTEND <frontend> [CPP]
+#       FRONTEND <frontend>
+#       [CPP]
 #       [CONFIG <config-file>]
 #       [PATH <path>]
 #       [OUTPATH <outpath>]
@@ -123,6 +126,7 @@ endmacro()
 #       [DEFINE <define1> [<define2> ...]]
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
+#       [REMOVE_OPENMP] [DATA_OFFLOAD]
 #   )
 #
 # Call ``loki-transform.py convert ...`` with the provided arguments.

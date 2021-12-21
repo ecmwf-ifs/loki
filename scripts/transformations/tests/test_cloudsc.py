@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from conftest import available_frontends
-from loki import execute, OMNI, HAVE_FP
+from loki import execute, OMNI, HAVE_FP, HAVE_OMNI
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
 
@@ -53,14 +53,19 @@ def test_cloudsc(here, frontend):
 
     # Run the produced binaries
     binaries = [
-        ('dwarf-cloudsc-loki-claw-cpu', '2', '16000', '64'),
-        ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
         ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
         ('dwarf-cloudsc-loki-sca', '2', '16000', '32'),
         ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
     ]
+
+    if HAVE_OMNI:
+        # Skip CLAW binaries if we don't have OMNI installed
+        binaries += [
+            ('dwarf-cloudsc-loki-claw-cpu', '2', '16000', '64'),
+            ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
+        ]
 
     failures = {}
     for binary, *args in binaries:
