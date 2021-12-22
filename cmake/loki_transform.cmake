@@ -325,3 +325,66 @@ function( claw_compile )
     )
 
 endfunction()
+
+
+##############################################################################
+# .rst:
+#
+# generate_xmod
+# =============
+#
+# Call OMNI's F_Front on a file to generate its xml-parse tree and, as a
+# side effect, xmod-file.::
+#
+#   generate_xmod(
+#       OUTPUT <xml-file>
+#       SOURCE <source>
+#       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
+#       [DEPENDS <dependency1> [<dependency2> ...]]
+#   )
+#
+# Note that the xmod-file will be located in the first path given to ``XMOD``.
+#
+##############################################################################
+function( generate_xmod )
+
+    set( options )
+    set( oneValueArgs SOURCE OUTPUT )
+    set( multiValueArgs XMOD DEPENDS )
+
+    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
+
+    if( NOT _PAR_OUTPUT )
+        ecbuild_critical( "No OUTPUT given for generate_xmod()" )
+    endif()
+
+    if( NOT _PAR_SOURCE )
+        ecbuild_critical( "No SOURCE given for generate_xmod()" )
+    endif()
+
+    set( _ARGS )
+    list( APPEND _ARGS -fleave-comment )
+
+    if( _PAR_XMOD )
+        foreach( XMOD ${_PAR_XMOD} )
+            list( APPEND _ARGS -M ${XMOD} )
+        endforeach()
+    endif()
+
+    if( TARGET clawfc )
+        get_target_property( _CLAWFC_EXECUTABLE clawfc IMPORTED_LOCATION )
+        get_filename_component( _CLAWFC_LOCATION ${_CLAWFC_EXECUTABLE} DIRECTORY )
+        set( _F_FRONT_EXECUTABLE ${_CLAWFC_LOCATION}/F_Front )
+        list( APPEND _PAR_DEPENDS clawfc )
+    else()
+        set( _F_FRONT_EXECUTABLE F_Front )
+    endif()
+
+    add_custom_command(
+        OUTPUT ${_PAR_OUTPUT}
+        COMMAND ${_F_FRONT_EXECUTABLE} ${_ARGS} -o ${_PAR_OUTPUT} ${_PAR_SOURCE}
+        DEPENDS ${_PAR_SOURCE} ${_PAR_DEPENDS}
+        COMMENT "[OMNI] Pre-processing: ${_PAR_SOURCE}"
+    )
+
+endfunction()
