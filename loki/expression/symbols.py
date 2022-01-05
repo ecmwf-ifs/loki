@@ -6,7 +6,7 @@ import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
 
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
 from loki.expression.mappers import LokiStringifyMapper, ExpressionRetriever
@@ -135,8 +135,8 @@ class TypedSymbol:
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
 
-        self.parent = kwargs.pop('parent', None)
-        assert self.parent is None or isinstance(self.parent, (TypedSymbol, MetaSymbol))
+        self._parent = kwargs.pop('parent', None)
+        assert self._parent is None or isinstance(self._parent, (TypedSymbol, MetaSymbol))
 
         scope = kwargs.pop('scope', None)
         assert scope is None or isinstance(scope, Scope)
@@ -153,8 +153,8 @@ class TypedSymbol:
         elif _type is None:
             # Store deferred type if unknown
             self.scope.symbols[self.name] = SymbolAttributes(BasicType.DEFERRED)
-        elif _type is not self.type:
-            # Update type if differs from stored type
+        elif _type is not self.scope.symbols.lookup(self.name):
+            # Update type if it differs from stored type
             self.scope.symbols[self.name] = _type
 
         super().__init__(*args, **kwargs)
@@ -177,9 +177,72 @@ class TypedSymbol:
         """
         Internal representation of the declared data type.
         """
+        _default_val = None # SymbolAttributes(BasicType.DEFERRED)
         if self.scope is None:
-            return self._type or SymbolAttributes(BasicType.DEFERRED)
-        return self.scope.symbols.lookup(self.name)
+            return self._type or _default_val
+        _type = self.scope.symbols.lookup(self.name)
+        if _type:
+            return _type
+
+        # Try a look-up via parent
+        if self.parent:
+            tdef_var = self.parent.variable_map.get(self.basename)
+            if tdef_var:
+                return tdef_var.type
+        return _default_val
+
+    @property
+    def parent(self):
+        """
+        Parent variable for derived type members
+
+        Returns
+        -------
+        :any:`TypedSymbol` or :any:`MetaSymbol` or `NoneType`
+            The parent variable or None
+        """
+        if not self._parent and '%' in self.name and self.scope:
+            parent_name = self.name_parts[0]
+            parent_type = self.scope.symbols.lookup(parent_name)
+            parent_var = Variable(name=parent_name, scope=self.scope, type=parent_type)
+            for name in self.name_parts[1:-1]:
+                if not parent_var:
+                    return None
+                parent_var = parent_var.variable_map.get(name)  # pylint: disable=no-member
+            self._parent = parent_var
+        return self._parent
+
+    @property
+    def variables(self):
+        """
+        List of member variables in a derived type
+
+        Returns
+        -------
+        tuple of :any:`TypedSymbol` or :any:`MetaSymbol` if derived type variable, else `None`
+            List of member variables in a derived type
+        """
+        _type = self.type
+        if isinstance(_type.dtype, DerivedType):
+            if _type.dtype.typedef is BasicType.DEFERRED:
+                return ()
+            return tuple(
+                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, parent=self)
+                for v in _type.dtype.typedef.variables
+            )
+        return None
+
+    @property
+    def variable_map(self):
+        """
+        Member variables in a derived type variable as a map
+
+        Returns
+        -------
+        dict of (str, :any:`TypedSymbol` or :any:`MetaSymbol`)
+            Map of member variable basenames to variable objects
+        """
+        return CaseInsensitiveDict((v.basename, v) for v in self.variables or ())
 
     @property
     def basename(self):
@@ -188,6 +251,13 @@ class TypedSymbol:
         """
         idx = self.name.rfind('%')
         return self.name[idx+1:]
+
+    @property
+    def name_parts(self):
+        """
+        All name parts with parent qualifiers separated
+        """
+        return self.name.split('%')
 
     def clone(self, **kwargs):
         """
@@ -417,6 +487,30 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         ``INTENT``, ``KIND`` etc.
         """
         return self.symbol.type
+
+    @property
+    def variables(self):
+        """
+        List of member variables in a derived type
+
+        Returns
+        -------
+        tuple of :any:`TypedSymbol` or :any:`MetaSymbol` if derived type variable, else `None`
+            List of member variables in a derived type
+        """
+        return self.symbol.variables
+
+    @property
+    def variable_map(self):
+        """
+        Member variables in a derived type variable as a map
+
+        Returns
+        -------
+        dict of (str, :any:`TypedSymbol` or :any:`MetaSymbol`)
+            Map of member variable basenames to variable objects
+        """
+        return self.symbol.variable_map
 
     @property
     def initial(self):
@@ -650,7 +744,7 @@ class Variable:
 
         if scope is not None and (_type is None or _type.dtype is BasicType.DEFERRED):
             # Try to determine stored type information if we have no or only deferred type
-            stored_type = scope.symbols.lookup(name)
+            stored_type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
             if _type is None:
                 _type = stored_type
             elif stored_type is not None:
@@ -672,38 +766,54 @@ class Variable:
             kwargs.pop('dimensions')
 
         if kwargs.get('dimensions') is not None or (_type and _type.shape):
-            obj = Array(**kwargs)
-        elif _type and _type.dtype is not BasicType.DEFERRED:
-            obj = Scalar(**kwargs)
-        else:
-            obj = DeferredTypeSymbol(**kwargs)
-
-        obj = cls.instantiate_derived_type_variables(obj)
-        return obj
+            return Array(**kwargs)
+        if _type and _type.dtype is not BasicType.DEFERRED:
+            return Scalar(**kwargs)
+        return DeferredTypeSymbol(**kwargs)
 
     @classmethod
-    def instantiate_derived_type_variables(cls, obj):
+    def _get_type_from_scope(cls, name, scope, parent=None):
         """
-        Helper routine to instantiate derived type variables.
+        Helper method to determine the type of a symbol
 
-        This method is called from the class constructor
+        If no entry is found in the scope's symbol table, a lookup via
+        the parent is attempted to construct the type for derived type
+        members.
 
-        For members of a derived type we store type information in the scope
-        the derived type variable is declared. To make sure type information
-        exists for all members of the derived type, this helper routine
-        instantiates these member variables.
+        Parameters
+        ----------
+        name : str
+            The symbol's name
+        scope : :any:`Scope`
+            The scope in which to search for the symbol's type
+        parent : :any:`MetaSymbol` or :any:`TypedSymbol`, optional
+            The symbol's parent (for derived type members)
 
-        The reason this has to be done is that the list of variables stored in
-        the type object of :data:`obj` potentially stems from a :any:`TypeDef`
-        and as such, the variables are referring to a different scope.
+        Returns
+        -------
+        :any:`SymbolAttributes` or `None`
         """
-        if obj.type is not None and isinstance(obj.type.dtype, DerivedType):
-            if obj.type.dtype.typedef is not BasicType.DEFERRED:
-                obj.type.dtype.variables = tuple(v.clone(name='%s%%%s' % (obj.name, v.basename),
-                                                         type=v.type.clone(parent=obj),
-                                                         scope=obj.scope)
-                                                 for v in obj.type.dtype.typedef.variables)
-        return obj
+        # 1. Try to find symbol in scope
+        stored_type = scope.symbols.lookup(name)
+
+        # 2. For derived type members, we can try to find it via the parent instead
+        if '%' in name and (not stored_type or stored_type.dtype is BasicType.DEFERRED):
+            name_parts = name.split('%')
+            if not parent:
+                # Build the parent if not given
+                parent_type = scope.symbols.lookup(name_parts[0])
+                parent = Variable(name=name_parts[0], scope=scope, type=parent_type)
+                for pname in name_parts[1:-1]:
+                    if not parent:
+                        return None
+                    parent = parent.variable_map.get(pname)  # pylint: disable=no-member
+            if parent:
+                # Lookup type in parent's typedef
+                tdef_var = parent.variable_map.get(name_parts[-1])
+                if tdef_var:
+                    return tdef_var.type
+
+        return stored_type
 
 
 class _Literal(pmbl.Leaf):
@@ -1032,7 +1142,8 @@ class LiteralList(ExprMetadataMixin, pmbl.AlgebraicLeaf):
     mapper_method = intern('map_literal_list')
 
     def __getinitargs__(self):
-        return ('[%s]' % (','.join(repr(c) for c in self.elements)),)
+        elements = ','.join(repr(c) for c in self.elements)
+        return (f'[{elements}]',)
 
 
 class Sum(ExprMetadataMixin, StrCompareMixin, pmbl.Sum):
@@ -1073,7 +1184,10 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
     """
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
-        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol))
+        # Unfortunately, have to accept MetaSymbol here for the time being as
+        # rescoping before injecting statement functions may create InlineCalls
+        # with Scalar/Variable function names.
+        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol, MetaSymbol))
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 

@@ -21,16 +21,16 @@ def test_nested_types(frontend):
     types = Sourcefile.from_file(here/'types.f90', definitions=subtypes,
                                  frontend=frontend)['types']
     parent = types.typedefs['parent_type']
-    x = parent.variables[1].type.dtype.variable_map['x']
+    x = parent.variables[1].variable_map['x']
     assert fexprgen(x.shape) == '(size,)'
 
     # Ensure that the driver has the correct shape info for pt%type_member%x
     driver = Sourcefile.from_file(here/'driver.f90', definitions=types, frontend=frontend)['driver']
     pt_d = driver.routines[0].variables[0]
-    x_d = pt_d.type.dtype.variable_map['type_member'].type.dtype.variable_map['x']
+    x_d = pt_d.variable_map['type_member'].variable_map['x']
     assert fexprgen(x_d.shape) == '(size,)'
 
     kernel = Sourcefile.from_file(here/'kernel.f90', definitions=types, frontend=frontend)['kernel']
     pt_k = kernel.routines[0].variables[1]
-    x_k = pt_k.type.dtype.variable_map['type_member'].type.dtype.variable_map['x']
+    x_k = pt_k.variable_map['type_member'].variable_map['x']
     assert fexprgen(x_k.shape) == '(size,)'

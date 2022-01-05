@@ -121,8 +121,8 @@ class SymbolTable(dict):
         -------
         :any:`SymbolAttributes` or `None`
         """
-        name_parts = self.format_lookup_name(name)
-        value = self._lookup_formatted_name(name_parts, recursive)
+        formatted_name = self.format_lookup_name(name)
+        value = self._lookup_formatted_name(formatted_name, recursive)
         return value
 
     def __contains__(self, key):

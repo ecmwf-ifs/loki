@@ -84,8 +84,8 @@ end module a_module
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
-    assert 'array' in pt_ext.type.dtype.variable_map
-    a = pt_ext.type.dtype.variable_map['array']
+    assert 'array' in pt_ext.variable_map
+    a = pt_ext.variable_map['array']
     assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
@@ -181,17 +181,17 @@ end module a_module
 
     # Check that the `array` variable in the `ext` type is found and
     # has correct type and shape info
-    assert 'array' in ext.type.dtype.variable_map
-    a = ext.type.dtype.variable_map['array']
+    assert 'array' in ext.variable_map
+    a = ext.variable_map['array']
     assert a.type.dtype == BasicType.REAL
     assert fexprgen(a.shape) == exptected_array_shape
 
     # Check the routine has got type and shape info too
     routine = module['my_routine']
     pt = routine.variables[0]
-    pt_ext = pt.type.dtype.variable_map['ext']
-    assert 'array' in pt_ext.type.dtype.variable_map
-    pt_ext_a = pt_ext.type.dtype.variable_map['array']
+    pt_ext = pt.variable_map['ext']
+    assert 'array' in pt_ext.variable_map
+    pt_ext_a = pt_ext.variable_map['array']
     assert pt_ext_a.type.dtype == BasicType.REAL
     assert fexprgen(pt_ext_a.shape) == exptected_array_shape
 
@@ -229,8 +229,8 @@ end module type_mod
     module = Module.from_source(fcode, frontend=frontend)
     parent = module.typedefs['parent_type']
     pt = parent.variables[0]
-    assert 'array' in pt.type.dtype.variable_map
-    arr = pt.type.dtype.variable_map['array']
+    assert 'array' in pt.variable_map
+    arr = pt.variable_map['array']
     assert arr.type.dtype == BasicType.REAL
     assert fexprgen(arr.shape) == exptected_array_shape
 
@@ -281,7 +281,7 @@ end module type_mod
     child = module.typedefs['sub_type']
     assert fexprgen(child.variables[0].shape) == '(size,)'
 
-    pt_x = parent.variables[0].type.dtype.variable_map['x']
+    pt_x = parent.variables[0].variable_map['x']
     assert fexprgen(pt_x.shape) == '(size,)'
 
 

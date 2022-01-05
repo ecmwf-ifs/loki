@@ -626,6 +626,8 @@ class AttachScopesMapper(LokiIdentityMapper):
 
     def _update_symbol_scope(self, expr, scope):
         symbol_scope = scope.get_symbol_scope(expr.name)
+        if symbol_scope is None and '%' in expr.name:
+            symbol_scope = scope.get_symbol_scope(expr.name_parts[0])
         if symbol_scope is not None:
             if symbol_scope is not expr.scope:
                 expr = expr.rescope(symbol_scope)

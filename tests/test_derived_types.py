@@ -750,3 +750,79 @@ end module
 
     fcode = fgen(other)
     assert fgen(explicit) == fcode.replace('other', 'explicit')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_linked_list(frontend):
+    """
+    Test correct initialization of derived type members that create a circular
+    dependency
+    """
+    fcode = """
+module derived_type_linked_list
+    implicit none
+
+    type list_t
+        integer :: payload
+        type(list_t), pointer :: next => null()
+    end type list_t
+
+    type(list_t), pointer :: beg => null()
+    type(list_t), pointer :: cur => null()
+
+contains
+
+    subroutine find(val, this)
+        integer, intent(in) :: val
+        type(list_t), pointer, intent(inout) :: this
+        type(list_t), pointer :: x
+        this => null()
+        x => beg
+        do while (associated(x))
+            if (x%payload == val) then
+                this => x
+                return
+            endif
+            x => x%next
+        end do
+    end subroutine find
+end module derived_type_linked_list
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Test correct instantiation and association of module-level variables
+    for name in ('beg', 'cur'):
+        assert name in module.variables
+        assert isinstance(module.variable_map[name].type.dtype, DerivedType)
+        assert module.variable_map[name].type.dtype.typedef is module.typedefs['list_t']
+
+        variables = module.variable_map[name].type.dtype.typedef.variables
+        assert all(v.scope is module.variable_map[name].type.dtype.typedef for v in variables)
+        assert 'payload' in variables
+        assert 'next' in variables
+
+        variables = module.variable_map[name].variables
+        assert all(v.scope is module for v in variables)
+        assert f'{name}%payload' in variables
+        assert f'{name}%next' in variables
+
+    # Test correct instantiation and association of subroutine-level variables
+    routine = module['find']
+    for name in ('this', 'x'):
+        var = routine.variable_map[name]
+        assert var.type.dtype.typedef is module.typedefs['list_t']
+
+        assert 'payload' in var.variable_map
+        assert 'next' in var.variable_map
+        assert all(v.scope is var.scope for v in var.variables)
+
+    # Test on-the-fly creation of variable lists
+    var = routine.variable_map['x']
+    name = 'x'
+    for _ in range(1000):  # Let's chase the next-chain 1000x
+        var = var.variable_map['next']
+        assert var
+        assert var.type.dtype.typedef is module.typedefs['list_t']
+        name = f'{name}%next'
+        assert var.name == name

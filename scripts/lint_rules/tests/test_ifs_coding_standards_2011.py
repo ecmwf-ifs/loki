@@ -94,8 +94,8 @@ end subroutine routine_nesting
     assert all(all(keyword in msg for keyword in keywords) for msg in messages)
 
     for msg, ref_line in zip(messages, lines):
-        assert 'limit of {}'.format(nesting_depth) in msg
-        assert 'l. {}'.format(ref_line) in msg
+        assert f'limit of {nesting_depth}' in msg
+        assert f'l. {ref_line}' in msg
 
 
 def test_module_naming(rules, frontend):
@@ -304,7 +304,7 @@ end subroutine routine_not_okay_e
     assert '(l. 26)' in messages[3]
     assert '(l. 91)' in messages[8]
 
-    assert all('routine_not_okay_{}'.format(letter) in messages[i]
+    assert all(f'routine_not_okay_{letter}' in messages[i]
                for letter, i in (('a', 0), ('c', 4), ('c', 5), ('d', 6), ('e', 7)))
 
 

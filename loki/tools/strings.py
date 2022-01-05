@@ -72,13 +72,13 @@ class JoinableStringList:
         """
         # Let's see if we can fit the current item plus separator
         # onto the line and have enough space left for a line break
-        new_line = '{!s}{!s}'.format(line, item)
+        new_line = f'{line!s}{item!s}'
         if len(new_line) + len(self.cont[0]) <= self.width:
             return new_line, []
 
         # Putting the current item plus separator and potential line break
         # onto the current line exceeds the allowed width: we need to break.
-        item_line = '{!s}{!s}'.format(self.cont[1], item)
+        item_line = f'{self.cont[1]!s}{item!s}'
         item_fits_in_line = len(item_line) + len(self.cont[0]) <= self.width
 
         # First, let's see if we have a JoinableStringList object that we can split up.

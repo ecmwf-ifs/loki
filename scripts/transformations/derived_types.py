@@ -11,7 +11,7 @@ from collections import defaultdict
 from loki import (
     Transformation, FindVariables, FindNodes, Transformer,
     SubstituteExpressions, CallStatement, Variable, SymbolAttributes,
-    DerivedType, BasicType, RangeIndex, as_tuple
+    RangeIndex, as_tuple
 )
 
 
@@ -56,19 +56,18 @@ class DerivedTypeArgumentsTransformation(Transformation):
         candidates = defaultdict(list)
 
         for arg in routine.arguments:
-            if isinstance(arg.type.dtype, DerivedType) and \
-                arg.type.dtype.typedef is not BasicType.DEFERRED:
+            # Get the list of variables declared inside the derived type
+            # (This property is None for non-derived type variables and empty
+            # if we don't have the derived type definition available)
+            arg_variables = as_tuple(arg.variables)
+            if not arg_variables or all(not v.type.pointer and not v.type.allocatable for v in arg.variables):
+                # Skip non-derived types or with no array members
+                continue
 
-                # Skip derived types with no array members
-                if all(not v.type.pointer and not v.type.allocatable
-                       for v in arg.type.dtype.variables):
-                    continue
-
-                # Add candidate type variables, preserving order from the typedef
-                arg_member_vars = set(v.basename.lower() for v in variables
-                                      if v.parent.name.lower() == arg.name.lower())
-                candidates[arg] += [v for v in arg.type.dtype.variables
-                                    if v.basename.lower() in arg_member_vars]
+            # Add candidate type variables, preserving order from the typedef
+            arg_member_vars = set(v.basename.lower() for v in variables
+                                  if v.parent.name.lower() == arg.name.lower())
+            candidates[arg] += [v for v in arg.variables if v.basename.lower() in arg_member_vars]
         return candidates
 
     def flatten_derived_args_caller(self, caller):

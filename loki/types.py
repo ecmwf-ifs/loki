@@ -5,7 +5,6 @@ throughout Loki's :ref:`internal_representation:internal representation`
 
 import weakref
 from enum import IntEnum
-from collections import OrderedDict
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 
@@ -104,10 +103,17 @@ class BasicType(DataType, IntEnum):
 
 class DerivedType(DataType):
     """
-    Representation of derived data types that may have an associated `TypeDef`.
+    Representation of derived data types that may have an associated :any:`TypeDef`
 
-    Please note that the typedef attribute may be of `ir.TypeDef` or `BasicType.DEFERRED`,
-    depending on the scope of the derived type declaration.
+    Please note that the typedef attribute may be of :any:`TypeDef` or
+    :any:`BasicType.DEFERRED`, if the associated type definition is not available.
+
+    Parameters
+    ----------
+    name : str, optional
+        The name of the derived type. Can be omitted if :data:`typedef` is provided
+    typedef : :any:`TypeDef`, optional
+        The definition of the derived type. Takes precedence over :data:`name`
     """
 
     def __init__(self, name=None, typedef=None):
@@ -116,17 +122,9 @@ class DerivedType(DataType):
         self._name = name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED
 
-        # This is intentionally left blank, as the parent variable
-        # generation will populate this, if the typedef is known.
-        self.variables = tuple()
-
     @property
     def name(self):
         return self._name if self.typedef is BasicType.DEFERRED else self.typedef.name
-
-    @property
-    def variable_map(self):
-        return OrderedDict([(v.basename, v) for v in self.variables])
 
     def __str__(self):
         return self.name
