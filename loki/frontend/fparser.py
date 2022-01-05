@@ -528,9 +528,7 @@ class FParser2IR(GenericVisitor):
               :class:`fparser.two.Fortran2003.Type_Param_Value`
             * ')' (str)
         """
-        if o.children[0] == '*':
-            self.warn_or_fail('* specifier for character length not implemented')
-        assert o.children[0] == '(' and o.children[2] == ')'
+        assert o.children[0] == '*' or (o.children[0] == '(' and o.children[2] == ')')
         return self.visit(o.children[1], **kwargs)
 
     def visit_Type_Param_Value(self, o, **kwargs):
@@ -541,8 +539,8 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Type_Param_Value` has only 1 attribute:
           * :attr:`string` : the value of the parameter (str)
         """
-        if o.string == '*':
-            self.warn_or_fail('LEN=* specifier for character length not implemented')
+        if o.string in '*:':
+            return o.string
         return self.visit(o.string, **kwargs)
 
     def visit_Declaration_Type_Spec(self, o, **kwargs):
@@ -596,6 +594,8 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Attr_Spec` has no children
         """
         return (o.tostr().lower(), True)
+
+    visit_Access_Spec = visit_Attr_Spec
 
     visit_Entity_Decl_List = visit_List
 
@@ -734,6 +734,15 @@ class FParser2IR(GenericVisitor):
         if source:
             source = source.clone_with_string(o.string)
         return sym.LiteralList(values=values, source=source)
+
+    def visit_Ac_Implied_Do(self, o, **kwargs):
+        """
+        An implied-do for array constructors
+        """
+        # TODO: implement implied-do
+        return self.visit_Base(o, **kwargs)
+
+    visit_Ac_Implied_Do_Control = visit_Ac_Implied_Do
 
     #
     # DATA statements
@@ -1324,7 +1333,7 @@ class FParser2IR(GenericVisitor):
             values = values[:default_index] + values[default_index+1:]
             bodies = bodies[:default_index] + bodies[default_index+1:]
         else:
-            else_body = None
+            else_body = ()
 
         # Everything past the END ASSOCIATE (should be empty)
         assert not o.children[end_select_stmt_index+1:]
@@ -1594,8 +1603,9 @@ class FParser2IR(GenericVisitor):
         """
         Universal default for ``Base`` FParser-AST nodes
         """
-        self.warn_or_fail(f'No specific handler for node type {o.__class__.name}')
-        children = tuple(self.visit(c, **kwargs) for c in o.items if c is not None)
+        name = getattr(o.__class__, 'name', o.__class__.__name__)
+        self.warn_or_fail(f'No specific handler for node type {name}')
+        children = tuple(self.visit(a, **kwargs) for c in o.items for a in as_tuple(c))
         if len(children) == 1:
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None

@@ -176,7 +176,6 @@ class OFP2IR(GenericVisitor):
         """
         Universal default for XML element types
         """
-        #import pdb; pdb.set_trace()
         children = tuple(self.visit(c, **kwargs) for c in o)
         children = tuple(c for c in children if c is not None)
         if len(children) == 1:
@@ -366,6 +365,8 @@ class OFP2IR(GenericVisitor):
             if o.attrib['hasKind'] == 'true':
                 kind = self.visit(o.find('kind'), **kwargs)
                 _type = _type.clone(kind=kind)
+            if o.find('length'):
+                _type = _type.clone(length=self.visit(o.find('length'), **kwargs))
             return _type
 
         if o.attrib['type'] == 'derived':
@@ -402,6 +403,16 @@ class OFP2IR(GenericVisitor):
 
     def visit_intent(self, o, **kwargs):
         return ('intent', o.attrib['type'].lower())
+
+    def visit_access_spec(self, o, **kwargs):
+        return (o.attrib['keyword'], True)
+
+    def visit_type_param_value(self, o, **kwargs):
+        if o.attrib['hasAsterisk'] == 'true':
+            return '*'
+        if o.attrib['hasColon'] == 'true':
+            return ':'
+        return None
 
     def visit_entity_decl(self, o, **kwargs):
         return sym.Variable(name=o.attrib['id'], source=kwargs['source'])
@@ -552,9 +563,16 @@ class OFP2IR(GenericVisitor):
             target = self.visit(o.find('attribute-target'), **kwargs)
             attrs.update((target,))
 
-        if _type.dtype == BasicType.CHARACTER and o.find('char-selector') is not None:
-            length = self.visit(o[0], **kwargs)
-            attrs['length'] = length
+        if o.find('access-spec') is not None:
+            access_spec = self.visit(o.find('access-spec'), **kwargs)
+            attrs.update((access_spec,))
+
+        if _type.dtype == BasicType.CHARACTER:
+            if _type.length is None and o.find('char-selector') is not None:
+                # For _NO_ good reason, the char-length property seems to be
+                # always the first item (fingers crossed) but it is not identified
+                # by any sensible unique tag...
+                attrs['length'] = self.visit(o[0], **kwargs)
 
         # Then, build the common symbol type for all variables
         _type = _type.clone(**attrs)

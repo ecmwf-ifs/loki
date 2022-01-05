@@ -271,3 +271,33 @@ end module my_types_mod
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbols['arg_b%a'].shape == (':',)
     assert routine.symbols['arg_b%b'].shape == (':',':')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_char_length(frontend):
+    """
+    Test the various beautiful ways of how Fortran allows to specify
+    character lengths
+    """
+    fcode = """
+subroutine test_type_char_length
+    implicit none
+    character*80  :: kill_it_with_fire
+    character(60) :: if_you_insist
+    character(len=21) :: okay
+    character(len=*) :: oh_dear
+    character(len=:) :: come_on
+end subroutine test_type_char_length
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert routine.variable_map['kill_it_with_fire'].type.length == '80'
+    assert routine.variable_map['if_you_insist'].type.length == '60'
+    assert routine.variable_map['okay'].type.length == '21'
+    assert routine.variable_map['oh_dear'].type.length == '*'
+    assert routine.variable_map['come_on'].type.length == ':'
+
+    code = routine.to_fortran()
+    for length in ('80', '60', '21', '*', ':'):
+        assert f'CHARACTER(LEN={length}) ::' in code
