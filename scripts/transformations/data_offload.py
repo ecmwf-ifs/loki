@@ -123,9 +123,9 @@ class DataOffloadTransformation(Transformation):
                     return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
 
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                copyin = '!$acc & copyin(' + _pragma_string(inargs) + ')'
-                copy = '!$acc & copy(' + _pragma_string(inoutargs) + ')'
-                copyout = '!$acc & copyout(' + _pragma_string(outargs) + ')'
+                copyin = '!$acc & copyin(' + _pragma_string(inargs) + ')' if inargs else ''
+                copy = '!$acc & copy(' + _pragma_string(inoutargs) + ')' if inoutargs else ''
+                copyout = '!$acc & copyout(' + _pragma_string(outargs) + ')' if outargs else ''
                 pragma = Pragma(keyword='acc', content=f'data &\n{copyin} &\n{copy} &\n{copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
