@@ -198,13 +198,20 @@ def timeit(log_level=INFO, getter=None):
 
 def execute(command, silent=True, **kwargs):
     """
-    Execute a single command within a given director or envrionment.
+    Execute a single command within a given directory or environment
 
-    Parameters:
-    ===========
-    ``command``: String or list of strings with the command to execute
-    ``silent``: Silences output by redirecting stdout/stderr (default: ``True``)
-    ``cwd`` Directory in which to execute command (will be stringified)
+    Parameters
+    ----------
+    command` : str or list of str
+        The command to execute
+    silent : bool, optional
+        Suppress output by redirecting stdout/stderr (default: `True`)
+    stdout : file object, optional
+        Redirect stdout to this file object (Note: :data:`silent` overwrites this)
+    stderr : file object, optional
+        Redirect stdout to this file object (Note: :data:`silent` overwrites this)
+    cwd : str or :any:`Path`
+        Directory in which to execute :data:`command` (will be stringified)
     """
 
     cwd = kwargs.pop('cwd', None)
@@ -224,8 +231,17 @@ def execute(command, silent=True, **kwargs):
     try:
         return run(command, check=True, cwd=cwd, **kwargs)
     except CalledProcessError as e:
-        error('Execution failed with:')
-        error(str(e.output))
+        command_str = ' '.join(command)
+        error(f'Error: Execution of {command[0]} failed:')
+        error(f'  Full command: {command_str}')
+        output_str = ''
+        if e.stdout:
+            output_str += e.stdout.decode() if isinstance(e.stdout, bytes) else e.stdout
+        if e.stderr:
+            output_str += '\n'
+            output_str += e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr
+        if output_str:
+            error(f'  Output of the command:\n\n{output_str}')
         raise e
 
 
