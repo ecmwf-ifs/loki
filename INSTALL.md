@@ -6,9 +6,9 @@ to create a Loki-specific virtual environment. The provided install script will 
 
 ## Requirements
 
-- Python 3.6+ with virtualenv and pip
+- Python 3.6+ (3.8 recommended) with virtualenv and pip
 - For OpenFortranParser/OMNI+CLAW:
-  - JDK 1.8+ with ant (can be installed using the install script)
+  - JDK 1.8+ with ant (can be installed using the install script or ecbuild)
   - libxml2 (with headers)
 - For graphical output from the scheduler: graphviz
 
@@ -59,6 +59,39 @@ To update the installation (e.g., to add JDK), the existing virtual environment 
 ./install --with-claw --with-jdk --with-ant --use-venv=loki_env
 ```
 
+## Installation using CMake/ecbuild
+
+Loki and dependencies (excluding OpenFortranParser) can be installed using [ecbuild](https://github.com/ecmwf/ecbuild) (a set of CMake macros and a wrapper around CMake).
+This requires ecbuild 3.4+ and CMake 3.17+.
+
+```bash
+ecbuild <path-to-loki>
+```
+
+It creates a virtual environment and downloads OpenJDK and Ant on-demand if no up-to-date versions have been found.
+This installation method is particularly handy when used as a subproject of a larger CMake build.
+When used this way, it exports a number of CMake functions that can then be used elsewhere:
+
+- ``loki_transform_convert``: A wrapper for calls to ``loki-transform.py`` in ``convert`` mode that takes care of automatically setting path and environment.
+- ``loki_transform_transpile``: A wrapper for calls to ``loki-transform.py`` in ``transpile`` mode that takes care of automatically setting path and environment.
+- ``claw_compile``: A wrapper for calls to ``clawfc`` that takes care of automatically setting path and environment.
+
+## Installation as part of a bundle
+
+Loki being installable by CMake/ecbuild makes it easy to integrate with [ecbundle](https://github.com/ecmwf/ecbundle).
+Simply add the following to your ``bundle.yml``:
+
+```yaml
+projects :
+
+  # ...other projects ...
+
+  - loki :
+    git     : ${BITBUCKET}/rdx/loki
+    version : master
+
+```
+
 ## Manual installation
 
 The following uses a virtual environment to install Loki on your local machine. You can create an empty directory and copy-paste the following steps to obtain a working version:
@@ -66,7 +99,7 @@ The following uses a virtual environment to install Loki on your local machine. 
 ### 1. Clone the Loki repository
 
 ```bash
-git clone ssh://git@git.ecmwf.int/~naml/loki.git
+git clone ssh://git@git.ecmwf.int/rdx/loki.git
 ```
 
 ### 2. Create and activate virtual environment
@@ -74,25 +107,21 @@ git clone ssh://git@git.ecmwf.int/~naml/loki.git
 ```bash
 python3 -m venv loki_env
 source loki_env/bin/activate
-pip install --upgrade pip
 ```
 
 ### 3.  Install Loki and Python dependencies
+
 ```bash
 pushd loki
-pip install numpy
-pip install -r requirements.txt
-pip install -e .
+pip install -e .[tests]
 popd
 ```
 
 ### 4.  Install CLAW with OMNI compiler
 
 ```bash
-git clone --recursive https://github.com/claw-project/claw-compiler.git
+git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
 pushd claw-compiler
-# Fix ant-file with working version of ivy:
-sed -i.bak 's/src="https:\/\/repo1.maven.org\/maven2\/org\/apache\/ivy\/ivy\/2.3.0\/ivy-2.3.0.jar"/src="https:\/\/repo1.maven.org\/maven2\/org\/apache\/ivy\/ivy\/2.5.0\/ivy-2.5.0.jar"/g' cx2t/common-targets.xml 
 mkdir build
 pushd build
 # Now build and install CLAW in the venv:
@@ -104,7 +133,9 @@ popd
 ```
 
 ### 5.  Install OpenFortranParser (OFP)
+
 ```bash
+pip install -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
 # Fix version number in OFP to enable download of dependencies:
 echo "VERSION = '0.5.3'" > loki_env/src/open-fortran-parser/open_fortran_parser/_version.py
 python3 -m open_fortran_parser --deps
