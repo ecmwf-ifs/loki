@@ -27,16 +27,18 @@ def fixture_bundle_create(here):
     skip=[(OMNI, 'OMNI needs FParser for parsing dependencies')] if not HAVE_FP else None
 ))
 def test_cloudsc(here, frontend):
-    # FIXME: We temporarily throttle the build to a single
-    # build-thread to avoid a race condition among loki invocations of
-    # the various build targets for OMNI and OFP frontends. Once fixed
-    # we should remove this!
     build_cmd = [
-        './cloudsc-bundle', 'build', '--verbose', '--clean', '-j 1', '--with-hdf5',
-        '--with-loki', '--loki-frontend=' + str(frontend),
+        './cloudsc-bundle', 'build', '--verbose', '--clean', '--with-hdf5',
+        '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
         '--cmake="ENABLE_ACC=OFF"'
     ]
+
+    # FIXME: We temporarily throttle the build to a single
+    # build-thread to avoid a race condition among loki invocations of
+    # the various build targets for OMNI. Once fixed we should remove this!
+    if frontend == OMNI:
+        build_cmd += ['-j1']
 
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
