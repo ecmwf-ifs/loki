@@ -2,9 +2,11 @@
 Unit tests for utility functions and classes in loki.tools.
 """
 
+import sys
 import operator as op
 from contextlib import contextmanager
 from pathlib import Path
+from subprocess import CalledProcessError
 import pytest
 
 try:
@@ -13,9 +15,10 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+from conftest import stdchannel_is_captured, stdchannel_redirected
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
-    optional, yaml_include_constructor
+    optional, yaml_include_constructor, execute
 )
 
 
@@ -250,3 +253,48 @@ main: !include {main_path}
 
     include_path.unlink()
     main_path.unlink()
+
+
+def test_execute(here, capsys):
+
+    testfile = here/'test_execute.txt'
+    testfile.unlink(missing_ok=True)
+
+    # Failure with no output
+    cmd = 'false'
+    if stdchannel_is_captured(capsys):
+        with pytest.raises(CalledProcessError):
+            execute(cmd)
+    else:
+        with capsys.disabled():
+            with stdchannel_redirected(sys.stdout, testfile):
+                with stdchannel_redirected(sys.stderr, testfile):
+                    with pytest.raises(CalledProcessError):
+                        execute(cmd)
+
+        assert 'Execution of false failed' in testfile.read_text()
+        assert 'Full command: false' in testfile.read_text()
+        assert 'Output of the command:' not in testfile.read_text()
+        testfile.unlink()
+
+    # Failure with output
+    cmd = ['cat', '/not/a/file']
+    if stdchannel_is_captured(capsys):
+        with pytest.raises(CalledProcessError):
+            execute(cmd)
+    else:
+        with capsys.disabled():
+            with stdchannel_redirected(sys.stdout, testfile):
+                with stdchannel_redirected(sys.stderr, testfile):
+                    with pytest.raises(CalledProcessError):
+                        execute(cmd)
+
+        assert 'Execution of cat failed' in testfile.read_text()
+        assert f'Full command: {" ".join(cmd)}' in testfile.read_text()
+        assert 'Output of the command:' in testfile.read_text()
+        assert 'No such file or directory' in testfile.read_text()
+        testfile.unlink()
+
+    # Success
+    cmd = 'true'
+    execute(cmd)

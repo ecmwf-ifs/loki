@@ -34,12 +34,6 @@ def test_cloudsc(here, frontend):
         '--cmake="ENABLE_ACC=OFF"'
     ]
 
-    # FIXME: We temporarily throttle the build to a single
-    # build-thread to avoid a race condition among loki invocations of
-    # the various build targets for OMNI. Once fixed we should remove this!
-    if frontend == OMNI:
-        build_cmd += ['-j1']
-
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
 
