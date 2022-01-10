@@ -2,7 +2,7 @@ from io import StringIO
 import pytest
 
 from conftest import available_frontends
-from loki import Module, Subroutine, FindNodes, flatten, pprint
+from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
 from loki.ir import Pragma, Loop, Declaration, PragmaRegion
 from loki.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
@@ -527,3 +527,36 @@ end subroutine test_tools_pragmas_attached_region
     assert loops_after == loops
     assert all(loop.pragma is None for loop in loops_after)
     assert len(FindNodes(Pragma).visit(routine.body)) == 7
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_long_pragmas(frontend):
+    """
+    Test correct dealing with long pragmas.
+    """
+    fcode = """
+subroutine test_long_pragmas(in, out, n)
+  implicit none
+  real, intent(in) :: in(:)
+  real, intent(out) :: out(:)
+  real :: some_very_long_temporary_variable_name, some_even_longer_variable_name, another_variable_name
+  real :: even_more_variable_name, really_really_i_mean_we_need_like_a_lot
+  integer, intent(in) :: n
+  integer :: i
+
+  !$acc data &
+  !$acc   copyin(some_very_long_temporary_variable_name, some_even_longer_variable_name) &
+  !$acc   copy(another_variable_name, even_more_variable_name, really_really_i_mean_we_need_like_a_lot) &
+  !$acc   copyout(out)
+
+  do i=1,n
+    out(i) = in(i)
+  end do
+
+  !$acc end data
+end subroutine test_long_pragmas
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    for line in fgen(routine).splitlines():
+        assert len(line) < 135

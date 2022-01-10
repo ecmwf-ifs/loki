@@ -54,9 +54,9 @@ def test_data_offload_region_openacc(frontend):
     assert len(FindNodes(Pragma).visit(driver.body)) == 2
     assert all(p.keyword == 'acc' for p in FindNodes(Pragma).visit(driver.body))
     transformed = driver.to_fortran()
-    assert 'copyin(a)' in transformed
-    assert 'copy(b)' in transformed
-    assert 'copyout(c)' in transformed
+    assert 'copyin( a )' in transformed
+    assert 'copy( b )' in transformed
+    assert 'copyout( c )' in transformed
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -127,7 +127,6 @@ def test_data_offload_region_complex_remove_openmp(frontend):
         assert len(FindNodes(Pragma).visit(regions[0])) == 0
 
     transformed = driver.to_fortran()
-    assert 'copyin(a)' in transformed
-    assert 'copy(b, c)' in transformed
-    assert 'copyout()' in transformed
+    assert 'copyin( a )' in transformed
+    assert 'copy( b, c )' in transformed
     assert '!$omp' not in transformed

@@ -3,9 +3,11 @@ from pymbolic.mapper.stringifier import (
 )
 
 from loki.visitors import Stringifier
-from loki.tools import as_tuple
+from loki.tools import as_tuple, flatten, JoinableStringList
 from loki.expression import LokiStringifyMapper
 from loki.types import BasicType, DerivedType, ProcedureType
+from loki.pragma_utils import get_pragma_parameters
+
 
 __all__ = ['fgen', 'fexprgen', 'FortranCodegen', 'FCodeMapper']
 
@@ -224,7 +226,19 @@ class FortranCodegen(Stringifier):
         Format pragmas.
         """
         if o.content is not None:
-            return self.format_line('!$', o.keyword, ' ', o.content, no_wrap=True, no_indent=True)
+            # Deconstruct and re-assemble pragma from parameters
+            line_cont = f' &\n!${o.keyword} & '
+            items = [f'!${o.keyword}']
+            for k, v in get_pragma_parameters(o, only_loki_pragmas=False).items():
+                items += [k + '(' if v else k]
+                if v:
+                    # Need to additionally filter all old line continuations
+                    items += list(v.replace('&', '').strip().split())
+                    items += [')']
+
+            # Ensure '!$<keyword> &' line continuation in final string
+            return str(JoinableStringList(items, sep=' ', width=self.linewidth,
+                                          cont=line_cont, separable=True))
         return o.source.string
 
     def visit_CommentBlock(self, o, **kwargs):
