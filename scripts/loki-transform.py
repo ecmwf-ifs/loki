@@ -358,15 +358,13 @@ class CMakePlanner(Transformation):
               help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(),
               help='Root path to which all paths are relative to.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni', 'fp']),
-              help='Frontend parser to use (default OFP)')
+@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
+              help='Frontend parser to use (default FP)')
 @click.option('--callgraph', '-cg', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
-@click.option('--cmake_file', type=click.Path(),
-              help='CMake include file to generate.')
-def plan(mode, config, header, source, build, root, include, frontend, callgraph, cmake_file):
+@click.option('--plan-file', type=click.Path(),
+              help='CMake "plan" file to generate.')
+def plan(mode, config, header, source, build, root, frontend, callgraph, plan_file):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
@@ -376,7 +374,7 @@ def plan(mode, config, header, source, build, root, include, frontend, callgraph
     config = SchedulerConfig.from_file(config)
 
     frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.OFP if frontend == Frontend.OMNI else frontend
+    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
 
     headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
     definitions = flatten(h.modules for h in headers)
@@ -389,7 +387,7 @@ def plan(mode, config, header, source, build, root, include, frontend, callgraph
     # Generate a cmake include file to tell CMake what we're gonna do!
     planner = CMakePlanner(rootpath=root, config=scheduler.config, mode=mode, build=build)
     scheduler.process(transformation=planner)
-    planner.write_planfile(cmake_file)
+    planner.write_planfile(plan_file)
 
     # Output the resulting callgraph
     if callgraph:
@@ -443,15 +441,14 @@ class DrHookTransformation(Transformation):
               help='Path to source files to transform.')
 @click.option('--build', '-s', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
 @click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default OFP)')
-def ecphys(mode, config, header, source, build, include, frontend):
+def ecphys(mode, config, header, source, build, frontend):
     """
-    Physics bulk-processing option that employs a :class:`Scheduler` to apply
-    source-to-source transformations, such as the Single Column Abstraction (SCA),
-    to large sets of interdependent subroutines.
+    Physics bulk-processing option that employs a :class:`Scheduler`
+    to apply IFS-specific source-to-source transformations, such as
+    the SCC ("Single Column Coalesced") transformations, to large sets
+    of interdependent subroutines.
     """
 
     info('[Loki] Bulk-processing physics using config: %s ', config)
