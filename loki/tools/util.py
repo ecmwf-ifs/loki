@@ -1,3 +1,4 @@
+import sys
 import time
 import operator as op
 import weakref
@@ -21,7 +22,7 @@ from loki.logging import log, debug, error, INFO
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
            'execute', 'CaseInsensitiveDict', 'strip_inline_comments',
            'binary_insertion_sort', 'cached_func', 'optional', 'LazyNodeLookup',
-           'yaml_include_constructor']
+           'yaml_include_constructor', 'auto_post_mortem_debugger']
 
 
 def as_tuple(item, type=None, length=None):
@@ -536,3 +537,26 @@ def yaml_include_constructor(loader, node):
             raise e
 
     return content
+
+
+def auto_post_mortem_debugger(type, value, tb):  # pylint: disable=redefined-builtin
+    """
+    Exception hook that automatically attaches a debugger
+
+    Activate by setting ``sys.excepthook = auto_post_mortem_debugger``
+
+    Adapted from https://code.activestate.com/recipes/65287/
+    """
+    is_interactive = hasattr(sys, 'ps1')
+    no_tty = not sys.stderr.isatty() or not sys.stdin.isatty() or not sys.stdout.isatty()
+    if is_interactive or no_tty or type == SyntaxError:
+        # we are in interactive mode or we don't have a tty-like
+        # device, so we call the default hook
+        sys.__excepthook__(type, value, tb)
+    else:
+        import traceback # pylint: disable=import-outside-toplevel
+        import pdb # pylint: disable=import-outside-toplevel
+        # we are NOT in interactive mode, print the exception...
+        traceback.print_exception(type, value, tb)
+        # ...then start the debugger in post-mortem mode.
+        pdb.post_mortem(tb) # more "modern"
