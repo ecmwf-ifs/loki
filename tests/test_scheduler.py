@@ -45,7 +45,7 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, FP, OFP, HAVE_FP, HAVE_OFP,
+    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP, HAVE_FP, HAVE_OFP,
     Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
 )
 
@@ -587,3 +587,61 @@ def test_scheduler_missing_files(here, config, frontend):
     # Ensure that the missing items are not in the graph
     assert 'routine_one' not in scheduler.items
     assert 'routine_two' not in scheduler.items
+
+
+def test_scheduler_dependencies_ignore(here, config, frontend):
+    """
+    Test multi-lib trnasformation by applying the :any:`DependencyTransformation`
+    over two distinct projects with two distinc invocations.
+
+    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
+                         |
+    projB:          ext_driver -> ext_kernel
+    """
+    projA = here/'sources/projA'
+    projB = here/'sources/projB'
+
+    configA = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'routine': [
+            {'name': 'driverB', 'role': 'driver'},
+            {'name': 'kernelB', 'ignore': ['ext_driver']},
+        ]
+    })
+
+    configB = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'routine': [
+            {'name': 'ext_driver', 'role': 'kernel'}
+        ]
+    })
+
+    schedulerA = Scheduler(paths=[projA, projB], includes=projA/'include', config=configA, frontend=frontend)
+    schedulerA.populate(routines=configA.routines.keys())
+
+    schedulerB = Scheduler(paths=projB, includes=projB/'include', config=configB, frontend=frontend)
+    schedulerB.populate(routines=configB.routines.keys())
+
+    assert all(n in schedulerA.items for n in ['driverB', 'kernelB', 'compute_l1', 'compute_l2'])
+    assert 'ext_driver' not in schedulerA.items
+    assert 'ext_kernels' not in schedulerA.items
+
+    assert all(n in schedulerB.items for n in ['ext_driver', 'ext_kernel'])
+
+    # Apply dependency injection transformation and ensure only the root driver is not transformed
+    dependency = DependencyTransformation(suffix='_test', mode='module', module_suffix='_mod')
+    schedulerA.process(transformation=dependency)
+
+    assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
+    assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
+    assert schedulerA.items[2].source.all_subroutines[0].name == 'compute_l1_test'
+    assert schedulerA.items[3].source.all_subroutines[0].name == 'compute_l2_test'
+
+    # For the second target lib, we want the driver to be converted
+    schedulerB.process(transformation=dependency)
+
+    # Repeat processing to ensure DependencyTransform is idempotent
+    schedulerB.process(transformation=dependency)
+
+    assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
+    assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'
