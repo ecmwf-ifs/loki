@@ -108,12 +108,12 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = kwargs.get('targets', None)
-        targets = [str(t).upper() for t in as_tuple(targets)] if targets else []
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
-            targets += [str(i).upper() for i in item.ignore] if item.ignore else []
+            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if targets is None or call.name in targets:
@@ -126,13 +126,12 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = kwargs.get('targets', None)
-        if targets is not None:
-            targets = as_tuple(str(t).upper() for t in as_tuple(targets))
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
 
         if self.replace_ignore_items:
             item = kwargs.get('item', None)
-            targets += as_tuple(str(i).upper() for i in item.ignore) if item.ignore else ()
+            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
 
         # Transformer map to remove any outdated imports
         removal_map = {}
@@ -208,7 +207,8 @@ class DependencyTransformation(Transformation):
         """
         Wrap target subroutines in modules and replace in source file.
         """
-        targets = kwargs.get('targets', None)
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
         item = kwargs.get('item', None)
 
         module_routines = [r for r in sourcefile.all_subroutines
@@ -216,12 +216,19 @@ class DependencyTransformation(Transformation):
 
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
-                if routine.name.lower() == item.name.lower() or routine.name in targets:
-                    # Create wrapper module and insert into file
-                    modname = f'{routine.name}{self.module_suffix}'
-                    module = Module(name=modname, routines=[routine])
-                    sourcefile._modules += (module, )
+                # Skip member functions
+                if item and routine.name.lower() != item.name.lower():
+                    continue
 
-                    # Remove old standalone routine
-                    sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
-                                                    if r is not routine)
+                # Skip internal utility routines too
+                if routine.name.upper() in targets:
+                    continue
+
+                # Create wrapper module and insert into file
+                modname = f'{routine.name}{self.module_suffix}'
+                module = Module(name=modname, routines=[routine])
+                sourcefile._modules += (module, )
+
+                # Remove old standalone routine
+                sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
+                                                if r is not routine)
