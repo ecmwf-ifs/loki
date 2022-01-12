@@ -11,7 +11,7 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple
+    Frontend, as_tuple, auto_post_mortem_debugger
 )
 
 # Get generalized transformations provided by Loki
@@ -85,8 +85,12 @@ class IdemTransformation(Transformation):
 
 
 @click.group()
-def cli():
-    pass
+@click.option('--debug/--no-debug', default=False, show_default=True,
+              help=('Enable / disable debug mode. This automatically attaches '
+                    'a debugger when exceptions occur'))
+def cli(debug):
+    if debug:
+        sys.excepthook = auto_post_mortem_debugger
 
 
 @cli.command()
