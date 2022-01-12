@@ -15,32 +15,42 @@ __all__ = ['DependencyTransformation']
 
 class DependencyTransformation(Transformation):
     """
-    Basic `Transformation` class that facilitates dependency injection
-    for transformed `Modules` and `Subroutines` into complex source
-    trees. It does so by appending a provided `suffix` argument to
-    transformed subroutine and module objects and changing the target
-    names of `Import` and `CallStatement` nodes on the call-site
-    accordingly.
+    Basic :any:`Transformation` class that facilitates dependency
+    injection for transformed :any:`Modules` and :any:`Subroutines`
+    into complex source trees. It does so by appending a provided
+    ``suffix`` argument to transformed subroutine and module objects
+    and changing the target names of :any:`Import` and
+    :any:`CallStatement` nodes on the call-site accordingly.
 
-    :param suffix: The suffix to apply during renaming
-    :param mode: The injection mode to use; either `'strict'` or `'module'`
-    :param module_suffix: Special suffix to signal module names like `_MOD`
-    :param include path: Directory for generating additional header files
+    Parameters
+    ----------
+    suffix : str
+        The suffix to apply during renaming
+    mode : str
+        The injection mode to use; either `'strict'` or `'module'`
+    module_suffix : str
+        Special suffix to signal module names like `_MOD`
+    include path : path
+        Directory for generating additional header files
+    replace_ignore_items : bool
+        Debug flag to toggle the replacement of calls to subroutines
+        in the ``ignore``. Default is ``True``.
 
-    The `DependencyTransformation` provides two `mode` options:
-      * `strict` honors dependencies via C-style headers
-      * `module` replaces C-style header dependencies with explicit module imports
+    The :any:`DependencyTransformation` provides two ``mode`` options:
+      * ``strict`` honors dependencies via C-style headers
+      * ``module`` replaces C-style header dependencies with explicit
+        module imports
 
     When applying the transformation to a source object, one of two
-    "roles" can be specified via the `role` keyword:
-      * `driver`: Only renames imports and calls to kernel routines
-      * `kernel`: Renames routine or enclosing modules, as well as
+    "roles" can be specified via the ``role`` keyword:
+      * ``driver``: Only renames imports and calls to kernel routines
+      * ``kernel``: Renames routine or enclosing modules, as well as
                   renaming any further imports and calls.
 
-    Note that `routine.apply(transformation, role='driver')` entails that the
-    `routine` still mimicks its original counterpart and can therefore be used
-    as a drop-in replacement during compilation that then diverts the
-    dependency tree to the modified sub-tree.
+    Note that ``routine.apply(transformation, role='driver')`` entails
+    that the ``routine`` still mimicks its original counterpart and
+    can therefore be used as a drop-in replacement during compilation
+    that then diverts the dependency tree to the modified sub-tree.
     """
 
     def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,
