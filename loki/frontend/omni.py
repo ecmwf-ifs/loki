@@ -188,29 +188,60 @@ class OMNI2IR(GenericVisitor):
         return children if len(children) > 0 else None
 
     def visit_FuseDecl(self, o, **kwargs):
+        # No ONLY list
         name = o.attrib['name']
-        module = self.definitions.get(name, None)
         scope = kwargs['scope']
+
+        # Rename list
+        rename_list = dict(self.visit(s, **kwargs) for s in o.findall('rename'))
+
+        module = self.definitions.get(name, None)
         if module is not None:
+            # Import symbol attributes from module, if available
             for k, v in module.symbols.items():
-                scope.symbols[k] = v.clone(imported=True, module=module)
-        return ir.Import(module=name, c_import=False, source=kwargs['source'])
+                if k in rename_list:
+                    local_name = rename_list[k].name
+                    scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                else:
+                    scope.symbols[k] = v.clone(imported=True, module=module)
+        elif rename_list:
+            # Module not available but some information via rename-list
+            scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+        rename_list = tuple(rename_list.items()) if rename_list else None
+        return ir.Import(module=name, rename_list=rename_list, c_import=False, source=kwargs['source'])
 
     def visit_FuseOnlyDecl(self, o, **kwargs):
+        # ONLY list given (import only selected symbols)
         name = o.attrib['name']
+        scope = kwargs['scope']
         symbols = tuple(self.visit(c, **kwargs) for c in o.findall('renamable'))
         module = self.definitions.get(name, None)
-        scope = kwargs['scope']
         if module is None:
-            scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
-        else:
+            # Initialize symbol attributes as DEFERRED
             for s in symbols:
-                scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
-        symbols = tuple(s.clone(scope=scope) for s in symbols)
+                if isinstance(s, tuple):  # Renamed symbol
+                    scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                else:
+                    scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+        else:
+            # Import symbol attributes from module
+            for s in symbols:
+                if isinstance(s, tuple):  # Renamed symbol
+                    scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                                                                          use_name=s[0])
+                else:
+                    scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+        symbols = tuple(
+            s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
+        )
         return ir.Import(module=name, symbols=symbols, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
+        if o.attrib['local_name']:
+            return (o.attrib['use_name'], sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
         return sym.Variable(name=o.attrib['use_name'], source=kwargs['source'])
+
+    visit_rename = visit_renamable
 
     def visit_FinterfaceDecl(self, o, **kwargs):
         # TODO: We can only deal with interface blocks partially

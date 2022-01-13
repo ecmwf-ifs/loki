@@ -715,30 +715,61 @@ class OFP2IR(GenericVisitor):
         name, module = self.visit(o.find('use-stmt'), **kwargs)
         scope = kwargs['scope']
         if o.find('only') is not None:
+            # ONLY list given (import only selected symbols)
             symbols = self.visit(o.find('only'), **kwargs)
+            # No rename-list
+            rename_list = None
             if module is None:
-                scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
+                # Initialize symbol attributes as DEFERRED
+                for s in symbols:
+                    if isinstance(s, tuple):  # Renamed symbol
+                        scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                    else:
+                        scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
             else:
-                scope.symbols.update({s.name: module.symbols[s.name].clone(imported=True, module=module)
-                                      for s in symbols})
-            symbols = tuple(s.clone(scope=scope) for s in symbols)
+                # Import symbol attributes from module
+                for s in symbols:
+                    if isinstance(s, tuple):  # Renamed symbol
+                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                                                                              use_name=s[0])
+                    else:
+                        scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+            symbols = tuple(
+                s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
+            )
         else:
             # No ONLY list
             symbols = None
-            # Import all symbols
+            # Rename list
+            rename_list = dict(self.visit(s, **kwargs) for s in o.findall('rename/rename'))
             if module is not None:
-                scope.symbols.update({k: v.clone(imported=True, module=module) for k, v in module.symbols.items()})
-        return ir.Import(module=name, symbols=symbols, label=kwargs['label'], source=kwargs['source'])
+                # Import symbol attributes from module, if available
+                for k, v in module.symbols.items():
+                    if k in rename_list:
+                        local_name = rename_list[k].name
+                        scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                    else:
+                        scope.symbols[k] = v.clone(imported=True, module=module)
+            elif rename_list:
+                # Module not available but some information via rename-list
+                scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+            rename_list = tuple(rename_list.items()) if rename_list else None
+        return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
+                         label=kwargs['label'], source=kwargs['source'])
 
     def visit_only(self, o, **kwargs):
-        return tuple(self.visit(c, **kwargs) for c in o.findall('name'))
+        return tuple(self.visit(c, **kwargs) for c in o if c.tag in ('name', 'rename'))
+
+    def visit_rename(self, o, **kwargs):
+        if o.attrib['defOp1'] or o.attrib['defOp2']:
+            self.warn_or_fail('OPERATOR in rename-list not yet implemented')
+            return ()
+        return (o.attrib['id2'], sym.Variable(name=o.attrib['id1'], source=kwargs['source']))
 
     def visit_use_stmt(self, o, **kwargs):
         name = o.attrib['id']
         if o.attrib['hasModuleNature'] != 'false':
             self.warn_or_fail('module nature in USE statement not implemented')
-        if o.attrib['hasRenameList'] != 'false':
-            self.warn_or_fail('rename-list in USE statement not implemented')
         return name, self.definitions.get(name)
 
     def visit_directive(self, o, **kwargs):

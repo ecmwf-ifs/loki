@@ -407,35 +407,41 @@ class FParser2IR(GenericVisitor):
         if o.children[3] == '' or o.children[3] == ',':
             # No ONLY list (import all)
             symbols = None
+            # Rename list
             if o.children[4]:
-                # Rename list
                 rename_list = dict(self.visit(o.children[4], **kwargs))
             else:
                 rename_list = {}
             if module is not None:
+                # Import symbol attributes from module, if available
                 for k, v in module.symbols.items():
                     if k in rename_list:
                         local_name = rename_list[k].name
                         scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
                     else:
                         scope.symbols[k] = v.clone(imported=True, module=module)
+            elif rename_list:
+                # Module not available but some information via rename-list
+                scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
             rename_list = tuple(rename_list.items()) if rename_list else None
         elif o.children[3] == ', ONLY:':
             # ONLY list given (import only selected symbols)
             symbols = () if o.children[4] is None else self.visit(o.children[4], **kwargs)
+            # No rename-list
             rename_list = None
             if module is None:
+                # Initialize symbol attributes as DEFERRED
                 for s in symbols:
-                    if isinstance(s, tuple):
-                        # Renamed symbol
+                    if isinstance(s, tuple):  # Renamed symbol
                         scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
                     else:
                         scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
             else:
+                # Import symbol attributes from module
                 for s in symbols:
-                    if isinstance(s, tuple):
-                        # Renamed symbol
-                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module, use_name=s[0])
+                    if isinstance(s, tuple):  # Renamed symbol
+                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                                                                              use_name=s[0])
                     else:
                         scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
             symbols = tuple(
@@ -462,7 +468,7 @@ class FParser2IR(GenericVisitor):
               :class:`fparser.two.Fortran2003.Use_Defined_Operator`
         """
         if o.children[0] == 'OPERATOR':
-            warning('OPERATOR in rename-list not yet implemented')
+            self.warn_or_fail('OPERATOR in rename-list not yet implemented')
             return ()
         assert o.children[0] is None
         return (str(o.children[2]), self.visit(o.children[1], **kwargs))

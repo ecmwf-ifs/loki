@@ -4,7 +4,7 @@ from conftest import available_frontends
 from loki import (
     OMNI, Module, Subroutine, Declaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
-    Transformer, fgen, SymbolAttributes, Variable
+    Transformer, fgen, SymbolAttributes, Variable, Import
 )
 
 
@@ -561,7 +561,7 @@ end module test_access_spec_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_rename_imports(frontend):
+def test_module_rename_imports_with_definitions(frontend):
     """
     Test use statement with rename lists
     """
@@ -619,10 +619,88 @@ end module some_mod
         assert mod3.symbols[s].imported
         assert mod3.symbols[s].module is mod1
         assert mod3.symbols[s].use_name == use_name
+        assert mod3.symbols[s].compare(mod1.symbols[use_name or s], ignore=('imported', 'module', 'use_name'))
     for s, use_name in mod2_imports.items():
         assert mod3.symbols[s].imported
         assert mod3.symbols[s].module is mod2
         assert mod3.symbols[s].use_name == use_name
+        assert mod3.symbols[s].compare(mod2.symbols[use_name or s], ignore=('imported', 'module', 'use_name'))
+
+    # Verify Import IR node
+    for imprt in FindNodes(Import).visit(mod3.spec):
+        if imprt.module == 'test_rename_mod':
+            assert imprt.rename_list
+            assert not imprt.symbols
+            assert 'var1' in dict(imprt.rename_list)
+            assert 'var3' in dict(imprt.rename_list)
+        else:
+            assert not imprt.rename_list
+            assert imprt.symbols
+
+    # Verify fgen output
+    fcode = fgen(mod3)
+    for s, use_name in mod1_imports.items():
+        assert use_name is None or f'{s} => {use_name}' in fcode
+    for s, use_name in mod2_imports.items():
+        assert use_name is None or f'{s} => {use_name}' in fcode
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_rename_imports_no_definitions(frontend):
+    """
+    Test use statement with rename lists when definitions are not available
+    (Note: for OMNI this relies on the fact that the twin test ran first to
+    produce the xmod file)
+    """
+    fcode_mod3 = """
+module some_mod
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end module some_mod
+    """.strip()
+
+    mod3 = Module.from_source(fcode_mod3, frontend=frontend)
+
+    # Check all entries exist in the symbol table
+    mod1_imports = {
+        'first_var1': 'var1',
+        'first_var3': 'var3'
+    }
+    mod2_imports = {
+        'second_var1': 'var1',
+        'other_var2': 'var2',
+        'other_var3': 'var3'
+    }
+    expected_symbols = list(mod1_imports) + list(mod2_imports)
+    for s in expected_symbols:
+        assert s in mod3.symbols
+
+    # Check that var1 has note been imported under that name
+    assert 'var1' not in mod3.symbols
+    assert 'var2' not in mod3.symbols
+
+    # Verify correct symbol attributes
+    for s, use_name in mod1_imports.items():
+        assert mod3.symbols[s].imported
+        assert mod3.symbols[s].module is None
+        assert mod3.symbols[s].use_name == use_name
+    for s, use_name in mod2_imports.items():
+        assert mod3.symbols[s].imported
+        assert mod3.symbols[s].module is None
+        assert mod3.symbols[s].use_name == use_name
+
+    # Verify Import IR node
+    for imprt in FindNodes(Import).visit(mod3.spec):
+        if imprt.module == 'test_rename_mod':
+            assert imprt.rename_list
+            assert not imprt.symbols
+            assert 'var1' in dict(imprt.rename_list)
+            assert 'var3' in dict(imprt.rename_list)
+        else:
+            assert not imprt.rename_list
+            assert imprt.symbols
 
     # Verify fgen output
     fcode = fgen(mod3)
