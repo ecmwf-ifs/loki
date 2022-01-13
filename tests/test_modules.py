@@ -558,3 +558,75 @@ end module test_access_spec_mod
         assert unspecified_var.type.private is None
         assert other_var.type.private is None
     assert code.count('PUBLIC') == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_rename_imports(frontend):
+    """
+    Test use statement with rename lists
+    """
+    fcode_mod1 = """
+module test_rename_mod
+    implicit none
+    integer :: var1
+    integer :: var2
+    integer :: var3
+end module test_rename_mod
+    """.strip()
+
+    fcode_mod2 = """
+module test_other_rename_mod
+    implicit none
+    integer :: var1
+    integer :: var2
+    integer :: var3
+end module test_other_rename_mod
+    """.strip()
+
+    fcode_mod3 = """
+module some_mod
+    use test_rename_mod, first_var1 => var1, first_var3 => var3
+    use test_other_rename_mod, only: second_var1 => var1
+    use test_other_rename_mod, only: other_var2 => var2, other_var3 => var3
+    implicit none
+end module some_mod
+    """.strip()
+
+    mod1 = Module.from_source(fcode_mod1, frontend=frontend)
+    mod2 = Module.from_source(fcode_mod2, frontend=frontend)
+    mod3 = Module.from_source(fcode_mod3, frontend=frontend, definitions=[mod1, mod2])
+
+    # Check all entries exist in the symbol table
+    mod1_imports = {
+        'first_var1': 'var1',
+        'var2': None,
+        'first_var3': 'var3'
+    }
+    mod2_imports = {
+        'second_var1': 'var1',
+        'other_var2': 'var2',
+        'other_var3': 'var3'
+    }
+    expected_symbols = list(mod1_imports) + list(mod2_imports)
+    for s in expected_symbols:
+        assert s in mod3.symbols
+
+    # Check that var1 has note been imported under that name
+    assert 'var1' not in mod3.symbols
+
+    # Verify correct symbol attributes
+    for s, use_name in mod1_imports.items():
+        assert mod3.symbols[s].imported
+        assert mod3.symbols[s].module is mod1
+        assert mod3.symbols[s].use_name == use_name
+    for s, use_name in mod2_imports.items():
+        assert mod3.symbols[s].imported
+        assert mod3.symbols[s].module is mod2
+        assert mod3.symbols[s].use_name == use_name
+
+    # Verify fgen output
+    fcode = fgen(mod3)
+    for s, use_name in mod1_imports.items():
+        assert use_name is None or f'{s} => {use_name}' in fcode
+    for s, use_name in mod2_imports.items():
+        assert use_name is None or f'{s} => {use_name}' in fcode

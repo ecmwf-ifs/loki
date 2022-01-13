@@ -1004,13 +1004,15 @@ class Import(LeafNode):
     f_include : bool, optional
         Flag to indicate that this is a preprocessor-style include in
         Fortran source code.
+    rename_list: tuple of tuples (`str`, :any:`Expression`), optional
+        Rename list with pairs of `(use name, local name)` entries
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['symbols']
+    _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, c_import=False, f_include=False, **kwargs):
+    def __init__(self, module, symbols=None, c_import=False, f_include=False, rename_list=False, **kwargs):
         super().__init__(**kwargs)
 
         self.module = module
@@ -1018,9 +1020,12 @@ class Import(LeafNode):
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
         self.c_import = c_import
         self.f_include = f_include
+        self.rename_list = rename_list
 
         if c_import and f_include:
             raise ValueError('Import cannot be C include and Fortran include')
+        if rename_list and (symbols or c_import or f_include):
+            raise ValueError('Import cannot have rename and only lists or be an include')
 
     def __repr__(self):
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
