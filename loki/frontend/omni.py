@@ -237,7 +237,7 @@ class OMNI2IR(GenericVisitor):
         return ir.Import(module=name, symbols=symbols, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
-        if o.attrib['local_name']:
+        if o.attrib.get('local_name'):
             return (o.attrib['use_name'], sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
         return sym.Variable(name=o.attrib['use_name'], source=kwargs['source'])
 

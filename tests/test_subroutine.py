@@ -1318,7 +1318,8 @@ end subroutine test_subroutine_rescope
     except AttributeError as e:
         assert str(e) in (
             "'NoneType' object has no attribute 'compare'",
-            "'NoneType' object has no attribute 'dtype'"
+            "'NoneType' object has no attribute 'dtype'",
+            "'NoneType' object has no attribute 'use_name'"
         )
 
 
@@ -1405,7 +1406,8 @@ end subroutine test_subroutine_rescope_clone
     except AttributeError as e:
         assert str(e) in (
             "'NoneType' object has no attribute 'compare'",
-            "'NoneType' object has no attribute 'dtype'"
+            "'NoneType' object has no attribute 'dtype'",
+            "'NoneType' object has no attribute 'use_name'"
         )
 
 
