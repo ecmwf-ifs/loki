@@ -15,38 +15,50 @@ __all__ = ['DependencyTransformation']
 
 class DependencyTransformation(Transformation):
     """
-    Basic `Transformation` class that facilitates dependency injection
-    for transformed `Modules` and `Subroutines` into complex source
-    trees. It does so by appending a provided `suffix` argument to
-    transformed subroutine and module objects and changing the target
-    names of `Import` and `CallStatement` nodes on the call-site
-    accordingly.
+    Basic :any:`Transformation` class that facilitates dependency
+    injection for transformed :any:`Modules` and :any:`Subroutines`
+    into complex source trees. It does so by appending a provided
+    ``suffix`` argument to transformed subroutine and module objects
+    and changing the target names of :any:`Import` and
+    :any:`CallStatement` nodes on the call-site accordingly.
 
-    :param suffix: The suffix to apply during renaming
-    :param mode: The injection mode to use; either `'strict'` or `'module'`
-    :param module_suffix: Special suffix to signal module names like `_MOD`
-    :param include path: Directory for generating additional header files
-
-    The `DependencyTransformation` provides two `mode` options:
-      * `strict` honors dependencies via C-style headers
-      * `module` replaces C-style header dependencies with explicit module imports
+    The :any:`DependencyTransformation` provides two ``mode`` options:
+      * ``strict`` honors dependencies via C-style headers
+      * ``module`` replaces C-style header dependencies with explicit
+        module imports
 
     When applying the transformation to a source object, one of two
-    "roles" can be specified via the `role` keyword:
-      * `driver`: Only renames imports and calls to kernel routines
-      * `kernel`: Renames routine or enclosing modules, as well as
-                  renaming any further imports and calls.
+    "roles" can be specified via the ``role`` keyword:
+      * ``driver``: Only renames imports and calls to kernel routines
+      * ``kernel``: Renames routine or enclosing modules, as well as
+        renaming any further imports and calls.
 
-    Note that `routine.apply(transformation, role='driver')` entails that the
-    `routine` still mimicks its original counterpart and can therefore be used
-    as a drop-in replacement during compilation that then diverts the
-    dependency tree to the modified sub-tree.
+    Note that ``routine.apply(transformation, role='driver')`` entails
+    that the ``routine`` still mimicks its original counterpart and
+    can therefore be used as a drop-in replacement during compilation
+    that then diverts the dependency tree to the modified sub-tree.
+
+    Parameters
+    ----------
+    suffix : str
+        The suffix to apply during renaming
+    mode : str
+        The injection mode to use; either `'strict'` or `'module'`
+    module_suffix : str
+        Special suffix to signal module names like `_MOD`
+    include path : path
+        Directory for generating additional header files
+    replace_ignore_items : bool
+        Debug flag to toggle the replacement of calls to subroutines
+        in the ``ignore``. Default is ``True``.
     """
 
-    def __init__(self, suffix, mode='module', module_suffix=None, include_path=None):
+    def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,
+                 replace_ignore_items=True):
         self.suffix = suffix
         assert mode in ['strict', 'module']
         self.mode = mode
+        self.replace_ignore_items = replace_ignore_items
 
         self.module_suffix = module_suffix
         self.include_path = None if include_path is None else Path(include_path)
@@ -57,6 +69,11 @@ class DependencyTransformation(Transformation):
         'strict' mode, also  re-generate the kernel interface headers.
         """
         role = kwargs.get('role')
+        item = kwargs.get('item', None)
+
+        # Bail if this routine is not part of a scheduler traversal
+        if item and item.name.lower() != routine.name.lower():
+            return
 
         if role == 'kernel':
             # Change the name of kernel routines
@@ -101,15 +118,16 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = kwargs.get('targets', None)
-        if targets is not None:
-            # Normalize string casing
-            targets = [str(t).upper() for t in as_tuple(targets)]
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
+
+        if self.replace_ignore_items:
+            item = kwargs.get('item', None)
+            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
 
         for call in FindNodes(CallStatement).visit(routine.body):
             if targets is None or call.name in targets:
-                name = call.name.clone(name=f'{call.name}{self.suffix}')
-                call._update(name=name)
+                call.name = call.name.clone(name=f'{call.name}{self.suffix}')
 
     def rename_imports(self, source, imports, **kwargs):
         """
@@ -118,9 +136,12 @@ class DependencyTransformation(Transformation):
         :param targets: Optional list of subroutine names for which to
                         modify the corresponding calls.
         """
-        targets = kwargs.get('targets', None)
-        if targets is not None:
-            targets = as_tuple(str(t).upper() for t in as_tuple(targets))
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
+
+        if self.replace_ignore_items:
+            item = kwargs.get('item', None)
+            targets += as_tuple(str(i).upper() for i in item.ignore) if item else ()
 
         # Transformer map to remove any outdated imports
         removal_map = {}
@@ -165,14 +186,22 @@ class DependencyTransformation(Transformation):
         """
         Utility to derive a new module name from `suffix` and `module_suffix`
         """
-        if self.module_suffix:
-            # If a module suffix is provided, we insert suffix before that
-            if self.module_suffix.upper() in modname.upper():
-                idx = modname.upper().index(self.module_suffix.upper())
-                return f'{modname[:idx]}{self.suffix}{self.module_suffix}'
 
-            return f'{modname}{self.suffix}{self.module_suffix}'
-        return f'{modname}{self.suffix}'
+        # First step through known suffix variants to determine canonical basename
+        if modname.lower().endswith(self.suffix.lower()+self.module_suffix.lower()):
+            idx = modname.lower().index(self.suffix.lower()+self.module_suffix.lower())
+        elif modname.lower().endswith(self.suffix.lower()):
+            idx = modname.lower().index(self.suffix.lower())
+        elif modname.lower().endswith(self.module_suffix.lower()):
+            idx = modname.lower().index(self.module_suffix.lower())
+        else:
+            idx = len(modname)
+        base = modname[:idx]
+
+        # Suffix combination to canonical basename
+        if self.module_suffix:
+            return f'{base}{self.suffix}{self.module_suffix}'
+        return f'{base}{self.suffix}'
 
     def generate_interfaces(self, source):
         """
@@ -188,19 +217,28 @@ class DependencyTransformation(Transformation):
         """
         Wrap target subroutines in modules and replace in source file.
         """
-        targets = kwargs.get('targets', None)
+        targets = as_tuple(kwargs.get('targets', None))
+        targets = as_tuple(str(t).upper() for t in targets)
+        item = kwargs.get('item', None)
 
         module_routines = [r for r in sourcefile.all_subroutines
                            if r not in sourcefile.subroutines]
 
         for routine in sourcefile.subroutines:
             if routine not in module_routines:
-                if targets is None or routine.name in targets:
-                    # Create wrapper module and insert into file
-                    modname = f'{routine.name}{self.module_suffix}'
-                    module = Module(name=modname, routines=[routine])
-                    sourcefile._modules += (module, )
+                # Skip member functions
+                if item and routine.name.lower() != item.name.lower():
+                    continue
 
-                    # Remove old standalone routine
-                    sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
-                                                    if r is not routine)
+                # Skip internal utility routines too
+                if routine.name.upper() in targets:
+                    continue
+
+                # Create wrapper module and insert into file
+                modname = f'{routine.name}{self.module_suffix}'
+                module = Module(name=modname, routines=[routine])
+                sourcefile._modules += (module, )
+
+                # Remove old standalone routine
+                sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
+                                                if r is not routine)

@@ -17,24 +17,24 @@ __all__ = ['Item', 'Scheduler', 'SchedulerConfig']
 
 class SchedulerConfig:
     """
-    Configuration object for the transformation `Scheduler` that
-    encapsulates default behaviour and item-specific behaviour.
-    Cna be create eitehr froma raw dictionary or TOML, configration
-    file.
+    Configuration object for the transformation :any:`Scheduler` that
+    encapsulates default behaviour and item-specific behaviour. Can
+    be create either from a raw dictionary or configration file.
 
-    :param defaults: Dict of default options for each item
-    :param routines: List of routine-specific option dicts.
-    :param block: List or subroutine names that are blocked from the tree.
-                  Note that these will still be shown in the visualisation
-                  of the callgraph.
-    :param replicate: List or subroutine names that need to be replicated.
-                      Note, this only sets a flag for external build systems
-                      to align source injection mechanics.
-    :param disable: List or subroutine names that are entirely disabled and
-                    will not be added to either the callgraph that we traverse,
-                    nor the visualisation. These are intended for utility routines
-                    that pop up in many routines but can be ignored in terms of
-                    program control flow, like `flush` or `abort`.
+    Parameters
+    ----------
+    default : dict
+        Default options for each item
+    routines : dict of dicts or list of dicts
+        Dicts with routine-specific options.
+    dimensions : dict of dicts or list of dicts
+        Dicts with options to define :any`Dimension` objects.
+    disable : list of str
+        Subroutine names that are entirely disabled and will not be
+        added to either the callgraph that we traverse, nor the
+        visualisation. These are intended for utility routines that
+        pop up in many routines but can be ignored in terms of program
+        control flow, like ``flush`` or ``abort``.
     """
 
     def __init__(self, default, routines, disable=None, dimensions=None):
@@ -51,6 +51,8 @@ class SchedulerConfig:
         default = config['default']
         if 'routine' in config:
             config['routines'] = OrderedDict((r['name'], r) for r in config.get('routine', []))
+        else:
+            config['routines'] = []
         routines = config['routines']
         disable = default.get('disable', None)
 
@@ -75,35 +77,41 @@ class SchedulerConfig:
 class Item:
     """
     A work item that represents a single source routine to be
-    processed. Each `Item` spawns new work items according to its own
-    subroutine calls and can be configured to ignore individual sub-tree.
-
-    Parameters:
-    ================
-    * ``name``: Name to identify items in the schedulers graph
-    * ``path``: Filepath to the underlying source file
-    * ``config``: Dict of item-specific config markers
-    * ``build_args``: Dict of build arguments to pass to ``SourceFile.from_file`` constructors
+    processed. Each :any:`Item` spawns new work items according to its
+    own subroutine calls and can be configured to ignore individual
+    sub-tree.
 
     Each work item may have its own configuration settings that
-    primarily inherit values from the 'default', but can be
+    primarily inherit values from the `'default'`, but can be
     specialised explicitly in the config file or dictionary.
 
-    Config markers:
-    ================
-    * ``role``: Role string to pass to the `Transformation` (eg. "kernel")
+    Config markers
+    ==============
+
+    * ``role``: Role string to pass to the :any:`Transformation` (eg. "kernel")
     * ``mode``: Transformation "mode" to pass to the transformation
     * ``expand``: Flag to generally enable/disable expansion under this item
     * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
     * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
     * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-                  The routines will still be added to the schedulers tree, but not
-                  followed during expansion.
-    * ``enrich``: List of subroutines that should still be searched for and used to
-                  "enrich" `CallStatement` nodes in this `Item` for inter-procedural
-                  transformation passes.
+      The routines will still be added to the schedulers tree, but not
+      followed during expansion.
+    * ``enrich``: List of subroutines that should still be looked up and used to "enrich"
+      :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
+      transformation passes.
     * ``block``: List of subroutines that should should not be added to the scheduler
-                 tree. Note, these might still be shown in the graph visulisation.
+      tree. Note, these might still be shown in the graph visulisation.
+
+    Parameters
+    ----------
+    name : str
+        Name to identify items in the schedulers graph
+    path : path
+        Filepath to the underlying source file
+    config : dict
+        Dict of item-specific config markers
+    build_args : dict
+        Dict of build arguments to pass to ``SourceFile.from_file`` constructors
     """
 
     def __init__(self, name, path, config=None, build_args=None):
@@ -327,7 +335,7 @@ class Scheduler:
                 obj_list += [Obj(source_path=f) for f in path.glob(f'**/*{ext}')]
 
         # Create a map of all potential target routines for fast lookup later
-        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in obj.subroutines)
+        self.obj_map = CaseInsensitiveDict((r, obj) for obj in obj_list for r in as_tuple(obj.subroutines))
 
     @property
     def routines(self):
@@ -461,7 +469,8 @@ class Scheduler:
         for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel
-            transformation.apply(item.source, role=item.role, mode=item.mode, targets=item.targets)
+            transformation.apply(item.source, role=item.role, mode=item.mode,
+                                 item=item, targets=item.targets)
 
     def callgraph(self, path):
         """
