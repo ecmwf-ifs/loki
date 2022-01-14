@@ -22,7 +22,6 @@ class DependencyTransformation(Transformation):
     and changing the target names of :any:`Import` and
     :any:`CallStatement` nodes on the call-site accordingly.
 
-
     The :any:`DependencyTransformation` provides two ``mode`` options:
       * ``strict`` honors dependencies via C-style headers
       * ``module`` replaces C-style header dependencies with explicit
@@ -32,7 +31,7 @@ class DependencyTransformation(Transformation):
     "roles" can be specified via the ``role`` keyword:
       * ``driver``: Only renames imports and calls to kernel routines
       * ``kernel``: Renames routine or enclosing modules, as well as
-                  renaming any further imports and calls.
+        renaming any further imports and calls.
 
     Note that ``routine.apply(transformation, role='driver')`` entails
     that the ``routine`` still mimicks its original counterpart and

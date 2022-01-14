@@ -85,21 +85,22 @@ class Item:
     primarily inherit values from the `'default'`, but can be
     specialised explicitly in the config file or dictionary.
 
-    Config markers:
-    ---------------
+    Config markers
+    ==============
+
     * ``role``: Role string to pass to the :any:`Transformation` (eg. "kernel")
     * ``mode``: Transformation "mode" to pass to the transformation
     * ``expand``: Flag to generally enable/disable expansion under this item
     * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
     * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
     * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-                  The routines will still be added to the schedulers tree, but not
-                  followed during expansion.
-    * ``enrich``: List of subroutines that should still be searched for and used to "enrich"
-                  :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
-                  transformation passes.
+      The routines will still be added to the schedulers tree, but not
+      followed during expansion.
+    * ``enrich``: List of subroutines that should still be looked up and used to "enrich"
+      :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
+      transformation passes.
     * ``block``: List of subroutines that should should not be added to the scheduler
-                 tree. Note, these might still be shown in the graph visulisation.
+      tree. Note, these might still be shown in the graph visulisation.
 
     Parameters
     ----------
