@@ -285,4 +285,4 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
 
 
 if __name__ == "__main__":
-    cli()
+    cli()  # pylint: disable=no-value-for-parameter
