@@ -449,14 +449,16 @@ class SingleColumnCoalescedTransformation(Transformation):
         """
 
         role = kwargs['role']
-        item = kwargs['item']
+        item = kwargs.get('item', None)
         targets = kwargs.get('targets', None)
 
         if role == 'driver':
             self.process_driver(routine, targets=targets)
 
         if role == 'kernel':
-            demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
+            demote_locals = self.demote_local_arrays
+            if item:
+                demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
             self.process_kernel(routine, targets=targets, demote_locals=demote_locals)
 
     def process_kernel(self, routine, targets=None, demote_locals=True):

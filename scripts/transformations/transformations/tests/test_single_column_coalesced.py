@@ -707,3 +707,54 @@ def test_single_column_coalesced_outer_loop(frontend, horizontal, vertical, bloc
         assert len(FindNodes(CallStatement).visit(kernel_loops[3])) == 0
         assert len(FindNodes(CallStatement).visit(kernel_loops[4])) == 0
         assert len(FindNodes(CallStatement).visit(kernel.body)) == 4
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_single_column_coalesced_variable_demotion(frontend, horizontal, vertical, blocking):
+    """
+    Test the correct demotion of an outer loop that breaks scoping.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL :: a(nlon), b(nlon), c(nlon)
+    INTEGER :: jl, jk, niter
+
+    DO JL = START, END
+      A(JL) = A(JL) + 3.0
+      B(JL) = B(JL) + 1.0
+    END DO
+
+    DO niter = 1, 3
+
+      DO JL = START, END
+        B(JL) = B(JL) + 1.0
+      END DO
+
+    END DO
+
+    call update_q(start, end, nlon, nz)
+
+    DO JL = START, END
+      A(JL) = A(JL) + 3.0
+      C(JL) = C(JL) + 1.0
+    END DO
+
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    # Test SCC transform for kernel with scope-splitting outer loop
+    scc_transform = SingleColumnCoalescedTransformation(
+        horizontal=horizontal, vertical=vertical, block_dim=blocking,
+        hoist_column_arrays=False, directive='openacc'
+    )
+    scc_transform.apply(kernel, role='kernel')
+
+    # Ensure that only a has not been demoted, as it buffers
+    # information across the subroutine call.
+    assert isinstance(kernel.variable_map['a'], Array)
+    assert isinstance(kernel.variable_map['b'], Scalar)
+    assert isinstance(kernel.variable_map['c'], Scalar)
