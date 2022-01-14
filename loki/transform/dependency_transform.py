@@ -22,19 +22,6 @@ class DependencyTransformation(Transformation):
     and changing the target names of :any:`Import` and
     :any:`CallStatement` nodes on the call-site accordingly.
 
-    Parameters
-    ----------
-    suffix : str
-        The suffix to apply during renaming
-    mode : str
-        The injection mode to use; either `'strict'` or `'module'`
-    module_suffix : str
-        Special suffix to signal module names like `_MOD`
-    include path : path
-        Directory for generating additional header files
-    replace_ignore_items : bool
-        Debug flag to toggle the replacement of calls to subroutines
-        in the ``ignore``. Default is ``True``.
 
     The :any:`DependencyTransformation` provides two ``mode`` options:
       * ``strict`` honors dependencies via C-style headers
@@ -51,6 +38,20 @@ class DependencyTransformation(Transformation):
     that the ``routine`` still mimicks its original counterpart and
     can therefore be used as a drop-in replacement during compilation
     that then diverts the dependency tree to the modified sub-tree.
+
+    Parameters
+    ----------
+    suffix : str
+        The suffix to apply during renaming
+    mode : str
+        The injection mode to use; either `'strict'` or `'module'`
+    module_suffix : str
+        Special suffix to signal module names like `_MOD`
+    include path : path
+        Directory for generating additional header files
+    replace_ignore_items : bool
+        Debug flag to toggle the replacement of calls to subroutines
+        in the ``ignore``. Default is ``True``.
     """
 
     def __init__(self, suffix, mode='module', module_suffix=None, include_path=None,

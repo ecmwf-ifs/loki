@@ -589,7 +589,7 @@ def test_scheduler_missing_files(here, config, frontend):
     assert 'routine_two' not in scheduler.items
 
 
-def test_scheduler_dependencies_ignore(here, config, frontend):
+def test_scheduler_dependencies_ignore(here, frontend):
     """
     Test multi-lib trnasformation by applying the :any:`DependencyTransformation`
     over two distinct projects with two distinc invocations.

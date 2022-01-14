@@ -23,7 +23,7 @@ class SchedulerConfig:
 
     Parameters
     ----------
-    defaults : dict
+    default : dict
         Default options for each item
     routines : dict of dicts or list of dicts
         Dicts with routine-specific options.
@@ -81,6 +81,26 @@ class Item:
     own subroutine calls and can be configured to ignore individual
     sub-tree.
 
+    Each work item may have its own configuration settings that
+    primarily inherit values from the `'default'`, but can be
+    specialised explicitly in the config file or dictionary.
+
+    Config markers:
+    ---------------
+    * ``role``: Role string to pass to the :any:`Transformation` (eg. "kernel")
+    * ``mode``: Transformation "mode" to pass to the transformation
+    * ``expand``: Flag to generally enable/disable expansion under this item
+    * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
+    * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
+    * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
+                  The routines will still be added to the schedulers tree, but not
+                  followed during expansion.
+    * ``enrich``: List of subroutines that should still be searched for and used to "enrich"
+                  :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
+                  transformation passes.
+    * ``block``: List of subroutines that should should not be added to the scheduler
+                 tree. Note, these might still be shown in the graph visulisation.
+
     Parameters
     ----------
     name : str
@@ -91,26 +111,6 @@ class Item:
         Dict of item-specific config markers
     build_args : dict
         Dict of build arguments to pass to ``SourceFile.from_file`` constructors
-
-    Each work item may have its own configuration settings that
-    primarily inherit values from the `'default'`, but can be
-    specialised explicitly in the config file or dictionary.
-
-    Config markers:
-    ================
-    * ``role``: Role string to pass to the `Transformation` (eg. "kernel")
-    * ``mode``: Transformation "mode" to pass to the transformation
-    * ``expand``: Flag to generally enable/disable expansion under this item
-    * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
-    * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
-    * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-                  The routines will still be added to the schedulers tree, but not
-                  followed during expansion.
-    * ``enrich``: List of subroutines that should still be searched for and used to
-                  "enrich" `CallStatement` nodes in this `Item` for inter-procedural
-                  transformation passes.
-    * ``block``: List of subroutines that should should not be added to the scheduler
-                 tree. Note, these might still be shown in the graph visulisation.
     """
 
     def __init__(self, name, path, config=None, build_args=None):
