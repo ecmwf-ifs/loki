@@ -108,7 +108,7 @@ class FortranMaxTransformation(Transformation):
         Copy all arguments and split 'inout' arguments into a new 'in'-argument and
         the original 'inout' argument that has the 'in'-argument as initial value assigned.
         """
-        declarations = FindNodes(ir.Declaration).visit(routine.spec)
+        declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
 
         arguments = []

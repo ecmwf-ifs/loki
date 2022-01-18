@@ -494,7 +494,7 @@ class OFP2IR(GenericVisitor):
                 kwargs['scope'].symbol_attrs[var.name] = _type
 
             variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
-            declaration = ir.Declaration(variables=variables, external=True, source=source, label=label)
+            declaration = ir.VariableDeclaration(variables=variables, external=True, source=source, label=label)
             return declaration
 
         if o.attrib['type'] == 'data':
@@ -544,9 +544,9 @@ class OFP2IR(GenericVisitor):
                     raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
 
             # Infer any additional shape information from `!$loki dimension` pragmas
-            body = attach_pragmas(body, ir.Declaration)
+            body = attach_pragmas(body, ir.VariableDeclaration)
             body = process_dimension_pragmas(body)
-            body = detach_pragmas(body, ir.Declaration)
+            body = detach_pragmas(body, ir.VariableDeclaration)
 
             # Finally: update the typedef with its body
             typedef._update(body=body)
@@ -630,8 +630,8 @@ class OFP2IR(GenericVisitor):
                 scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
         variables = tuple(v.clone(scope=scope) for v in variables)
-        return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
-                              source=source, label=label)
+        return ir.VariableDeclaration(variables=variables, dimensions=_type.shape, external=external,
+                                      source=source, label=label)
 
     def visit_interface(self, o, **kwargs):
         spec = self.visit(o.find('interface-stmt'), **kwargs)
@@ -1128,4 +1128,4 @@ class OFP2IR(GenericVisitor):
             scope.symbol_attrs[v_name] = v_type
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
-        return ir.Declaration(variables=variables, source=source)
+        return ir.VariableDeclaration(variables=variables, source=source)

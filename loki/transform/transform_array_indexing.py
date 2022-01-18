@@ -11,7 +11,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions
 )
-from loki.ir import Assignment, Loop, Declaration
+from loki.ir import Assignment, Loop, VariableDeclaration
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
 from loki.visitors import FindNodes, Transformer
@@ -227,7 +227,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     if size is not None:
         size = as_tuple(size)
 
-        var_list = [var for decl in FindNodes(Declaration).visit(routine.spec)
+        var_list = [var for decl in FindNodes(VariableDeclaration).visit(routine.spec)
                     for var in decl.variables if var.name.lower() in variable_names]
 
         var_shapes = [getattr(var, 'shape', ()) for var in var_list]

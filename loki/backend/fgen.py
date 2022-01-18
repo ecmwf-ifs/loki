@@ -254,7 +254,7 @@ class FortranCodegen(Stringifier):
         """
         return self.format_line(str(o.text).lstrip(), no_wrap=True, no_indent=True)
 
-    def visit_Declaration(self, o, **kwargs):
+    def visit_VariableDeclaration(self, o, **kwargs):
         """
         Format declaration as
           [<type>] [, DIMENSION(...)] [, EXTERNAL] :: var [= initial] [, var [= initial] ] ...

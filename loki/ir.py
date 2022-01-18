@@ -26,8 +26,8 @@ __all__ = [
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
-    'Import', 'Declaration', 'DataDeclaration', 'StatementFunction',
-    'TypeDef', 'MultiConditional', 'Intrinsic'
+    'Import', 'VariableDeclaration', 'DataDeclaration',
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'Intrinsic'
 ]
 
 
@@ -1042,7 +1042,7 @@ class Import(LeafNode):
         return f'{_c}Import:: {self.module} => {self.symbols}'
 
 
-class Declaration(LeafNode):
+class VariableDeclaration(LeafNode):
     """
     Internal representation of a variable declaration.
 
@@ -1086,7 +1086,7 @@ class Declaration(LeafNode):
 
     def __repr__(self):
         variables = ', '.join(str(var) for var in self.variables)
-        return f'Declaration:: {variables}'
+        return f'VariableDeclaration:: {variables}'
 
 
 class DataDeclaration(LeafNode):
@@ -1209,7 +1209,7 @@ class TypeDef(ScopedNode, LeafNode):
 
     @property
     def declarations(self):
-        return as_tuple(c for c in self.body if isinstance(c, Declaration))
+        return as_tuple(c for c in self.body if isinstance(c, VariableDeclaration))
 
     @property
     def comments(self):

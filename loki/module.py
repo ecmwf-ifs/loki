@@ -6,7 +6,7 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
-from loki.ir import TypeDef, Section, Declaration, Import
+from loki.ir import TypeDef, Section, VariableDeclaration, Import
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
 from loki.types import ProcedureType, SymbolAttributes, BasicType
@@ -49,7 +49,7 @@ class Module(Scope):
         self._ast = ast
         self._source = source
 
-        with pragmas_attached(self, Declaration):
+        with pragmas_attached(self, VariableDeclaration):
             self.spec = process_dimension_pragmas(self.spec)
 
         # Then call the parent constructor to take care of symbol table and rescoping
@@ -196,7 +196,7 @@ class Module(Scope):
         """
         Return the variables declared in this module
         """
-        return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
+        return as_tuple(flatten(decl.variables for decl in FindNodes(VariableDeclaration).visit(self.spec)))
 
     @variables.setter
     def variables(self, variables):
@@ -204,18 +204,18 @@ class Module(Scope):
         Set the variables property and ensure that the internal declarations match.
         """
         # First map variables to existing declarations
-        declarations = FindNodes(Declaration).visit(self.spec)
+        declarations = FindNodes(VariableDeclaration).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
 
         for v in as_tuple(variables):
             if v not in decl_map:
                 # By default, append new variables to the end of the spec
-                new_decl = Declaration(variables=[v])
+                new_decl = VariableDeclaration(variables=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
-        for decl in FindNodes(Declaration).visit(self.spec):
+        for decl in FindNodes(VariableDeclaration).visit(self.spec):
             new_vars = as_tuple(v for v in decl.variables if v in variables)
             if len(new_vars) > 0:
                 decl._update(variables=new_vars)

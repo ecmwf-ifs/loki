@@ -177,7 +177,7 @@ class DataflowAnalysisAttacher(Transformer):
         defines = self._symbols_from_expr(o.symbols or ())
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
-    def visit_Declaration(self, o, **kwargs):
+    def visit_VariableDeclaration(self, o, **kwargs):
         defines = self._symbols_from_expr(o.variables, condition=lambda v: v.type.initial is not None)
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 

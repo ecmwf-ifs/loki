@@ -239,7 +239,7 @@ class MaxjCodegen(Stringifier):
         comments = self.visit_all(o.comments, **kwargs)
         return self.join_lines(*comments)
 
-    def visit_Declaration(self, o, **kwargs):
+    def visit_VariableDeclaration(self, o, **kwargs):
         """
         Format declaration as
           <type> <name> = <initial>

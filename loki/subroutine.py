@@ -4,7 +4,7 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
-    Declaration, Allocation, Import, Section, CallStatement,
+    VariableDeclaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
@@ -200,7 +200,7 @@ class Subroutine(Scope):
         routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
 
         # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, Declaration):
+        with pragmas_attached(routine, VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec)
 
         return routine
@@ -235,7 +235,7 @@ class Subroutine(Scope):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(Declaration).visit(spec)
+            mapper = {d: None for d in FindNodes(VariableDeclaration).visit(spec)
                       if d.variables[0].name == name}
             spec = Transformer(mapper, invalidate_source=False).visit(spec)
 
@@ -283,7 +283,7 @@ class Subroutine(Scope):
         routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
 
         # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, Declaration):
+        with pragmas_attached(routine, VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec)
 
         return routine
@@ -391,7 +391,7 @@ class Subroutine(Scope):
         routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
 
         # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, Declaration):
+        with pragmas_attached(routine, VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec)
 
         # Inject statement function definitions
@@ -404,7 +404,7 @@ class Subroutine(Scope):
         """
         Return the variables (including arguments) declared in this subroutine
         """
-        return as_tuple(flatten(decl.variables for decl in FindNodes(Declaration).visit(self.spec)))
+        return as_tuple(flatten(decl.variables for decl in FindNodes(VariableDeclaration).visit(self.spec)))
 
     @variables.setter
     def variables(self, variables):
@@ -415,20 +415,20 @@ class Subroutine(Scope):
         removal from this list will also remove arguments from the subroutine signature.
         """
         # First map variables to existing declarations
-        declarations = FindNodes(Declaration).visit(self.spec)
+        declarations = FindNodes(VariableDeclaration).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
 
         for v in as_tuple(variables):
             if v not in decl_map:
-                # By default, append new variables to the end of the spec
-                new_decl = Declaration(variables=[v])
+                # By default, append new symbols to the end of the spec
+                new_decl = VariableDeclaration(variables=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
         typedef_decls = set(decl for typedef in FindNodes(TypeDef).visit(self.spec)
                             for decl in typedef.declarations)
-        for decl in FindNodes(Declaration).visit(self.spec):
+        for decl in FindNodes(VariableDeclaration).visit(self.spec):
             if decl in typedef_decls:
             # Slightly hacky: We need to exclude declarations inside TypeDef explicitly
                 continue
@@ -469,7 +469,7 @@ class Subroutine(Scope):
         Note that removing arguments from this property does not actually remove declarations.
         """
         # First map variables to existing declarations
-        declarations = FindNodes(Declaration).visit(self.spec)
+        declarations = FindNodes(VariableDeclaration).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
 
         arguments = as_tuple(arguments)
@@ -477,7 +477,7 @@ class Subroutine(Scope):
             if arg not in decl_map:
                 # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
-                new_decl = Declaration(variables=[arg])
+                new_decl = VariableDeclaration(variables=[arg])
                 self.spec.append(new_decl)
 
         # Set new dummy list according to input
@@ -536,7 +536,7 @@ class Subroutine(Scope):
         arg_names = [arg.name for arg in self.arguments]
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
-        for decl in FindNodes(Declaration).visit(self.spec):
+        for decl in FindNodes(VariableDeclaration).visit(self.spec):
             if any(v in arg_names for v in decl.variables):
                 assert all(v in arg_names and v.type.intent is not None for v in decl.variables), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."

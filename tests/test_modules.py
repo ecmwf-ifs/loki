@@ -2,7 +2,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import (
-    OMNI, Module, Subroutine, Declaration, TypeDef, fexprgen,
+    OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import
 )
@@ -30,7 +30,7 @@ contains
 end module a_module
 """.strip()
     module = Module.from_source(fcode, frontend=frontend)
-    assert len([o for o in module.spec.body if isinstance(o, Declaration)]) == 2
+    assert len([o for o in module.spec.body if isinstance(o, VariableDeclaration)]) == 2
     assert len([o for o in module.spec.body if isinstance(o, TypeDef)]) == 1
     assert 'derived_type' in module.typedefs
     assert len(module.routines) == 1

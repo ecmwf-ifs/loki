@@ -346,7 +346,7 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         '''Helper function that carries out the check for explicit kind specification
         on all declarations.
         '''
-        for decl in FindNodes(ir.Declaration).visit(subroutine.spec):
+        for decl in FindNodes(ir.VariableDeclaration).visit(subroutine.spec):
             decl_type = decl.variables[0].type
             if decl_type.dtype in types:
                 if not decl_type.kind:

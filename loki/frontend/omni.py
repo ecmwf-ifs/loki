@@ -270,7 +270,7 @@ class OMNI2IR(GenericVisitor):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(ir.Declaration).visit(routine.spec)
+            mapper = {d: None for d in FindNodes(ir.VariableDeclaration).visit(routine.spec)
                       if d.variables[0].name == name}
             routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
 
@@ -342,7 +342,7 @@ class OMNI2IR(GenericVisitor):
 
         scope.symbol_attrs[variable.name] = _type
         variables = (variable.clone(scope=scope),)
-        return ir.Declaration(variables=variables, external=_type.external is True, source=kwargs['source'])
+        return ir.VariableDeclaration(variables=variables, external=_type.external is True, source=kwargs['source'])
 
     def visit_FstructDecl(self, o, **kwargs):
         name = o.find('name')
@@ -361,7 +361,7 @@ class OMNI2IR(GenericVisitor):
             self.warn_or_fail('extends attribute for derived types not implemented')
 
         # Build individual declarations for each member
-        declarations = as_tuple(ir.Declaration(variables=(v, )) for v in variables)
+        declarations = as_tuple(ir.VariableDeclaration(variables=(v, )) for v in variables)
 
         # Finally: update the typedef with its body
         typedef._update(body=declarations)

@@ -12,7 +12,7 @@ from loki.logging import debug, DEBUG
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash, timeit
 from loki.visitors import FindNodes
-from loki.ir import Declaration, Intrinsic
+from loki.ir import VariableDeclaration, Intrinsic
 from loki.frontend.util import OMNI, OFP, FP
 
 
@@ -153,7 +153,7 @@ def reinsert_contiguous(ir, pp_info):
     Reinsert the CONTIGUOUS marker into declaration variables.
     """
     if pp_info:
-        for decl in FindNodes(Declaration).visit(ir):
+        for decl in FindNodes(VariableDeclaration).visit(ir):
             if decl._source.lines[0] in pp_info:
                 for var in decl.variables:
                     var.scope.symbol_attrs[var.name] = var.scope.symbol_attrs[var.name].clone(contiguous=True)

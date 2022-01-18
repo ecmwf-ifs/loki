@@ -605,15 +605,7 @@ end subroutine derived_type_procedure_designator
     assert 'some_type' in module.symbol_attrs
     assert 'other_type' in module.symbol_attrs
 
-    # First, without external definitions
-    if frontend != OMNI:
-        routine = Subroutine.from_source(fcode, frontend=frontend)
-        assert 'some_type' not in routine.symbol_attrs
-        assert 'other_type' not in routine.symbol_attrs
-        assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
-        assert routine.symbol_attrs['tp'].dtype.typedef == BasicType.DEFERRED
-
-    # Now with external definitions
+    # First, with external definitions (generates xmod for OMNI)
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module])
 
     for name in ('some_type', 'other_type'):
@@ -623,6 +615,13 @@ end subroutine derived_type_procedure_designator
         assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
     assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
+
+    # Next, without external definitions
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert 'some_type' not in routine.symbols
+    assert 'other_type' not in routine.symbols
+    assert isinstance(routine.symbols['tp'].dtype, DerivedType)
+    assert routine.symbols['tp'].dtype.typedef == BasicType.DEFERRED
 
     # TODO: actually verify representation of type-bound procedures
 
