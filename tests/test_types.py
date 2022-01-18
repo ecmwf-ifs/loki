@@ -390,3 +390,49 @@ end subroutine test_type_kind_value
         for var in routine.variables:
             if var.name.lower().startswith(f'real_{kind}'):
                 assert var.type.kind == kind and f'REAL(KIND={kind.upper()})' in str(fgen(var.type)).upper()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_procedure_pointer_declaration(frontend):
+    # Example code from F2008 standard, Note 12.15
+    fcode = """
+MODULE some_mod
+
+ABSTRACT INTERFACE
+    FUNCTION REAL_FUNC (X)
+        REAL, INTENT (IN) :: X
+        REAL :: REAL_FUNC
+    END FUNCTION REAL_FUNC
+END INTERFACE
+INTERFACE
+    SUBROUTINE SUB (X)
+        REAL, INTENT (IN) :: X
+    END SUBROUTINE SUB
+END INTERFACE
+
+!-- Some external or dummy procedures with explicit interface.
+PROCEDURE (REAL_FUNC) :: BESSEL, GFUN
+PROCEDURE (SUB) :: PRINT_REAL
+
+!-- Some procedure pointers with explicit interface,
+!-- one initialized to NULL().
+PROCEDURE (REAL_FUNC), POINTER :: P, R => NULL()
+PROCEDURE (REAL_FUNC), POINTER :: PTR_TO_GFUN
+
+!-- A derived type with a procedure pointer component ...
+TYPE STRUCT_TYPE
+    PROCEDURE (REAL_FUNC), POINTER :: COMPONENT
+END TYPE STRUCT_TYPE
+
+!-- ... and a variable of that type.
+TYPE(STRUCT_TYPE) :: STRUCT
+
+!-- An external or dummy function with implicit interface
+PROCEDURE (REAL) :: PSI
+
+END MODULE some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    out = module.to_fortran()

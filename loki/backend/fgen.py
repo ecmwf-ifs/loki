@@ -298,6 +298,40 @@ class FortranCodegen(Stringifier):
         return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables),
                                 comment=comment)
 
+    def visit_ProcedureDeclaration(self, o, **kwargs):
+        """
+        Format procedure declaration as
+          [PROCEDURE(<interface>)] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
+        """
+        assert len(o.symbols) > 0
+        types = [v.type for v in o.symbols]
+
+        # Ensure all symbol types are equal, except for shape and dimension
+        # TODO: Should extend to deeper recursion of `symbols` if
+        # the symbol has a known derived type
+        # TODO: We can't fully compare procedure types, yet, but we can make at least sure
+        # names match and other declared attributes are compatible
+        ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
+        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        assert all(t.dtype.name.lower() == types[0].dtype.name.lower() for t in types)
+
+        attributes = [self.visit(types[0], is_proc_decl=True, **kwargs)]
+
+        symbols = []
+        for v in o.symbols:
+            var = self.visit(v, **kwargs)
+            initial = ''
+            if v.type.initial is not None:
+                assert v.type.pointer  # Must be a pointer assignment in a procedure declaration
+                initial = f' => {self.visit(v.type.initial, **kwargs)}'
+            symbols += [f'{var}{initial}']
+
+        comment = None
+        if o.comment:
+            comment = str(self.visit(o.comment, **kwargs))
+        return self.format_line(self.join_items(attributes), ' :: ', self.join_items(symbols),
+                                comment=comment)
+
     def visit_DataDeclaration(self, o, **kwargs):
         """
         Format as
@@ -603,12 +637,17 @@ class FortranCodegen(Stringifier):
           <typename>[(<spec>)] [, <attributes>]
         """
         dimensions = kwargs.pop('dimensions', None)
+        is_proc_decl = kwargs.pop('is_proc_decl', None)
+
         attributes = []
         type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
                     BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
                     BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
+
         if isinstance(o.dtype, ProcedureType):
-            if o.dtype.is_function:
+            if is_proc_decl:
+                typename = f'PROCEDURE({o.dtype.name})'
+            elif o.dtype.is_function:
                 typename = self.visit(o.dtype.return_type, **kwargs)
             else:
                 typename = ''

@@ -495,7 +495,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         """
-        Declaration statement
+        Variable declaration statement
 
         :class:`fparser.two.Fortran2003.Type_Declaration_Stmt` has 3 children:
             * :class:`fparser.two.Fortran2003.Declaration_Type_Spec`
@@ -790,6 +790,71 @@ class FParser2IR(GenericVisitor):
     visit_External_Name_List = visit_List
 
     #
+    # Procedure declarations
+    #
+
+    def visit_Procedure_Declaration_Stmt(self, o, **kwargs):
+        """
+        Procedure declaration statement
+
+        :class:`fparser.two.Fortran2003.Procedure_Declaration_Stmt` has 3 children:
+            * :class:`fparser.two.Fortran2003.Name`: the name of the procedure interface
+            * :class:`fparser.two.Fortran2003.Proc_Attr_Spec_List` or `None`:
+              the declared attributes (if any)
+            * :class:`fparser.two.Fortran2003.Proc_Decl_List`: the local procedure names
+        """
+        scope = kwargs['scope']
+
+        # Find out which procedure we are declaring (i.e., PROCEDURE(<func_name>))
+        func_name = o.children[0].tostr()
+        if func_name in scope.symbols:
+            _type = scope.symbols[func_name]
+        else:
+            _type = SymbolAttributes(dtype=ProcedureType(func_name, is_function=False))
+
+        # Any additional declared attributes
+        attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
+        attrs = dict(attrs)
+        _type = _type.clone(**attrs)
+
+        # Last, instantiate declared symbols
+        symbols = as_tuple(self.visit(o.children[2], **kwargs))
+
+        # Update symbol table entries
+        scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
+
+    visit_Proc_Attr_Spec_List = visit_List
+
+    def visit_Proc_Attr_Spec(self, o, **kwargs):
+        """
+        Procedure declaration attribute
+
+        :class:`fparser.two.Fortran2003.Proc_Attr_Spec` has 2 children:
+            * attribute name (`str`)
+            * attribute value (such as ``IN``, ``OUT``, ``INOUT``) or `None`
+        """
+        return (o.children[0].lower(), o.children[1].lower() if o.children[1] is not None else True)
+
+    visit_Proc_Decl_List = visit_List
+
+    def visit_Proc_Decl(self, o, **kwargs):
+        """
+        A symbol entity in a procedure declaration with initialization
+
+        :class:`fparser.two.Fortran2003.Proc_Decl` has 3 children:
+            * object name (:class:`fparser.two.Fortran2003.Name`)
+            * operator ``=>`` (`str`)
+            * initializer (:class:`fparser.two.Fortran2003.Function_Reference`)
+        """
+        var = self.visit(o.children[0], **kwargs)
+        assert o.children[1] == '=>'
+        init = self.visit(o.children[2], **kwargs)
+        return var.clone(type=var.type.clone(initial=init))
+
+    #
     # Array constructor
     #
 
@@ -1001,18 +1066,18 @@ class FParser2IR(GenericVisitor):
         """
         return tuple(self.visit(c, **kwargs) for c in o.children)
 
+    # The definition stmts (= components of a derived type) look identical to regular
+    # variable and procedure declarations in the parse tree and are represented by
+    # the same IR nodes in Loki
     visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
     visit_Component_Attr_Spec_List = visit_List
     visit_Component_Attr_Spec = visit_Attr_Spec
     visit_Dimension_Component_Attr_Spec = visit_Dimension_Attr_Spec
     visit_Component_Decl_List = visit_List
     visit_Component_Decl = visit_Entity_Decl
-
-    def visit_Proc_Component_Def_Stmt(self, o, **kwargs):
-        """
-        A procedure declaration in a derived type definition
-        """
-        return self.visit_Base(o, **kwargs)
+    visit_Proc_Component_Def_Stmt = visit_Procedure_Declaration_Stmt
+    visit_Proc_Component_Attr_Spec_List = visit_List
+    visit_Proc_Component_Attr_Spec = visit_Attr_Spec
 
     def visit_Type_Bound_Procedure_Part(self, o, **kwargs):
         """

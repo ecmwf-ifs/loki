@@ -26,7 +26,7 @@ __all__ = [
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
-    'Import', 'VariableDeclaration', 'DataDeclaration',
+    'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
     'Intrinsic', 'Enumeration'
 ]
@@ -1065,6 +1065,42 @@ class VariableDeclaration(LeafNode):
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         return f'VariableDeclaration:: {symbols}'
+
+
+class ProcedureDeclaration(LeafNode):
+    """
+    Internal representation of a procedure declaration.
+
+    Parameters
+    ----------
+    symbols : tuple of :any:`pymbolic.primitives.Expression`
+        The list of procedure symbols declared by this declaration.
+    comment : :py:class:`Comment`, optional
+        Inline comment that appears in-line after the declaration in the
+        original source.
+    pragma : tuple of :any:`Pragma`, optional
+        Pragma(s) that appear before the declaration. By default
+        :any:`Pragma` nodes appear as standalone nodes in the IR.
+        Only a bespoke context created by :py:func:`pragmas_attached`
+        attaches them for convenience.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    _traversable = ['symbols']
+
+    def __init__(self, symbols, comment=None, pragma=None, **kwargs):
+        super().__init__(**kwargs)
+
+        assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
+
+        self.symbols = as_tuple(symbols)
+        self.comment = comment
+        self.pragma = pragma
+
+    def __repr__(self):
+        symbols = ', '.join(str(var) for var in self.symbols)
+        return f'ProcedureDeclaration:: {symbols}'
 
 
 class DataDeclaration(LeafNode):
