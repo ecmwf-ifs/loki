@@ -705,11 +705,15 @@ class OFP2IR(GenericVisitor):
         kw_args = {arg.attrib['name'].lower(): self.visit(arg, **kwargs)
                    for arg in o.findall('keyword-arguments/keyword-argument')}
         return ir.Allocation(variables=variables, label=kwargs['label'],
-                             source=kwargs['source'], data_source=kw_args.get('source'))
+                             source=kwargs['source'], data_source=kw_args.get('source'),
+                             status_var=kw_args.get('stat'))
 
     def visit_deallocate(self, o, **kwargs):
         variables = as_tuple(self.visit(v, **kwargs) for v in o.findall('expressions/expression/name'))
-        return ir.Deallocation(variables=variables, label=kwargs['label'], source=kwargs['source'])
+        kw_args = {arg.attrib['name'].lower(): self.visit(arg, **kwargs)
+                   for arg in o.findall('keyword-arguments/keyword-argument')}
+        return ir.Deallocation(variables=variables, label=kwargs['label'],
+                               source=kwargs['source'], status_var=kw_args.get('stat'))
 
     def visit_use(self, o, **kwargs):
         name, module = self.visit(o.find('use-stmt'), **kwargs)

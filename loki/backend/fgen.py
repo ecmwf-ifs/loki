@@ -555,6 +555,8 @@ class FortranCodegen(Stringifier):
         items = self.visit_all(o.variables, **kwargs)
         if o.data_source is not None:
             items += (f'SOURCE={self.visit(o.data_source, **kwargs)}', )
+        if o.status_var is not None:
+            items += (f'STAT={self.visit(o.status_var, **kwargs)}', )
         return self.format_line('ALLOCATE (', self.join_items(items), ')')
 
     def visit_Deallocation(self, o, **kwargs):
@@ -563,6 +565,8 @@ class FortranCodegen(Stringifier):
           DEALLOCATE(<variables>)
         """
         items = self.visit_all(o.variables, **kwargs)
+        if o.status_var is not None:
+            items += (f'STAT={self.visit(o.status_var, **kwargs)}', )
         return self.format_line('DEALLOCATE (', self.join_items(items), ')')
 
     def visit_Nullify(self, o, **kwargs):

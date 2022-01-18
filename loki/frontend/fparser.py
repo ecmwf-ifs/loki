@@ -1456,11 +1456,16 @@ class FParser2IR(GenericVisitor):
         # Any allocation options. We can only deal with "source" at the moment
         alloc_opts = {}
         if o.children[2] is not None:
-            alloc_opts = dict(self.visit(o.children[2], **kwargs))
+            alloc_opts = self.visit(o.children[2], **kwargs)
+            # We need to filter out any options we can't handle currently (and which returned None)
+            alloc_opts = [opt for opt in alloc_opts if opt is not None]
+            alloc_opts = dict(alloc_opts)
 
         variables = self.visit(o.children[1], **kwargs)
-        return ir.Allocation(variables=variables, data_source=alloc_opts.get('source'),
-                             source=kwargs.get('source'), label=kwargs.get('label'))
+        return ir.Allocation(
+            variables=variables, data_source=alloc_opts.get('source'), status_var=alloc_opts.get('stat'),
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     visit_Allocation_List = visit_List
 
@@ -1493,8 +1498,9 @@ class FParser2IR(GenericVisitor):
             * the keyword (`str`)
             * the option value
         """
-        if o.children[0].lower() == 'source':
-            return 'source', self.visit(o.children[1], **kwargs)
+        keyword = o.children[0].lower()
+        if keyword in ('source', 'stat'):
+            return keyword, self.visit(o.children[1], **kwargs)
         # TODO: implement other alloc options
         self.warn_or_fail(f'Unsupported allocation option: {o.children[0]}')
         return None
@@ -1508,10 +1514,33 @@ class FParser2IR(GenericVisitor):
             * list of options :class:`fparser.two.Fortran2003.Dealloc_Opt_list`
         """
         variables = self.visit(o.children[0], **kwargs)
+
+        dealloc_opts = {}
         if o.children[1] is not None:
-            self.warn_or_fail(f'deallocate options {",".join(o.children[1])} not implemented')
-        return ir.Deallocation(variables=variables, source=kwargs.get('source'),
-                               label=kwargs.get('label'))
+            dealloc_opts = self.visit(o.children[1], **kwargs)
+            # We need to filter out any options we can't handle currently (and which returned None)
+            dealloc_opts = [opt for opt in dealloc_opts if opt is not None]
+            dealloc_opts = dict(dealloc_opts)
+
+        return ir.Deallocation(
+            variables=variables, status_var=dealloc_opts.get('stat'),
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    def visit_Dealloc_Opt(self, o, **kwargs):
+        """
+        A deallocation option in a deallocate-stmt
+
+        :class:`fparser.two.Fortran2003.Dealloc_Opt has two children:
+            * the keyword (`str`)
+            * the option value
+        """
+        keyword = o.children[0].lower()
+        if keyword == 'stat':
+            return keyword, self.visit(o.children[1], **kwargs)
+        # TODO: implement other alloc options
+        self.warn_or_fail(f'Unsupported deallocation option: {o.children[0]}')
+        return None
 
     #
     # Subroutine and function calls
