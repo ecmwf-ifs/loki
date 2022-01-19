@@ -618,8 +618,16 @@ class OMNI2IR(GenericVisitor):
             bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
-        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                   source=kwargs['source'])
+
+        # Retain comments before the first case
+        value_idx, case_idx = list(o).index(o.find('value')), list(o).index(o.find('FcaseLabel'))
+        pre = as_tuple(self.visit(c, **kwargs) for c in o[value_idx+1:case_idx])
+
+        return (
+            *pre,
+            ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                source=kwargs['source'])
+        )
 
     def visit_FcaseLabel(self, o, **kwargs):
         values = [self.visit(value, **kwargs) for value in list(o) if value.tag in ('value', 'indexRange')]

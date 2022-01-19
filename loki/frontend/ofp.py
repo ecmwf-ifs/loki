@@ -272,8 +272,9 @@ class OFP2IR(GenericVisitor):
 
     def visit_select(self, o, **kwargs):
         expr = self.visit(o.find('header'), **kwargs)
-        cases = [self.visit(case, **kwargs) for case in o.findall('body/case')]
-        values, bodies = zip(*cases)
+        body = o.find('body')
+        case_stmts, case_stmt_index = zip(*[(c, i) for i, c in enumerate(body) if c.tag == 'case'])
+        values, bodies = zip(*[self.visit(c, **kwargs) for c in case_stmts])
         if None in values:
             else_index = values.index(None)
             else_body = as_tuple(bodies[else_index])
@@ -281,10 +282,21 @@ class OFP2IR(GenericVisitor):
             bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
+        # Retain comments before the first case statement
+        pre = as_tuple(self.visit(c, **kwargs) for c in body[:case_stmt_index[0]])
+        # Retain any comments in-between cases
+        bodies = list(bodies)
+        for case_idx, stmt_idx in enumerate(case_stmt_index[1:]):
+            start_idx = case_stmt_index[case_idx] + 1
+            bodies[case_idx-1] += as_tuple(self.visit(c, **kwargs) for c in body[start_idx:stmt_idx])
+        bodies = as_tuple(bodies)
         construct_name = o.find('select-case-stmt').attrib['id'] or None
         label = self.get_label(o.find('select-case-stmt'))
-        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                   label=label, name=construct_name, source=kwargs['source'])
+        return (
+            *pre,
+            ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                label=label, name=construct_name, source=kwargs['source'])
+        )
 
     def visit_case(self, o, **kwargs):
         value = self.visit(o.find('header'), **kwargs)

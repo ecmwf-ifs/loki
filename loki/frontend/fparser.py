@@ -1366,7 +1366,12 @@ class FParser2IR(GenericVisitor):
         # Find all CASE statements and corresponding bodies
         case_stmts, case_stmt_index = zip(*[(c, i) for i, c in enumerate(o.children)
                                             if isinstance(c, Fortran2003.Case_Stmt)])
-        assert case_stmt_index[0] == select_case_stmt_index + 1
+
+        # Retain any comments between `SELECT CASE` and the first `CASE` statement
+        if case_stmt_index[0] > select_case_stmt_index + 1:
+            # Our IR doesn't provide a means to store them in the right place, so
+            # we'll just put them before the `SELECT CASE`
+            pre += as_tuple(self.visit(c, **kwargs) for c in o.children[select_case_stmt_index+1:case_stmt_index[0]])
 
         values = as_tuple(self.visit(c, **kwargs) for c in case_stmts)
         bodies = [as_tuple(self.visit(c, **kwargs) for c in o.children[start+1:stop])
