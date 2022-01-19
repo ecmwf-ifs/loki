@@ -433,6 +433,11 @@ class OFP2IR(GenericVisitor):
             dimensions = self.visit(dimensions, **kwargs)
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
 
+        length = o.find('length')
+        if length is not None:
+            length = self.visit(length, **kwargs)
+            var = var.clone(type=var.type.clone(length=length))
+
         return var
 
     def visit_derived_type_stmt(self, o, **kwargs):

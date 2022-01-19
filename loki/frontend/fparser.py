@@ -660,7 +660,8 @@ class FParser2IR(GenericVisitor):
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
 
         if o.children[2]:
-            self.warn_or_fail('Char-Length not implemented')
+            char_length = self.visit(o.children[2], **kwargs)
+            var = var.clone(type=var.type.clone(length=char_length))
 
         if o.children[3]:
             init = self.visit(o.children[3], **kwargs)
