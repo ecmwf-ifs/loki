@@ -278,17 +278,17 @@ class CLAWTransformation(ExtractSCATransformation):
                     if arg == self.horizontal.size and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
-                        routine.spec.append(VariableDeclaration(variables=[local_var]))
+                        routine.spec.append(VariableDeclaration(symbols=[local_var]))
 
                     if arg == self.horizontal.bounds[0] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
-                        routine.spec.append(VariableDeclaration(variables=[local_var]))
+                        routine.spec.append(VariableDeclaration(symbols=[local_var]))
 
                     if arg == self.horizontal.bounds[1] and not arg.name in routine.variables:
                         local_var = arg.clone(scope=routine, type=arg.type.clone(intent=None))
                         assignments.append(Assignment(lhs=local_var, rhs=val))
-                        routine.spec.append(VariableDeclaration(variables=[local_var]))
+                        routine.spec.append(VariableDeclaration(symbols=[local_var]))
 
                 routine.body = Transformer({call: assignments + [call]}).visit(routine.body)
 
@@ -298,7 +298,7 @@ class CLAWTransformation(ExtractSCATransformation):
         if role == 'kernel':
             # Gather all declarations for variables that have been demoted during SCA
             declarations = FindNodes(VariableDeclaration).visit(routine.spec)
-            decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+            decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
             claw_decls = [decl for v, decl in decl_map.items() if v.name in claw_vars]
 
             # Remove declarations from spec temporarily

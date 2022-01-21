@@ -1048,7 +1048,7 @@ class VariableDeclaration(LeafNode):
 
     Parameters
     ----------
-    variables : tuple of :any:`pymbolic.primitives.Expression`
+    symbols : tuple of :any:`pymbolic.primitives.Expression`
         The list of variables declared by this declaration.
     dimensions : tuple of :any:`pymbolic.primitives.Expression`, optional
         The declared allocation size if given as part of the declaration
@@ -1067,17 +1067,17 @@ class VariableDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['variables', 'dimensions']
+    _traversable = ['symbols', 'dimensions']
 
-    def __init__(self, variables, dimensions=None, external=False,
+    def __init__(self, symbols, dimensions=None, external=False,
                  comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
-        assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
         assert dimensions is None or (is_iterable(dimensions) and
                                       all(isinstance(d, Expression) for d in dimensions))
 
-        self.variables = as_tuple(variables)
+        self.symbols = as_tuple(symbols)
         self.dimensions = as_tuple(dimensions) if dimensions else None
         self.external = external
 
@@ -1085,8 +1085,8 @@ class VariableDeclaration(LeafNode):
         self.pragma = pragma
 
     def __repr__(self):
-        variables = ', '.join(str(var) for var in self.variables)
-        return f'VariableDeclaration:: {variables}'
+        symbols = ', '.join(str(var) for var in self.symbols)
+        return f'VariableDeclaration:: {symbols}'
 
 
 class DataDeclaration(LeafNode):
@@ -1217,7 +1217,7 @@ class TypeDef(ScopedNode, LeafNode):
 
     @property
     def variables(self):
-        return tuple(flatten([decl.variables for decl in self.declarations]))
+        return tuple(flatten([decl.symbols for decl in self.declarations]))
 
     @property
     def imported_symbols(self):

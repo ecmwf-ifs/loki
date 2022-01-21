@@ -165,12 +165,12 @@ class PyCodegen(Stringifier):
         decls = []
         if o.comment:
             decls += [self.visit(o.comment, **kwargs)]
-        local_arrays = [v for v in o.variables if isinstance(v, sym.Array) and not v.type.intent]
+        local_arrays = [v for v in o.symbols if isinstance(v, sym.Array) and not v.type.intent]
         decls += [self.format_line(v.name.lower(), ' = np.ndarray(order="F", shape=(',
                                    self.join_items(self.visit_all(v.shape, **kwargs)), ',))')
                   for v in local_arrays]
         decls += [self.format_line(v.name.lower(), ' = ', self.visit(v.initial, **kwargs))
-                  for v in o.variables if v.initial is not None]
+                  for v in o.symbols if v.initial is not None]
         return self.join_lines(*decls)
 
     def visit_Import(self, o, **kwargs):  # pylint: disable=unused-argument

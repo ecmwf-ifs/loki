@@ -101,7 +101,7 @@ class FortranCTransformation(Transformation):
         for v in variables:
             ctype = v.type.clone(kind=cls.iso_c_intrinsic_kind(v.type, typedef))
             vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
-            declarations += (VariableDeclaration(variables=(vnew,)),)
+            declarations += (VariableDeclaration(symbols=(vnew,)),)
         typedef._update(body=declarations)
         return typedef
 
@@ -204,7 +204,7 @@ class FortranCTransformation(Transformation):
         # Create getter methods for module-level variables (I know... :( )
         wrappers = []
         for decl in FindNodes(VariableDeclaration).visit(module.spec):
-            for v in decl.variables:
+            for v in decl.symbols:
                 if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
                     continue
                 gettername = f'{module.name.lower()}__get__{v.name.lower()}'
@@ -291,8 +291,8 @@ class FortranCTransformation(Transformation):
         # Generate stubs for getter functions
         spec = []
         for decl in FindNodes(VariableDeclaration).visit(module.spec):
-            assert len(decl.variables) == 1
-            v = decl.variables[0]
+            assert len(decl.symbols) == 1
+            v = decl.symbols[0]
             # Bail if not a basic type
             if isinstance(v.type.dtype, DerivedType):
                 continue
@@ -306,7 +306,7 @@ class FortranCTransformation(Transformation):
             declarations = []
             for decl in td.declarations:
                 variables = []
-                for v in decl.variables:
+                for v in decl.symbols:
                     # Note that we force lower-case on all struct variables
                     if isinstance(v, Array):
                         new_shape = as_tuple(d for d in v.shape if not isinstance(d, RangeIndex))
@@ -314,7 +314,7 @@ class FortranCTransformation(Transformation):
                         variables += [v.clone(name=v.name.lower(), type=new_type, scope=header_td)]
                     else:
                         variables += [v.clone(name=v.name.lower(), scope=header_td)]
-                declarations += [VariableDeclaration(variables=variables, dimensions=decl.dimensions,
+                declarations += [VariableDeclaration(symbols=variables, dimensions=decl.dimensions,
                                                      comment=decl.comment, pragma=decl.pragma)]
             header_td._update(body=declarations)
             spec += [header_td]
@@ -369,7 +369,7 @@ class FortranCTransformation(Transformation):
                     # Skip parameters, as they will be inlined
                     if s.type.parameter:
                         continue
-                    decl = VariableDeclaration(variables=(s,))
+                    decl = VariableDeclaration(symbols=(s,))
                     getter = f'{im.module.lower()}__get__{s.name.lower()}'
                     vget = Assignment(lhs=s, rhs=InlineCall(ProcedureSymbol(getter, scope=s.scope)))
                     getter_calls += [decl, vget]

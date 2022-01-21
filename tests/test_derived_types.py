@@ -618,10 +618,10 @@ end subroutine derived_type_procedure_designator
 
     # Next, without external definitions
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert 'some_type' not in routine.symbols
-    assert 'other_type' not in routine.symbols
-    assert isinstance(routine.symbols['tp'].dtype, DerivedType)
-    assert routine.symbols['tp'].dtype.typedef == BasicType.DEFERRED
+    assert 'some_type' not in routine.symbol_attrs
+    assert 'other_type' not in routine.symbol_attrs
+    assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
+    assert routine.symbol_attrs['tp'].dtype.typedef == BasicType.DEFERRED
 
     # TODO: actually verify representation of type-bound procedures
 

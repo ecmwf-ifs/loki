@@ -229,14 +229,14 @@ class CCodegen(Stringifier):
         Format declaration as
           <type> <name> [= <initial>]
         """
-        types = [v.type for v in o.variables]
+        types = [v.type for v in o.symbols]
         # Ensure all variable types are equal, except for shape and dimension
         ignore = ['shape', 'dimensions', 'source']
         assert all(t.compare(types[0], ignore=ignore) for t in types)
         dtype = self.visit(types[0], **kwargs)
-        assert len(o.variables) > 0
+        assert len(o.symbols) > 0
         variables = []
-        for v in o.variables:
+        for v in o.symbols:
             if kwargs.get('skip_argument_declarations') and v.type.intent:
                 continue
             var = self.visit(v, **kwargs)

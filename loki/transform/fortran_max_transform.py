@@ -109,7 +109,7 @@ class FortranMaxTransformation(Transformation):
         the original 'inout' argument that has the 'in'-argument as initial value assigned.
         """
         declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
-        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         arguments = []
         out_map = {}
@@ -125,8 +125,8 @@ class FortranMaxTransformation(Transformation):
                 arguments += [arg_in, arg_out]
                 # Enlist declaration of modified argument for removal
                 decl = decl_map[arg]
-                if len(decl.variables) > 1:
-                    out_map[decl] = decl.clone(variables=[v for v in decl.variables if v != arg])
+                if len(decl.symbols) > 1:
+                    out_map[decl] = decl.clone(symbols=[v for v in decl.symbols if v != arg])
                 else:
                     out_map[decl] = None
             elif arg.type.intent is not None:

@@ -1113,11 +1113,11 @@ end subroutine routine_call_external_stmt
 
     for decl in FindNodes(VariableDeclaration).visit(routine.spec):
         # Skip local variables
-        if decl.variables[0].name in ('invar', 'outvar', 'tmp'):
+        if decl.symbols[0].name in ('invar', 'outvar', 'tmp'):
             continue
         # Is the EXTERNAL attribute set?
         assert decl.external
-        for v in decl.variables:
+        for v in decl.symbols:
             # Are procedure names represented as Scalar objects?
             assert isinstance(v, ProcedureSymbol)
             assert isinstance(v.type.dtype, ProcedureType)

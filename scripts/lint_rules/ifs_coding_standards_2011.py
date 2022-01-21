@@ -347,17 +347,17 @@ class ExplicitKindRule(GenericRule):  # Coding standards 4.7
         on all declarations.
         '''
         for decl in FindNodes(ir.VariableDeclaration).visit(subroutine.spec):
-            decl_type = decl.variables[0].type
+            decl_type = decl.symbols[0].type
             if decl_type.dtype in types:
                 if not decl_type.kind:
                     # Declared without any KIND specification
-                    msg = f'{", ".join(str(var) for var in decl.variables)} without explicit KIND declared'
+                    msg = f'{", ".join(str(var) for var in decl.symbols)} without explicit KIND declared'
                     rule_report.add(msg, decl)
                 elif allowed_type_kinds.get(decl_type.dtype):
                     if decl_type.kind not in allowed_type_kinds[decl_type.dtype]:
                         # We have a KIND but it does not match any of the allowed kinds
                         msg = (f'{decl_type.kind!s} is not an allowed KIND value for '
-                               f'{", ".join(str(var) for var in decl.variables)}')
+                               f'{", ".join(str(var) for var in decl.symbols)}')
                         rule_report.add(msg, decl)
 
     @staticmethod

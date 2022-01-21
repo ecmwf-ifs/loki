@@ -382,7 +382,7 @@ end module test_tools_pragmas_attached_module
 
     assert len(FindNodes(Pragma).visit(module.spec)) == 1
     decl = FindNodes(VariableDeclaration).visit(module.spec)[1]
-    assert len(decl.variables) == 1 and decl.variables[0].name.lower() == 'b'
+    assert len(decl.symbols) == 1 and decl.symbols[0].name.lower() == 'b'
     assert decl.pragma is None
 
     with pragmas_attached(module, VariableDeclaration):

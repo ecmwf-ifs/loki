@@ -228,7 +228,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         size = as_tuple(size)
 
         var_list = [var for decl in FindNodes(VariableDeclaration).visit(routine.spec)
-                    for var in decl.variables if var.name.lower() in variable_names]
+                    for var in decl.symbols if var.name.lower() in variable_names]
 
         var_shapes = [getattr(var, 'shape', ()) for var in var_list]
         if pos < 0:

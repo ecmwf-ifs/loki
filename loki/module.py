@@ -196,7 +196,7 @@ class Module(Scope):
         """
         Return the variables declared in this module
         """
-        return as_tuple(flatten(decl.variables for decl in FindNodes(VariableDeclaration).visit(self.spec)))
+        return as_tuple(flatten(decl.symbols for decl in FindNodes(VariableDeclaration).visit(self.spec)))
 
     @variables.setter
     def variables(self, variables):
@@ -205,20 +205,20 @@ class Module(Scope):
         """
         # First map variables to existing declarations
         declarations = FindNodes(VariableDeclaration).visit(self.spec)
-        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         for v in as_tuple(variables):
             if v not in decl_map:
                 # By default, append new variables to the end of the spec
-                new_decl = VariableDeclaration(variables=[v])
+                new_decl = VariableDeclaration(symbols=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
         for decl in FindNodes(VariableDeclaration).visit(self.spec):
-            new_vars = as_tuple(v for v in decl.variables if v in variables)
+            new_vars = as_tuple(v for v in decl.symbols if v in variables)
             if len(new_vars) > 0:
-                decl._update(variables=new_vars)
+                decl._update(symbols=new_vars)
             else:
                 dmap[decl] = None  # Mark for removal
         # Remove all redundant declarations

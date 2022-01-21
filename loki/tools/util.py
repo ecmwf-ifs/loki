@@ -439,7 +439,7 @@ class LazyNodeLookup:
           # routine = ...
 
           # Create the reference
-          query = lambda x: [d for d in FindNodes(Declaration).visit(x.spec) if 'a' in d.variables][0]
+          query = lambda x: [d for d in FindNodes(VariableDeclaration).visit(x.spec) if 'a' in d.symbols][0]
           decl_ref = LazyNodeLookup(routine, query)
 
           # Use the reference (this carries out the query)

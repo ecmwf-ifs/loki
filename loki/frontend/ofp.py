@@ -494,7 +494,7 @@ class OFP2IR(GenericVisitor):
                 kwargs['scope'].symbol_attrs[var.name] = _type
 
             variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
-            declaration = ir.VariableDeclaration(variables=variables, external=True, source=source, label=label)
+            declaration = ir.VariableDeclaration(symbols=variables, external=True, source=source, label=label)
             return declaration
 
         if o.attrib['type'] == 'data':
@@ -630,7 +630,7 @@ class OFP2IR(GenericVisitor):
                 scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
         variables = tuple(v.clone(scope=scope) for v in variables)
-        return ir.VariableDeclaration(variables=variables, dimensions=_type.shape, external=external,
+        return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, external=external,
                                       source=source, label=label)
 
     def visit_interface(self, o, **kwargs):
@@ -1128,4 +1128,4 @@ class OFP2IR(GenericVisitor):
             scope.symbol_attrs[v_name] = v_type
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
-        return ir.VariableDeclaration(variables=variables, source=source)
+        return ir.VariableDeclaration(symbols=variables, source=source)

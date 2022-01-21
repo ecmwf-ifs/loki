@@ -94,7 +94,7 @@ def process_dimension_pragmas(ir):
     """
     for decl in FindNodes(VariableDeclaration).visit(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
-            for v in decl.variables:
+            for v in decl.symbols:
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]

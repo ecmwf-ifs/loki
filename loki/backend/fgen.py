@@ -260,8 +260,8 @@ class FortranCodegen(Stringifier):
           [<type>] [, DIMENSION(...)] [, EXTERNAL] :: var [= initial] [, var [= initial] ] ...
         """
         attributes = []
-        assert len(o.variables) > 0
-        types = [v.type for v in o.variables]
+        assert len(o.symbols) > 0
+        types = [v.type for v in o.symbols]
 
         # Ensure all variable types are equal, except for shape and dimension
         # TODO: Should extend to deeper recursion of `variables` if
@@ -283,7 +283,7 @@ class FortranCodegen(Stringifier):
         if o.external:
             attributes += ['EXTERNAL']
         variables = []
-        for v in o.variables:
+        for v in o.symbols:
             # This is a bit dubious, but necessary, as we otherwise pick up
             # array dimensions from the internal representation of the variable.
             var = self.visit(v, **kwargs) if o.dimensions is None else v.basename

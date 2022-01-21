@@ -236,7 +236,7 @@ class Subroutine(Scope):
         # this declares the return type)
         if not is_function:
             mapper = {d: None for d in FindNodes(VariableDeclaration).visit(spec)
-                      if d.variables[0].name == name}
+                      if d.symbols[0].name == name}
             spec = Transformer(mapper, invalidate_source=False).visit(spec)
 
         # Hack: We remove comments from the beginning of the spec to get the docstring
@@ -404,7 +404,7 @@ class Subroutine(Scope):
         """
         Return the variables (including arguments) declared in this subroutine
         """
-        return as_tuple(flatten(decl.variables for decl in FindNodes(VariableDeclaration).visit(self.spec)))
+        return as_tuple(flatten(decl.symbols for decl in FindNodes(VariableDeclaration).visit(self.spec)))
 
     @variables.setter
     def variables(self, variables):
@@ -416,12 +416,12 @@ class Subroutine(Scope):
         """
         # First map variables to existing declarations
         declarations = FindNodes(VariableDeclaration).visit(self.spec)
-        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         for v in as_tuple(variables):
             if v not in decl_map:
                 # By default, append new symbols to the end of the spec
-                new_decl = VariableDeclaration(variables=[v])
+                new_decl = VariableDeclaration(symbols=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
@@ -432,9 +432,9 @@ class Subroutine(Scope):
             if decl in typedef_decls:
             # Slightly hacky: We need to exclude declarations inside TypeDef explicitly
                 continue
-            new_vars = as_tuple(v for v in decl.variables if v in variables)
+            new_vars = as_tuple(v for v in decl.symbols if v in variables)
             if len(new_vars) > 0:
-                decl._update(variables=new_vars)
+                decl._update(symbols=new_vars)
             else:
                 dmap[decl] = None  # Mark for removal
 
@@ -470,14 +470,14 @@ class Subroutine(Scope):
         """
         # First map variables to existing declarations
         declarations = FindNodes(VariableDeclaration).visit(self.spec)
-        decl_map = dict((v, decl) for decl in declarations for v in decl.variables)
+        decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         arguments = as_tuple(arguments)
         for arg in arguments:
             if arg not in decl_map:
                 # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
-                new_decl = VariableDeclaration(variables=[arg])
+                new_decl = VariableDeclaration(symbols=[arg])
                 self.spec.append(new_decl)
 
         # Set new dummy list according to input
@@ -537,12 +537,12 @@ class Subroutine(Scope):
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
         for decl in FindNodes(VariableDeclaration).visit(self.spec):
-            if any(v in arg_names for v in decl.variables):
-                assert all(v in arg_names and v.type.intent is not None for v in decl.variables), \
+            if any(v in arg_names for v in decl.symbols):
+                assert all(v in arg_names and v.type.intent is not None for v in decl.symbols), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."
                 # Replicate declaration with re-scoped variables
-                variables = as_tuple(v.clone(scope=routine) for v in decl.variables)
-                decl_map[decl] = decl.clone(variables=variables)
+                variables = as_tuple(v.clone(scope=routine) for v in decl.symbols)
+                decl_map[decl] = decl.clone(symbols=variables)
             else:
                 decl_map[decl] = None  # Remove local variable declarations
         routine.spec = Transformer(decl_map).visit(self.spec)
