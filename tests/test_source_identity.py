@@ -44,11 +44,11 @@ end subroutine routine_raw_source_loop
 
     source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_loop']
-    assert source.source.string == fcode
-    assert routine.source.string == fcode
+    assert source.source.string.strip() == fcode
+    assert routine.source.string.strip() == fcode
 
     fcode = fcode.splitlines()
-    assert source.source.lines == (1, len(fcode))
+    assert source.source.lines == (1, len(fcode) + 1)
     assert routine.source.lines == (1, len(fcode))
 
     # Check the intrinsics
@@ -108,11 +108,11 @@ end subroutine routine_raw_source_cond
 
     source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_cond']
-    assert source.source.string == fcode
-    assert routine.source.string == fcode
+    assert source.source.string.strip() == fcode
+    assert routine.source.string.strip() == fcode
 
     fcode = fcode.splitlines()
-    assert source.source.lines == (1, len(fcode))
+    assert source.source.lines == (1, len(fcode) + 1)
     assert routine.source.lines == (1, len(fcode))
 
     # Check the intrinsics
@@ -168,11 +168,11 @@ end subroutine routine_raw_source_multicond
 
     source = Sourcefile.from_file(filename, frontend=frontend)
     routine = source['routine_raw_source_multicond']
-    assert source.source.string == fcode
-    assert routine.source.string == fcode
+    assert source.source.string.strip() == fcode
+    assert routine.source.string.strip() == fcode
 
     fcode = fcode.splitlines()
-    assert source.source.lines == (1, len(fcode))
+    assert source.source.lines == (1, len(fcode) + 1)
     assert routine.source.lines == (1, len(fcode))
 
     # Check the intrinsics

@@ -306,3 +306,5 @@ class Sourcefile:
         info(f'Writing {path}')
         with path.open('w') as f:
             f.write(source)
+            if source[-1] != '\n':
+                f.write('\n')
