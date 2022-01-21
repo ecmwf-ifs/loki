@@ -15,6 +15,7 @@
 import os
 import re
 import sys
+from pkg_resources import get_distribution
 
 sys.path.insert(0, os.path.abspath('../..'))
 sys.path.insert(0, os.path.abspath('../../scripts'))
@@ -27,7 +28,8 @@ copyright = '2018- European Centre for Medium-Range Weather Forecasts (ECMWF)'
 author = 'Michael Lange, Balthasar Reuter'
 
 # The full version, including alpha/beta/rc tags.
-release = re.sub('^v', '', os.popen('git describe').read().strip())
+release = get_distribution('loki').version
+#release = re.sub('^v', '', os.popen('git describe').read().strip())
 # The short X.Y version.
 version = release
 

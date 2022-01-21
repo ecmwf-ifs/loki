@@ -404,30 +404,74 @@ class FParser2IR(GenericVisitor):
         name = o.children[2].tostr()
         module = self.definitions.get(name)
         scope = kwargs['scope']
-        if o.children[3] == '':
+        if o.children[3] == '' or o.children[3] == ',':
             # No ONLY list (import all)
             symbols = None
+            # Rename list
+            if o.children[4]:
+                rename_list = dict(self.visit(o.children[4], **kwargs))
+            else:
+                rename_list = {}
             if module is not None:
+                # Import symbol attributes from module, if available
                 for k, v in module.symbols.items():
-                    scope.symbols[k] = v.clone(imported=True, module=module)
+                    if k in rename_list:
+                        local_name = rename_list[k].name
+                        scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                    else:
+                        scope.symbols[k] = v.clone(imported=True, module=module)
+            elif rename_list:
+                # Module not available but some information via rename-list
+                scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+            rename_list = tuple(rename_list.items()) if rename_list else None
         elif o.children[3] == ', ONLY:':
             # ONLY list given (import only selected symbols)
             symbols = () if o.children[4] is None else self.visit(o.children[4], **kwargs)
+            # No rename-list
+            rename_list = None
             if module is None:
-                scope.symbols.update({s.name: SymbolAttributes(BasicType.DEFERRED, imported=True) for s in symbols})
-            else:
+                # Initialize symbol attributes as DEFERRED
                 for s in symbols:
-                    scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
-            symbols = tuple(s.clone(scope=scope) for s in symbols)
-        elif o.children[3] == ',':
-            # Rename list
-            self.warn_or_fail('rename lists not implemented for USE statements')
+                    if isinstance(s, tuple):  # Renamed symbol
+                        scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                    else:
+                        scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+            else:
+                # Import symbol attributes from module
+                for s in symbols:
+                    if isinstance(s, tuple):  # Renamed symbol
+                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                                                                              use_name=s[0])
+                    else:
+                        scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+            symbols = tuple(
+                s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
+            )
         else:
-            raise ValueError(f'Unexpected list only/rename-list value in USE statement: {o.children[3]}')
+            raise ValueError(f'Unexpected only/rename-list value in USE statement: {o.children[3]}')
 
-        return ir.Import(module=name, symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
+        return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
+                         source=kwargs.get('source'), label=kwargs.get('label'))
 
     visit_Only_List = visit_List
+    visit_Rename_List = visit_List
+
+    def visit_Rename(self, o, **kwargs):
+        """
+        A rename of an imported symbol
+
+        :class:`fparser.two.Fortran2003.Rename` has three children:
+            * 'OPERATOR' (`str`) or `None`
+            * :class:`fparser.two.Fortran2003.Local_Name` or
+              :class:`fparser.two.Fortran2003.Local_Defined_Operator`
+            * :class:`fparser.two.Fortran2003.Use_Name` or
+              :class:`fparser.two.Fortran2003.Use_Defined_Operator`
+        """
+        if o.children[0] == 'OPERATOR':
+            self.warn_or_fail('OPERATOR in rename-list not yet implemented')
+            return ()
+        assert o.children[0] is None
+        return (str(o.children[2]), self.visit(o.children[1], **kwargs))
 
     #
     # Variable declarations
