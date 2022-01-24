@@ -148,7 +148,44 @@ def extract_vector_sections(section, horizontal):
     return subsections
 
 
-def kernel_demote_private_locals(routine, horizontal, vertical):
+def kernel_get_locals_to_demote(routine, sections, horizontal, vertical):
+
+    # Get all variable instances in the routine
+    variables = FindVariables(unique=False).visit(routine.body)
+    to_demote = set()
+
+    # Filter for cross-section buffering of vector values
+    for section in sections:
+        # Find all (exact) symbol uses outside of this section!
+        # Exact in this context means bypassing the variable equivalence
+        # and checking against actual symbol instances outside of the section.
+        s_vars = FindVariables(unique=False).visit(section)
+        s_vids = tuple(id(v) for v in s_vars)
+        s_diff = tuple(v for v in variables if id(v) not in s_vids)
+
+        # Add all array instances that have no other use outside of this vector section
+        to_demote |= set(v for v in s_vars if isinstance(v, sym.Array) and v not in s_diff)
+
+    # Further filter selection to vector arrays that have no vertical dimension
+    to_demote = [v for v in to_demote if v.shape is not None]
+    to_demote = [v for v in to_demote if not any(vertical.size in d for d in v.shape)]
+
+    to_demote = [v for v in to_demote if v.dimensions and len(v.dimensions) == 1]
+
+    # Filter out non-local argument variables
+    arg_names = [v.name for v in routine.arguments]
+    to_demote = [v for v in to_demote if v.name not in arg_names]
+
+    # Filter out variables that we will pass down the call tree
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    call_args = flatten(call.arguments for call in calls)
+    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
+    to_demote = [v for v in to_demote if v.name not in call_args]
+
+    return set(to_demote)
+
+
+def kernel_demote_private_locals(routine, to_demote, horizontal):
     """
     Demotes all local variables that can be privatized at the `acc loop vector`
     level.
@@ -170,38 +207,14 @@ def kernel_demote_private_locals(routine, horizontal, vertical):
         The dimension object specifying the vertical loop dimension
     """
 
-    # Establish the new dimensions and shapes first, before cloning the variables
-    # The reason for this is that shapes of all variable instances are linked
-    # via caching, meaning we can easily void the shape of an unprocessed variable.
-    variables = list(routine.variables)
-    variables += list(FindVariables(unique=False).visit(routine.body))
-
-    # Filter out purely local array variables
-    argument_map = CaseInsensitiveDict({a.name: a for a in routine.arguments})
-    variables = [v for v in variables if not v.name in argument_map]
-    variables = [v for v in variables if isinstance(v, sym.Array)]
-
-    # Find all arrays with shapes that do not include the vertical
-    # dimension and can thus be privatized.
-    variables = [v for v in variables if v.shape is not None]
-    variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
-
-    # Filter out variables that we will pass down the call tree
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    call_args = flatten(call.arguments for call in calls)
-    call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-    variables = [v for v in variables if v.name not in call_args]
-
-    # Only demote arrays that have one (the horizontal) dimension
-    variables = [v for v in variables if v.dimensions and len(v.dimensions) == 1]
+    # Find variable objects anew to ensure they are all up-to-date!
+    v_names = list(v.name.upper() for v in to_demote)
+    variables = list(FindVariables(unique=False).visit(routine.body))
+    variables += list(routine.variables)
+    variables = [v for v in variables if v.name.upper() in v_names]
 
     # Record original array shapes
     shape_map = CaseInsensitiveDict({v.name: v.shape for v in variables})
-
-    # TODO: We need to ensure that we only demote things that we do not use
-    # to buffer things across two sections. With the extended loop promotion,
-    # we now need to check that we only demote in distinct vector loops, rather
-    # than across entire routines....
 
     # Demote private local variables
     vmap = {}
@@ -527,14 +540,20 @@ class SingleColumnCoalescedTransformation(Transformation):
         # Extract vector-level compute sections from the kernel
         sections = extract_vector_sections(routine.body.body, self.horizontal)
 
+        # Extract the local variables to dome after we wrap the sections in vector loops.
+        # We do this, because need the section blocks to determine which local arrays
+        # may carry buffered values between them, so that we may not demote those!
+        to_demote = kernel_get_locals_to_demote(routine, sections, self.horizontal, self.vertical)
+
         if not self.hoist_column_arrays:
             # Promote vector loops to be the outermost loop dimension in the kernel
             mapper = dict((s, wrap_vector_section(s, routine, self.horizontal)) for s in sections)
             routine.body = NestedTransformer(mapper).visit(routine.body)
 
-        # Demote all private local variables
+        # Demote all private local variables that do not buffer values between sections
         if demote_locals:
-            kernel_demote_private_locals(routine, self.horizontal, self.vertical)
+            # kernel_demote_private_locals(routine, self.horizontal, self.vertical)
+            kernel_demote_private_locals(routine, to_demote, self.horizontal)
 
         if self.hoist_column_arrays:
             # Promote all local arrays with column dimension to arguments
