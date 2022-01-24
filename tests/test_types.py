@@ -288,6 +288,7 @@ subroutine test_type_char_length
     character(len=*) :: oh_dear
     character(len=:) :: come_on
     character :: you_gotta_be_kidding_me*20
+    character(*) :: whatever(5)
 end subroutine test_type_char_length
     """.strip()
 
@@ -299,6 +300,8 @@ end subroutine test_type_char_length
     assert routine.variable_map['oh_dear'].type.length == '*'
     assert routine.variable_map['come_on'].type.length == ':'
     assert routine.variable_map['you_gotta_be_kidding_me'].type.length == '20'
+    assert routine.variable_map['whatever'].type.length == '*'
+    assert routine.variable_map['whatever'].shape == ('5',)
 
     code = routine.to_fortran()
     for length in ('80', '60', '21', '*', ':', '20'):
