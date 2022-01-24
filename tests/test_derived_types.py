@@ -7,6 +7,8 @@ from loki import (
     Module, Subroutine, BasicType, DerivedType, TypeDef,
     config, fgen
 )
+from loki.ir import ProcedureDeclaration
+from loki.types import ProcedureType
 
 
 @pytest.fixture(scope='module', name='here')
@@ -398,11 +400,12 @@ def test_derived_type_procedure_designator(frontend):
     mcode = """
 module derived_type_procedure_designator_mod
   implicit none
-  type some_type
+  type :: some_type
     integer :: val
   contains
     procedure :: SOME_PROC => some_TYPE_some_proc
-    PROCEDURE :: some_FUNC => some_type_SOME_func
+    PROCEDURE :: some_FUNC => SOME_TYPE_SOME_FUNC
+    PROCEDURE :: OTHER_PROC
   end type some_type
 
   TYPE other_type
@@ -420,6 +423,11 @@ contains
     CLASS(SOME_TYPE) :: self
     some_type_some_func = self%val
   end function some_type_some_func
+
+  subroutine other_proc(self)
+    class(some_type) :: self
+    self%val = self%val + 1
+  end subroutine other_proc
 end module derived_type_procedure_designator_mod
     """.strip()
 
@@ -452,6 +460,25 @@ end subroutine derived_type_procedure_designator
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
     assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
 
+    # Make sure type-bound procedure declarations exist
+    some_type = module.typedefs['some_type']
+    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    assert len(proc_decls) == 3
+    assert all(decl.interface is None for decl in proc_decls)
+
+    proc_symbols = {s.name.lower(): s for d in proc_decls for s in d.symbols}
+    assert set(proc_symbols.keys()) == {'some_proc', 'some_func', 'other_proc'}
+    assert all(s.scope is some_type for s in proc_symbols.values())
+    assert all(isinstance(s.type.dtype, ProcedureType) for s in proc_symbols.values())
+
+    assert proc_symbols['some_proc'].type.initial == 'some_type_some_proc'
+    assert proc_symbols['some_proc'].type.initial.scope is module
+    assert proc_symbols['some_func'].type.initial == 'some_type_some_func'
+    assert proc_symbols['some_proc'].type.initial.scope is module
+    assert proc_symbols['other_proc'].type.initial is None
+
+    # TODO: verify correct type association of calls to type-bound procedures
+
     # Next, without external definitions
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assert 'some_type' not in routine.symbol_attrs
@@ -459,7 +486,7 @@ end subroutine derived_type_procedure_designator
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
     assert routine.symbol_attrs['tp'].dtype.typedef == BasicType.DEFERRED
 
-    # TODO: actually verify representation of type-bound procedures
+    # TODO: verify correct type association of calls to type-bound procedures
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

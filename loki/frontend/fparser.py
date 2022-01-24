@@ -302,6 +302,12 @@ class FParser2IR(GenericVisitor):
         """
         return tuple(self.visit(i, **kwargs) for i in o.children)
 
+    def visit_Intrinsic_Stmt(self, o, **kwargs):
+        """
+        Universal routine to capture nodes as plain string in the IR
+        """
+        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+
     #
     # Base blocks
     #
@@ -522,31 +528,44 @@ class FParser2IR(GenericVisitor):
             # representation of variables in declarations
             variables = as_tuple(v.clone(dimensions=_type.shape) for v in variables)
 
-        # Make sure KIND (which can be a name) is in the right scope
+        # Make sure KIND and INITIAL (which can be a name) are in the right scope
         scope = kwargs['scope']
         if _type.kind is not None:
             kind = AttachScopesMapper()(_type.kind, scope=scope)
             _type = _type.clone(kind=kind)
+        if _type.initial is not None:
+            initial = AttachScopesMapper()(_type.initial, scope=scope)
+            _type = _type.clone(initial=initial)
 
-        # Update symbol table entries
-        for var in variables:
-            # EXTERNAL attribute means this is actually a function or subroutine
-            # Since every symbol refers to a different function we have to update the
-            # type definition for every symbol individually
-            if _type.external:
+        # EXTERNAL attribute means this is actually a function or subroutine
+        # Since every symbol refers to a different function we have to update the
+        # type definition for every symbol individually
+        if _type.external:
+            for var in variables:
                 type_kwargs = _type.__dict__.copy()
-                if _type.dtype is not None:
-                    return_type = SymbolAttributes(_type.dtype)
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
+                return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
+                external_type = scope.symbols.lookup(var.name)
+                if external_type is None:
+                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=return_type is not None, return_type=return_type)
                 else:
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
+                    type_kwargs['dtype'] = external_type.dtype
                 scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
             else:
                 scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
+            variables = tuple(var.rescope(scope=scope) for var in variables)
+            return ir.ProcedureDeclaration(
+                symbols=variables, external=True, source=kwargs.get('source'), label=kwargs.get('label')
+            )
+
+        # Update symbol table entries and rescope
+        scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
         variables = tuple(var.rescope(scope=scope) for var in variables)
-        return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, external=_type.external,
-                                      source=kwargs.get('source'), label=kwargs.get('label'))
+
+        return ir.VariableDeclaration(
+            symbols=variables, dimensions=_type.shape,
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         """
@@ -770,21 +789,21 @@ class FParser2IR(GenericVisitor):
         assert o.children[0].upper() == 'EXTERNAL'
 
         # Compile the list of names...
-        variables = self.visit(o.children[1], **kwargs)
+        symbols = self.visit(o.children[1], **kwargs)
 
         # ...and update their symbol table entry...
         scope = kwargs['scope']
-        for var in variables:
+        for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name)
             if _type is None:
-                _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
+                dtype = ProcedureType(var.name, is_function=False)
             else:
-                _type = _type.clone(external=True)
-            scope.symbol_attrs[var.name] = _type
+                dtype = _type.dtype
+            scope.symbol_attrs[var.name] = SymbolAttributes(dtype, external=True)
 
-        variables = tuple(v.clone(scope=scope) for v in variables)
-        declaration = ir.VariableDeclaration(symbols=variables, external=True,
-                                             source=kwargs.get('source'), label=kwargs.get('label'))
+        symbols = tuple(v.rescope(scope=scope) for v in symbols)
+        declaration = ir.ProcedureDeclaration(symbols=symbols, external=True,
+                                              source=kwargs.get('source'), label=kwargs.get('label'))
         return declaration
 
     visit_External_Name_List = visit_List
@@ -805,20 +824,23 @@ class FParser2IR(GenericVisitor):
         """
         scope = kwargs['scope']
 
+        # Instantiate declared symbols
+        symbols = as_tuple(self.visit(o.children[2], **kwargs))
+
         # Find out which procedure we are declaring (i.e., PROCEDURE(<func_name>))
-        func_name = o.children[0].tostr()
-        if func_name in scope.symbols:
-            _type = scope.symbols[func_name]
-        else:
-            _type = SymbolAttributes(dtype=ProcedureType(func_name, is_function=False))
+        assert o.children[0] is not None
+        interface = self.visit(o.children[0], **kwargs)
+        interface = AttachScopesMapper()(interface, scope=scope)
 
         # Any additional declared attributes
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
         attrs = dict(attrs)
-        _type = _type.clone(**attrs)
+        _type = interface.type.clone(**attrs)
 
-        # Last, instantiate declared symbols
-        symbols = as_tuple(self.visit(o.children[2], **kwargs))
+        # Make sure any "initial" symbol (i.e. the procedure we're binding to) is in the right scope
+        if _type.initial is not None:
+            initial = AttachScopesMapper()(_type.initial, scope=scope)
+            _type = _type.clone(initial=initial)
 
         # Update symbol table entries
         scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
@@ -1101,9 +1123,49 @@ class FParser2IR(GenericVisitor):
             * name :class:`fparser.two.Fortran2003.Binding_Name`
             * procedure name :class:`fparser.two.Fortran2003.Procedure_Name`
         """
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+        scope = kwargs['scope']
 
-    visit_Contains_Stmt = visit_Specific_Binding
+        # Instantiate declared symbols
+        symbols = as_tuple(self.visit(o.children[3], **kwargs))
+
+        # Procedure we bind to this type
+        inits = None
+        interface = None
+        if o.children[0]:
+            # Procedure interface provided
+            interface = self.visit(o.children[0], **kwargs)
+            interface = AttachScopesMapper()(interface, scope=scope)
+            func_names = [interface.name] * len(symbols)
+            assert o.children[4] is None
+        elif o.children[4]:
+            inits = as_tuple(self.visit(o.children[4], **kwargs))
+            assert len(inits) == len(symbols)
+            func_names = [i.name for i in inits]
+        else:
+            func_names = [s.name for s in symbols]
+
+        # Look up the type of the procedure
+        types = [scope.symbols.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
+
+        # Any declared attributes
+        attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
+        attrs = dict(attrs)
+        types = [t.clone(**attrs) for t in types]
+
+        # Store the initializers
+        if inits:
+            mapper = AttachScopesMapper()
+            inits = [mapper(i, scope=scope) for i in inits]
+            types = [t.clone(initial=i) for t, i in zip(types, inits)]
+
+        # Update symbol table entries
+        scope.symbols.update({s.name: s.type.clone(**t.__dict__) for s, t in zip(symbols, types)})
+
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(symbols=symbols, interface=interface,
+                                       source=kwargs.get('source'), label=kwargs.get('label'))
+
+    visit_Contains_Stmt = visit_Intrinsic_Stmt
     visit_Binding_Private_Stmt = visit_Specific_Binding
     visit_Generic_Binding = visit_Specific_Binding
     visit_Final_Binding = visit_Specific_Binding
@@ -2268,9 +2330,6 @@ class FParser2IR(GenericVisitor):
         if isinstance(expression, sym.Power):
             expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
         return expression
-
-    def visit_Intrinsic_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
 
     visit_Format_Stmt = visit_Intrinsic_Stmt
     visit_Write_Stmt = visit_Intrinsic_Stmt

@@ -459,7 +459,7 @@ class OFP2IR(GenericVisitor):
             if o.attrib['hasKind'] == 'true':
                 kind = self.visit(o.find('kind'), **kwargs)
                 _type = _type.clone(kind=kind)
-            if o.find('length'):
+            if o.find('length') is not None:
                 _type = _type.clone(length=self.visit(o.find('length'), **kwargs))
             return _type
 
@@ -538,6 +538,47 @@ class OFP2IR(GenericVisitor):
 
         return var
 
+    def visit_procedures(self, o, **kwargs):
+        count = int(o.attrib['count'])
+        return self.visit(o.findall('procedure')[:count], **kwargs)
+
+    def visit_procedure(self, o, **kwargs):
+        var = self.visit(o.find('proc-decl'), **kwargs)
+        return var
+
+    visit_proc_decl = visit_entity_decl
+    visit_proc_interface = visit_entity_decl
+
+    def visit_specific_binding(self, o, **kwargs):
+        scope = kwargs['scope']
+        # Name of the binding
+        var = sym.Variable(name=o.attrib['bindingName'], source=kwargs['source'])
+
+        interface = o.attrib['interfaceName'] or None
+        if interface is not None:
+            # Interface provided (PROCEDURE(<interface>))
+            assert not o.attrib['procedureName']
+            interface_scope = scope.get_symbol_scope(interface)
+            interface = sym.Variable(name=interface, scope=interface_scope)
+            _type = interface.type
+        elif o.attrib['procedureName']:
+            # Binding provided (<bindingName> => <procedureName>)
+            procedure_scope = scope.get_symbol_scope(o.attrib['procedureName'])
+            init = sym.Variable(name=o.attrib['procedureName'], scope=procedure_scope)
+            _type = init.type.clone(initial=init)
+        else:
+            # Binding has the same name as procedure
+            _type = scope.symbols.lookup(var.name)
+            if _type is None:
+                _type = SymbolAttributes(ProcedureType(var.name))
+
+        # Update symbol table and rescope symbols
+        scope.symbols[var.name] = _type
+        var = var.rescope(scope=scope)
+        return ir.ProcedureDeclaration(
+            symbols=(var,), interface=interface, source=kwargs['source'], label=kwargs['label']
+        )
+
     def visit_derived_type_stmt(self, o, **kwargs):
         if o.attrib['keyword'].lower() != 'type':
             self.warn_or_fail(f'Type keyword {o.attrib["keyword"]} not implemented')
@@ -586,7 +627,7 @@ class OFP2IR(GenericVisitor):
                 kwargs['scope'].symbol_attrs[var.name] = _type
 
             variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
-            declaration = ir.VariableDeclaration(symbols=variables, external=True, source=source, label=label)
+            declaration = ir.ProcedureDeclaration(symbols=variables, external=True, source=source, label=label)
             return declaration
 
         if o.attrib['type'] == 'data':
@@ -635,6 +676,11 @@ class OFP2IR(GenericVisitor):
                 else:
                     raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
 
+            if o.find('contains-stmt') is not None:
+                # The derived type contains type-bound procedures
+                body.append(self.visit(o.find('contains-stmt'), **kwargs))
+                body += self.visit(o.findall('specific-binding'), **kwargs)
+
             # Infer any additional shape information from `!$loki dimension` pragmas
             body = attach_pragmas(body, ir.VariableDeclaration)
             body = process_dimension_pragmas(body)
@@ -644,9 +690,7 @@ class OFP2IR(GenericVisitor):
             typedef._update(body=body)
             return typedef
 
-        # First, obtain data type and attributes
-        _type = self.visit(o.find('type'), **kwargs)
-
+        # First, declaration attributes
         attrs = {}
         if o.find('intent') is not None:
             intent = self.visit(o.find('intent'), **kwargs)
@@ -676,80 +720,111 @@ class OFP2IR(GenericVisitor):
             access_spec = self.visit(o.find('access-spec'), **kwargs)
             attrs.update((access_spec,))
 
-        if _type.dtype == BasicType.CHARACTER:
-            char_selector = o.find('char-selector')
-            if _type.length is None and char_selector is not None:
-                selector_idx = list(o).index(char_selector)
+        if o.find('variables') is not None:
+            # This is probably a variable declaration
+            _type = self.visit(o.find('type'), **kwargs)
 
-                if selector_idx > 0:
-                    tk1 = char_selector.get('tk1')
-                    tk2 = char_selector.get('tk2')
+            if _type.dtype == BasicType.CHARACTER:
+                char_selector = o.find('char-selector')
+                if _type.length is None and char_selector is not None:
+                    selector_idx = list(o).index(char_selector)
 
-                    length = None
-                    kind = None
-                    if tk1 in ('', 'len'):
-                        # The first child _should_ be the length selector
-                        length = self.visit(o[0], **kwargs)
+                    if selector_idx > 0:
+                        tk1 = char_selector.get('tk1')
+                        tk2 = char_selector.get('tk2')
 
-                        if tk2 == 'kind' or selector_idx > 2:
-                            # There is another value, presumably the kind specifier, which
-                            # should be right before the char-selector
-                            kind = self.visit(o[selector_idx-1], **kwargs)
-                    elif tk1 == 'kind':
-                        # The first child _should_ be the kind selector
-                        kind = self.visit(o[0], **kwargs)
+                        length = None
+                        kind = None
+                        if tk1 in ('', 'len'):
+                            # The first child _should_ be the length selector
+                            length = self.visit(o[0], **kwargs)
 
-                        if tk2 == 'len':
-                            # The second child should then be the length selector
-                            assert selector_idx > 2
-                            length = self.visit(o[1], **kwargs)
+                            if tk2 == 'kind' or selector_idx > 2:
+                                # There is another value, presumably the kind specifier, which
+                                # should be right before the char-selector
+                                kind = self.visit(o[selector_idx-1], **kwargs)
+                        elif tk1 == 'kind':
+                            # The first child _should_ be the kind selector
+                            kind = self.visit(o[0], **kwargs)
 
-                    attrs['length'] = length
-                    attrs['kind'] = kind
+                            if tk2 == 'len':
+                                # The second child should then be the length selector
+                                assert selector_idx > 2
+                                length = self.visit(o[1], **kwargs)
 
-        # Then, build the common symbol type for all variables
-        _type = _type.clone(**attrs)
+                        attrs['length'] = length
+                        attrs['kind'] = kind
 
-        # Last, instantiate declared variables
-        variables = as_tuple(self.visit(o.find('variables'), **kwargs))
+            # Then, build the common symbol type for all variables
+            _type = _type.clone(**attrs)
 
-        # check if we have a dimensions keyword
-        if o.find('dimensions') is not None:
-            dimensions = self.visit(o.find('dimensions'), **kwargs)
-            _type = _type.clone(shape=dimensions)
-            # Attach dimension attribute to variable declaration for uniform
-            # representation of variables in declarations
-            variables = as_tuple(v.clone(dimensions=dimensions) for v in variables)
+            # Last, instantiate declared variables
+            variables = as_tuple(self.visit(o.find('variables'), **kwargs))
 
-        # EXTERNAL attribute means this is actually a function or subroutine
-        # Since every symbol refers to a different function we have to update the
-        # type definition for every symbol individually
-        external = o.find('attribute-external') is not None
-        if external:
-            _type = _type.clone(external=True)
+            # check if we have a dimensions keyword
+            if o.find('dimensions') is not None:
+                dimensions = self.visit(o.find('dimensions'), **kwargs)
+                _type = _type.clone(shape=dimensions)
+                # Attach dimension attribute to variable declaration for uniform
+                # representation of variables in declarations
+                variables = as_tuple(v.clone(dimensions=dimensions) for v in variables)
 
-        # Make sure KIND (which can be a name) is in the right scope
-        if _type.kind is not None:
-            kind = AttachScopesMapper()(_type.kind, scope=kwargs['scope'])
-            _type = _type.clone(kind=kind)
+            # Make sure KIND (which can be a name) is in the right scope
+            scope = kwargs['scope']
+            if _type.kind is not None:
+                kind = AttachScopesMapper()(_type.kind, scope=scope)
+                _type = _type.clone(kind=kind)
 
-        # Update symbol table entries
-        scope = kwargs['scope']
-        for var in variables:
+            # EXTERNAL attribute means this is actually a function or subroutine
+            # Since every symbol refers to a different function we have to update the
+            # type definition for every symbol individually
+            external = o.find('attribute-external') is not None
             if external:
-                type_kwargs = _type.__dict__.copy()
-                if _type.dtype is not None:
-                    return_type = SymbolAttributes(_type.dtype)
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
-                else:
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
-                scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
-            else:
-                scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
+                _type = _type.clone(external=True)
+                for var in variables:
+                    type_kwargs = _type.__dict__.copy()
+                    if _type.dtype is not None:
+                        return_type = SymbolAttributes(_type.dtype)
+                        type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
+                    else:
+                        type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
+                    scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
 
-        variables = tuple(v.clone(scope=scope) for v in variables)
-        return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, external=external,
-                                      source=source, label=label)
+                variables = tuple(var.rescope(scope=scope) for var in variables)
+                return ir.ProcedureDeclaration(symbols=variables, external=True, source=source, label=label)
+
+            # Update symbol table entries and rescope
+            scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
+            variables = tuple(var.rescope(scope=scope) for var in variables)
+            return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, source=source, label=label)
+
+        if o.find('procedures') is not None:
+            # This is probably a procedure declaration
+            scope = kwargs['scope']
+
+            interface = None
+            if o.find('type') is not None:
+                _type = self.visit(o.find('type'), **kwargs)
+            elif o.find('proc-interface') is not None:
+                interface = self.visit(o.find('proc-interface'), **kwargs)
+                interface = interface.rescope(scope.get_symbol_scope(interface.name))
+                _type = interface.type
+            else:
+                self.warn_or_fail('No type or proc-interface given')
+                _type = SymbolAttributes(BasicType.DEFERRED)
+
+            _type = _type.clone(**attrs)
+
+            # Build the declared symbols
+            symbols = self.visit(o.find('procedures'), **kwargs)
+
+            # Update symbol table entries and rescope
+            scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+            symbols = tuple(var.rescope(scope=scope) for var in symbols)
+            return ir.ProcedureDeclaration(symbols=symbols, interface=interface, source=source, label=label)
+
+        # This should never happen:
+        raise ValueError('Unknown Declaration')
 
     def visit_interface(self, o, **kwargs):
         spec = self.visit(o.find('interface-stmt'), **kwargs)
@@ -959,6 +1034,8 @@ class OFP2IR(GenericVisitor):
 
     def visit_return_stmt(self, o, **kwargs):
         return self.create_intrinsic_from_source(o, 'keyword', **kwargs)
+
+    visit_contains_stmt = visit_return_stmt
 
     def visit_continue_stmt(self, o, **kwargs):
         return self.create_intrinsic_from_source(o, 'continueKeyword', **kwargs)

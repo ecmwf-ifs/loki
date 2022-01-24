@@ -6,7 +6,9 @@ from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
-from loki.ir import TypeDef, Section, VariableDeclaration, Import, Enumeration
+from loki.ir import (
+    ProcedureDeclaration, TypeDef, Section, VariableDeclaration, Import, Enumeration
+)
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
 from loki.types import ProcedureType, SymbolAttributes, BasicType
@@ -88,8 +90,23 @@ class Module(Scope):
 
         # Process module-level type specifications
         name = name or ast.attrib['name']
-
         module = cls(name=name, ast=ast, source=source)
+
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
+        routine_asts = None
+        if ast.find('members') is not None:
+            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
+            for routine_ast in routine_asts:
+                fname = routine_ast.attrib['name']
+                if routine_ast.tag == 'function':
+                    # This is a function, type definition will be updated properly by the
+                    # Subroutine constructor later
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
+                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
+                else:
+                    dtype = ProcedureType(fname, is_function=False)
+                module.symbol_attrs[fname] = SymbolAttributes(dtype)
 
         # Parse type definitions into IR and store
         spec_ast = ast.find('body/specification')
@@ -97,20 +114,7 @@ class Module(Scope):
                                     scope=module, pp_info=pp_info)
 
         # Parse member subroutines and functions
-        routines = None
-        if ast.find('members'):
-            # We need to pre-populate the ProcedureType symbol table to
-            # correctly classify inline function calls within the module
-            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
-            for routine_ast in routine_asts:
-                fname = routine_ast.attrib['name']
-                if routine_ast.tag == 'function':
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    dtype = ProcedureType(fname, is_function=False)
-                module.symbol_attrs[fname] = SymbolAttributes(dtype)
-
+        if routine_asts:
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent=module, pp_info=pp_info)
                         for routine in routine_asts if routine.tag in ('subroutine', 'function')]
@@ -127,15 +131,33 @@ class Module(Scope):
 
         module = cls(name=name, ast=ast, source=source)
 
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
+        routine_asts = list(ast.findall('FcontainsStatement/FfunctionDefinition'))
+        for routine_ast in routine_asts:
+            fname = routine_ast.find('name').text
+            fname_id = routine_ast.find('name').attrib['type']
+            if fname_id in type_map and type_map[fname_id].attrib['return_type'] != 'Fvoid':
+                # This is a function, type definition will be updated properly by the
+                # Subroutine constructor later
+                return_type = SymbolAttributes(BasicType.DEFERRED)
+                dtype = ProcedureType(fname, is_function=True, return_type=return_type)
+            else:
+                dtype = ProcedureType(fname, is_function=False)
+            module.symbols[fname] = SymbolAttributes(dtype)
+
         # Generate spec, filter out external declarations and insert `implicit none`
         module.spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
                                      definitions=definitions, raw_source=raw_source, scope=module)
 
         # Parse member functions
-        routines = [Subroutine.from_omni(ast=s, typetable=typetable, symbol_map=symbol_map,
-                                         definitions=definitions, raw_source=raw_source, parent=module)
-                    for s in ast.findall('FcontainsStatement/FfunctionDefinition')]
-        module.routines = as_tuple(routines)
+        if routine_asts:
+            module.routines = as_tuple(
+                Subroutine.from_omni(
+                    ast=s, typetable=typetable, symbol_map=symbol_map, definitions=definitions,
+                    raw_source=raw_source, parent=module
+                ) for s in routine_asts
+            )
 
         return module
 
@@ -146,23 +168,17 @@ class Module(Scope):
 
         module = cls(name=name, ast=ast, source=source)
 
-        spec_ast = get_fparser_node(ast, 'Specification_Part')
-        if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=module,
-                                     pp_info=pp_info, raw_source=raw_source)
-        else:
-            spec = Section(body=())
-        module.spec = spec
-
-        routines_ast = get_fparser_node(ast, 'Module_Subprogram_Part')
-        routines = None
-        if routines_ast is not None:
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
+        routines_asts = get_fparser_node(ast, 'Module_Subprogram_Part')
+        if routines_asts is not None:
             # We need to pre-populate the ProcedureType type table to
             # correctly class inline function calls within the module
             routine_asts = get_fparser_node(
-                routines_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
+                routines_asts, ('Subroutine_Subprogram', 'Function_Subprogram'),
                 first_only=False
             )
+
             for s in routine_asts:
                 if type(s).__name__ == 'Function_Subprogram':
                     routine_stmt = get_fparser_node(s, 'Function_Stmt')
@@ -175,11 +191,21 @@ class Module(Scope):
                     dtype = ProcedureType(fname, is_function=False)
                 module.symbol_attrs[fname] = SymbolAttributes(dtype)
 
+        spec_ast = get_fparser_node(ast, 'Specification_Part')
+        if spec_ast is not None:
+            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=module,
+                                     pp_info=pp_info, raw_source=raw_source)
+        else:
+            spec = Section(body=())
+        module.spec = spec
+
+        if routines_asts is not None:
             # Now create the actual Subroutine objects
-            routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=module,
-                                                pp_info=pp_info, raw_source=raw_source)
-                        for s in routine_asts]
-            module.routines = as_tuple(routines)
+            module.routines = as_tuple(
+                Subroutine.from_fparser(
+                    ast=s, definitions=definitions, parent=module, pp_info=pp_info, raw_source=raw_source
+                ) for s in routine_asts
+            )
 
         return module
 
@@ -196,7 +222,11 @@ class Module(Scope):
         """
         Return the variables declared in this module
         """
-        return as_tuple(flatten(decl.symbols for decl in FindNodes(VariableDeclaration).visit(self.spec)))
+        return as_tuple(
+            flatten(
+                decl.symbols for decl in FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
+            )
+        )
 
     @variables.setter
     def variables(self, variables):
@@ -204,23 +234,27 @@ class Module(Scope):
         Set the variables property and ensure that the internal declarations match.
         """
         # First map variables to existing declarations
-        declarations = FindNodes(VariableDeclaration).visit(self.spec)
+        declarations = FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         for v in as_tuple(variables):
             if v not in decl_map:
                 # By default, append new variables to the end of the spec
-                new_decl = VariableDeclaration(symbols=[v])
+                if isinstance(v.type.dtype, ProcedureType):
+                    new_decl = ProcedureDeclaration(symbols=[v])
+                else:
+                    new_decl = VariableDeclaration(symbols=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
-        for decl in FindNodes(VariableDeclaration).visit(self.spec):
+        for decl in FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec):
             new_vars = as_tuple(v for v in decl.symbols if v in variables)
             if len(new_vars) > 0:
                 decl._update(symbols=new_vars)
             else:
                 dmap[decl] = None  # Mark for removal
+
         # Remove all redundant declarations
         self.spec = Transformer(dmap).visit(self.spec)
 

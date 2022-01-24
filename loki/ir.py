@@ -1031,8 +1031,6 @@ class VariableDeclaration(LeafNode):
     dimensions : tuple of :any:`pymbolic.primitives.Expression`, optional
         The declared allocation size if given as part of the declaration
         attributes.
-    external : bool, optional
-        This is a Fortran ``EXTERNAL`` declaration.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1047,8 +1045,7 @@ class VariableDeclaration(LeafNode):
 
     _traversable = ['symbols', 'dimensions']
 
-    def __init__(self, symbols, dimensions=None, external=False,
-                 comment=None, pragma=None, **kwargs):
+    def __init__(self, symbols, dimensions=None, comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
@@ -1057,7 +1054,6 @@ class VariableDeclaration(LeafNode):
 
         self.symbols = as_tuple(symbols)
         self.dimensions = as_tuple(dimensions) if dimensions else None
-        self.external = external
 
         self.comment = comment
         self.pragma = pragma
@@ -1075,6 +1071,10 @@ class ProcedureDeclaration(LeafNode):
     ----------
     symbols : tuple of :any:`pymbolic.primitives.Expression`
         The list of procedure symbols declared by this declaration.
+    interface : :any:`pymbolic.primitves.Expression`, optional
+        The procedure interface of the declared procedure entity names.
+    external : bool, optional
+        This is a Fortran ``EXTERNAL`` declaration.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1087,14 +1087,17 @@ class ProcedureDeclaration(LeafNode):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['symbols']
+    _traversable = ['symbols', 'interface']
 
-    def __init__(self, symbols, comment=None, pragma=None, **kwargs):
+    def __init__(self, symbols, interface=None, external=False, comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
+        assert interface is None or isinstance(interface, Expression)
 
         self.symbols = as_tuple(symbols)
+        self.interface = interface
+        self.external = external
         self.comment = comment
         self.pragma = pragma
 
@@ -1193,6 +1196,8 @@ class TypeDef(ScopedNode, LeafNode):
         The name of the type.
     body : tuple
         The body of the type definition.
+    abstract : bool, optional
+        Flag to indicate that this is an abstract type definition.
     bind_c : bool, optional
         Flag to indicate that this contains a ``BIND(C)`` attribute.
     parent : :any:`Scope`, optional
@@ -1205,12 +1210,13 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, parent=None, symbol_attrs=None, **kwargs):
+    def __init__(self, name, body, abstract=False, bind_c=False, parent=None, symbol_attrs=None, **kwargs):
         assert is_iterable(body)
 
         # First, store the local properties
         self.name = name
         self.body = as_tuple(body)
+        self.abstract = abstract
         self.bind_c = bind_c
 
         # Then, call the parent constructors to take care of any generic

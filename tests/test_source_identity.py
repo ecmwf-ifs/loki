@@ -254,7 +254,7 @@ SUBROUTINE SIMPLE_FGEN (X, Y, SCALAR, VECTOR, MATRIX)
   INTEGER, INTENT(IN) :: X, Y
   REAL(KIND=JPRB), INTENT(IN) :: SCALAR  ! A very long inline comment that should not be wrapped but simply appended
   REAL(KIND=JPRB), INTENT(INOUT) :: VECTOR(X)
-  REAL(KIND=JPRB), DIMENSION(X, Y), INTENT(OUT) :: MATRIX
+  REAL(KIND=JPRB), INTENT(OUT), DIMENSION(X, Y) :: MATRIX
   INTEGER :: I, SOME_VERY_LONG_INTEGERS, TO_SEE_IF_LINE_CONTINUATION,  &
   & WORKS_AS_EXPECTED_IN_ITEM_LISTS
   ! Some comment that is very very long and exceeds the line width but should not be wrapped

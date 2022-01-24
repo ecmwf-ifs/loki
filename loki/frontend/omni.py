@@ -129,6 +129,23 @@ class OMNI2IR(GenericVisitor):
             raise NotImplementedError
         warning(msg)
 
+    def type_from_type_attrib(self, type_attrib, **kwargs):
+        """
+        Helper routine to derive :any:`SymbolAttributes` for a given type name/hash/id
+        """
+        if type_attrib in self._omni_types:
+            typename = self._omni_types[type_attrib]
+            _type = SymbolAttributes(BasicType.from_fortran_type(typename))
+        elif type_attrib in self.type_map:
+            _type = self.visit(self.type_map[type_attrib], **kwargs)
+            dims = self.type_map[type_attrib].findall('indexRange')
+            if dims:
+                dimensions = as_tuple(self.visit(d, **kwargs) for d in dims)
+                _type = _type.clone(shape=dimensions)
+        else:
+            _type = SymbolAttributes(BasicType.from_fortran_type(type_attrib))
+        return _type
+
     def _struct_type_variables(self, o, scope, parent=None, **kwargs):
         """
         Helper routine to build the list of variables for a `FstructType` node
@@ -321,27 +338,22 @@ class OMNI2IR(GenericVisitor):
                 variable = variable.clone(dimensions=dimensions)
 
             if isinstance(_type.dtype, ProcedureType):
-                return_type = tast.attrib['return_type']
-                if return_type != 'Fvoid':
-                    if return_type in self._omni_types:
-                        return_type = SymbolAttributes(BasicType.from_fortran_type(self._omni_types[return_type]))
-                    elif return_type in self.type_map:
-                        # Any attributes (like kind) are on the return type, therefore we
-                        # overwrite the _type here
-                        _type = self.visit(self.type_map[return_type], **kwargs)
-                        return_type = SymbolAttributes(_type.dtype)
-                    else:
-                        raise ValueError
-                    _type.dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
-                else:
+                return_type = tast.attrib.get('return_type')
+                if return_type in ('Fvoid', None):
+                    return_type = SymbolAttributes(BasicType.DEFERRED)
                     _type.dtype = ProcedureType(variable.name, is_function=False)
+                else:
+                    return_type = self.type_from_type_attrib(return_type, **kwargs)
+                    _type.dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
 
                 if tast.attrib.get('is_external') == 'true':
                     _type.external = True
-                else:
+                elif variable == kwargs['scope'].name:
                     # This is the declaration of the return type inside a function, which is
-                    # why we restore the dtype from return_type
-                    _type = _type.clone(dtype=getattr(_type.dtype.return_type, 'dtype', BasicType.DEFERRED))
+                    # why we restore the return_type
+                    _type = return_type
+                else:
+                    raise ValueError
 
         else:
             raise ValueError
@@ -354,30 +366,77 @@ class OMNI2IR(GenericVisitor):
 
         scope.symbol_attrs[variable.name] = _type
         variables = (variable.clone(scope=scope),)
-        return ir.VariableDeclaration(symbols=variables, external=_type.external is True, source=kwargs['source'])
+        if _type.external:
+            # EXTERNAL attribute means this is actually a function or subroutine
+            return ir.ProcedureDeclaration(symbols=variables, external=True, source=kwargs['source'])
+        assert not isinstance(_type.dtype, ProcedureType)
+        return ir.VariableDeclaration(symbols=variables, source=kwargs['source'])
 
     def visit_FstructDecl(self, o, **kwargs):
         name = o.find('name')
-
-        # Instantiate the TypeDef without its body
-        # Note: This creates the symbol table for the declarations and
-        # the typedef object registers itself in the parent scope
-        typedef = ir.TypeDef(name=name.text, body=(), parent=kwargs['scope'])
-        kwargs['scope'] = typedef
-
-        # Build the list of derived type members
         struct_type = self.type_map[name.attrib['type']]
-        variables = self._struct_type_variables(struct_type, **kwargs)
 
         if 'extends' in struct_type.attrib:
             self.warn_or_fail('extends attribute for derived types not implemented')
 
-        # Build individual declarations for each member
-        declarations = as_tuple(ir.VariableDeclaration(symbols=(v, )) for v in variables)
+        # Instantiate the TypeDef without its body
+        # Note: This creates the symbol table for the declarations and
+        # the typedef object registers itself in the parent scope
+        typedef = ir.TypeDef(
+            name=name.text, body=(), abstract=struct_type.get('is_abstract') == 'true',
+            parent=kwargs['scope'], source=kwargs['source']
+        )
+        kwargs['scope'] = typedef
+
+        # Build the list of derived type members and individual declarations for each
+        declarations = []
+        if struct_type.find('symbols'):
+            variables = self.visit(struct_type.find('symbols'), **kwargs)
+            for v in variables:
+                if isinstance(v.type.dtype, ProcedureType):
+                    declarations += [ir.ProcedureDeclaration(symbols=(v,))]
+                else:
+                    declarations += [ir.VariableDeclaration(symbols=(v,))]
+        if struct_type.find('typeBoundProcedures'):
+            procedures = self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
+            declarations += [ir.Intrinsic('CONTAINS')]
+            declarations += [ir.ProcedureDeclaration(symbols=(s,)) for s in procedures]
 
         # Finally: update the typedef with its body
-        typedef._update(body=declarations)
+        typedef._update(body=as_tuple(declarations))
         return typedef
+
+    def visit_symbols(self, o, **kwargs):
+        """
+        Build the list of variables for a `FstructType` node
+        """
+        variables = []
+        for s in o:
+            var = self.visit(s.find('name'), **kwargs)
+            _type = self.type_from_type_attrib(s.attrib['type'], **kwargs)
+            kwargs['scope'].symbols[var.name] = _type
+
+            if _type.shape:
+                var = var.clone(dimensions=_type.shape)
+            variables += [var.rescope(scope=kwargs['scope'])]
+        return variables
+
+    def visit_typeBoundProcedures(self, o, **kwargs):
+        return [self.visit(s, **kwargs) for s in o]
+
+    def visit_typeBoundProcedure(self, o, **kwargs):
+        var = self.visit(o.find('name'), **kwargs)
+        _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
+        if o.find('binding'):
+            init = self.visit(o.find('binding/name'), **kwargs)
+            init = init.rescope(scope=kwargs['scope'].get_symbol_scope(init.name))
+            if init.name.lower() == var.name.lower():
+                # No need to assign initial property
+                _type = _type.clone(dtype=init.type.dtype)
+            else:
+                _type = _type.clone(dtype=init.type.dtype, initial=init)
+        kwargs['scope'].symbols[var.name] = _type
+        return var.rescope(scope=kwargs['scope'])
 
     def visit_FdataDecl(self, o, **kwargs):
         variable = self.visit(o.find('varList'), **kwargs)
