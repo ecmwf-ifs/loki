@@ -341,10 +341,11 @@ class OMNI2IR(GenericVisitor):
                 return_type = tast.attrib.get('return_type')
                 if return_type in ('Fvoid', None):
                     return_type = SymbolAttributes(BasicType.DEFERRED)
-                    _type.dtype = ProcedureType(variable.name, is_function=False)
+                    dtype = ProcedureType(variable.name, is_function=False)
                 else:
                     return_type = self.type_from_type_attrib(return_type, **kwargs)
-                    _type.dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
+                    dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
+                _type = _type.clone(dtype=dtype)
 
                 if tast.attrib.get('is_external') == 'true':
                     _type.external = True
@@ -352,8 +353,6 @@ class OMNI2IR(GenericVisitor):
                     # This is the declaration of the return type inside a function, which is
                     # why we restore the return_type
                     _type = return_type
-                else:
-                    raise ValueError
 
         else:
             raise ValueError
@@ -365,11 +364,10 @@ class OMNI2IR(GenericVisitor):
             _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
         scope.symbol_attrs[variable.name] = _type
-        variables = (variable.clone(scope=scope),)
-        if _type.external:
-            # EXTERNAL attribute means this is actually a function or subroutine
+        variables = (variable.rescope(scope=scope),)
+        if isinstance(_type.dtype, ProcedureType):
+            # This is actually a function or subroutine (EXTERNAL or PROCEDURE declaration)
             return ir.ProcedureDeclaration(symbols=variables, external=True, source=kwargs['source'])
-        assert not isinstance(_type.dtype, ProcedureType)
         return ir.VariableDeclaration(symbols=variables, source=kwargs['source'])
 
     def visit_FstructDecl(self, o, **kwargs):

@@ -818,8 +818,18 @@ class OFP2IR(GenericVisitor):
             # Build the declared symbols
             symbols = self.visit(o.find('procedures'), **kwargs)
 
-            # Update symbol table entries and rescope
-            scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+            # Update symbol table entries
+            if isinstance(_type.dtype, ProcedureType):
+                scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+            else:
+                # This is (presumably!) an external or dummy function with implicit interface,
+                # which is declared as `PROCEDURE(<return_type>) [::] <name>`. Easy, isn't it...?
+                # Great, now we have to update each symbol's type one-by-one...
+                for var in symbols:
+                    dtype = ProcedureType(var.name, is_function=True, return_type=_type)
+                    scope.symbol_attrs[var.name] = var.type.clone(dtype=dtype)
+
+            # Rescope variables so they know their type
             symbols = tuple(var.rescope(scope=scope) for var in symbols)
             return ir.ProcedureDeclaration(symbols=symbols, interface=interface, source=source, label=label)
 

@@ -61,7 +61,7 @@ class BasicType(DataType, IntEnum):
                 return meth(value)
             except KeyError:
                 pass
-        return ValueError(f'Unknown data type: {value}')
+        raise ValueError(f'Unknown data type: {value}')
 
     @classmethod
     def from_name(cls, value):

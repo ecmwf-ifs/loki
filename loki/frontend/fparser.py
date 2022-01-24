@@ -827,15 +827,25 @@ class FParser2IR(GenericVisitor):
         # Instantiate declared symbols
         symbols = as_tuple(self.visit(o.children[2], **kwargs))
 
-        # Find out which procedure we are declaring (i.e., PROCEDURE(<func_name>))
-        assert o.children[0] is not None
-        interface = self.visit(o.children[0], **kwargs)
-        interface = AttachScopesMapper()(interface, scope=scope)
-
         # Any additional declared attributes
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
         attrs = dict(attrs)
-        _type = interface.type.clone(**attrs)
+
+        # Find out which procedure we are declaring (i.e., PROCEDURE(<func_name>))
+        assert o.children[0] is not None
+        try:
+            # This could be an implicit interface or dummy routine...
+            return_type = SymbolAttributes(BasicType.from_str(o.children[0].tostr()))
+        except ValueError:
+            return_type = None
+
+        if return_type is None:
+            interface = self.visit(o.children[0], **kwargs)
+            interface = AttachScopesMapper()(interface, scope=scope)
+            _type = interface.type.clone(**attrs)
+        else:
+            interface = None
+            _type = SymbolAttributes(BasicType.DEFERRED, **attrs)
 
         # Make sure any "initial" symbol (i.e. the procedure we're binding to) is in the right scope
         if _type.initial is not None:
@@ -843,7 +853,12 @@ class FParser2IR(GenericVisitor):
             _type = _type.clone(initial=initial)
 
         # Update symbol table entries
-        scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+        if return_type is None:
+            scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+        else:
+            for var in symbols:
+                dtype = ProcedureType(var.name, is_function=True, return_type=return_type)
+                scope.symbols[var.name] = _type.clone(dtype=dtype)
 
         symbols = tuple(var.rescope(scope=scope) for var in symbols)
         return ir.ProcedureDeclaration(symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
