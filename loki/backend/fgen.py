@@ -735,8 +735,22 @@ class FortranCodegen(Stringifier):
             ...declarations...
           END TYPE <name>
         """
-        bind_c = ', BIND(c) ::' if o.bind_c else ''
-        header = self.format_line('TYPE', bind_c, ' ', o.name)
+        attrs = []
+        if o.abstract:
+            attrs += ['ABSTRACT']
+        if o.extends:
+            attrs += [f'EXTENDS({o.extends})']
+        if o.bind_c:
+            attrs += ['BIND(C)']
+        if o.private:
+            attrs += ['PRIVATE']
+        if o.public:
+            attrs += ['PUBLIC']
+        if attrs:
+            attrs = f', {self.join_items(attrs)} ::'
+        else:
+            attrs = ''
+        header = self.format_line('TYPE', attrs, ' ', o.name)
         footer = self.format_line('END TYPE ', o.name)
         self.depth += 1
         body = self.visit(o.body, **kwargs)

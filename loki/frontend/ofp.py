@@ -499,6 +499,11 @@ class OFP2IR(GenericVisitor):
     def visit_attr_spec(self, o, **kwargs):
         return (o.attrib['attrKeyword'].lower(), True)
 
+    def visit_type_attr_spec(self, o, **kwargs):
+        if o.attrib['keyword'].lower() == 'extends':
+            return ('extends', o.attrib['id'].lower())
+        return (o.attrib['keyword'].lower(), True)
+
     def visit_intent(self, o, **kwargs):
         return ('intent', o.attrib['type'].lower())
 
@@ -579,14 +584,10 @@ class OFP2IR(GenericVisitor):
             symbols=(var,), interface=interface, source=kwargs['source'], label=kwargs['label']
         )
 
-    def visit_derived_type_stmt(self, o, **kwargs):
-        if o.attrib['keyword'].lower() != 'type':
-            self.warn_or_fail(f'Type keyword {o.attrib["keyword"]} not implemented')
-        if o.attrib['hasTypeAttrSpecList'] != 'false':
-            self.warn_or_fail('type-attr-spec-list not implemented')
-        if o.attrib['hasGenericNameList'] != 'false':
-            self.warn_or_fail('generic-name-list not implemented')
-        return o.attrib['id']
+    def visit_private_components_stmt(self, o, **kwargs):
+        return ir.Intrinsic(o.attrib['privateKeyword'], source=kwargs['source'], label=kwargs['label'])
+
+    visit_binding_private_stmt = visit_private_components_stmt
 
     def visit_declaration(self, o, **kwargs):
         label = kwargs['label']
@@ -636,13 +637,35 @@ class OFP2IR(GenericVisitor):
 
         if o.find('derived-type-stmt') is not None:
             # Derived type definition
-            name = self.visit(o.find('derived-type-stmt'), **kwargs)
+            type_stmt = o.find('derived-type-stmt')
+
+            # Derived type attributes
+            if type_stmt.attrib['hasTypeAttrSpecList'] == 'true':
+                attrs = dict(self.visit(attr, **kwargs) for attr in o.findall('type-attr-spec'))
+                abstract = attrs.get('abstract', False)
+                extends = attrs.get('extends', None)
+                bind_c = attrs.get('bind', False)
+                access_spec = o.find('access-spec')
+                private = access_spec is not None and access_spec.attrib['keyword'].lower() == 'private'
+                public = access_spec is not None and access_spec.attrib['keyword'].lower() == 'public'
+            else:
+                abstract = False
+                extends = None
+                bind_c = False
+                private = False
+                public = False
 
             # Instantiate the TypeDef without its body
             # Note: This creates the symbol table for the declarations and
             # the typedef object registers itself in the parent scope
-            typedef = ir.TypeDef(name=name, body=(), label=label, source=source, parent=kwargs['scope'])
+            typedef = ir.TypeDef(
+                name=type_stmt.attrib['id'], body=(), abstract=abstract, extends=extends, bind_c=bind_c,
+                private=private, public=public, label=label, source=source, parent=kwargs['scope'])
             kwargs['scope'] = typedef
+
+            body = []
+            if o.find('private-components-stmt') is not None:
+                body.append(self.visit(o.find('private-components-stmt'), **kwargs))
 
             # This is still ugly, but better than before! In order to
             # process certain tag combinations (groups) into declaration
@@ -655,7 +678,6 @@ class OFP2IR(GenericVisitor):
                 ('comment', ),
             ])
 
-            body = []
             for group in grouped_elems:
                 if len(group) == 1:
                     # Process indidividual comments/pragmas
@@ -679,6 +701,8 @@ class OFP2IR(GenericVisitor):
             if o.find('contains-stmt') is not None:
                 # The derived type contains type-bound procedures
                 body.append(self.visit(o.find('contains-stmt'), **kwargs))
+                if o.find('binding-private-stmt') is not None:
+                    body.append(self.visit(o.find('binding-private-stmt'), **kwargs))
                 body += self.visit(o.findall('specific-binding'), **kwargs)
 
             # Infer any additional shape information from `!$loki dimension` pragmas

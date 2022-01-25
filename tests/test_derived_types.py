@@ -1,26 +1,18 @@
 from pathlib import Path
+import re
 import pytest
 import numpy as np
 
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
-    Module, Subroutine, BasicType, DerivedType, TypeDef,
-    config, fgen
+    OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
+    fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType
 )
-from loki.ir import ProcedureDeclaration
-from loki.types import ProcedureType
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
-
-
-@pytest.fixture(name='reset_frontend_mode')
-def fixture_reset_frontend_mode():
-    original_frontend_mode = config['frontend-strict-mode']
-    yield
-    config['frontend-strict-mode'] = original_frontend_mode
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -396,6 +388,181 @@ end module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_bind_c(frontend):
+    # Example code from F2008, Note 15.13
+    fcode = """
+module derived_type_bind_c
+    ! typedef struct {
+    ! int m, n;
+    ! float r;
+    ! } myctype;
+
+    USE, INTRINSIC :: ISO_C_BINDING
+    TYPE, BIND(C) :: MYFTYPE
+      INTEGER(C_INT) :: I, J
+      REAL(C_FLOAT) :: S
+    END TYPE MYFTYPE
+end module derived_type_bind_c
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    myftype = module.typedefs['myftype']
+    assert myftype.bind_c is True
+    assert ', BIND(C)' in fgen(myftype)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_inheritance(frontend):
+    fcode = """
+module derived_type_private_mod
+    implicit none
+
+    type, abstract :: base_type
+        integer :: val
+    end type base_type
+
+    type, extends(base_type) :: some_type
+        integer :: other_val
+    end type some_type
+
+contains
+
+    function base_proc(self) result(result)
+        class(base_type) :: self
+        integer :: result
+        result = self%val
+    end function base_proc
+
+    function some_proc(self) result(result)
+        class(some_type) :: self
+        integer :: result
+        result = self%val + self%other_val
+    end function some_proc
+end module derived_type_private_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    base_type = module.typedefs['base_type']
+    some_type = module.typedefs['some_type']
+
+    # Verify correct properties on the `TypeDef` object
+    assert base_type.abstract is True
+    assert some_type.abstract is False
+
+    assert base_type.extends is None
+    assert some_type.extends.lower() == 'base_type'
+
+    assert base_type.bind_c is False
+    assert some_type.bind_c is False
+
+    # Verify fgen
+    assert 'type, abstract' in fgen(base_type).lower()
+    assert 'extends(base_type)' in fgen(some_type).lower()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_private(frontend):
+    fcode = """
+module derived_type_private_mod
+    implicit none
+    public
+    TYPE, private :: PRIV_TYPE
+      INTEGER :: I, J
+    END TYPE PRIV_TYPE
+end module derived_type_private_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    priv_type = module.typedefs['priv_type']
+    assert priv_type.private is True
+    assert priv_type.public is False
+    assert ', PRIVATE' in fgen(priv_type)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_public(frontend):
+    fcode = """
+module derived_type_public_mod
+    implicit none
+    private
+    TYPE, public :: PUB_TYPE
+      INTEGER :: I, J
+    END TYPE PUB_TYPE
+end module derived_type_public_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    pub_type = module.typedefs['pub_type']
+    assert pub_type.public is True
+    assert pub_type.private is False
+    assert ', PUBLIC' in fgen(pub_type)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_private_comp(frontend):
+    fcode = """
+module derived_type_private_comp_mod
+    implicit none
+
+    type, abstract :: base_type
+        integer :: val
+    end type base_type
+
+    type, extends(base_type) :: some_private_comp_type
+        private
+        integer :: other_val
+    contains
+        procedure :: proc => other_proc
+    end type some_private_comp_type
+
+    type, extends(base_type) :: type_bound_proc_type
+        integer :: other_val
+    contains
+        private
+        procedure :: proc => other_proc
+    end type type_bound_proc_type
+
+contains
+
+    function other_proc(self) result(result)
+        class(type_bound_proc_type) :: self
+        integer :: result
+        result = self%val
+    end function proc
+
+end module derived_type_private_comp_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    some_private_comp_type = module.typedefs['some_private_comp_type']
+    type_bound_proc_type = module.typedefs['type_bound_proc_type']
+
+    intrinsic_nodes = FindNodes(Intrinsic).visit(type_bound_proc_type.body)
+    assert len(intrinsic_nodes) == 2
+    assert intrinsic_nodes[0].text.lower() == 'contains'
+    assert intrinsic_nodes[1].text.lower() == 'private'
+
+    assert re.search(
+      r'^\s+contains$\s+private', fgen(type_bound_proc_type), re.I | re.MULTILINE
+    ) is not None
+
+    # OMNI gets the below wrong as it doesn't retain the private statement for components
+    if frontend != OMNI:
+        intrinsic_nodes = FindNodes(Intrinsic).visit(some_private_comp_type.body)
+        assert len(intrinsic_nodes) == 2
+        assert intrinsic_nodes[0].text.lower() == 'private'
+        assert intrinsic_nodes[1].text.lower() == 'contains'
+
+        assert re.search(
+            r'^\s+private*$(\s.*?){2}\s+contains', fgen(some_private_comp_type), re.I | re.MULTILINE
+        ) is not None
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_procedure_designator(frontend):
     mcode = """
 module derived_type_procedure_designator_mod
@@ -487,32 +654,6 @@ end subroutine derived_type_procedure_designator
     assert routine.symbol_attrs['tp'].dtype.typedef == BasicType.DEFERRED
 
     # TODO: verify correct type association of calls to type-bound procedures
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_frontend_strict_mode(frontend, reset_frontend_mode):  # pylint: disable=unused-argument
-    """
-    Verify that frontends fail on unsupported features if strict mode is enabled
-    """
-    fcode = """
-module frontend_strict_mode
-  implicit none
-  type some_type
-    integer :: val
-  end type some_type
-  type, extends(some_type) :: other_type
-    integer :: foo
-  end type other_type
-end module frontend_strict_mode
-    """
-    config['frontend-strict-mode'] = True
-    with pytest.raises(NotImplementedError):
-        _ = Module.from_source(fcode, frontend=frontend)
-
-    config['frontend-strict-mode'] = False
-    module = Module.from_source(fcode, frontend=frontend)
-    assert 'some_type' in module.symbol_attrs
-    assert 'other_type' in module.symbol_attrs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

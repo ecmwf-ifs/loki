@@ -374,34 +374,51 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         struct_type = self.type_map[name.attrib['type']]
 
+        # Type attributes
+        abstract = struct_type.get('is_abstract') == 'true'
         if 'extends' in struct_type.attrib:
-            self.warn_or_fail('extends attribute for derived types not implemented')
+            base_type = self.symbol_map[struct_type.attrib['extends']]
+            extends = base_type.find('name').text
+        else:
+            extends = None
+        bind_c = struct_type.get('bind', '').lower() == 'c'
+        private = struct_type.get('is_private', '').lower() == 'true'
+        public = struct_type.get('is_public', '').lower() == 'true'
+
+        # Type Parameters
+        if struct_type.find('typeParams') is not None:
+            self.warn_or_fail('Parameterized types not implemented')
 
         # Instantiate the TypeDef without its body
         # Note: This creates the symbol table for the declarations and
         # the typedef object registers itself in the parent scope
         typedef = ir.TypeDef(
-            name=name.text, body=(), abstract=struct_type.get('is_abstract') == 'true',
-            parent=kwargs['scope'], source=kwargs['source']
+            name=name.text, body=(), abstract=abstract, extends=extends, bind_c=bind_c,
+            private=private, public=public, parent=kwargs['scope'], source=kwargs['source']
         )
         kwargs['scope'] = typedef
 
-        # Build the list of derived type members and individual declarations for each
-        declarations = []
+        body = []
+
+        # Build the list of derived type members and individual body for each
         if struct_type.find('symbols'):
             variables = self.visit(struct_type.find('symbols'), **kwargs)
             for v in variables:
                 if isinstance(v.type.dtype, ProcedureType):
-                    declarations += [ir.ProcedureDeclaration(symbols=(v,))]
+                    body += [ir.ProcedureDeclaration(symbols=(v,))]
                 else:
-                    declarations += [ir.VariableDeclaration(symbols=(v,))]
+                    body += [ir.VariableDeclaration(symbols=(v,))]
+
         if struct_type.find('typeBoundProcedures'):
+            # See if components are marked private
             procedures = self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
-            declarations += [ir.Intrinsic('CONTAINS')]
-            declarations += [ir.ProcedureDeclaration(symbols=(s,)) for s in procedures]
+            body += [ir.Intrinsic('CONTAINS')]
+            if struct_type.attrib.get('is_internal_private') == 'true':
+                body += [ir.Intrinsic('PRIVATE')]
+            body += [ir.ProcedureDeclaration(symbols=(s,)) for s in procedures]
 
         # Finally: update the typedef with its body
-        typedef._update(body=as_tuple(declarations))
+        typedef._update(body=as_tuple(body))
         return typedef
 
     def visit_symbols(self, o, **kwargs):

@@ -1198,8 +1198,14 @@ class TypeDef(ScopedNode, LeafNode):
         The body of the type definition.
     abstract : bool, optional
         Flag to indicate that this is an abstract type definition.
+    extends : str, optional
+        The parent type name
     bind_c : bool, optional
         Flag to indicate that this contains a ``BIND(C)`` attribute.
+    private : bool, optional
+        Flag to indicate that this has been declared explicitly as ``PRIVATE``
+    public : bool, optional
+        Flag to indicate that this has been declared explicitly as ``PUBLIC``
     parent : :any:`Scope`, optional
         The parent scope in which the type definition appears
     symbol_attrs : :any:`SymbolTable`, optional
@@ -1210,14 +1216,20 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, abstract=False, bind_c=False, parent=None, symbol_attrs=None, **kwargs):
+    def __init__(self, name, body, abstract=False, extends=None,
+                 bind_c=False, parent=None, symbol_attrs=None, **kwargs):
         assert is_iterable(body)
+        assert extends is None or isinstance(extends, str)
+        assert not (private and public)
 
         # First, store the local properties
         self.name = name
         self.body = as_tuple(body)
         self.abstract = abstract
+        self.extends = extends
         self.bind_c = bind_c
+        self.private = private
+        self.public = public
 
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information

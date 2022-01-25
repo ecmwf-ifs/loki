@@ -701,11 +701,26 @@ class FParser2IR(GenericVisitor):
         """
         A declaration attribute
 
-        :class:`fparser.two.Fortran2003.Attr_Spec` has no children
+        :class:`fparser.two.Fortran2003.Attr_Spec` has 2 children:
+            * keyword (`str`)
+            * value (`str`) or `None`
         """
-        return (o.tostr().lower(), True)
+        if not o.children:
+            # Annoyingly, sometimes it seems to not have children?
+            return (str(o).lower(), True)
+        if isinstance(o, Fortran2003.Attr_Spec):
+            import pdb; pdb.set_trace()
+        if o.children[1] is not None:
+            return (str(o.children[0]).lower(), str(o.children[1]).lower())
+        return (str(o.children[0]).lower(), True)
 
-    visit_Access_Spec = visit_Attr_Spec
+    def visit_Access_Spec(self, o, **kwargs):
+        """
+        A declaration attribute
+
+        :class:`fparser.two.Fortran2003.Access_Spec` has no children.
+        """
+        return (o.string.lower(), True)
 
     visit_Entity_Decl_List = visit_List
 
@@ -891,6 +906,8 @@ class FParser2IR(GenericVisitor):
         init = self.visit(o.children[2], **kwargs)
         return var.clone(type=var.type.clone(initial=init))
 
+    visit_Private_Components_Stmt = visit_Intrinsic_Stmt
+
     #
     # Array constructor
     #
@@ -1050,23 +1067,15 @@ class FParser2IR(GenericVisitor):
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:derived_type_stmt_index])
 
-        # Name of the derived type
-        name = self.visit(derived_type_stmt, **kwargs)
-        source = kwargs.get('source')
-        label = kwargs.get('label')
-
         # Instantiate the TypeDef without its body
         # Note: This creates the symbol table for the declarations and
         # the typedef object registers itself in the parent scope
-        typedef = ir.TypeDef(name=name, body=(), source=source, label=label, parent=kwargs['scope'])
+        typedef = self.visit(derived_type_stmt, **kwargs)
 
         # Pass down the typedef scope when building the body
         kwargs['scope'] = typedef
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
-
-        # TODO: type-bound procedures are currently stored flat as Intrinsic in the body.
-        # These should become declarations and TypeDef should probably store them separately
 
         # Infer any additional shape information from `!$loki dimension` pragmas
         body = attach_pragmas(body, ir.VariableDeclaration)
@@ -1074,7 +1083,7 @@ class FParser2IR(GenericVisitor):
         body = detach_pragmas(body, ir.VariableDeclaration)
 
         # Finally: update the typedef with its body
-        typedef._update(body=body)
+        typedef._update(body=body, source=kwargs['source'])
         return (*pre, typedef)
 
     def visit_Derived_Type_Stmt(self, o, **kwargs):
@@ -1087,11 +1096,31 @@ class FParser2IR(GenericVisitor):
             * parameter name list (:class:`fparser.two.Fortran2003.Type_Param_Name_List`)
         """
         if o.children[0] is not None:
-            self.warn_or_fail('attribute-spec-list not implemented for derived types')
+            attrs = dict(self.visit(o.children[0], **kwargs))
+            abstract = attrs.get('abstract', False)
+            extends = attrs.get('extends')
+            bind_c = attrs.get('bind') == 'c'
+            private = attrs.get('private', False)
+            public = attrs.get('public', False)
+        else:
+            abstract = False
+            extends = None
+            bind_c = False
+            private = False
+            public = False
         name = o.children[1].tostr()
         if o.children[2] is not None:
             self.warn_or_fail('parameter-name-list not implemented for derived types')
-        return name
+        return ir.TypeDef(
+            name=name, body=(), abstract=abstract, extends=extends, bind_c=bind_c,
+            private=private, public=public, label=kwargs['label'], parent=kwargs['scope']
+        )
+
+    visit_Type_Attr_Spec_List = visit_List
+    visit_Type_Attr_Spec = visit_Attr_Spec
+
+    def visit_Type_Param_Def_Stmt(self,o , **kwargs):
+        self.warn_or_fail('Parameterized types not implemented')
 
     def visit_Component_Part(self, o, **kwargs):
         """
@@ -1181,7 +1210,7 @@ class FParser2IR(GenericVisitor):
                                        source=kwargs.get('source'), label=kwargs.get('label'))
 
     visit_Contains_Stmt = visit_Intrinsic_Stmt
-    visit_Binding_Private_Stmt = visit_Specific_Binding
+    visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
     visit_Generic_Binding = visit_Specific_Binding
     visit_Final_Binding = visit_Specific_Binding
 
