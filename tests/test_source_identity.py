@@ -39,7 +39,7 @@ outer: do ia=1,10
 end do outer
 end subroutine routine_raw_source_loop
     """.strip()
-    filename = here / (f'routine_raw_source_loop_{frontend}')
+    filename = here / (f'routine_raw_source_loop_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)
@@ -103,7 +103,7 @@ end if check
 if (ic == 1) print *, ic
 end subroutine routine_raw_source_cond
     """.strip()
-    filename = here / (f'routine_raw_source_cond_{frontend}')
+    filename = here / (f'routine_raw_source_cond_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)
@@ -163,7 +163,7 @@ case default multicond
 end select multicond
 end subroutine routine_raw_source_multicond
     """.strip()
-    filename = here / (f'routine_raw_source_multicond_{frontend}')
+    filename = here / (f'routine_raw_source_multicond_{frontend}.f90')
     Sourcefile.to_file(fcode, filename)
 
     source = Sourcefile.from_file(filename, frontend=frontend)

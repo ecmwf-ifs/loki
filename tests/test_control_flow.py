@@ -332,6 +332,55 @@ end subroutine select_case
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_select_case_nested(here, frontend):
+    fcode = """
+subroutine select_case(cmd, out1)
+  implicit none
+  integer, intent(in) :: cmd
+  integer, intent(out) :: out1
+
+  out1 = -1000
+
+  ! comment 1
+  select case (cmd)
+    ! comment 2
+    case (0)
+      out1 = 0
+    ! comment 3
+    case (1:9)
+      out1 = 1
+      select case (cmd)
+        case (2:3)
+          out1 = out1 + 100
+        case (4:5)
+          out1 = out1 + 200
+      end select
+    ! comment 4
+    ! comment 5
+
+    ! comment 6
+    case (10, 11)
+      out1 = 2
+    ! comment 7
+    case default
+      out1 = -1
+  end select
+end subroutine select_case
+"""
+    filepath = here/(f'control_flow_select_case_nested_{frontend}.f90')
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    function = jit_compile(routine, filepath=filepath, objname='select_case')
+
+    in_out_pairs = {0: 0, 1: 1, 2: 101, 5: 201, 9: 1, 10: 2, 11: 2, 12: -1}
+    for cmd, ref in in_out_pairs.items():
+        out1 = function(cmd)
+        assert out1 == ref
+    clean_test(filepath)
+
+    assert routine.to_fortran().count('! comment') == 7
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_cycle_stmt(here, frontend):
     fcode = """
 subroutine cycle_stmt(var)

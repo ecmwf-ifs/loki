@@ -828,19 +828,24 @@ class Allocation(LeafNode):
         The list of variables that are allocated.
     data_source : :any:`pymbolic.primitives.Expression` or str
         Fortran's ``SOURCE`` allocation option.
+    status_var : :any:`pymbolic.primitives.Expression`
+        Fortran's ``STAT`` allocation option.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['variables']
+    _traversable = ['variables', 'data_source', 'status_var']
 
-    def __init__(self, variables, data_source=None, **kwargs):
+    def __init__(self, variables, data_source=None, status_var=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        assert data_source is None or isinstance(data_source, Expression)
+        assert status_var is None or isinstance(status_var, Expression)
 
         self.variables = as_tuple(variables)
         self.data_source = data_source  # Argh, Fortran...!
+        self.status_var = status_var
 
     def __repr__(self):
         return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
@@ -854,17 +859,22 @@ class Deallocation(LeafNode):
     ----------
     variables : tuple of :any:`pymbolic.primitives.Expression`
         The list of variables that are deallocated.
+    status_var : :any:`pymbolic.primitives.Expression`
+        Fortran's ``STAT`` deallocation option.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
-    _traversable = ['variables']
+    _traversable = ['variables', 'status_var']
 
-    def __init__(self, variables, **kwargs):
+    def __init__(self, variables, status_var=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(variables) and all(isinstance(var, Expression) for var in variables)
+        assert status_var is None or isinstance(status_var, Expression)
+
         self.variables = as_tuple(variables)
+        self.status_var = status_var
 
     def __repr__(self):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'

@@ -15,7 +15,7 @@ from loki.sourcefile import Sourcefile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
-from loki.tools import yaml_include_constructor
+from loki.tools import yaml_include_constructor, auto_post_mortem_debugger
 
 # Bootstrap the local linting rules directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -110,7 +110,7 @@ def check_and_fix_file(filename, linter, frontend=FP, preprocess=False, fix=Fals
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
               help=('Enable / disable debug mode. This incures more verbose '
-                    'output and escalates exceptions (for debugger use).'))
+                    'output and automatically attaches a debugger on exceptions.'))
 @click.option('--log', type=click.Path(writable=True),
               help='Write more detailed information to a log file.')
 @click.option('--rules-module', default='ifs_coding_standards_2011', show_default=True,
@@ -121,6 +121,7 @@ def cli(ctx, debug, log, rules_module):  # pylint:disable=redefined-outer-name
     ctx.obj['rules_module'] = rules_module
     if debug:
         logger.setLevel(DEBUG)
+        sys.excepthook = auto_post_mortem_debugger
     if log:
         file_handler = FileHandler(log, mode='w')
         file_handler.setLevel(DEBUG)

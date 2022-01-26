@@ -272,8 +272,9 @@ class OFP2IR(GenericVisitor):
 
     def visit_select(self, o, **kwargs):
         expr = self.visit(o.find('header'), **kwargs)
-        cases = [self.visit(case, **kwargs) for case in o.findall('body/case')]
-        values, bodies = zip(*cases)
+        body = o.find('body')
+        case_stmts, case_stmt_index = zip(*[(c, i) for i, c in enumerate(body) if c.tag == 'case'])
+        values, bodies = zip(*[self.visit(c, **kwargs) for c in case_stmts])
         if None in values:
             else_index = values.index(None)
             else_body = as_tuple(bodies[else_index])
@@ -281,10 +282,21 @@ class OFP2IR(GenericVisitor):
             bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
+        # Retain comments before the first case statement
+        pre = as_tuple(self.visit(c, **kwargs) for c in body[:case_stmt_index[0]])
+        # Retain any comments in-between cases
+        bodies = list(bodies)
+        for case_idx, stmt_idx in enumerate(case_stmt_index[1:]):
+            start_idx = case_stmt_index[case_idx] + 1
+            bodies[case_idx-1] += as_tuple(self.visit(c, **kwargs) for c in body[start_idx:stmt_idx])
+        bodies = as_tuple(bodies)
         construct_name = o.find('select-case-stmt').attrib['id'] or None
         label = self.get_label(o.find('select-case-stmt'))
-        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                   label=label, name=construct_name, source=kwargs['source'])
+        return (
+            *pre,
+            ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                label=label, name=construct_name, source=kwargs['source'])
+        )
 
     def visit_case(self, o, **kwargs):
         value = self.visit(o.find('header'), **kwargs)
@@ -432,6 +444,11 @@ class OFP2IR(GenericVisitor):
         if dimensions is not None:
             dimensions = self.visit(dimensions, **kwargs)
             var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
+
+        length = o.find('length')
+        if length is not None:
+            length = self.visit(length, **kwargs)
+            var = var.clone(type=var.type.clone(length=length))
 
         return var
 
@@ -705,11 +722,15 @@ class OFP2IR(GenericVisitor):
         kw_args = {arg.attrib['name'].lower(): self.visit(arg, **kwargs)
                    for arg in o.findall('keyword-arguments/keyword-argument')}
         return ir.Allocation(variables=variables, label=kwargs['label'],
-                             source=kwargs['source'], data_source=kw_args.get('source'))
+                             source=kwargs['source'], data_source=kw_args.get('source'),
+                             status_var=kw_args.get('stat'))
 
     def visit_deallocate(self, o, **kwargs):
         variables = as_tuple(self.visit(v, **kwargs) for v in o.findall('expressions/expression/name'))
-        return ir.Deallocation(variables=variables, label=kwargs['label'], source=kwargs['source'])
+        kw_args = {arg.attrib['name'].lower(): self.visit(arg, **kwargs)
+                   for arg in o.findall('keyword-arguments/keyword-argument')}
+        return ir.Deallocation(variables=variables, label=kwargs['label'],
+                               source=kwargs['source'], status_var=kw_args.get('stat'))
 
     def visit_use(self, o, **kwargs):
         name, module = self.visit(o.find('use-stmt'), **kwargs)

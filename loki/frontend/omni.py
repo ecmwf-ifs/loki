@@ -516,18 +516,34 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FallocateStatement(self, o, **kwargs):
         variables = tuple(self.visit(c, **kwargs) for c in o.findall('alloc'))
+
+        alloc_opts = {}
         if o.find('allocOpt') is not None:
-            data_source = self.visit(o.find('allocOpt'), **kwargs)
-            return ir.Allocation(variables=variables, data_source=data_source, source=kwargs['source'])
-        return ir.Allocation(variables=variables, source=kwargs['source'])
+            alloc_opts = [self.visit(opt, **kwargs) for opt in o.findall('allocOpt')]
+            alloc_opts = [opt for opt in alloc_opts if opt is not None]
+            alloc_opts = dict(alloc_opts)
+
+        return ir.Allocation(variables=variables, source=kwargs['source'],
+                             data_source=alloc_opts.get('source'), status_var=alloc_opts.get('stat'))
 
     def visit_allocOpt(self, o, **kwargs):
-        return self.visit(o[0], **kwargs)
+        keyword = o.attrib['kind'].lower()
+        if keyword in ('source', 'stat'):
+            return keyword, self.visit(o[0], **kwargs)
+        self.warn_or_fail(f'Unsupported allocation option: {keyword}')
+        return None
 
     def visit_FdeallocateStatement(self, o, **kwargs):
-        allocs = o.findall('alloc')
-        variables = as_tuple(self.visit(a[0], **kwargs) for a in allocs)
-        return ir.Deallocation(variables=variables, source=kwargs['source'])
+        variables = tuple(self.visit(c, **kwargs) for c in o.findall('alloc'))
+
+        alloc_opts = {}
+        if o.find('allocOpt') is not None:
+            alloc_opts = [self.visit(opt, **kwargs) for opt in o.findall('allocOpt')]
+            alloc_opts = [opt for opt in alloc_opts if opt is not None]
+            alloc_opts = dict(alloc_opts)
+
+        return ir.Deallocation(variables=variables, source=kwargs['source'],
+                               status_var=alloc_opts.get('stat'))
 
     def visit_FnullifyStatement(self, o, **kwargs):
         variables = tuple(self.visit(c, **kwargs) for c in o.findall('alloc'))
@@ -602,8 +618,16 @@ class OMNI2IR(GenericVisitor):
             bodies = bodies[:else_index] + bodies[else_index+1:]
         else:
             else_body = ()
-        return ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
-                                   source=kwargs['source'])
+
+        # Retain comments before the first case
+        value_idx, case_idx = list(o).index(o.find('value')), list(o).index(o.find('FcaseLabel'))
+        pre = as_tuple(self.visit(c, **kwargs) for c in o[value_idx+1:case_idx])
+
+        return (
+            *pre,
+            ir.MultiConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                source=kwargs['source'])
+        )
 
     def visit_FcaseLabel(self, o, **kwargs):
         values = [self.visit(value, **kwargs) for value in list(o) if value.tag in ('value', 'indexRange')]

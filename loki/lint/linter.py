@@ -34,7 +34,7 @@ class Linter:
         if inspect.ismodule(rules):
             rule_names = config.get('rules') if config else None
             self.rules = Linter.lookup_rules(rules, rule_names=rule_names)
-        elif config and config.get('rules'):
+        elif config and config.get('rules') is not None:
             self.rules = [rule for rule in rules if rule.__name__ in config.get('rules')]
         else:
             self.rules = rules
