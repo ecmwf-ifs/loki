@@ -156,7 +156,7 @@ def reinsert_contiguous(ir, pp_info):
         for decl in FindNodes(Declaration).visit(ir):
             if decl._source.lines[0] in pp_info:
                 for var in decl.variables:
-                    var.scope.symbols[var.name] = var.scope.symbols[var.name].clone(contiguous=True)
+                    var.scope.symbol_attrs[var.name] = var.scope.symbol_attrs[var.name].clone(contiguous=True)
     return ir
 
 

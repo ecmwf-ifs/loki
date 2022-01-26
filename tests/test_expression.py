@@ -572,14 +572,14 @@ end subroutine my_routine
 
     if frontend != OMNI:
         routine = Subroutine.from_source(fcode_routine, frontend=frontend)
-        assert routine.symbols['my_func'].dtype is BasicType.DEFERRED
+        assert routine.symbol_attrs['my_func'].dtype is BasicType.DEFERRED
         assignment = FindNodes(Assignment).visit(routine.body)[0]
         assert assignment.lhs == 'var'
         assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, DeferredTypeSymbol)
 
     module = Module.from_source(fcode_mod, frontend=frontend)
     routine = Subroutine.from_source(fcode_routine, frontend=frontend, definitions=module)
-    assert isinstance(routine.symbols['my_func'].dtype, ProcedureType)
+    assert isinstance(routine.symbol_attrs['my_func'].dtype, ProcedureType)
     assignment = FindNodes(Assignment).visit(routine.body)[0]
     assert assignment.lhs == 'var'
     assert isinstance(assignment.rhs, InlineCall) and isinstance(assignment.rhs.function, ProcedureSymbol)
@@ -920,8 +920,8 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     scope = Scope()
     var = symbols.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
-    assert 'var' in scope.symbols
-    scope.symbols['var'] = newtype
+    assert 'var' in scope.symbol_attrs
+    scope.symbol_attrs['var'] = newtype
     assert isinstance(var, inireftype)
     var = var.clone()  # pylint: disable=no-member
     assert isinstance(var, newreftype)
@@ -971,7 +971,7 @@ def test_variable_clone(initype, inireftype, newtype, newreftype):
     scope = Scope()
     var = symbols.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
-    assert 'var' in scope.symbols
+    assert 'var' in scope.symbol_attrs
     var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
 
@@ -988,7 +988,7 @@ def test_variable_without_scope():
     assert var.type and var.type.dtype is BasicType.DEFERRED
     # Attach a scope with a data type for this variable
     scope = Scope()
-    scope.symbols['var'] = SymbolAttributes(BasicType.INTEGER)
+    scope.symbol_attrs['var'] = SymbolAttributes(BasicType.INTEGER)
     assert isinstance(var, symbols.DeferredTypeSymbol)
     assert var.type and var.type.dtype is BasicType.DEFERRED
     var = var.clone(scope=scope)
@@ -999,43 +999,43 @@ def test_variable_without_scope():
     var = var.clone(type=SymbolAttributes(BasicType.REAL))
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.REAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Detach the scope (type remains)
     var = var.clone(scope=None)
     assert var.scope is None
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.REAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Assign a data type locally
     var = var.clone(type=SymbolAttributes(BasicType.LOGICAL))
     assert var.scope is None
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Re-attach the scope without specifying type
     var = var.clone(scope=scope, type=None)
     assert var.scope is scope
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.REAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Detach the scope and specify new type
     var = var.clone(scope=None, type=SymbolAttributes(BasicType.LOGICAL))
     assert var.scope is None
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Rescope (doesn't overwrite scope-stored type with local type)
     rescoped_var = var.rescope(scope)
     assert rescoped_var.scope is scope
     assert isinstance(rescoped_var, symbols.Scalar)
     assert rescoped_var.type.dtype is BasicType.REAL
-    assert scope.symbols['var'].dtype is BasicType.REAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.REAL
     # Re-attach the scope (overwrites scope-stored type with local type)
     var = var.clone(scope=scope)
     assert var.scope is scope
     assert isinstance(var, symbols.Scalar)
     assert var.type.dtype is BasicType.LOGICAL
-    assert scope.symbols['var'].dtype is BasicType.LOGICAL
+    assert scope.symbol_attrs['var'].dtype is BasicType.LOGICAL
 
 
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')

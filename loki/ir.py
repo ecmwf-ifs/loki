@@ -256,16 +256,16 @@ class ScopedNode(Scope):
     """
 
     def _update(self, *args, **kwargs):
-        if 'symbols' not in kwargs:
+        if 'symbol_attrs' not in kwargs:
             # Retain the symbol table (unless given explicitly)
-            kwargs['symbols'] = self.symbols
+            kwargs['symbol_attrs'] = self.symbol_attrs
         super()._update(*args, **kwargs)  # pylint: disable=no-member
 
     def _rebuild(self, *args, **kwargs):
-        if 'symbols' not in kwargs:
+        if 'symbol_attrs' not in kwargs:
             # Retain the symbol table (unless given explicitly)
-            kwargs['symbols'] = self.symbols
-        kwargs['rescope_variables'] = True
+            kwargs['symbol_attrs'] = self.symbol_attrs
+        kwargs['rescope_symbols'] = True
         return super()._rebuild(*args, **kwargs)  # pylint: disable=no-member
 
 
@@ -332,7 +332,7 @@ class Associate(ScopedNode, Section):
         associate's body.
     parent : :any:`Scope`, optional
         The parent scope in which the associate appears
-    symbols : :any:`SymbolTable`, optional
+    symbol_attrs : :any:`SymbolTable`, optional
         An existing symbol table to use
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -340,14 +340,14 @@ class Associate(ScopedNode, Section):
 
     _traversable = ['body', 'associations']
 
-    def __init__(self, body=None, associations=None, parent=None, symbols=None, **kwargs):
+    def __init__(self, body=None, associations=None, parent=None, symbol_attrs=None, **kwargs):
         if not isinstance(associations, tuple):
             assert isinstance(associations, (dict, OrderedDict)) or associations is None
             self.associations = as_tuple(associations.items())
         else:
             self.associations = associations
 
-        super().__init__(body=body, parent=parent, symbols=symbols, **kwargs)
+        super().__init__(body=body, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
 
     @property
     def association_map(self):
@@ -1183,7 +1183,7 @@ class TypeDef(ScopedNode, LeafNode):
         Flag to indicate that this contains a ``BIND(C)`` attribute.
     parent : :any:`Scope`, optional
         The parent scope in which the type definition appears
-    symbols : :any:`SymbolTable`, optional
+    symbol_attrs : :any:`SymbolTable`, optional
         An existing symbol table to use
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
@@ -1191,7 +1191,7 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, parent=None, symbols=None, **kwargs):
+    def __init__(self, name, body, bind_c=False, parent=None, symbol_attrs=None, **kwargs):
         assert is_iterable(body)
 
         # First, store the local properties
@@ -1201,11 +1201,11 @@ class TypeDef(ScopedNode, LeafNode):
 
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information
-        super().__init__(parent=parent, symbols=symbols, **kwargs)
+        super().__init__(parent=parent, symbol_attrs=symbol_attrs, **kwargs)
 
         # Finally, register this typedef in the parent scope
         if self.parent:
-            self.parent.symbols[self.name] = SymbolAttributes(self.dtype)
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(self.dtype)
 
     @property
     def declarations(self):

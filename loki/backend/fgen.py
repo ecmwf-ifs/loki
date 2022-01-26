@@ -3,7 +3,7 @@ from pymbolic.mapper.stringifier import (
 )
 
 from loki.visitors import Stringifier
-from loki.tools import as_tuple, flatten, JoinableStringList
+from loki.tools import as_tuple, JoinableStringList
 from loki.expression import LokiStringifyMapper
 from loki.types import BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters

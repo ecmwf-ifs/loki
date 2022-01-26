@@ -224,25 +224,28 @@ class Scope:
     ----------
     parent : :any:`Scope`, optional
         The enclosing scope, thus allowing recursive look-ups
-    symbols : :any:`SymbolTable`, optional
+    symbol_attrs : :any:`SymbolTable`, optional
         Use the given symbol table instead of instantiating a new
+    rescope_symbols : bool, optional
+        Call :meth:`rescope_symbols` for this scope.
     """
 
-    def __init__(self, parent=None, symbols=None, rescope_variables=False, **kwargs):
+    def __init__(self, parent=None, symbol_attrs=None, rescope_symbols=False, **kwargs):
         super().__init__(**kwargs)
         assert parent is None or isinstance(parent, Scope)
+        assert symbol_attrs is None or isinstance(symbol_attrs, SymbolTable)
         self._parent = weakref.ref(parent) if parent is not None else None
 
-        parent_symbols = self.parent.symbols if self.parent is not None else None
-        if symbols is None:
-            self.symbols = SymbolTable(parent=parent_symbols)
+        parent_symbol_attrs = self.parent.symbol_attrs if self.parent is not None else None
+        if symbol_attrs is None:
+            self.symbol_attrs = SymbolTable(parent=parent_symbol_attrs)
         else:
-            assert isinstance(symbols, SymbolTable)
-            symbols._parent = weakref.ref(parent_symbols) if parent_symbols is not None else None
-            self.symbols = symbols
+            assert isinstance(symbol_attrs, SymbolTable)
+            symbol_attrs._parent = weakref.ref(parent_symbol_attrs) if parent_symbol_attrs is not None else None
+            self.symbol_attrs = symbol_attrs
 
-        if rescope_variables:
-            self.rescope_variables()
+        if rescope_symbols:
+            self.rescope_symbols()
 
     def __repr__(self):
         """
@@ -257,9 +260,9 @@ class Scope:
         """
         return self._parent() if self._parent is not None else None
 
-    def rescope_variables(self):
+    def rescope_symbols(self):
         """
-        Make sure all variables declared and used inside this node belong
+        Make sure all symbols declared and used inside this node belong
         to a scope in the scope hierarchy
         """
         from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel
@@ -272,7 +275,7 @@ class Scope:
 
         Note that this will also create a copy of the symbol table via
         :any:`SymbolTable.clone` and force rescoping of variables,
-        unless :attr:`symbols` and :attr:`rescope_variables` are explicitly
+        unless :attr:`symbol_attrs` and :attr:`rescope_symbols` are explicitly
         specified.
 
         Parameters
@@ -286,9 +289,9 @@ class Scope:
         """
         if self.parent and 'parent' not in kwargs:
             kwargs['parent'] = self.parent
-        if 'symbols' not in kwargs:
-            kwargs['symbols'] = self.symbols.clone(parent=kwargs.get('parent'))
-            kwargs['rescope_variables'] = True
+        if 'symbol_attrs' not in kwargs:
+            kwargs['symbol_attrs'] = self.symbol_attrs.clone(parent=kwargs.get('parent'))
+            kwargs['rescope_symbols'] = True
 
         if hasattr(self, '_rebuild'):
             # When cloning IR nodes with a Scope mix-in we need to use the
@@ -318,7 +321,7 @@ class Scope:
         """
         scope = self
         while scope is not None:
-            if name in scope.symbols:
+            if name in scope.symbol_attrs:
                 return scope
             scope = scope.parent
         return None

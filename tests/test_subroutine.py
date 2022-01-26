@@ -214,7 +214,7 @@ end subroutine routine_arguments_add_remove
 
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
-    real_type = routine.symbols['scalar']  # Type of variable 'maximum'
+    real_type = routine.symbol_attrs['scalar']  # Type of variable 'maximum'
     a = Scalar(name='a', type=real_type, scope=routine)
     b = Array(name='b', dimensions=(x, ), type=real_type, scope=routine)
     c = Variable(name='c', type=x.type, scope=routine)
@@ -958,17 +958,17 @@ end subroutine routine_member_procedures
     assert len(routine.members) == 2
 
     assert routine.members[0].name == 'member_procedure'
-    assert routine.members[0].symbols.lookup('localvar', recursive=False) is None
-    assert routine.members[0].symbols.lookup('localvar') is not None
+    assert routine.members[0].symbol_attrs.lookup('localvar', recursive=False) is None
+    assert routine.members[0].symbol_attrs.lookup('localvar') is not None
     assert routine.members[0].get_symbol_scope('localvar') is routine
-    assert routine.members[0].symbols.lookup('in1') is not None
-    assert routine.symbols.lookup('in1') is not None
+    assert routine.members[0].symbol_attrs.lookup('in1') is not None
+    assert routine.symbol_attrs.lookup('in1') is not None
     assert routine.members[0].get_symbol_scope('in1') is routine.members[0]
 
     assert routine.members[1].name == 'member_function'
-    assert routine.members[1].symbols.lookup('in2') is not None
+    assert routine.members[1].symbol_attrs.lookup('in2') is not None
     assert routine.members[1].get_symbol_scope('in2') is routine.members[1]
-    assert routine.symbols.lookup('in2') is not None
+    assert routine.symbol_attrs.lookup('in2') is not None
     assert routine.get_symbol_scope('in2') is routine
 
     # Generate code, compile and load
@@ -1214,7 +1214,7 @@ END INTERFACE
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails without dummy module provided')]))
-def test_subroutine_rescope_variables(frontend):
+def test_subroutine_rescope_symbols(frontend):
     """
     Test the rescoping of variables.
     """
@@ -1262,7 +1262,7 @@ end subroutine test_subroutine_rescope
     nested_body = Transformer().visit(routine.members[0].body)
     nested_routine = Subroutine(name=routine.members[0].name, args=routine.members[0]._dummies,
                                 spec=nested_spec, body=nested_body, parent=routine,
-                                rescope_variables=True)
+                                rescope_symbols=True)
 
     for var in FindTypedSymbols().visit(nested_routine.ir):
         if var.name == 'ext1':
@@ -1286,8 +1286,8 @@ end subroutine test_subroutine_rescope
 
     # Explicitly throw away type information from original nested routine
     routine.members[0]._parent = None
-    routine.members[0].symbols.clear()
-    routine.members[0].symbols._parent = None
+    routine.members[0].symbol_attrs.clear()
+    routine.members[0].symbol_attrs._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
@@ -1377,12 +1377,12 @@ end subroutine test_subroutine_rescope_clone
 
     # Create another copy of the nested subroutine without rescoping (this breaks
     # things on purpose and should never be done in practice, but hey, for the lolz)
-    other_routine = routine.members[0].clone(symbols=routine.symbols.clone(), rescope_variables=False)
+    other_routine = routine.members[0].clone(symbol_attrs=routine.symbol_attrs.clone(), rescope_symbols=False)
 
     # Explicitly throw away type information from original nested routine
     routine.members[0]._parent = None
-    routine.members[0].symbols.clear()
-    routine.members[0].symbols._parent = None
+    routine.members[0].symbol_attrs.clear()
+    routine.members[0].symbol_attrs._parent = None
     assert all(var.type is None for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 

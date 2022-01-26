@@ -191,7 +191,7 @@ def region_to_call(routine):
                                             for v in FindVariables().visit(region_routine.body)
                                             if v.name in region_var_map}
                 region_routine.variables = as_tuple(region_routine_variables)
-                region_routine.rescope_variables()
+                region_routine.rescope_symbols()
 
                 # Build the call signature
                 region_routine_var_map = region_routine.variable_map

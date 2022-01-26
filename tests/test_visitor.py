@@ -558,7 +558,7 @@ END MODULE some_mod
     module = Module.from_source(fcode, frontend=frontend)
 
     # Test custom indentation
-    line_cont = lambda indent: '\n{:{indent}} '.format('...', indent=max(len(indent), 1))
+    line_cont = lambda indent: f'\n{"...":{max(len(indent), 1)}} '
     assert Stringifier(indent='#', line_cont=line_cont).visit(module).strip() == ref.strip()
 
     # Test default

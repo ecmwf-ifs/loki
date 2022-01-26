@@ -332,7 +332,7 @@ class FortranCTransformation(Transformation):
                 spec.append(Intrinsic(text=fct_decl))
 
         header_module.spec = spec
-        header_module.rescope_variables()
+        header_module.rescope_symbols()
         return header_module
 
     def generate_c_kernel(self, routine, **kwargs):
@@ -410,13 +410,13 @@ class FortranCTransformation(Transformation):
                     # Lower case type names for derived types
                     typedef = _type.dtype.typedef.clone(name=_type.dtype.typedef.name.lower())
                     _type = _type.clone(dtype=DerivedType(typedef=typedef))
-                kernel.symbols[arg.name] = _type
+                kernel.symbol_attrs[arg.name] = _type
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
                         'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
-        kernel.rescope_variables()
+        kernel.rescope_symbols()
 
         # Remove redundant imports
         sanitise_imports(kernel)

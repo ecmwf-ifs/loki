@@ -152,10 +152,10 @@ class TypedSymbol:
             self._type = _type
         elif _type is None:
             # Store deferred type if unknown
-            self.scope.symbols[self.name] = SymbolAttributes(BasicType.DEFERRED)
-        elif _type is not self.scope.symbols.lookup(self.name):
+            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
+        elif _type is not self.scope.symbol_attrs.lookup(self.name):
             # Update type if it differs from stored type
-            self.scope.symbols[self.name] = _type
+            self.scope.symbol_attrs[self.name] = _type
 
         super().__init__(*args, **kwargs)
 
@@ -180,7 +180,7 @@ class TypedSymbol:
         _default_val = None # SymbolAttributes(BasicType.DEFERRED)
         if self.scope is None:
             return self._type or _default_val
-        _type = self.scope.symbols.lookup(self.name)
+        _type = self.scope.symbol_attrs.lookup(self.name)
         if _type:
             return _type
 
@@ -203,7 +203,7 @@ class TypedSymbol:
         """
         if not self._parent and '%' in self.name and self.scope:
             parent_name = self.name_parts[0]
-            parent_type = self.scope.symbols.lookup(parent_name)
+            parent_type = self.scope.symbol_attrs.lookup(parent_name)
             parent_var = Variable(name=parent_name, scope=self.scope, type=parent_type)
             for name in self.name_parts[1:-1]:
                 if not parent_var:
@@ -285,7 +285,7 @@ class TypedSymbol:
         symbol table entry in the provided scope.
         """
         if self.type:
-            existing_type = scope.symbols.lookup(self.name)
+            existing_type = scope.symbol_attrs.lookup(self.name)
             if existing_type:
                 return self.clone(scope=scope, type=existing_type)
         return self.clone(scope=scope)
@@ -667,7 +667,7 @@ class Array(MetaSymbol):
         symbol table entry in the provided scope.
         """
         if self.type:
-            existing_type = scope.symbols.lookup(self.name)
+            existing_type = scope.symbol_attrs.lookup(self.name)
             if existing_type:
                 return self.clone(scope=scope, type=existing_type, dimensions=self.dimensions)
         return self.clone(scope=scope, dimensions=self.dimensions)
@@ -794,14 +794,14 @@ class Variable:
         :any:`SymbolAttributes` or `None`
         """
         # 1. Try to find symbol in scope
-        stored_type = scope.symbols.lookup(name)
+        stored_type = scope.symbol_attrs.lookup(name)
 
         # 2. For derived type members, we can try to find it via the parent instead
         if '%' in name and (not stored_type or stored_type.dtype is BasicType.DEFERRED):
             name_parts = name.split('%')
             if not parent:
                 # Build the parent if not given
-                parent_type = scope.symbols.lookup(name_parts[0])
+                parent_type = scope.symbol_attrs.lookup(name_parts[0])
                 parent = Variable(name=name_parts[0], scope=scope, type=parent_type)
                 for pname in name_parts[1:-1]:
                     if not parent:

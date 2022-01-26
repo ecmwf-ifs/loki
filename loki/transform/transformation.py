@@ -226,7 +226,7 @@ class Transformation:
             raise TypeError('Transformation.post_apply_subroutine can only be applied to Subroutine object')
 
         # Ensure all objects in the IR are in the subroutine's or a parent scope.
-        subroutine.rescope_variables()
+        subroutine.rescope_symbols()
 
     def post_apply_module(self, module):  # pylint: disable=no-self-use
         """
@@ -241,4 +241,4 @@ class Transformation:
             raise TypeError('Transformation.post_apply_module can only be applied to Module object')
 
         # Ensure all objects in the IR are in the module's scope.
-        module.rescope_variables()
+        module.rescope_symbols()

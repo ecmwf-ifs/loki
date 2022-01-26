@@ -155,26 +155,26 @@ end module a_module
 
     if frontend != OMNI:  # OMNI needs to know imported modules
         module = Module.from_source(fcode_module, frontend=frontend)
-        assert 'ext_type' in module.symbols
-        assert module.symbols['ext_type'].dtype is BasicType.DEFERRED
-        assert 'other_type' not in module.symbols
-        assert 'other_type' not in module['other_routine'].symbols
-        assert module['other_routine'].symbols['pt'].dtype.typedef is BasicType.DEFERRED
+        assert 'ext_type' in module.symbol_attrs
+        assert module.symbol_attrs['ext_type'].dtype is BasicType.DEFERRED
+        assert 'other_type' not in module.symbol_attrs
+        assert 'other_type' not in module['other_routine'].symbol_attrs
+        assert module['other_routine'].symbol_attrs['pt'].dtype.typedef is BasicType.DEFERRED
 
     module = Module.from_source(fcode_module, frontend=frontend, definitions=[external, other])
     nested = module.typedefs['nested_type']
     ext = nested.variables[0]
 
     # Verify correct attachment of type information
-    assert 'ext_type' in module.symbols
-    assert isinstance(module.symbols['ext_type'].dtype.typedef, TypeDef)
-    assert isinstance(nested.symbols['ext'].dtype.typedef, TypeDef)
-    assert isinstance(module['my_routine'].symbols['pt'].dtype.typedef, TypeDef)
-    assert isinstance(module['my_routine'].symbols['pt%ext'].dtype.typedef, TypeDef)
-    assert 'other_type' in module.symbols
-    assert 'other_type' not in module['other_routine'].symbols
-    assert isinstance(module.symbols['other_type'].dtype.typedef, TypeDef)
-    assert isinstance(module['other_routine'].symbols['pt'].dtype.typedef, TypeDef)
+    assert 'ext_type' in module.symbol_attrs
+    assert isinstance(module.symbol_attrs['ext_type'].dtype.typedef, TypeDef)
+    assert isinstance(nested.symbol_attrs['ext'].dtype.typedef, TypeDef)
+    assert isinstance(module['my_routine'].symbol_attrs['pt'].dtype.typedef, TypeDef)
+    assert isinstance(module['my_routine'].symbol_attrs['pt%ext'].dtype.typedef, TypeDef)
+    assert 'other_type' in module.symbol_attrs
+    assert 'other_type' not in module['other_routine'].symbol_attrs
+    assert isinstance(module.symbol_attrs['other_type'].dtype.typedef, TypeDef)
+    assert isinstance(module['other_routine'].symbol_attrs['pt'].dtype.typedef, TypeDef)
 
     # OMNI resolves explicit shape parameters in the frontend parser
     exptected_array_shape = '(1:2, 1:3)' if frontend == OMNI else '(x, y)'
@@ -330,8 +330,8 @@ end module
     assert inline_calls[0].parameters[0] == 'v2'
     assert inline_calls[0].parameters[1] == 'v1'
 
-    assert isinstance(module.symbols['util_fct'].dtype.procedure, Subroutine)
-    assert module.symbols['util_fct'].dtype.is_function
+    assert isinstance(module.symbol_attrs['util_fct'].dtype.procedure, Subroutine)
+    assert module.symbol_attrs['util_fct'].dtype.is_function
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -439,7 +439,7 @@ integer :: c
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
-def test_module_rescope_variables(frontend):
+def test_module_rescope_symbols(frontend):
     """
     Test the rescoping of variables.
     """
@@ -456,7 +456,7 @@ end module test_module_rescope
 
     # Create a copy of the module with rescoping and make sure all symbols are in the right scope
     spec = Transformer().visit(module.spec)
-    module_copy = Module(name=module.name, spec=spec, rescope_variables=True)
+    module_copy = Module(name=module.name, spec=spec, rescope_symbols=True)
 
     for var in FindTypedSymbols().visit(module_copy.spec):
         assert var.scope is module_copy
@@ -466,7 +466,7 @@ end module test_module_rescope
     other_module_copy = Module(name=module.name, spec=spec)
 
     # Explicitly throw away type information from original module
-    module.symbols.clear()
+    module.symbol_attrs.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
@@ -501,10 +501,10 @@ end module test_module_rescope_clone
         assert var.scope is module_copy
 
     # Create another copy of the nested subroutine without rescoping
-    other_module_copy = module.clone(rescope_variables=False, symbols=None)
+    other_module_copy = module.clone(rescope_symbols=False, symbol_attrs=None)
 
     # Explicitly throw away type information from original module
-    module.symbols.clear()
+    module.symbol_attrs.clear()
     assert all(var.type is None for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
@@ -609,22 +609,22 @@ end module some_mod
     }
     expected_symbols = list(mod1_imports) + list(mod2_imports)
     for s in expected_symbols:
-        assert s in mod3.symbols
+        assert s in mod3.symbol_attrs
 
     # Check that var1 has note been imported under that name
-    assert 'var1' not in mod3.symbols
+    assert 'var1' not in mod3.symbol_attrs
 
     # Verify correct symbol attributes
     for s, use_name in mod1_imports.items():
-        assert mod3.symbols[s].imported
-        assert mod3.symbols[s].module is mod1
-        assert mod3.symbols[s].use_name == use_name
-        assert mod3.symbols[s].compare(mod1.symbols[use_name or s], ignore=('imported', 'module', 'use_name'))
+        assert mod3.symbol_attrs[s].imported
+        assert mod3.symbol_attrs[s].module is mod1
+        assert mod3.symbol_attrs[s].use_name == use_name
+        assert mod3.symbol_attrs[s].compare(mod1.symbol_attrs[use_name or s], ignore=('imported', 'module', 'use_name'))
     for s, use_name in mod2_imports.items():
-        assert mod3.symbols[s].imported
-        assert mod3.symbols[s].module is mod2
-        assert mod3.symbols[s].use_name == use_name
-        assert mod3.symbols[s].compare(mod2.symbols[use_name or s], ignore=('imported', 'module', 'use_name'))
+        assert mod3.symbol_attrs[s].imported
+        assert mod3.symbol_attrs[s].module is mod2
+        assert mod3.symbol_attrs[s].use_name == use_name
+        assert mod3.symbol_attrs[s].compare(mod2.symbol_attrs[use_name or s], ignore=('imported', 'module', 'use_name'))
 
     # Verify Import IR node
     for imprt in FindNodes(Import).visit(mod3.spec):
@@ -675,21 +675,21 @@ end module some_mod
     }
     expected_symbols = list(mod1_imports) + list(mod2_imports)
     for s in expected_symbols:
-        assert s in mod3.symbols
+        assert s in mod3.symbol_attrs
 
     # Check that var1 has note been imported under that name
-    assert 'var1' not in mod3.symbols
-    assert 'var2' not in mod3.symbols
+    assert 'var1' not in mod3.symbol_attrs
+    assert 'var2' not in mod3.symbol_attrs
 
     # Verify correct symbol attributes
     for s, use_name in mod1_imports.items():
-        assert mod3.symbols[s].imported
-        assert mod3.symbols[s].module is None
-        assert mod3.symbols[s].use_name == use_name
+        assert mod3.symbol_attrs[s].imported
+        assert mod3.symbol_attrs[s].module is None
+        assert mod3.symbol_attrs[s].use_name == use_name
     for s, use_name in mod2_imports.items():
-        assert mod3.symbols[s].imported
-        assert mod3.symbols[s].module is None
-        assert mod3.symbols[s].use_name == use_name
+        assert mod3.symbol_attrs[s].imported
+        assert mod3.symbol_attrs[s].module is None
+        assert mod3.symbol_attrs[s].use_name == use_name
 
     # Verify Import IR node
     for imprt in FindNodes(Import).visit(mod3.spec):

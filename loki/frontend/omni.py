@@ -198,15 +198,15 @@ class OMNI2IR(GenericVisitor):
         module = self.definitions.get(name, None)
         if module is not None:
             # Import symbol attributes from module, if available
-            for k, v in module.symbols.items():
+            for k, v in module.symbol_attrs.items():
                 if k in rename_list:
                     local_name = rename_list[k].name
-                    scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                    scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                 else:
-                    scope.symbols[k] = v.clone(imported=True, module=module)
+                    scope.symbol_attrs[k] = v.clone(imported=True, module=module)
         elif rename_list:
             # Module not available but some information via rename-list
-            scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+            scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
         rename_list = tuple(rename_list.items()) if rename_list else None
         return ir.Import(module=name, rename_list=rename_list, c_import=False, source=kwargs['source'])
 
@@ -220,17 +220,17 @@ class OMNI2IR(GenericVisitor):
             # Initialize symbol attributes as DEFERRED
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                    scope.symbol_attrs[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
                 else:
-                    scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+                    scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
         else:
             # Import symbol attributes from module
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
                                                                           use_name=s[0])
                 else:
-                    scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
         symbols = tuple(
             s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
         )
@@ -340,7 +340,7 @@ class OMNI2IR(GenericVisitor):
         if _type.kind is not None:
             _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
-        scope.symbols[variable.name] = _type
+        scope.symbol_attrs[variable.name] = _type
         variables = (variable.clone(scope=scope),)
         return ir.Declaration(variables=variables, external=_type.external is True, source=kwargs['source'])
 
@@ -440,7 +440,7 @@ class OMNI2IR(GenericVisitor):
             name = self.symbol_map[name].find('name').text
 
         # Check if we know that type already
-        dtype = kwargs['scope'].symbols.lookup(name, recursive=True)
+        dtype = kwargs['scope'].symbol_attrs.lookup(name, recursive=True)
         if dtype is None or dtype.dtype == BasicType.DEFERRED:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:

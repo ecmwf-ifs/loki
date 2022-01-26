@@ -505,7 +505,7 @@ class LokiIdentityMapper(IdentityMapper):
         if kind is not expr.type.kind and expr.scope:
             # Update symbol table entry for kind directly because with a scope attached
             # it does not affect the outcome of expr.clone
-            expr.scope.symbols[expr.name] = expr.type.clone(kind=kind)
+            expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
 
         parent = self.rec(expr.parent, *args, **kwargs)
         if parent is expr.parent and (kind is expr.type.kind or expr.scope):

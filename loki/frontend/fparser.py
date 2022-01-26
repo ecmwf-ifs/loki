@@ -358,7 +358,7 @@ class FParser2IR(GenericVisitor):
         # Fparser wrongfully interprets function calls as Part_Ref sometimes
         # This should go away once fparser has a basic symbol table, see
         # https://github.com/stfc/fparser/issues/201 for some details
-        _type = kwargs['scope'].symbols.lookup(name.name)
+        _type = kwargs['scope'].symbol_attrs.lookup(name.name)
         if _type and isinstance(_type.dtype, ProcedureType):
             name = name.clone(dimensions=None)
             call = sym.InlineCall(name, parameters=dimensions, kw_parameters=(), source=kwargs.get('source'))
@@ -414,15 +414,15 @@ class FParser2IR(GenericVisitor):
                 rename_list = {}
             if module is not None:
                 # Import symbol attributes from module, if available
-                for k, v in module.symbols.items():
+                for k, v in module.symbol_attrs.items():
                     if k in rename_list:
                         local_name = rename_list[k].name
-                        scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                        scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                     else:
-                        scope.symbols[k] = v.clone(imported=True, module=module)
+                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
             elif rename_list:
                 # Module not available but some information via rename-list
-                scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+                scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
             rename_list = tuple(rename_list.items()) if rename_list else None
         elif o.children[3] == ', ONLY:':
             # ONLY list given (import only selected symbols)
@@ -433,17 +433,17 @@ class FParser2IR(GenericVisitor):
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
                     else:
-                        scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+                        scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
             else:
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
                                                                               use_name=s[0])
                     else:
-                        scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
@@ -524,9 +524,9 @@ class FParser2IR(GenericVisitor):
                     type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
                 else:
                     type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
-                scope.symbols[var.name] = var.type.clone(**type_kwargs)
+                scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
             else:
-                scope.symbols[var.name] = var.type.clone(**_type.__dict__)
+                scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
         variables = tuple(v.clone(scope=scope) for v in variables)
         return ir.Declaration(variables=variables, dimensions=_type.shape, external=_type.external,
@@ -600,7 +600,7 @@ class FParser2IR(GenericVisitor):
             dtype = self.visit(o.children[1], **kwargs)
 
             # Look for a previous definition of this type
-            _type = kwargs['scope'].symbols.lookup(dtype.name)
+            _type = kwargs['scope'].symbol_attrs.lookup(dtype.name)
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
 
@@ -728,12 +728,12 @@ class FParser2IR(GenericVisitor):
         # ...and update their symbol table entry...
         scope = kwargs['scope']
         for var in variables:
-            _type = scope.symbols.lookup(var.name)
+            _type = scope.symbol_attrs.lookup(var.name)
             if _type is None:
                 _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
             else:
                 _type = _type.clone(external=True)
-            scope.symbols[var.name] = _type
+            scope.symbol_attrs[var.name] = _type
 
         variables = tuple(v.clone(scope=scope) for v in variables)
         declaration = ir.Declaration(variables=variables, external=True,

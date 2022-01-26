@@ -385,7 +385,7 @@ class OFP2IR(GenericVisitor):
             dtype = self.visit(o.find('derived-type-spec'), **kwargs)
 
             # Look for a previous definition of this type
-            _type = kwargs['scope'].symbols.lookup(dtype.name)
+            _type = kwargs['scope'].symbol_attrs.lookup(dtype.name)
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
 
@@ -486,12 +486,12 @@ class OFP2IR(GenericVisitor):
 
             variables = self.visit(o.findall('names'), **kwargs)
             for var in variables:
-                _type = kwargs['scope'].symbols.lookup(var.name)
+                _type = kwargs['scope'].symbol_attrs.lookup(var.name)
                 if _type is None:
                     _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
                 else:
                     _type = _type.clone(external=True)
-                kwargs['scope'].symbols[var.name] = _type
+                kwargs['scope'].symbol_attrs[var.name] = _type
 
             variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
             declaration = ir.Declaration(variables=variables, external=True, source=source, label=label)
@@ -625,9 +625,9 @@ class OFP2IR(GenericVisitor):
                     type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
                 else:
                     type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
-                scope.symbols[var.name] = var.type.clone(**type_kwargs)
+                scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
             else:
-                scope.symbols[var.name] = var.type.clone(**_type.__dict__)
+                scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
         variables = tuple(v.clone(scope=scope) for v in variables)
         return ir.Declaration(variables=variables, dimensions=_type.shape, external=external,
@@ -744,17 +744,17 @@ class OFP2IR(GenericVisitor):
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbols[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
                     else:
-                        scope.symbols[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+                        scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
             else:
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbols[s[1].name] = module.symbols[s[0]].clone(imported=True, module=module,
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
                                                                               use_name=s[0])
                     else:
-                        scope.symbols[s.name] = module.symbols[s.name].clone(imported=True, module=module)
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
@@ -765,15 +765,15 @@ class OFP2IR(GenericVisitor):
             rename_list = dict(self.visit(s, **kwargs) for s in o.findall('rename/rename'))
             if module is not None:
                 # Import symbol attributes from module, if available
-                for k, v in module.symbols.items():
+                for k, v in module.symbol_attrs.items():
                     if k in rename_list:
                         local_name = rename_list[k].name
-                        scope.symbols[local_name] = v.clone(imported=True, module=module, use_name=k)
+                        scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                     else:
-                        scope.symbols[k] = v.clone(imported=True, module=module)
+                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
             elif rename_list:
                 # Module not available but some information via rename-list
-                scope.symbols.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+                scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
             rename_list = tuple(rename_list.items()) if rename_list else None
         return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
                          label=kwargs['label'], source=kwargs['source'])
@@ -967,7 +967,7 @@ class OFP2IR(GenericVisitor):
             if str(name).upper() in intrinsic_calls or kwarguments:
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
-            _type = kwargs['scope'].symbols.lookup(name.name)
+            _type = kwargs['scope'].symbol_attrs.lookup(name.name)
             if subscripts and _type and isinstance(_type.dtype, ProcedureType):
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
@@ -1122,7 +1122,7 @@ class OFP2IR(GenericVisitor):
             v_type = stype.clone(shape=dimensions)
             v_name = v.attrib['name']
 
-            scope.symbols[v_name] = v_type
+            scope.symbol_attrs[v_name] = v_type
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
         return ir.Declaration(variables=variables, source=source)
