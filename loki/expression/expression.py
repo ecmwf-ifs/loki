@@ -343,7 +343,7 @@ class AttachScopes(Visitor):
         # Then recurse to all children
         kwargs['scope'] = o
         children = tuple(self.visit(i, **kwargs) for i in o.children)
-        return self._update(o, children, symbols=o.symbols, rescope_variables=False)
+        return self._update(o, children, symbol_attrs=o.symbol_attrs, rescope_symbols=False)
 
     @staticmethod
     def _update_symbol_table_with_decls_and_imports(o):
@@ -352,9 +352,9 @@ class AttachScopes(Visitor):
         imported in a node
         """
         for v in getattr(o, 'variables', ()):
-            o.symbols.setdefault(v.name, v.type)
+            o.symbol_attrs.setdefault(v.name, v.type)
         for s in getattr(o, 'imported_symbols', ()):
-            o.symbols.setdefault(s.name, s.type)
+            o.symbol_attrs.setdefault(s.name, s.type)
 
     def visit_Subroutine(self, o, **kwargs):
         """

@@ -183,7 +183,7 @@ def inject_statement_functions(routine):
     Fparser misinterprets statement function definitions as array
     assignments and may put them into the subroutine's body instead of
     the spec. This function tries to identify them, correct the type of
-    the symbols representing statement functions (as :any:`ProcedureSymbol`)
+    the symbol_attrs representing statement functions (as :any:`ProcedureSymbol`)
     and store their definition as :any:`StatementFunction`.
 
     Parameters
@@ -212,7 +212,7 @@ def inject_statement_functions(routine):
         if isinstance(assignment.lhs, Array) and assignment.lhs.name.lower() in candidates:
             stmt_func = create_stmt_func(assignment)
             spec_map[assignment] = stmt_func
-            routine.symbols[str(stmt_func.variable)] = create_type(stmt_func)
+            routine.symbol_attrs[str(stmt_func.variable)] = create_type(stmt_func)
 
     # Other suspects: Array assignments at the beginning of the body
     spec_appendix = []
@@ -224,7 +224,7 @@ def inject_statement_functions(routine):
             stmt_func = create_stmt_func(node)
             spec_appendix += [stmt_func]
             body_map[node] = None
-            routine.symbols[str(stmt_func.variable)] = create_type(stmt_func)
+            routine.symbol_attrs[str(stmt_func.variable)] = create_type(stmt_func)
         else:
             break
 
@@ -269,4 +269,4 @@ def inject_statement_functions(routine):
             routine.body = SubstituteExpressions(expr_map_body).visit(routine.body)
 
         # And make sure all symbols have the right type
-        routine.rescope_variables()
+        routine.rescope_symbols()

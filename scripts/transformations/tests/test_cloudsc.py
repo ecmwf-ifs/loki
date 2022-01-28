@@ -73,8 +73,8 @@ def test_cloudsc(here, frontend):
             no_errors = results['AbsMaxErr'].astype('float') == 0
             if not no_errors.all(axis=None):
                 failures[binary] = results
-        except CalledProcessError as e:
-            failures[binary] = e.stderr.decode()
+        except CalledProcessError as err:
+            failures[binary] = err.stderr.decode()
 
     if failures:
         pytest.fail(str(failures))

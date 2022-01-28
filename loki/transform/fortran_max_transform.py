@@ -260,7 +260,7 @@ class FortranMaxTransformation(Transformation):
             is_dfe = any(dfevar_mapper(getattr(stmt, attr)).pop()
                          for attr in node_fields[stmt.__class__])
             if not stmt.lhs.type.dfevar and is_dfe:
-                max_kernel.symbols[stmt.lhs.name] = stmt.lhs.type.clone(dfevar=is_dfe)
+                max_kernel.symbol_attrs[stmt.lhs.name] = stmt.lhs.type.clone(dfevar=is_dfe)
 
         # Replace array access by stream inflow
         if dataflow_indices:

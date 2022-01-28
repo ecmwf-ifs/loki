@@ -34,13 +34,13 @@ class Module(Scope):
         The node for this module from the parse tree produced by the frontend.
     source : :any:`Source`, optional
         Object representing the raw source string information from the read file.
-    rescope_variables : bool, optional
+    rescope_symbols : bool, optional
         Ensure that the type information for all :any:`TypedSymbol` in the
         module's IR exist in the module's scope. Defaults to `False`.
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, rescope_variables=False,
-                 parent=None, symbols=None):
+    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, rescope_symbols=False,
+                 parent=None, symbol_attrs=None):
         # First, store all local properties
         self.name = name or ast.attrib['name']
         self.spec = spec
@@ -53,7 +53,7 @@ class Module(Scope):
             self.spec = process_dimension_pragmas(self.spec)
 
         # Then call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbols=symbols, rescope_variables=rescope_variables)
+        super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=Frontend.FP):
@@ -109,7 +109,7 @@ class Module(Scope):
                     dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
                     dtype = ProcedureType(fname, is_function=False)
-                module.symbols[fname] = SymbolAttributes(dtype)
+                module.symbol_attrs[fname] = SymbolAttributes(dtype)
 
             routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
                                             parent=module, pp_info=pp_info)
@@ -173,7 +173,7 @@ class Module(Scope):
                     routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
                     fname = routine_stmt.get_name().string
                     dtype = ProcedureType(fname, is_function=False)
-                module.symbols[fname] = SymbolAttributes(dtype)
+                module.symbol_attrs[fname] = SymbolAttributes(dtype)
 
             # Now create the actual Subroutine objects
             routines = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=module,
@@ -324,8 +324,8 @@ class Module(Scope):
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
 
-        if 'rescope_variables' not in kwargs:
-            kwargs['rescope_variables'] = True
+        if 'rescope_symbols' not in kwargs:
+            kwargs['rescope_symbols'] = True
 
         kwargs['spec'] = Transformer({}).visit(self.spec)
 

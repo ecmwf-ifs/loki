@@ -602,27 +602,27 @@ end subroutine derived_type_procedure_designator
     module = Module.from_source(mcode, frontend=frontend)
     assert 'some_type' in module.typedefs
     assert 'other_type' in module.typedefs
-    assert 'some_type' in module.symbols
-    assert 'other_type' in module.symbols
+    assert 'some_type' in module.symbol_attrs
+    assert 'other_type' in module.symbol_attrs
 
     # First, without external definitions
     if frontend != OMNI:
         routine = Subroutine.from_source(fcode, frontend=frontend)
-        assert 'some_type' not in routine.symbols
-        assert 'other_type' not in routine.symbols
-        assert isinstance(routine.symbols['tp'].dtype, DerivedType)
-        assert routine.symbols['tp'].dtype.typedef == BasicType.DEFERRED
+        assert 'some_type' not in routine.symbol_attrs
+        assert 'other_type' not in routine.symbol_attrs
+        assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
+        assert routine.symbol_attrs['tp'].dtype.typedef == BasicType.DEFERRED
 
     # Now with external definitions
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=[module])
 
     for name in ('some_type', 'other_type'):
-        assert name in routine.symbols
-        assert routine.symbols[name].imported is True
-        assert isinstance(routine.symbols[name].dtype, DerivedType)
-        assert isinstance(routine.symbols[name].dtype.typedef, TypeDef)
-    assert isinstance(routine.symbols['tp'].dtype, DerivedType)
-    assert isinstance(routine.symbols['tp'].dtype.typedef, TypeDef)
+        assert name in routine.symbol_attrs
+        assert routine.symbol_attrs[name].imported is True
+        assert isinstance(routine.symbol_attrs[name].dtype, DerivedType)
+        assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
+    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
 
     # TODO: actually verify representation of type-bound procedures
 
@@ -649,8 +649,8 @@ end module frontend_strict_mode
 
     config['frontend-strict-mode'] = False
     module = Module.from_source(fcode, frontend=frontend)
-    assert 'some_type' in module.symbols
-    assert 'other_type' in module.symbols
+    assert 'some_type' in module.symbol_attrs
+    assert 'other_type' in module.symbol_attrs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

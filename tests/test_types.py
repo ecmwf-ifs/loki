@@ -98,13 +98,13 @@ subroutine test_type_declarations(b, c)
 end subroutine test_type_declarations
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.symbols['a'].parameter
-    assert routine.symbols['b'].intent == 'in'
-    assert routine.symbols['c'].target
-    assert routine.symbols['c'].intent == 'inout'
-    assert routine.symbols['d'].allocatable
-    assert routine.symbols['e'].pointer
-    assert routine.symbols['e'].contiguous
+    assert routine.symbol_attrs['a'].parameter
+    assert routine.symbol_attrs['b'].intent == 'in'
+    assert routine.symbol_attrs['c'].target
+    assert routine.symbol_attrs['c'].intent == 'inout'
+    assert routine.symbol_attrs['d'].allocatable
+    assert routine.symbol_attrs['e'].pointer
+    assert routine.symbol_attrs['e'].contiguous
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Segfault with pragmas in derived types')]))
@@ -143,7 +143,7 @@ end module types
     fsymgen = FCodeMapper()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
-    pragma_type = source['types'].symbols['pragma_type'].dtype
+    pragma_type = source['types'].symbol_attrs['pragma_type'].dtype
 
     assert pragma_type.typedef is source['types'].typedefs['pragma_type']
     assert fsymgen(pragma_type.typedef.variables[0].shape) == '(3, 3)'
@@ -198,12 +198,12 @@ end module test_type_derived_type_mod
     assert all(v.scope is routine for v in c.variables)
 
     # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbols['a%a'].shape == (':',)
-    assert routine.symbols['a%b'].shape == (':',':')
-    assert routine.symbols['b%a'].shape == (':',)
-    assert routine.symbols['b%b'].shape == (':',':')
-    assert routine.symbols['c%a'].shape == (':',)
-    assert routine.symbols['c%b'].shape == (':',':')
+    assert routine.symbol_attrs['a%a'].shape == (':',)
+    assert routine.symbol_attrs['a%b'].shape == (':',':')
+    assert routine.symbol_attrs['b%a'].shape == (':',)
+    assert routine.symbol_attrs['b%b'].shape == (':',':')
+    assert routine.symbol_attrs['c%a'].shape == (':',)
+    assert routine.symbol_attrs['c%b'].shape == (':',':')
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot deal with deferred type info')]))
@@ -222,14 +222,14 @@ end subroutine test_type_module_imports
 """
     # Ensure types are deferred without a-priori context info
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.symbols['a_kind'].dtype == BasicType.DEFERRED
-    assert routine.symbols['a_dim'].dtype == BasicType.DEFERRED
-    assert routine.symbols['a_type'].dtype == BasicType.DEFERRED
+    assert routine.symbol_attrs['a_kind'].dtype == BasicType.DEFERRED
+    assert routine.symbol_attrs['a_dim'].dtype == BasicType.DEFERRED
+    assert routine.symbol_attrs['a_type'].dtype == BasicType.DEFERRED
 
     # Ensure local variable info is correct, as far as known
     arg_a, arg_b = routine.variables
-    assert arg_a.type.kind.type.compare(routine.symbols['a_kind'], ignore=('imported'))
-    assert arg_a.dimensions[0].type.compare(routine.symbols['a_dim'])
+    assert arg_a.type.kind.type.compare(routine.symbol_attrs['a_kind'], ignore=('imported'))
+    assert arg_a.dimensions[0].type.compare(routine.symbol_attrs['a_dim'])
     assert isinstance(arg_b.type.dtype, DerivedType)
     assert arg_b.type.dtype.typedef == BasicType.DEFERRED
 
@@ -249,16 +249,16 @@ end module my_types_mod
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend)
 
     # Check that module variables and types have been imported
-    assert routine.symbols['a_kind'].dtype == BasicType.INTEGER
-    assert routine.symbols['a_kind'].parameter
-    assert routine.symbols['a_kind'].initial == 4
-    assert routine.symbols['a_dim'].dtype == BasicType.INTEGER
-    assert routine.symbols['a_dim'].kind == 'a_kind'
-    assert isinstance(routine.symbols['a_type'].dtype.typedef, TypeDef)
+    assert routine.symbol_attrs['a_kind'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['a_kind'].parameter
+    assert routine.symbol_attrs['a_kind'].initial == 4
+    assert routine.symbol_attrs['a_dim'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['a_dim'].kind == 'a_kind'
+    assert isinstance(routine.symbol_attrs['a_type'].dtype.typedef, TypeDef)
 
     # Check that external type definition has been linked
     assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)
-    assert routine.variable_map['arg_b'].type.dtype.typedef.symbols != routine.symbols
+    assert routine.variable_map['arg_b'].type.dtype.typedef.symbol_attrs != routine.symbol_attrs
 
     # Check that we correctly re-scoped the member variable
     a, b = routine.variable_map['arg_b'].variables
@@ -269,8 +269,8 @@ end module my_types_mod
     assert b.scope is routine
 
     # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbols['arg_b%a'].shape == (':',)
-    assert routine.symbols['arg_b%b'].shape == (':',':')
+    assert routine.symbol_attrs['arg_b%a'].shape == (':',)
+    assert routine.symbol_attrs['arg_b%b'].shape == (':',':')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

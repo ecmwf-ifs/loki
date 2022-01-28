@@ -98,7 +98,7 @@ def resolve_associates(routine):
         assoc_map[assoc] = assoc.body
     routine.body = Transformer(assoc_map).visit(routine.body)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
-    routine.rescope_variables()
+    routine.rescope_symbols()
 
 
 def used_names_from_symbol(symbol, modifier=str.lower):
@@ -343,18 +343,18 @@ def replace_selected_kind(routine):
     for variable in routine.variables:
         if variable.type.kind is not None and mapper.is_selected_kind_call(variable.type.kind):
             kind = mapper.map_call(variable.type.kind, routine)
-            routine.symbols[variable.name] = variable.type.clone(kind=kind)
+            routine.symbol_attrs[variable.name] = variable.type.clone(kind=kind)
         if variable.type.initial is not None:
             if mapper.is_selected_kind_call(variable.type.initial):
                 initial = mapper.map_call(variable.type.initial, routine)
-                routine.symbols[variable.name] = variable.type.clone(initial=initial)
+                routine.symbol_attrs[variable.name] = variable.type.clone(initial=initial)
             else:
                 init_calls = [literal.kind for literal in FindLiterals().visit(variable.type.initial)
                               if hasattr(literal, 'kind') and mapper.is_selected_kind_call(literal.kind)]
                 if init_calls:
                     init_map = {call: mapper.map_call(call, routine) for call in init_calls}
                     initial = SubstituteExpressions(init_map).visit(variable.type.initial)
-                    routine.symbols[variable.name] = variable.type.clone(initial=initial)
+                    routine.symbol_attrs[variable.name] = variable.type.clone(initial=initial)
 
     # Make sure iso_fortran_env symbols are imported
     if mapper.used_names:

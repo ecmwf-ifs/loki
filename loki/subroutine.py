@@ -43,7 +43,7 @@ class Subroutine(Scope):
     is_function : bool, optional
         Flag to indicate this is a function instead of subroutine
         (in the Fortran sense). Defaults to `False`.
-    rescope_variables : bool, optional
+    rescope_symbols : bool, optional
         Ensure that the type information for all :any:`TypedSymbol` in the
         subroutine's IR exist in the subroutine's scope or the scope's parents.
         Defaults to `False`.
@@ -55,13 +55,13 @@ class Subroutine(Scope):
         or :any:`Subroutine` object. Declarations from the parent scope remain
         valid within the subroutine's scope (unless shadowed by local
         declarations).
-    symbols : :any:`SymbolTable`, optional
+    symbol_attrs : :any:`SymbolTable`, optional
         Use the provided :any:`SymbolTable` object instead of creating a new
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
-                 ast=None, bind=None, is_function=False, rescope_variables=False, source=None,
-                 parent=None, symbols=None):
+                 ast=None, bind=None, is_function=False, rescope_symbols=False, source=None,
+                 parent=None, symbol_attrs=None):
         # First, store all local poperties
         self.name = name
         self._ast = ast
@@ -80,11 +80,11 @@ class Subroutine(Scope):
         self._members = as_tuple(members)
 
         # Then call the parent constructor to take care of symbol table and rescoping
-        super().__init__(parent=parent, symbols=symbols, rescope_variables=rescope_variables)
+        super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
         # Finally, register this procedure in the parent scope
         if self.parent:
-            self.parent.symbols[self.name] = SymbolAttributes(ProcedureType(procedure=self))
+            self.parent.symbol_attrs[self.name] = SymbolAttributes(ProcedureType(procedure=self))
 
     @staticmethod
     def _infer_allocatable_shapes(spec, body):
@@ -182,7 +182,7 @@ class Subroutine(Scope):
                     dtype = ProcedureType(fname, is_function=True, return_type=return_type)
                 else:
                     dtype = ProcedureType(fname, is_function=False)
-                routine.symbols[fname] = SymbolAttributes(dtype)
+                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
             members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions, parent=routine)
                        for member in routine_asts]
             routine._members = as_tuple(members)
@@ -192,7 +192,7 @@ class Subroutine(Scope):
         routine.body = Section(body=body)
 
         # Now make sure all symbols have their scope attached
-        routine.rescope_variables()
+        routine.rescope_symbols()
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -275,7 +275,7 @@ class Subroutine(Scope):
         routine.body = Section(body=body)
 
         # Now make sure all symbols have their scope attached
-        routine.rescope_variables()
+        routine.rescope_symbols()
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -346,7 +346,7 @@ class Subroutine(Scope):
                     routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
                     fname = routine_stmt.get_name().string
                     dtype = ProcedureType(fname, is_function=False)
-                routine.symbols[fname] = SymbolAttributes(dtype)
+                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
 
             # Now create the actual Subroutine objects
             members = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=routine,
@@ -383,7 +383,7 @@ class Subroutine(Scope):
 
 
         # Now make sure all symbols have their scope attached
-        routine.rescope_variables()
+        routine.rescope_symbols()
 
         # Big, but necessary hack:
         # For deferred array dimensions on allocatables, we infer the conceptual
@@ -617,8 +617,8 @@ class Subroutine(Scope):
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
 
-        if 'rescope_variables' not in kwargs:
-            kwargs['rescope_variables'] = True
+        if 'rescope_symbols' not in kwargs:
+            kwargs['rescope_symbols'] = True
 
         kwargs['docstring'] = Transformer({}).visit(self.docstring)
         kwargs['spec'] = Transformer({}).visit(self.spec)
@@ -627,6 +627,6 @@ class Subroutine(Scope):
         # Clone the routine and continue with any members
         routine = super().clone(**kwargs)
         if self.members and 'members' not in kwargs:
-            routine._members = tuple(member.clone(parent=routine, rescope_variables=kwargs['rescope_variables'])
+            routine._members = tuple(member.clone(parent=routine, rescope_symbols=kwargs['rescope_symbols'])
                                      for member in self.members)
         return routine
