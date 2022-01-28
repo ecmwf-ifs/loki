@@ -743,10 +743,11 @@ class OFP2IR(GenericVisitor):
             if module is None:
                 # Initialize symbol attributes as DEFERRED
                 for s in symbols:
+                    _type = SymbolAttributes(BasicType.DEFERRED, imported=True)
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = SymbolAttributes(BasicType.DEFERRED, imported=True, use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = _type.clone(use_name=s[0])
                     else:
-                        scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.DEFERRED, imported=True)
+                        scope.symbol_attrs[s.name] = _type
             else:
                 # Import symbol attributes from module
                 for s in symbols:
@@ -773,7 +774,9 @@ class OFP2IR(GenericVisitor):
                         scope.symbol_attrs[k] = v.clone(imported=True, module=module)
             elif rename_list:
                 # Module not available but some information via rename-list
-                scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
+                scope.symbol_attrs.update({
+                    v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()
+                })
             rename_list = tuple(rename_list.items()) if rename_list else None
         return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
                          label=kwargs['label'], source=kwargs['source'])
