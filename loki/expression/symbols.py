@@ -758,7 +758,8 @@ class Variable:
             return ProcedureSymbol(**kwargs)
 
         if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
-            # This is a constructor call
+            # This is a constructor call (or a type imported in an ``IMPORT`` statement, in which
+            # case this is classified wrong...)
             return ProcedureSymbol(**kwargs)
 
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:

@@ -148,7 +148,9 @@ class FortranCodegen(Stringifier):
         spec = self.visit(o.spec, **kwargs)
         routines = self.visit(o.routines, **kwargs)
         self.depth -= 1
-        return self.join_lines(header, spec, contains, routines, footer)
+        if routines:
+            return self.join_lines(header, spec, contains, routines, footer)
+        return self.join_lines(header, spec, footer)
 
     def visit_Subroutine(self, o, **kwargs):
         """
@@ -405,6 +407,8 @@ class FortranCodegen(Stringifier):
           USE [, <nature> ::] <module> [, ONLY: <symbols>]
         or
           USE [, <nature> ::] <module> [, <rename-list>]
+        or
+          IMPORT <symbols>
         """
         if o.c_import:
             return f'#include "{o.module}"'
@@ -429,6 +433,8 @@ class FortranCodegen(Stringifier):
             else:
                 symbols += [self.visit(s, **kwargs)]
 
+        if o.f_import:
+            return self.format_line('IMPORT ', self.join_items(symbols))
         return self.format_line(use_stmt, o.module, ', ONLY: ', self.join_items(symbols))
 
     def visit_Interface(self, o, **kwargs):
@@ -438,9 +444,11 @@ class FortranCodegen(Stringifier):
             ...body...
           END INTERFACE
         """
-        spec = f' {o.spec}' if o.spec else ''
-        header = self.format_line('INTERFACE', spec)
-        footer = self.format_line('END INTERFACE', spec)
+        if o.abstract:
+            header = self.format_line('ABSTRACT INTERFACE')
+        else:
+            header = self.format_line('INTERFACE')
+        footer = self.format_line('END INTERFACE')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1

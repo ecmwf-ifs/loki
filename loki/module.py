@@ -7,7 +7,8 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
-    ProcedureDeclaration, TypeDef, Section, VariableDeclaration, Import, Enumeration
+    ProcedureDeclaration, TypeDef, Section, VariableDeclaration, Import, Enumeration,
+    Interface
 )
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
@@ -144,7 +145,7 @@ class Module(Scope):
                 dtype = ProcedureType(fname, is_function=True, return_type=return_type)
             else:
                 dtype = ProcedureType(fname, is_function=False)
-            module.symbols[fname] = SymbolAttributes(dtype)
+            module.symbol_attrs[fname] = SymbolAttributes(dtype)
 
         # Generate spec, filter out external declarations and insert `implicit none`
         module.spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
@@ -152,12 +153,12 @@ class Module(Scope):
 
         # Parse member functions
         if routine_asts:
-            module.routines = as_tuple(
+            module.routines = as_tuple([
                 Subroutine.from_omni(
                     ast=s, typetable=typetable, symbol_map=symbol_map, definitions=definitions,
                     raw_source=raw_source, parent=module
                 ) for s in routine_asts
-            )
+            ])
 
         return module
 
@@ -201,11 +202,11 @@ class Module(Scope):
 
         if routines_asts is not None:
             # Now create the actual Subroutine objects
-            module.routines = as_tuple(
+            module.routines = as_tuple([
                 Subroutine.from_fparser(
                     ast=s, definitions=definitions, parent=module, pp_info=pp_info, raw_source=raw_source
                 ) for s in routine_asts
-            )
+            ])
 
         return module
 
@@ -280,6 +281,38 @@ class Module(Scope):
         return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
 
     @property
+    def interfaces(self):
+        """
+        Return the list of interfaces declared in this module
+        """
+        return as_tuple(FindNodes(Interface).visit(self.spec))
+
+    @property
+    def interface_symbols(self):
+        """
+        Return the list of symbols declared via interfaces in this module
+        """
+        return as_tuple(flatten(intf.symbols for intf in self.interfaces))
+
+    @property
+    def interface_map(self):
+        """
+        Map of declared interface names to interfaces
+        """
+        return CaseInsensitiveDict(
+            (s.name, intf) for intf in self.interfaces for s in intf.symbols
+        )
+
+    @property
+    def interface_symbol_map(self):
+        """
+        Map of declared interface names to symbols
+        """
+        return CaseInsensitiveDict(
+            (s.name, s) for s in self.interface_symbols
+        )
+
+    @property
     def enum_symbols(self):
         """
         List of symbols defined via an enum
@@ -292,7 +325,7 @@ class Module(Scope):
         Return list of all symbols declared or imported in this module scope
         """
         return (
-            self.variables + self.imported_symbols + self.enum_symbols +
+            self.variables + self.imported_symbols + self.interface_symbols + self.enum_symbols +
             tuple(routine.procedure_symbol for routine in self.subroutines)
         )
 

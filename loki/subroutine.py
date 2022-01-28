@@ -7,7 +7,7 @@ from loki.ir import (
     VariableDeclaration, ProcedureDeclaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef, Enumeration
 )
-from loki.expression import FindVariables, Array, SubstituteExpressions
+from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -400,6 +400,13 @@ class Subroutine(Scope):
         return routine
 
     @property
+    def procedure_symbol(self):
+        """
+        Return the procedure symbol for this subroutine
+        """
+        return Variable(name=self.name, scope=self)
+
+    @property
     def variables(self):
         """
         Return the variables (including arguments) declared in this subroutine
@@ -460,6 +467,52 @@ class Subroutine(Scope):
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
+    def imported_symbols(self):
+        """
+        Return the symbols imported in this procedure
+        """
+        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(Import).visit(self.spec or ())))
+
+    @property
+    def imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
+    @property
+    def interfaces(self):
+        """
+        Return the list of interfaces declared in this procedure
+        """
+        return as_tuple(FindNodes(Interface).visit(self.spec))
+
+    @property
+    def interface_symbols(self):
+        """
+        Return the list of symbols declared via interfaces in this subroutine
+        """
+        return as_tuple(flatten(intf.symbols for intf in self.interfaces))
+
+    @property
+    def interface_map(self):
+        """
+        Map of declared interface names to interfaces
+        """
+        return CaseInsensitiveDict(
+            (s.name, intf) for intf in self.interfaces for s in intf.symbols
+        )
+
+    @property
+    def interface_symbol_map(self):
+        """
+        Map of declared interface names to symbols
+        """
+        return CaseInsensitiveDict(
+            (s.name, s) for s in self.interface_symbols
+        )
+
+    @property
     def enum_symbols(self):
         """
         List of symbols defined via an enum
@@ -472,7 +525,7 @@ class Subroutine(Scope):
         Return list of all symbols declared or imported in this subroutine scope
         """
         return (
-            self.variables + self.imported_symbols + self.enum_symbols +
+            self.variables + self.imported_symbols + self.interface_symbols + self.enum_symbols +
             tuple(routine.procedure_symbol for routine in self.members)
         )
 
@@ -490,9 +543,7 @@ class Subroutine(Scope):
         """
         Return arguments in order of the defined signature (dummy list).
         """
-        # TODO: Can be simplified once we can directly lookup variables objects in scope
-        arg_map = {v.name.lower(): v for v in self.variables if v.name.lower() in self._dummies}
-        return as_tuple(arg_map[a.lower()] for a in self._dummies)
+        return as_tuple(self.symbol_map[arg] for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
@@ -501,6 +552,8 @@ class Subroutine(Scope):
 
         Note that removing arguments from this property does not actually remove declarations.
         """
+        # FIXME: This will fail if one of the argument is declared via an interface!
+
         # First map variables to existing declarations
         declarations = FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
@@ -525,20 +578,6 @@ class Subroutine(Scope):
         Return names of arguments in order of the defined signature (dummy list)
         """
         return [a.name for a in self.arguments]
-
-    @property
-    def imported_symbols(self):
-        """
-        Return the symbols imported in this procedure
-        """
-        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(Import).visit(self.spec or ())))
-
-    @property
-    def imported_symbol_map(self):
-        """
-        Map of imported symbol names to objects
-        """
-        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
 
     @property
     def ir(self):

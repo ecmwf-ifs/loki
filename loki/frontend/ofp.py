@@ -573,12 +573,12 @@ class OFP2IR(GenericVisitor):
             _type = init.type.clone(initial=init)
         else:
             # Binding has the same name as procedure
-            _type = scope.symbols.lookup(var.name)
+            _type = scope.symbol_attrs.lookup(var.name)
             if _type is None:
                 _type = SymbolAttributes(ProcedureType(var.name))
 
         # Update symbol table and rescope symbols
-        scope.symbols[var.name] = _type
+        scope.symbol_attrs[var.name] = _type
         var = var.rescope(scope=scope)
         return ir.ProcedureDeclaration(
             symbols=(var,), interface=interface, source=kwargs['source'], label=kwargs['label']
@@ -857,13 +857,25 @@ class OFP2IR(GenericVisitor):
             symbols = tuple(var.rescope(scope=scope) for var in symbols)
             return ir.ProcedureDeclaration(symbols=symbols, interface=interface, source=source, label=label)
 
+        if o.find('import-stmt') is not None:
+            # This is an IMPORT statement in a subroutine declaration inside of
+            # an interface body
+            symbols = self.visit(o.find('names'), **kwargs)
+            symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+            return ir.Import(
+                module = None, symbols=symbols, f_import=True, source=kwargs['source']
+            )
+
         # This should never happen:
         raise ValueError('Unknown Declaration')
 
     def visit_interface(self, o, **kwargs):
-        spec = self.visit(o.find('interface-stmt'), **kwargs)
-        body = self.visit(o.find('body'), **kwargs)
-        return ir.Interface(spec=spec, body=body, label=kwargs['label'], source=kwargs['source'])
+        abstract = o.get('type') == 'abstract'
+        body = as_tuple([
+            self.visit(i, **kwargs) for i in o.find('body/specification/declaration')
+            if i.tag in ('function', 'subroutine')
+        ])
+        return ir.Interface(abstract=abstract, body=body, label=kwargs['label'], source=kwargs['source'])
 
     def visit_interface_stmt(self, o, **kwargs):
         if o.attrib['abstract_token']:

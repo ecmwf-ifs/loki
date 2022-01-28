@@ -592,23 +592,33 @@ class Interface(InternalNode):
 
     Parameters
     ----------
-    spec : tuple
-        The imports, declarations, etc. of the interface block.
     body : tuple
-        The body of the interface block.
+        The body of the interface block, containing function and subroutine
+        specifications or procedure statements
+    abstract : bool, optional
+        Flag to indicate that this is an abstract interface
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body']
 
-    def __init__(self, spec=None, body=None, **kwargs):
+    def __init__(self, body=None, abstract=False, **kwargs):
         super().__init__(body=body, **kwargs)
+        self.abstract = abstract
 
-        self.spec = spec
+    @property
+    def symbols(self):
+        return as_tuple(flatten(
+            getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
+            for node in self.body
+        ))
 
     def __repr__(self):
-        return 'Interface::'
+        symbols = ', '.join(str(var) for var in self.symbols)
+        if self.abstract:
+            return f'Abstract Interface:: {symbols}'
+        return f'Interface:: {symbols}'
 
 # Leaf node types
 
@@ -985,6 +995,8 @@ class Import(LeafNode):
     f_include : bool, optional
         Flag to indicate that this is a preprocessor-style include in
         Fortran source code.
+    f_import : bool, optional
+        Flag to indicate that this is a Fortran ``IMPORT``.
     rename_list: tuple of tuples (`str`, :any:`Expression`), optional
         Rename list with pairs of `(use name, local name)` entries
     **kwargs : optional
@@ -993,7 +1005,7 @@ class Import(LeafNode):
 
     _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False,
+    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False, f_import=False,
                  rename_list=False, **kwargs):
         super().__init__(**kwargs)
 
@@ -1002,6 +1014,7 @@ class Import(LeafNode):
         self.nature = nature
         self.c_import = c_import
         self.f_include = f_include
+        self.f_import = f_import
         self.rename_list = rename_list
 
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
@@ -1010,12 +1023,14 @@ class Import(LeafNode):
             self.nature.lower() in ('intrinsic', 'non_intrinsic') and
             not (self.c_import or self.f_include)
         )
-        if c_import and f_include:
-            raise ValueError('Import cannot be C include and Fortran include')
-        if rename_list and (symbols or c_import or f_include):
+        if (c_import and f_include) or (c_import and f_import) or (f_include and f_import):
+            raise ValueError('Import can only be either C include, F include or F import')
+        if rename_list and (symbols or c_import or f_include or f_import):
             raise ValueError('Import cannot have rename and only lists or be an include')
 
     def __repr__(self):
+        if self.f_import:
+            return f'Import:: {self.symbols}'
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return f'{_c}Import:: {self.module} => {self.symbols}'
 

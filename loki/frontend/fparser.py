@@ -544,14 +544,12 @@ class FParser2IR(GenericVisitor):
             for var in variables:
                 type_kwargs = _type.__dict__.copy()
                 return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
-                external_type = scope.symbols.lookup(var.name)
+                external_type = scope.symbol_attrs.lookup(var.name)
                 if external_type is None:
                     type_kwargs['dtype'] = ProcedureType(var.name, is_function=return_type is not None, return_type=return_type)
                 else:
                     type_kwargs['dtype'] = external_type.dtype
                 scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
-            else:
-                scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
             variables = tuple(var.rescope(scope=scope) for var in variables)
             return ir.ProcedureDeclaration(
@@ -559,7 +557,7 @@ class FParser2IR(GenericVisitor):
             )
 
         # Update symbol table entries and rescope
-        scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
+        scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
         variables = tuple(var.rescope(scope=scope) for var in variables)
 
         return ir.VariableDeclaration(
@@ -869,11 +867,11 @@ class FParser2IR(GenericVisitor):
 
         # Update symbol table entries
         if return_type is None:
-            scope.symbols.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+            scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
         else:
             for var in symbols:
                 dtype = ProcedureType(var.name, is_function=True, return_type=return_type)
-                scope.symbols[var.name] = _type.clone(dtype=dtype)
+                scope.symbol_attrs[var.name] = _type.clone(dtype=dtype)
 
         symbols = tuple(var.rescope(scope=scope) for var in symbols)
         return ir.ProcedureDeclaration(symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
@@ -1189,7 +1187,7 @@ class FParser2IR(GenericVisitor):
             func_names = [s.name for s in symbols]
 
         # Look up the type of the procedure
-        types = [scope.symbols.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
+        types = [scope.symbol_attrs.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
 
         # Any declared attributes
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
@@ -1203,7 +1201,7 @@ class FParser2IR(GenericVisitor):
             types = [t.clone(initial=i) for t, i in zip(types, inits)]
 
         # Update symbol table entries
-        scope.symbols.update({s.name: s.type.clone(**t.__dict__) for s, t in zip(symbols, types)})
+        scope.symbol_attrs.update({s.name: s.type.clone(**t.__dict__) for s, t in zip(symbols, types)})
 
         symbols = tuple(var.rescope(scope=scope) for var in symbols)
         return ir.ProcedureDeclaration(symbols=symbols, interface=interface,
@@ -1352,8 +1350,9 @@ class FParser2IR(GenericVisitor):
 
         # The interface spec and body
         spec = self.visit(interface_stmt, **kwargs)
+        abstract = spec == 'ABSTRACT'
         body = as_tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
-        interface = ir.Interface(spec=spec, body=body, label=kwargs.get('label'), source=source)
+        interface = ir.Interface(body=body, abstract=abstract, label=kwargs.get('label'), source=source)
 
         # Everything past the END INTERFACE (should be empty)
         assert not o.children[end_interface_stmt_index+1:]
@@ -1369,12 +1368,30 @@ class FParser2IR(GenericVisitor):
             * ``'ABSTRACT'`` (`str`) for an abstract interface
             * :class:`fparser.two.Fortran2003.Generic_Spec` for other specifications
         """
-        if o.children[0] is None:
-            return None
         if o.children[0] == 'ABSTRACT':
             return 'ABSTRACT'
-        # We are currently capturing this simply as a string
-        return o.children[0].tostr()
+        if o.children[0] is not None:
+            self.warn_or_fail('INTERFACE with generic-spec not yet implemented')
+        return None
+
+    def visit_Import_Stmt(self, o, **kwargs):
+        """
+        An import statement for named entities in an interface body
+
+        :class:`fparser.two.Fortran2003.Import_Stmt` has two children:
+            * The string ``'IMPORT'``
+            * :class:`fparser.two.Fortran2003.Import_Name_List` with the names
+              of imported entities
+        """
+        assert o.children[0] == 'IMPORT'
+        symbols = self.visit(o.children[1], **kwargs)
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.Import(
+            module=None, symbols=symbols, f_import=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Import_Name_List = visit_List
+    visit_Import_Name = visit_Name
 
     def visit_Subroutine_Body(self, o, **kwargs):
         """

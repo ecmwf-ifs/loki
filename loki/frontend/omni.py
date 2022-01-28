@@ -273,13 +273,9 @@ class OMNI2IR(GenericVisitor):
     visit_rename = visit_renamable
 
     def visit_FinterfaceDecl(self, o, **kwargs):
-        # TODO: We can only deal with interface blocks partially
-        # in the frontend, as we cannot yet create `Subroutine` objects
-        # cleanly here. So for now we skip this, but we should start
-        # moving the `Subroutine` constructors into the frontend.
-        spec = None
+        abstract = o.get('is_abstract') == 'true'
         body = tuple(self.visit(c, **kwargs) for c in o)
-        return ir.Interface(spec=spec, body=body, source=kwargs['source'])
+        return ir.Interface(body=body, abstract=abstract, source=kwargs['source'])
 
     def visit_FfunctionDecl(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
@@ -314,6 +310,13 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         body = tuple(c for c in body if c is not None)
         return body
+
+    def visit_FimportDecl(self, o, **kwargs):
+        symbols = [self.visit(i, **kwargs) for i in o]
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.Import(
+            module=None, symbols=symbols, f_import=True, source=kwargs['source']
+        )
 
     def visit_varDecl(self, o, **kwargs):
         # OMNI has only one variable per declaration, find and create that
@@ -429,7 +432,7 @@ class OMNI2IR(GenericVisitor):
         for s in o:
             var = self.visit(s.find('name'), **kwargs)
             _type = self.type_from_type_attrib(s.attrib['type'], **kwargs)
-            kwargs['scope'].symbols[var.name] = _type
+            kwargs['scope'].symbol_attrs[var.name] = _type
 
             if _type.shape:
                 var = var.clone(dimensions=_type.shape)
@@ -440,6 +443,7 @@ class OMNI2IR(GenericVisitor):
         return [self.visit(s, **kwargs) for s in o]
 
     def visit_typeBoundProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
         var = self.visit(o.find('name'), **kwargs)
         _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
         if o.find('binding'):
@@ -450,8 +454,9 @@ class OMNI2IR(GenericVisitor):
                 _type = _type.clone(dtype=init.type.dtype)
             else:
                 _type = _type.clone(dtype=init.type.dtype, initial=init)
-        kwargs['scope'].symbols[var.name] = _type
-        return var.rescope(scope=kwargs['scope'])
+
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
 
     def visit_FdataDecl(self, o, **kwargs):
         variable = self.visit(o.find('varList'), **kwargs)

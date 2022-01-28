@@ -511,7 +511,7 @@ class LokiIdentityMapper(IdentityMapper):
         if initial is not expr.type.initial and expr.scope:
             # Update symbol table entry for initial directly because with a scope attached
             # it does not affect the outcome of expr.clone
-            expr.scope.symbols[expr.name] = expr.type.clone(initial=initial)
+            expr.scope.symbol_attrs[expr.name] = expr.type.clone(initial=initial)
 
         parent = self.rec(expr.parent, *args, **kwargs)
         if parent is expr.parent and (kind is expr.type.kind or expr.scope):
