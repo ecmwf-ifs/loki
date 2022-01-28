@@ -1012,20 +1012,20 @@ class Import(LeafNode):
         self.module = module
         self.symbols = symbols or ()
         self.nature = nature
-        self.c_import = c_import
-        self.f_include = f_include
-        self.f_import = f_import
+        self.c_import = c_import or False
+        self.f_include = f_include or False
+        self.f_import = f_import or False
         self.rename_list = rename_list
 
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
         assert self.nature is None or (
             isinstance(self.nature, str) and
             self.nature.lower() in ('intrinsic', 'non_intrinsic') and
-            not (self.c_import or self.f_include)
+            not (self.c_import or self.f_include or self.f_import)
         )
-        if (c_import and f_include) or (c_import and f_import) or (f_include and f_import):
+        if self.c_import + self.f_include + self.f_import not in (0, 1):
             raise ValueError('Import can only be either C include, F include or F import')
-        if rename_list and (symbols or c_import or f_include or f_import):
+        if self.rename_list and (self.symbols or self.c_import or self.f_include or self.f_import):
             raise ValueError('Import cannot have rename and only lists or be an include')
 
     def __repr__(self):
@@ -1231,8 +1231,8 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, abstract=False, extends=None,
-                 bind_c=False, parent=None, symbol_attrs=None, **kwargs):
+    def __init__(self, name, body, abstract=False, extends=None, bind_c=False,
+                 private=False, public=False, parent=None, symbol_attrs=None, **kwargs):
         assert is_iterable(body)
         assert extends is None or isinstance(extends, str)
         assert not (private and public)

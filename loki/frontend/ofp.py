@@ -556,6 +556,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_specific_binding(self, o, **kwargs):
         scope = kwargs['scope']
+
         # Name of the binding
         var = sym.Variable(name=o.attrib['bindingName'], source=kwargs['source'])
 
@@ -563,19 +564,34 @@ class OFP2IR(GenericVisitor):
         if interface is not None:
             # Interface provided (PROCEDURE(<interface>))
             assert not o.attrib['procedureName']
+
+            # Figure out interface type
             interface_scope = scope.get_symbol_scope(interface)
-            interface = sym.Variable(name=interface, scope=interface_scope)
+            if interface_scope is not None:
+                interface = sym.Variable(name=interface, scope=interface_scope)
+            else:
+                interface = sym.Variable(
+                    name=interface,
+                    type=SymbolAttributes(ProcedureType(interface))
+                )
+
             _type = interface.type
+
         elif o.attrib['procedureName']:
             # Binding provided (<bindingName> => <procedureName>)
             procedure_scope = scope.get_symbol_scope(o.attrib['procedureName'])
             init = sym.Variable(name=o.attrib['procedureName'], scope=procedure_scope)
             _type = init.type.clone(initial=init)
+
         else:
             # Binding has the same name as procedure
             _type = scope.symbol_attrs.lookup(var.name)
             if _type is None:
                 _type = SymbolAttributes(ProcedureType(var.name))
+
+        attrs = kwargs.get('attrs')
+        if attrs:
+            _type = _type.clone(**attrs)
 
         # Update symbol table and rescope symbols
         scope.symbol_attrs[var.name] = _type
@@ -698,12 +714,36 @@ class OFP2IR(GenericVisitor):
                 else:
                     raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
 
-            if o.find('contains-stmt') is not None:
+            contains_stmt = o.find('contains-stmt')
+            if contains_stmt is not None:
                 # The derived type contains type-bound procedures
-                body.append(self.visit(o.find('contains-stmt'), **kwargs))
-                if o.find('binding-private-stmt') is not None:
-                    body.append(self.visit(o.find('binding-private-stmt'), **kwargs))
-                body += self.visit(o.findall('specific-binding'), **kwargs)
+                body.append(self.visit(contains_stmt, **kwargs))
+                start_idx = list(o).index(contains_stmt)
+
+                # Once again, this is _hell_ with OFP because binding attributes are not
+                # grouped (like they are for components) and therefore we have to step through
+                # the flat list of items
+                attrs = {}
+                for i in o[start_idx:]:
+                    if i.tag in ('comment', 'binding-private-stmt'):
+                        body.append(self.visit(i, **kwargs))
+
+                    if i.tag == 'binding-attr':
+                        if i.attrib['bindingAttr'].upper() == 'PASS':
+                            attrs['pass_attr'] = i.attrib['id'] or True
+                        elif i.attrib['bindingAttr'].upper() == 'NOPASS':
+                            attrs['pass_attr'] = False
+                        elif i.attrib['bindingAttr']:
+                            attrs[i.attrib['bindingAttr'].lower()] = True
+
+                    if i.tag == 'access-spec':
+                        attrs[i.attrib['keyword'].lower()] = True
+
+                    if i.tag == 'specific-binding':
+                        body.append(self.visit(i, attrs=attrs, **kwargs))
+                        attrs = {}
+
+                assert not attrs
 
             # Infer any additional shape information from `!$loki dimension` pragmas
             body = attach_pragmas(body, ir.VariableDeclaration)
@@ -1339,7 +1379,7 @@ class OFP2IR(GenericVisitor):
         """
         Utility method to create individual declarations from a group of AST nodes.
         """
-        attrs = {}
+        attrs = []
         if attr:
             attrs = [a.attrib['attrKeyword'].upper()
                      for a in attr.findall('attribute/component-attr-spec')]

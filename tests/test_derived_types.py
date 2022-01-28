@@ -657,6 +657,113 @@ end subroutine derived_type_procedure_designator
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_bind_attrs(frontend):
+    """
+    Test attribute representation in type-bound procedures
+    """
+    fcode = """
+module derived_types_bind_attrs_mod
+    implicit none
+
+    type some_type
+        integer :: val
+    contains
+        PROCEDURE, PASS, NON_OVERRIDABLE :: pass_proc
+        PROCEDURE, NOPASS, PUBLIC :: no_pass_proc
+        PROCEDURE, PASS(this), private :: pass_arg_proc
+    end type some_type
+
+contains
+
+    subroutine pass_proc(self)
+        class(some_type) :: self
+    end subroutine pass_proc
+
+    subroutine no_pass_proc(val)
+        integer, intent(inout) :: val
+    end subroutine no_pass_proc
+
+    subroutine pass_arg_proc(val, this)
+        integer, intent(inout) :: val
+        class(some_type) :: this
+    end subroutine pass_arg_proc
+
+end module derived_types_bind_attrs_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    some_type = module.typedefs['some_type']
+
+    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    assert len(proc_decls) == 3
+    assert all(decl.interface is None for decl in proc_decls)
+
+    proc_symbols = {s.name.lower(): s for d in proc_decls for s in d.symbols}
+    assert set(proc_symbols.keys()) == {'pass_proc', 'no_pass_proc', 'pass_arg_proc'}
+
+    assert proc_symbols['pass_proc'].type.pass_attr is True
+    assert proc_symbols['pass_proc'].type.non_overridable is True
+    assert proc_symbols['pass_proc'].type.private is None
+    assert proc_symbols['pass_proc'].type.public is None
+
+    assert proc_symbols['no_pass_proc'].type.pass_attr is False
+    assert proc_symbols['no_pass_proc'].type.non_overridable is None
+    assert proc_symbols['no_pass_proc'].type.private is None
+    assert proc_symbols['no_pass_proc'].type.public is True
+
+    assert proc_symbols['pass_arg_proc'].type.pass_attr == 'this'
+    assert proc_symbols['pass_arg_proc'].type.private is True
+    assert proc_symbols['pass_arg_proc'].type.public is None
+
+    proc_decls = {decl.symbols[0].name: decl for decl in proc_decls}
+    assert ', PASS' in fgen(proc_decls['pass_proc'])
+    assert ', NON_OVERRIDABLE' in fgen(proc_decls['pass_proc'])
+
+    assert ', NOPASS' in fgen(proc_decls['no_pass_proc'])
+    assert ', PUBLIC' in fgen(proc_decls['no_pass_proc'])
+
+    assert ', PASS(this)' in fgen(proc_decls['pass_arg_proc'])
+    assert ', PRIVATE' in fgen(proc_decls['pass_arg_proc'])
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_bind_deferred(frontend):
+    # Example from https://www.ibm.com/docs/en/xffbg/121.141?topic=types-abstract-deferred-bindings-fortran-2003
+    fcode = """
+module derived_type_bind_deferred_mod
+implicit none
+TYPE, ABSTRACT :: FILE_HANDLE
+   CONTAINS
+   PROCEDURE(OPEN_FILE), DEFERRED, PASS(HANDLE) :: OPEN
+END TYPE
+
+INTERFACE
+    SUBROUTINE OPEN_FILE(HANDLE)
+        IMPORT FILE_HANDLE
+        CLASS(FILE_HANDLE), INTENT(IN):: HANDLE
+    END SUBROUTINE OPEN_FILE
+END INTERFACE
+end module derived_type_bind_deferred_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    file_handle = module.typedefs['file_handle']
+    assert len(file_handle.body) == 2
+
+    proc_decl = file_handle.body[1]
+    assert proc_decl.interface == 'open_file'
+
+    proc_sym = proc_decl.symbols[0]
+    assert proc_sym.type.deferred is True
+    assert proc_sym.type.pass_attr.lower() == 'handle'
+
+    assert ', DEFERRED' in fgen(proc_decl)
+    assert ', PASS(HANDLE)' in fgen(proc_decl).upper()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_clone(frontend):
     """
     Test cloning of derived types

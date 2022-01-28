@@ -699,22 +699,13 @@ class FParser2IR(GenericVisitor):
         """
         A declaration attribute
 
-        :class:`fparser.two.Fortran2003.Attr_Spec` has 2 children:
-            * keyword (`str`)
-            * value (`str`) or `None`
+        :class:`fparser.two.Fortran2003.Attr_Spec` has no children.
         """
-        if not o.children:
-            # Annoyingly, sometimes it seems to not have children?
-            return (str(o).lower(), True)
-        if isinstance(o, Fortran2003.Attr_Spec):
-            import pdb; pdb.set_trace()
-        if o.children[1] is not None:
-            return (str(o.children[0]).lower(), str(o.children[1]).lower())
-        return (str(o.children[0]).lower(), True)
+        return (str(o).lower(), True)
 
     def visit_Access_Spec(self, o, **kwargs):
         """
-        A declaration attribute
+        A declaration attribute for access specification (PRIVATE, PUBLIC)
 
         :class:`fparser.two.Fortran2003.Access_Spec` has no children.
         """
@@ -1115,10 +1106,51 @@ class FParser2IR(GenericVisitor):
         )
 
     visit_Type_Attr_Spec_List = visit_List
-    visit_Type_Attr_Spec = visit_Attr_Spec
+
+    def visit_Type_Attr_Spec(self, o, **kwargs):
+        """
+        A component declaration attribute
+
+        :class:`fparser.two.Fortran2003.Type_Attr_Spec` has 2 children:
+            * keyword (`str`)
+            * value (`str`) or `None`
+        """
+        if o.children[1] is not None:
+            return (str(o.children[0]).lower(), str(o.children[1]).lower())
+        return (str(o.children[0]).lower(), True)
 
     def visit_Type_Param_Def_Stmt(self,o , **kwargs):
         self.warn_or_fail('Parameterized types not implemented')
+
+    visit_Binding_Attr_List = visit_List
+
+    def visit_Binding_Attr(self, o, **kwargs):
+        """
+        A binding attribute
+
+        :class:`fparser.two.Fortran2003.Binding_Attr_Spec` has no children
+        """
+        keyword = str(o).lower()
+        if keyword == 'pass':
+            return ('pass_attr', True)
+        if keyword == 'nopass':
+            return ('pass_attr', False)
+
+        if keyword in ('non_overridable', 'deferred'):
+            return (keyword, True)
+
+        self.warn_or_fail(f'Unsupported binding attribute: {str(o)}')
+        return None
+
+    def visit_Binding_PASS_Arg_Name(self, o, **kwargs):
+        """
+        Named PASS attribute
+
+        :class:`fparser.two.Fortran2003.Binding_PASS_Arg_Name` has two children:
+            * `str`: 'PASS'
+            * `Name`: the argument name
+        """
+        return ('pass_attr', str(o.children[1]))
 
     def visit_Component_Part(self, o, **kwargs):
         """

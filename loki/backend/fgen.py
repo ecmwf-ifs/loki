@@ -730,10 +730,25 @@ class FortranCodegen(Stringifier):
             attributes += ['CONTIGUOUS']
         if o.intent:
             attributes += [f'INTENT({o.intent.upper()})']
+
+        # Access spec
         if o.private:
             attributes += ['PRIVATE']
         if o.public:
             attributes += ['PUBLIC']
+
+        # Binding attributes
+        if o.pass_attr is True:
+            attributes += ['PASS']
+        elif o.pass_attr is False:
+            attributes += ['NOPASS']
+        elif o.pass_attr is not None:
+            attributes += [f'PASS({o.pass_attr!s})']
+        if o.non_overridable:
+            attributes += ['NON_OVERRIDABLE']
+        if o.deferred:
+            attributes += ['DEFERRED']
+
         return self.join_items(attributes)
 
     def visit_TypeDef(self, o, **kwargs):
@@ -754,6 +769,7 @@ class FortranCodegen(Stringifier):
             attrs += ['PRIVATE']
         if o.public:
             attrs += ['PUBLIC']
+
         if attrs:
             attrs = f', {self.join_items(attrs)} ::'
         else:

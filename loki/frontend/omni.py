@@ -418,7 +418,14 @@ class OMNI2IR(GenericVisitor):
             body += [ir.Intrinsic('CONTAINS')]
             if struct_type.attrib.get('is_internal_private') == 'true':
                 body += [ir.Intrinsic('PRIVATE')]
-            body += [ir.ProcedureDeclaration(symbols=(s,)) for s in procedures]
+            for proc in procedures:
+                if proc.type.deferred:
+                    assert proc.type.initial is not None
+                    intf = proc.type.initial
+                    proc = proc.clone(type=proc.type.clone(initial=None))
+                    body += [ir.ProcedureDeclaration(interface=intf, symbols=(proc,))]
+                else:
+                    body += [ir.ProcedureDeclaration(symbols=(proc,))]
 
         # Finally: update the typedef with its body
         typedef._update(body=as_tuple(body))
@@ -445,14 +452,37 @@ class OMNI2IR(GenericVisitor):
     def visit_typeBoundProcedure(self, o, **kwargs):
         scope = kwargs['scope']
         var = self.visit(o.find('name'), **kwargs)
+
         _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
+        if o.get('pass') == 'pass':
+            _type = _type.clone(pass_attr=o.get('pass_arg_name', True))
+        elif o.get('pass') == 'nopass':
+            _type = _type.clone(pass_attr=False)
+        if o.get('is_deferred') == 'true':
+            _type = _type.clone(deferred=True)
+        if o.get('is_non_overridable') == 'true':
+            _type = _type.clone(non_overridable=True)
+        if o.get('is_private') == 'true':
+            _type = _type.clone(private=True)
+        if o.get('is_public') == 'true':
+            _type = _type.clone(public=True)
+
         if o.find('binding'):
             init = self.visit(o.find('binding/name'), **kwargs)
-            init = init.rescope(scope=kwargs['scope'].get_symbol_scope(init.name))
-            if init.name.lower() == var.name.lower():
+            init_scope = scope.get_symbol_scope(init.name)
+
+            # Set correct type for interface/binding
+            if init_scope is not None:
+                init = init.rescope(scope=init_scope)
+            else:
+                init = init.clone(type=init.type.clone(dtype=ProcedureType(init.name)))
+
+            if init.name.lower() == var.name.lower() and not _type.deferred:
                 # No need to assign initial property
                 _type = _type.clone(dtype=init.type.dtype)
             else:
+                # Assign the binding as initial (and park the interface here for
+                # declarations with deferred attribute)
                 _type = _type.clone(dtype=init.type.dtype, initial=init)
 
         scope.symbol_attrs[var.name] = _type
