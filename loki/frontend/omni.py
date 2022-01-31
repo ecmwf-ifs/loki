@@ -189,6 +189,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FuseDecl(self, o, **kwargs):
         # No ONLY list
+        nature = 'intrinsic' if o.attrib.get('intrinsic') == 'true' else None
         name = o.attrib['name']
         scope = kwargs['scope']
 
@@ -203,19 +204,25 @@ class OMNI2IR(GenericVisitor):
                     local_name = rename_list[k].name
                     scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                 else:
-                    scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                    # Need to explicitly reset use_name in case we are importing a symbol
+                    # that stems from an import with a rename-list
+                    scope.symbol_attrs[k] = v.clone(imported=True, module=module, use_name=None)
         elif rename_list:
             # Module not available but some information via rename-list
             scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
         rename_list = tuple(rename_list.items()) if rename_list else None
-        return ir.Import(module=name, rename_list=rename_list, c_import=False, source=kwargs['source'])
+        return ir.Import(module=name, nature=nature, rename_list=rename_list, c_import=False, source=kwargs['source'])
 
     def visit_FuseOnlyDecl(self, o, **kwargs):
         # ONLY list given (import only selected symbols)
+        nature = 'intrinsic' if o.attrib.get('intrinsic') == 'true' else None
         name = o.attrib['name']
         scope = kwargs['scope']
         symbols = tuple(self.visit(c, **kwargs) for c in o.findall('renamable'))
-        module = self.definitions.get(name, None)
+        if nature == 'intrinsic':
+            module = None
+        else:
+            module = self.definitions.get(name, None)
         if module is None:
             # Initialize symbol attributes as DEFERRED
             for s in symbols:
@@ -227,14 +234,19 @@ class OMNI2IR(GenericVisitor):
             # Import symbol attributes from module
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                          use_name=s[0])
+                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                        imported=True, module=module, use_name=s[0]
+                    )
                 else:
-                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                    # Need to explicitly reset use_name in case we are importing a symbol
+                    # that stems from an import with a rename-list
+                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                        imported=True, module=module, use_name=None
+                    )
         symbols = tuple(
             s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
         )
-        return ir.Import(module=name, symbols=symbols, c_import=False, source=kwargs['source'])
+        return ir.Import(module=name, symbols=symbols, nature=nature, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
         if o.attrib.get('local_name'):

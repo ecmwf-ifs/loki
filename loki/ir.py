@@ -1009,6 +1009,8 @@ class Import(LeafNode):
         The name of the module or header file to import from.
     symbols : tuple of :any:`Expression` or :any:`DataType`, optional
         The list of names imported. Can be empty when importing all.
+    nature : str, optional
+        The module nature (``INTRINSIC`` or ``NON_INTRINSIC``)
     c_import : bool, optional
         Flag to indicate that this is a C-style include. Defaults to `False`.
     f_include : bool, optional
@@ -1022,16 +1024,23 @@ class Import(LeafNode):
 
     _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, c_import=False, f_include=False, rename_list=False, **kwargs):
+    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False,
+                 rename_list=False, **kwargs):
         super().__init__(**kwargs)
 
         self.module = module
         self.symbols = symbols or ()
-        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
+        self.nature = nature
         self.c_import = c_import
         self.f_include = f_include
         self.rename_list = rename_list
 
+        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
+        assert self.nature is None or (
+            isinstance(self.nature, str) and
+            self.nature.lower() in ('intrinsic', 'non_intrinsic') and
+            not (self.c_import or self.f_include)
+        )
         if c_import and f_include:
             raise ValueError('Import cannot be C include and Fortran include')
         if rename_list and (symbols or c_import or f_include):

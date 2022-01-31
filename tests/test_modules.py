@@ -1,11 +1,17 @@
+from pathlib import Path
 import pytest
 
-from conftest import available_frontends
+from conftest import available_frontends, jit_compile, clean_test
 from loki import (
-    OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
+    OFP, OMNI, Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
     BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import
 )
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -708,3 +714,121 @@ end module some_mod
         assert use_name is None or f'{s} => {use_name}' in fcode
     for s, use_name in mod2_imports.items():
         assert use_name is None or f'{s} => {use_name}' in fcode
+
+
+@pytest.fixture(name='delete_iso_fortran_mod_file')
+def fixture_delete_iso_fortran_mod_file(here):
+    """
+    Make sure the iso_fortran_env mod file is explicitly delete to avoid
+    interference with subsequent tests that use the intrinsic module.
+    """
+    yield
+    (here/'iso_fortran_env.mod').unlink(missing_ok=True)
+    Path('iso_fortran_env.xmod').unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OFP, 'hasModuleNature on use-stmt but without conveying actual nature')]
+))
+def test_module_use_module_nature(frontend, here, delete_iso_fortran_mod_file):  # pylint: disable=unused-argument
+    """
+    Test module natures attributes in ``USE`` statements
+    """
+    mcode = """
+module iso_fortran_env
+    use, intrinsic :: iso_c_binding, only: int16 => c_int16_t
+    implicit none
+    integer, parameter :: int8 = int16
+end module iso_fortran_env
+    """.strip()
+
+    fcode = """
+module module_nature_mod
+    implicit none
+contains
+    subroutine inquire_my_kinds(i8, i16)
+        use, non_intrinsic :: iso_fortran_env, only: int8, int16
+        integer, intent(out) :: i8, i16
+        i8 = int8
+        i16 = int16
+    end subroutine inquire_my_kinds
+    subroutine inquire_kinds(i8, i16)
+        use, intrinsic :: iso_fortran_env, only: int8, int16
+        integer, intent(out) :: i8, i16
+        i8 = int8
+        i16 = int16
+    end subroutine inquire_kinds
+end module module_nature_mod
+    """.strip()
+
+    ext_mod = Module.from_source(mcode, frontend=frontend)
+
+    # Check properties on the Import IR node in the external module
+    assert ext_mod.imported_symbols == ('int16',)
+    imprt = FindNodes(Import).visit(ext_mod.spec)[0]
+    assert imprt.nature.lower() == 'intrinsic'
+    assert imprt.module.lower() == 'iso_c_binding'
+    assert ext_mod.imported_symbol_map['int16'].type.imported is True
+    assert ext_mod.imported_symbol_map['int16'].type.module is None
+
+    if frontend == OMNI:
+        # OMNI throws Syntax Error on NON_INTRINSIC...
+        fcode = fcode.replace('use, non_intrinsic ::', 'use')
+
+    mod = Module.from_source(fcode, frontend=frontend, definitions=[ext_mod])
+
+    # Check properties on the Import IR node in both routines
+    my_kinds = mod['inquire_my_kinds']
+    kinds = mod['inquire_kinds']
+
+    assert set(my_kinds.imported_symbols) == {'int8', 'int16'}
+    assert set(kinds.imported_symbols) == {'int8', 'int16'}
+
+    my_import_map = {s.name: imprt for imprt in FindNodes(Import).visit(my_kinds.spec) for s in imprt.symbols}
+    import_map = {s.name: imprt for imprt in FindNodes(Import).visit(kinds.spec) for s in imprt.symbols}
+
+    assert my_import_map['int8'] is my_import_map['int16']
+    assert import_map['int8'] is import_map['int16']
+
+    if frontend == OMNI:
+        assert my_import_map['int8'].nature is None
+    else:
+        assert my_import_map['int8'].nature.lower() == 'non_intrinsic'
+    assert my_import_map['int8'].module.lower() == 'iso_fortran_env'
+    assert import_map['int8'].nature.lower() == 'intrinsic'
+    assert import_map['int8'].module.lower() == 'iso_fortran_env'
+
+    # Check type annotations for imported symbols
+    assert all(s.type.imported is True for s in my_kinds.imported_symbols)
+    assert all(s.type.imported is True for s in kinds.imported_symbols)
+
+    assert my_kinds.imported_symbol_map['int8'].type.module is ext_mod
+    assert my_kinds.imported_symbol_map['int16'].type.module is ext_mod
+
+    assert kinds.imported_symbol_map['int8'].type.module is None
+    assert kinds.imported_symbol_map['int16'].type.module is None
+
+    # Sanity check fgen
+    assert 'use, intrinsic' in ext_mod.to_fortran().lower()
+    if frontend != OMNI:
+        assert 'use, non_intrinsic' in my_kinds.to_fortran().lower()
+    assert 'use, intrinsic' in kinds.to_fortran().lower()
+
+    # Verify JIT compile
+    ext_filepath = here/f'{ext_mod.name}.f90'
+    filepath = here/f'{mod.name}_{frontend}.f90'
+    jit_ext = jit_compile(ext_mod, filepath=ext_filepath, objname=ext_mod.name)
+    jit_mod = jit_compile(mod, filepath=filepath, objname=mod.name)
+    my_kinds_func = jit_mod.inquire_my_kinds
+    kinds_func = jit_mod.inquire_kinds
+
+    my_i8, my_i16 = my_kinds_func()
+    i8, i16 = kinds_func()
+
+    assert my_i8 == my_i16
+    assert i8 < i16
+    assert my_i8 == i16
+    assert my_i8 == jit_ext.int8
+
+    clean_test(filepath)
+    clean_test(ext_filepath)

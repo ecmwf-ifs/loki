@@ -323,26 +323,34 @@ class FortranCodegen(Stringifier):
         or
           include "..."
         or
-          USE <module> [, ONLY: <symbols>]
+          USE [, <nature> ::] <module> [, ONLY: <symbols>]
         or
-          USE <module> [, <rename-list>]
+          USE [, <nature> ::] <module> [, <rename-list>]
         """
         if o.c_import:
             return f'#include "{o.module}"'
         if o.f_include:
             return self.format_line('include "', o.module, '"')
+
+        if o.nature:
+            use_stmt = f'USE, {o.nature} :: '
+        else:
+            use_stmt = 'USE '
+
         if o.rename_list:
             rename_list = [f'{self.visit(local, **kwargs)} => {use}' for use, local in o.rename_list]
-            return self.format_line('USE ', o.module, ', ', self.join_items(rename_list))
-        if o.symbols:
-            symbols = []
-            for s in o.symbols:
-                if s.type.use_name:
-                    symbols += [f'{self.visit(s, **kwargs)} => {s.type.use_name}']
-                else:
-                    symbols += [self.visit(s, **kwargs)]
-            return self.format_line('USE ', o.module, ', ONLY: ', self.join_items(symbols))
-        return self.format_line('USE ', o.module)
+            return self.format_line(use_stmt, o.module, ', ', self.join_items(rename_list))
+        if not o.symbols:
+            return self.format_line(use_stmt, o.module)
+
+        symbols = []
+        for s in o.symbols:
+            if s.type.use_name:
+                symbols += [f'{self.visit(s, **kwargs)} => {s.type.use_name}']
+            else:
+                symbols += [self.visit(s, **kwargs)]
+
+        return self.format_line(use_stmt, o.module, ', ONLY: ', self.join_items(symbols))
 
     def visit_Interface(self, o, **kwargs):
         """

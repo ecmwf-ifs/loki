@@ -752,10 +752,13 @@ class OFP2IR(GenericVisitor):
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                              use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                            imported=True, module=module, use_name=s[0]
+                        )
                     else:
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                            imported=True, module=module, use_name=None
+                        )
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
@@ -769,9 +772,13 @@ class OFP2IR(GenericVisitor):
                 for k, v in module.symbol_attrs.items():
                     if k in rename_list:
                         local_name = rename_list[k].name
-                        scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
+                        scope.symbol_attrs[local_name] = v.clone(
+                            imported=True, module=module, use_name=k
+                        )
                     else:
-                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                        scope.symbol_attrs[k] = v.clone(
+                            imported=True, module=module, use_name=None
+                        )
             elif rename_list:
                 # Module not available but some information via rename-list
                 scope.symbol_attrs.update({

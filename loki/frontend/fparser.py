@@ -400,9 +400,15 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # Module nature
-            self.warn_or_fail('module-nature not implemented for USE statements')
+            nature = str(o.children[0])
+        else:
+            nature = None
         name = o.children[2].tostr()
-        module = self.definitions.get(name)
+        if nature and nature.lower() == 'intrinsic':
+            # Do not use module ref if we refer to an intrinsic module
+            module = None
+        else:
+            module = self.definitions.get(name)
         scope = kwargs['scope']
         if o.children[3] == '' or o.children[3] == ',':
             # No ONLY list (import all)
@@ -419,7 +425,9 @@ class FParser2IR(GenericVisitor):
                         local_name = rename_list[k].name
                         scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                     else:
-                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                        # Need to explicitly reset use_name in case we are importing a symbol
+                        # that stems from an import with a rename-list
+                        scope.symbol_attrs[k] = v.clone(imported=True, module=module, use_name=None)
             elif rename_list:
                 # Module not available but some information via rename-list
                 scope.symbol_attrs.update({
@@ -443,17 +451,22 @@ class FParser2IR(GenericVisitor):
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                              use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                            imported=True, module=module, use_name=s[0]
+                        )
                     else:
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                        # Need to explicitly reset use_name in case we are importing a symbol
+                        # that stems from an import with a rename-list
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                            imported=True, module=module, use_name=None
+                        )
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
         else:
             raise ValueError(f'Unexpected only/rename-list value in USE statement: {o.children[3]}')
 
-        return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
+        return ir.Import(module=name, symbols=symbols, nature=nature, rename_list=rename_list,
                          source=kwargs.get('source'), label=kwargs.get('label'))
 
     visit_Only_List = visit_List
