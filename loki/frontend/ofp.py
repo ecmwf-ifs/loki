@@ -910,19 +910,59 @@ class OFP2IR(GenericVisitor):
         raise ValueError('Unknown Declaration')
 
     def visit_interface(self, o, **kwargs):
+        scope = kwargs['scope']
         abstract = o.get('type') == 'abstract'
-        body = as_tuple([
-            self.visit(i, **kwargs) for i in o.find('body/specification/declaration')
-            if i.tag in ('function', 'subroutine')
-        ])
-        return ir.Interface(abstract=abstract, body=body, label=kwargs['label'], source=kwargs['source'])
 
-    def visit_interface_stmt(self, o, **kwargs):
-        if o.attrib['abstract_token']:
-            return o.attrib['abstract_token']
-        if o.attrib['hasGenericSpec'] == 'true':
-            self.warn_or_fail('interface with generic spec not implemented')
-        return None
+        if o.find('header/defined-operator') is not None:
+            spec = self.visit(o.find('header/defined-operator'), **kwargs)
+        elif o.find('header/name') is not None:
+            spec = self.visit(o.find('header/name'), **kwargs)
+        else:
+            spec = None
+
+        if spec is not None:
+            if spec.name not in scope.symbol_attrs:
+                scope.symbol_attrs[spec.name] = SymbolAttributes(ProcedureType(name=spec.name, is_generic=True))
+            spec = spec.rescope(scope=scope)
+
+        body = []
+        grouped_elems = match_tag_sequence(o.find('body/specification/declaration'), [
+            ('names', 'procedure-stmt'),
+            ('function', ),
+            ('subroutine', ),
+            ('comment', ),
+        ])
+
+        for group in grouped_elems:
+            if len(group) == 1:
+                # Process indidividual comments/pragmas/functions/subroutines
+                body.append(self.visit(group[0], **kwargs))
+
+            elif len(group) == 2:
+                # Process procedure declarations
+                body.append(self.create_interface_declaration(
+                    names=group[0], proc_stmt=group[1], scope=scope, source=kwargs['source']
+                ))
+
+        return ir.Interface(abstract=abstract, body=body, spec=spec, label=kwargs['label'], source=kwargs['source'])
+
+    def visit_generic_spec(self, o, **kwargs):
+        name = o.attrib['name']
+        if o.get('keyword').upper() == 'ASSIGNMENT':
+            name = 'ASSIGNMENT(=)'
+        return sym.Variable(name=name, source=kwargs['source'])
+
+    def visit_defined_operator(self, o, **kwargs):
+        name = f'OPERATOR({o.attrib["definedOp"]})'
+        return sym.Variable(name=name, source=kwargs['source'])
+
+
+#    def visit_interface_stmt(self, o, **kwargs):
+#        if o.attrib['abstract_token']:
+#            return o.attrib['abstract_token']
+#        if o.attrib['hasGenericSpec'] == 'true':
+#            self.warn_or_fail('interface with generic spec not implemented')
+#        return None
 
     def visit_subroutine(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
@@ -1068,7 +1108,10 @@ class OFP2IR(GenericVisitor):
                          label=kwargs['label'], source=kwargs['source'])
 
     def visit_only(self, o, **kwargs):
-        return tuple(self.visit(c, **kwargs) for c in o if c.tag in ('name', 'rename'))
+        count = int(o.find('only-list').get('count'))
+        nodes = [c for c in o if c.tag in ('name', 'rename', 'defined-operator')]
+        symbols = self.visit(nodes[:count], **kwargs)
+        return as_tuple(symbols)
 
     def visit_rename(self, o, **kwargs):
         if o.attrib['defOp1'] or o.attrib['defOp2']:
@@ -1196,9 +1239,12 @@ class OFP2IR(GenericVisitor):
     def visit_name(self, o, **kwargs):
         source = kwargs['source']
 
-        if o.find('generic-name-list-part') is not None or o.find('generic_spec') is not None:
+        if o.find('generic-name-list-part') is not None:
             # From an external-stmt or use-stmt
             return sym.Variable(name=o.attrib['id'], source=source)
+
+        if o.find('generic_spec') is not None:
+            return self.visit(o.find('generic_spec'), **kwargs)
 
         num_part_ref = int(o.find('data-ref').attrib['numPartRef'])
         subscripts = [self.visit(s, **kwargs) for s in o.findall('subscripts')]
@@ -1417,6 +1463,16 @@ class OFP2IR(GenericVisitor):
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
         return ir.VariableDeclaration(symbols=variables, source=source)
+
+    def create_interface_declaration(self, names, proc_stmt, scope=None, source=None):
+        """
+        Utility method to create individual procedure declarations for an interface
+        from a group of AST nodes
+        """
+        symbols = self.visit(names, scope=scope)
+        symbols = AttachScopesMapper()(symbols, scope=scope)
+        module_proc = proc_stmt.get('module').lower() == 'module'
+        return ir.ProcedureDeclaration(symbols=symbols, module=module_proc, source=source)
 
     def create_enum(self, o, **kwargs):
         """

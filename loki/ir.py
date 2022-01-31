@@ -597,27 +597,39 @@ class Interface(InternalNode):
         specifications or procedure statements
     abstract : bool, optional
         Flag to indicate that this is an abstract interface
+    spec : str, optional
+        A generic name, operator, assignment, or I/O specification 
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body']
 
-    def __init__(self, body=None, abstract=False, **kwargs):
+    def __init__(self, body=None, abstract=False, spec=None, **kwargs):
         super().__init__(body=body, **kwargs)
         self.abstract = abstract
+        self.spec = spec
+        assert not (self.abstract and self.spec)
 
     @property
     def symbols(self):
-        return as_tuple(flatten(
+        """
+        The list of symbol names declared by this interface
+        """
+        symbols = as_tuple(flatten(
             getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
             for node in self.body
         ))
+        if self.spec:
+            return (self.spec,) + symbols
+        return symbols
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         if self.abstract:
             return f'Abstract Interface:: {symbols}'
+        if self.spec:
+            return f'Interface {self.spec}:: {symbols}'
         return f'Interface:: {symbols}'
 
 # Leaf node types
@@ -1090,6 +1102,8 @@ class ProcedureDeclaration(LeafNode):
         The procedure interface of the declared procedure entity names.
     external : bool, optional
         This is a Fortran ``EXTERNAL`` declaration.
+    module : bool, optional
+        This is a Fortran ``MODULE PROCEDURE`` declaration in an interface.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1104,15 +1118,17 @@ class ProcedureDeclaration(LeafNode):
 
     _traversable = ['symbols', 'interface']
 
-    def __init__(self, symbols, interface=None, external=False, comment=None, pragma=None, **kwargs):
+    def __init__(self, symbols, interface=None, external=False, module=False, comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
         assert interface is None or isinstance(interface, Expression)
+        assert not ((external and module) or (interface and module))
 
         self.symbols = as_tuple(symbols)
         self.interface = interface
         self.external = external
+        self.module = module
         self.comment = comment
         self.pragma = pragma
 

@@ -325,7 +325,7 @@ class FortranCodegen(Stringifier):
     def visit_ProcedureDeclaration(self, o, **kwargs):
         """
         Format procedure declaration as
-          [PROCEDURE[(<interface>)]] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
+          [[MODULE] PROCEDURE[(<interface>)]] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
         """
         assert len(o.symbols) > 0
         types = [v.type for v in o.symbols]
@@ -353,6 +353,8 @@ class FortranCodegen(Stringifier):
         elif o.interface:
             # This is a PROCEDURE declaration with interface provided
             attributes = [f'PROCEDURE({self.visit(o.interface, **kwargs)})']
+        elif o.module:
+            attributes = ['MODULE PROCEDURE']
         else:
             # This is a PROCEDURE declaration without interface provided
             # (as they can appear in a derived type component declaration)
@@ -446,9 +448,14 @@ class FortranCodegen(Stringifier):
         """
         if o.abstract:
             header = self.format_line('ABSTRACT INTERFACE')
+            footer = self.format_line('END INTERFACE')
+        elif o.spec:
+            generic_spec = self.visit(o.spec, **kwargs)
+            header = self.format_line('INTERFACE ', generic_spec)
+            footer = self.format_line('END INTERFACE ', generic_spec)
         else:
             header = self.format_line('INTERFACE')
-        footer = self.format_line('END INTERFACE')
+            footer = self.format_line('END INTERFACE')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1

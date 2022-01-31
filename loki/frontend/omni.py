@@ -266,16 +266,39 @@ class OMNI2IR(GenericVisitor):
         return ir.Import(module=name, symbols=symbols, nature=nature, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
+        name = o.attrib['use_name']
+        if o.attrib.get('is_operator') == 'true':
+            if name == '=':
+                name = 'ASSIGNMENT(=)'
+            else:
+                name = f'OPERATOR({name})'
+
         if o.attrib.get('local_name'):
-            return (o.attrib['use_name'], sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
-        return sym.Variable(name=o.attrib['use_name'], source=kwargs['source'])
+            return (name, sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
+        return sym.Variable(name=name, source=kwargs['source'])
 
     visit_rename = visit_renamable
 
     def visit_FinterfaceDecl(self, o, **kwargs):
         abstract = o.get('is_abstract') == 'true'
+
+        if o.get('is_assignment') == 'true':
+            name = 'ASSIGNMENT(=)'
+        elif o.get('is_operator') == 'true':
+            name = f'OPERATOR({o.get("name")})'
+        else:
+            name = o.get('name')
+
+        if name is not None:
+            scope = kwargs['scope']
+            if name not in scope.symbol_attrs:
+                scope.symbol_attrs[name] = SymbolAttributes(ProcedureType(name, is_generic=True))
+            spec = sym.Variable(name=name, scope=kwargs['scope'])
+        else:
+            spec = None
+
         body = tuple(self.visit(c, **kwargs) for c in o)
-        return ir.Interface(body=body, abstract=abstract, source=kwargs['source'])
+        return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
     def visit_FfunctionDecl(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
@@ -300,6 +323,11 @@ class OMNI2IR(GenericVisitor):
             routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
 
         return routine
+
+    def visit_FmoduleProcedureDecl(self, o, **kwargs):
+        symbols = as_tuple(self.visit(o.find('name'), **kwargs))
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.ProcedureDeclaration(symbols=symbols, module=True, source=kwargs.get('source'))
 
     def visit_declarations(self, o, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
@@ -518,6 +546,8 @@ class OMNI2IR(GenericVisitor):
             _type = SymbolAttributes(dtype, kind=kind, length=length)
         elif ref in self.type_map:
             _type = self.visit(self.type_map[ref], **kwargs)
+        elif ref == 'FnumericAll':
+            _type = SymbolAttributes(BasicType.DEFERRED)
         else:
             raise ValueError
 

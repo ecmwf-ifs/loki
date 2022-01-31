@@ -1241,8 +1241,9 @@ class FParser2IR(GenericVisitor):
 
     visit_Contains_Stmt = visit_Intrinsic_Stmt
     visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
-    visit_Generic_Binding = visit_Specific_Binding
-    visit_Final_Binding = visit_Specific_Binding
+
+    visit_Generic_Binding = visit_Intrinsic_Stmt
+    visit_Final_Binding = visit_Intrinsic_Stmt
 
     #
     # ASSOCIATE blocks
@@ -1380,11 +1381,23 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # The interface spec and body
+        # The interface spec
+        abstract = False
         spec = self.visit(interface_stmt, **kwargs)
-        abstract = spec == 'ABSTRACT'
+        if spec == 'ABSTRACT':
+            # This is an abstract interface
+            abstract = True
+            spec = None
+        elif spec is not None:
+            # This has a generic specification (and we might need to update symbol table)
+            scope = kwargs['scope']
+            if spec.name not in scope.symbol_attrs:
+                scope.symbol_attrs[spec.name] = SymbolAttributes(ProcedureType(name=spec.name, is_generic=True))
+            spec = spec.rescope(scope=scope)
+
+        # Traverse the body and build the object
         body = as_tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
-        interface = ir.Interface(body=body, abstract=abstract, label=kwargs.get('label'), source=source)
+        interface = ir.Interface(body=body, abstract=abstract, spec=spec, label=kwargs.get('label'), source=source)
 
         # Everything past the END INTERFACE (should be empty)
         assert not o.children[end_interface_stmt_index+1:]
@@ -1403,8 +1416,39 @@ class FParser2IR(GenericVisitor):
         if o.children[0] == 'ABSTRACT':
             return 'ABSTRACT'
         if o.children[0] is not None:
-            self.warn_or_fail('INTERFACE with generic-spec not yet implemented')
+            return self.visit(o.children[0], **kwargs)
         return None
+
+    def visit_Generic_Spec(self, o, **kwargs):
+        """
+        The generic-spec of an interface
+
+        :class:`fparser.two.Fortran2003.Generic_Spec` has two children, which is either:
+            * ``'OPERATOR'`` (`str`) followed by
+            * :class:`fparser.two.Fortran2003.Defined_Operator`
+        or:
+            * ``'ASSIGNMENT'`` (`str`) followed by
+            * ``'='`` (`str`)
+        """
+        return sym.Variable(name=str(o), source=kwargs.get('source'))
+
+    def visit_Procedure_Stmt(self, o, **kwargs):
+        """
+        Procedure statement
+
+        :class:`fparser.two.Fortran2003.Procedure_Stmt` has 1 child:
+            * :class:`fparser.two.Fortran2003.Procedure_Name_List`: the names of the procedures
+        """
+        module_proc = o.string.upper().startswith('MODULE')
+        symbols = self.visit(o.children[0], **kwargs)
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.ProcedureDeclaration(
+            symbols=symbols, module=module_proc,
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Procedure_Name_List = visit_List
+    visit_Procedure_Name = visit_Name
 
     def visit_Import_Stmt(self, o, **kwargs):
         """
@@ -2440,8 +2484,6 @@ class FParser2IR(GenericVisitor):
     visit_Namelist_Stmt = visit_Intrinsic_Stmt
     visit_Parameter_Stmt = visit_Intrinsic_Stmt
     visit_Dimension_Stmt = visit_Intrinsic_Stmt
-    visit_Final_Binding = visit_Intrinsic_Stmt
-    visit_Procedure_Stmt = visit_Intrinsic_Stmt
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt

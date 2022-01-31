@@ -144,16 +144,19 @@ class ProcedureType(DataType):
         is provided
     is_function : bool, optional
         Indicate that this is a function
+    is_generic : bool, optional
+        Indicate that this is a generic function
     procedure : :any:`Subroutine` or :any:`StatementFunction`
         The procedure this type represents
     """
 
-    def __init__(self, name=None, is_function=False, procedure=None, return_type=None):
+    def __init__(self, name=None, is_function=False, is_generic=False, procedure=None, return_type=None):
         super().__init__()
         assert name or procedure
         assert isinstance(return_type, SymbolAttributes) or procedure or not is_function
         self._name = name
         self._is_function = is_function
+        self.is_generic = is_generic
         self._return_type = return_type
         if procedure is None:
             self._procedure = None
