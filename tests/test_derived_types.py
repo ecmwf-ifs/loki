@@ -7,7 +7,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration
+    VariableDeclaration, Assignment
 )
 
 
@@ -967,3 +967,55 @@ end module derived_type_linked_list
         assert var.type.dtype.typedef is module.typedefs['list_t']
         name = f'{name}%next'
         assert var.name == name
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_nested_procedure_call(frontend):
+    """
+    Test correct representation of inline calls and call statements for
+    type-bound procedures in nested derived types.
+    """
+    fcode = """
+module derived_type_nested_proc_call_mod
+    implicit none
+
+    type netcdf_file_raw
+        private
+    contains
+        procedure, public :: exists => raw_exists
+    end type
+
+    type netcdf_file
+        type(netcdf_file_raw) :: file
+    contains
+        procedure :: exists
+    end type netcdf_file
+
+contains
+
+    function exists(this, var_name) result(is_present)
+        class(netcdf_file)           :: this
+        character(len=*), intent(in) :: var_name
+        logical :: is_present
+
+        is_present = this%file%exists(var_name)
+    end function exists
+
+    function raw_exists(this, var_name) result(is_present)
+        class(netcdf_file_raw)      :: this
+        character(len=*), intent(in) :: var_name
+        logical :: is_present
+
+        is_present = .true.
+    end function raw_exists
+
+end module derived_type_nested_proc_call_mod
+    """.strip()
+
+    mod = Module.from_source(fcode, frontend=frontend)
+
+    assignment = FindNodes(Assignment).visit(mod['exists'].body)
+    assert len(assignment) == 1
+    assert fgen(assignment[0].rhs).lower() == 'this%file%exists(var_name)'
+
+    # TODO: Verify type of function symbol etc

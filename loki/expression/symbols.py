@@ -66,6 +66,9 @@ class ExprMetadataMixin:
         return LokiStringifyMapper()
 
     def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
         return super().clone(**kwargs)
@@ -1211,6 +1214,15 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
         ``BasicType.DEFFERED`` otherwise.
         """
         return self.function.type.dtype
+
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        function = kwargs.get('function', self.function)
+        parameters = kwargs.get('parameters', self.parameters)
+        kw_parameters = kwargs.get('kw_parameters', self.kw_parameters)
+        return InlineCall(function, parameters, kw_parameters)
 
 
 class Cast(ExprMetadataMixin, pmbl.Call):

@@ -384,7 +384,13 @@ class FParser2IR(GenericVisitor):
         for c in o.children[1:]:
             parent = var
             var = self.visit(c, **kwargs)
-            var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
+            if isinstance(var, sym.InlineCall):
+                # This is a function call with a type-bound procedure, so we need to
+                # update the name slightly different
+                function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
+                var = var.clone(function=function)
+            else:
+                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
         return var
 
     #
@@ -1280,6 +1286,7 @@ class FParser2IR(GenericVisitor):
             symbols=symbols, final=True, source=kwargs.get('source'), label=kwargs.get('label')
         )
 
+    visit_Binding_Name_List = visit_List
     visit_Final_Subroutine_Name_List = visit_List
     visit_Contains_Stmt = visit_Intrinsic_Stmt
     visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
