@@ -604,10 +604,15 @@ class FortranCodegen(Stringifier):
             typename = f'TYPE({o.dtype.name})'
         else:
             typename = type_map[o.dtype]
+
+        selector = []
         if o.length:
-            typename += f'(LEN={self.visit(o.length, **kwargs)})'
+            selector += [f'LEN={self.visit(o.length, **kwargs)}']
         if o.kind:
-            typename += f'(KIND={self.visit(o.kind, **kwargs)})'
+            selector += [f'KIND={self.visit(o.kind, **kwargs)}']
+        if selector:
+            typename += '(' + self.join_items(selector) + ')'
+
         if typename:
             attributes += [typename]
 

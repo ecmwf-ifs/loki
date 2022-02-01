@@ -405,6 +405,10 @@ class OFP2IR(GenericVisitor):
     def visit_kind(self, o, **kwargs):
         return self.visit(o[0], **kwargs)
 
+    def visit_kind_selector(self, o, **kwargs):
+        assert o.attrib['token1'] == '*'
+        return sym.IntLiteral(int(o.attrib['token2']))
+
     def visit_attribute_parameter(self, o, **kwargs):
         return self.visit(o.findall('attr-spec'), **kwargs)
 
@@ -585,11 +589,35 @@ class OFP2IR(GenericVisitor):
             attrs.update((access_spec,))
 
         if _type.dtype == BasicType.CHARACTER:
-            if _type.length is None and o.find('char-selector') is not None:
-                # For _NO_ good reason, the char-length property seems to be
-                # always the first item (fingers crossed) but it is not identified
-                # by any sensible unique tag...
-                attrs['length'] = self.visit(o[0], **kwargs)
+            char_selector = o.find('char-selector')
+            if _type.length is None and char_selector is not None:
+                selector_idx = list(o).index(char_selector)
+
+                if selector_idx > 0:
+                    tk1 = char_selector.get('tk1')
+                    tk2 = char_selector.get('tk2')
+
+                    length = None
+                    kind = None
+                    if tk1 in ('', 'len'):
+                        # The first child _should_ be the length selector
+                        length = self.visit(o[0], **kwargs)
+
+                        if tk2 == 'kind' or selector_idx > 2:
+                            # There is another value, presumably the kind specifier, which
+                            # should be right before the char-selector
+                            kind = self.visit(o[selector_idx-1], **kwargs)
+                    elif tk1 == 'kind':
+                        # The first child _should_ be the kind selector
+                        kind = self.visit(o[0], **kwargs)
+
+                        if tk2 == 'len':
+                            # The second child should then be the length selector
+                            assert selector_idx > 2
+                            length = self.visit(o[1], **kwargs)
+
+                    attrs['length'] = length
+                    attrs['kind'] = kind
 
         # Then, build the common symbol type for all variables
         _type = _type.clone(**attrs)
@@ -606,6 +634,8 @@ class OFP2IR(GenericVisitor):
             variables = as_tuple(v.clone(dimensions=dimensions) for v in variables)
 
         # EXTERNAL attribute means this is actually a function or subroutine
+        # Since every symbol refers to a different function we have to update the
+        # type definition for every symbol individually
         external = o.find('attribute-external') is not None
         if external:
             _type = _type.clone(external=True)

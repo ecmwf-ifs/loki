@@ -559,24 +559,30 @@ class FParser2IR(GenericVisitor):
         """
         dtype = BasicType.from_str(o.children[0])
         if o.children[1]:
-            if dtype in (BasicType.INTEGER, BasicType.REAL, BasicType.COMPLEX, BasicType.LOGICAL):
-                return SymbolAttributes(dtype, kind=self.visit(o.children[1], **kwargs))
-            if dtype is BasicType.CHARACTER:
-                return SymbolAttributes(dtype, length=self.visit(o.children[1], **kwargs))
-            raise ValueError(f'Unknown kind for intrinsic type: {o.children[0]}')
+            if dtype not in (
+                BasicType.INTEGER, BasicType.REAL, BasicType.COMPLEX, BasicType.LOGICAL, BasicType.CHARACTER
+            ):
+                raise ValueError(f'Unknown kind for intrinsic type: {o.children[0]}')
+
+            attr = self.visit(o.children[1], **kwargs)
+            if attr:
+                attr = dict(attr)
+                return SymbolAttributes(dtype, **attr)
         return SymbolAttributes(dtype)
 
     def visit_Kind_Selector(self, o, **kwargs):
         """
         A kind selector of an intrinsic type
 
-        :class:`fparser.two.Fortran2003.Kind_Selector` has 3 children:
-            * '(' (str)
-            * :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`
-            * ')' (str)
+        :class:`fparser.two.Fortran2003.Kind_Selector` has 2 or 3 children:
+            * ``'*'`` (str) and :class:`fparser.two.Fortran2003.Char_Length`, or
+            * ``'('`` (str), :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`,
+              and ``')'`` (str)
         """
-        assert o.children[0] == '(' and o.children[2] == ')'
-        return self.visit(o.children[1], **kwargs)
+        if len(o.children) in (2, 3) and (o.children[0] == '*' or o.children[0] + str(o.children[-1]) == '()'):
+            return (('kind', self.visit(o.children[1], **kwargs)),)
+        self.warn_or_fail('Unknown kind selector')
+        return None
 
     def visit_Length_Selector(self, o, **kwargs):
         """
@@ -589,7 +595,32 @@ class FParser2IR(GenericVisitor):
             * ')' (str)
         """
         assert o.children[0] == '*' or (o.children[0] == '(' and o.children[2] == ')')
+        return (('length', self.visit(o.children[1], **kwargs)),)
+
+    def visit_Char_Length(self, o, **kwargs):
+        """
+        Length specifier in the Length_Selector
+
+        :class:`fparser.two.Fortran2003.Length_Selector` has one child:
+            * length value (str)
+        """
+        assert o.children[0] == '(' and o.children[2] == ')'
         return self.visit(o.children[1], **kwargs)
+
+    def visit_Char_Selector(self, o, **kwargs):
+        """
+        Length- and kind-selector for intrinsic character type
+
+        :class:`fparser.two.Fortran2003.Char_Selector` has 2 children:
+            * :class:`fparser.two.Fortran2003.Length_Selector`
+            * some scalar expression for the kind
+        """
+        length = None
+        if o.children[0] is not None:
+            length = self.visit(o.children[0], **kwargs)
+        if o.children[1] is not None:
+            kind = self.visit(o.children[1], **kwargs)
+        return (('length', length), ('kind', kind))
 
     def visit_Type_Param_Value(self, o, **kwargs):
         """
@@ -1650,7 +1681,7 @@ class FParser2IR(GenericVisitor):
             expr = arguments[0]
             if kwarguments:
                 assert len(arguments) == 1
-                assert len(kwarguments) == 1 and kwarguments[0][0] == 'kind'
+                assert len(kwarguments) == 1 and kwarguments[0][0].lower() == 'kind'
                 kind = kwarguments[0][1]
             else:
                 kind = arguments[1] if len(arguments) > 1 else None

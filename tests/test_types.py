@@ -5,7 +5,7 @@ from conftest import available_frontends
 from loki import (
     OFP, OMNI, Sourcefile, Module, Subroutine, BasicType,
     SymbolAttributes, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
-    DataType
+    DataType, fgen
 )
 
 
@@ -279,7 +279,7 @@ def test_type_char_length(frontend):
     Test the various beautiful ways of how Fortran allows to specify
     character lengths
     """
-    fcode = """
+    fcode = f"""
 subroutine test_type_char_length
     implicit none
     character*80  :: kill_it_with_fire
@@ -289,6 +289,13 @@ subroutine test_type_char_length
     character(len=:) :: come_on
     character :: you_gotta_be_kidding_me*20
     character(*) :: whatever(5)
+    character(10, 1) :: this_is_getting_silly
+    {'character(11, kind=1) :: i_mean' if frontend != OMNI else ''}
+    character(len=12, kind=1) :: WHAT
+    character(kind=1) :: DO_YOU_WANT
+    character(kind=1, len=13) :: FROM_ME
+    character*(*) :: where_do_I_begin
+    character :: and_how_does_it_end*(*)
 end subroutine test_type_char_length
     """.strip()
 
@@ -302,7 +309,84 @@ end subroutine test_type_char_length
     assert routine.variable_map['you_gotta_be_kidding_me'].type.length == '20'
     assert routine.variable_map['whatever'].type.length == '*'
     assert routine.variable_map['whatever'].shape == ('5',)
+    assert routine.variable_map['this_is_getting_silly'].type.length == '10'
+    if frontend != OMNI:
+        # OMNI swallows this one
+        assert routine.variable_map['this_is_getting_silly'].type.kind == '1'
+    if frontend != OMNI:
+        # OMNI fails with syntax error on this one
+        assert routine.variable_map['i_mean'].type.length == '11'
+        assert routine.variable_map['i_mean'].type.kind == '1'
+    assert routine.variable_map['what'].type.length == '12'
+    assert routine.variable_map['what'].type.kind == '1'
+    assert routine.variable_map['do_you_want'].type.length is None
+    if frontend != OMNI:
+        # OMNI swallows that one, too
+        assert routine.variable_map['do_you_want'].type.kind == '1'
+    assert routine.variable_map['from_me'].type.length == '13'
+    if frontend != OMNI:
+        # And that one
+        assert routine.variable_map['from_me'].type.kind == '1'
+    assert routine.variable_map['and_how_does_it_end'].type.length == '*'
 
     code = routine.to_fortran()
     for length in ('80', '60', '21', '*', ':', '20'):
         assert f'CHARACTER(LEN={length}) ::' in code
+
+    if frontend == OMNI:
+        for length in (10, 13):
+            assert f'CHARACTER(LEN={length!s}) :: ' in code
+        assert 'CHARACTER(LEN=12, KIND=1) :: ' in code
+
+    else:
+        for length in range(10, 14):
+            assert f'CHARACTER(LEN={length!s}, KIND=1) :: ' in code
+        assert 'CHARACTER(KIND=1) :: ' in code
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_kind_value(frontend):
+    """
+    Test the various way how kind parameters can be specified
+    """
+    fcode = """
+subroutine test_type_kind_value
+    implicit none
+
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, parameter :: jpim = selected_int_kind(9)
+
+    integer*8 :: int_8_s
+    integer(8) :: int_8_p
+    integer(kind=8) :: int_8_k
+
+    integer(jpim) :: int_jpim_p
+    integer(kind=jpim) :: int_jpim_k
+
+    real*16 :: real_16_s
+    real(16) :: real_16_p
+    real(kind=16) :: real_16_k
+
+    real(jprb) :: real_jprb_p
+    real(kind=jprb) :: real_jprb_k
+end subroutine test_type_kind_value
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    if frontend == OMNI:
+        int_kinds = ('8', 'selected_int_kind(9)')
+        real_kinds = ('16', 'selected_real_kind(13, 300)')
+    else:
+        int_kinds = ('8', 'jpim')
+        real_kinds = ('16', 'jprb')
+
+    for kind in int_kinds:
+        for var in routine.variables:
+            if var.name.lower().startswith(f'int_{kind}'):
+                assert var.type.kind == kind and f'INTEGER(KIND={kind.upper()})' in str(fgen(var.type)).upper()
+
+    for kind in real_kinds:
+        for var in routine.variables:
+            if var.name.lower().startswith(f'real_{kind}'):
+                assert var.type.kind == kind and f'REAL(KIND={kind.upper()})' in str(fgen(var.type)).upper()
