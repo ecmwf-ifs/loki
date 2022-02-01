@@ -660,13 +660,15 @@ class FParser2IR(GenericVisitor):
             * :class:`fparser.two.Fortran2003.Derived_Type_Spec`
         """
         if o.children[0].upper() in ('TYPE', 'CLASS'):
-            # TODO: record if `TYPE` or `CLASS` is used
             dtype = self.visit(o.children[1], **kwargs)
 
             # Look for a previous definition of this type
             _type = kwargs['scope'].symbol_attrs.lookup(dtype.name)
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
+
+            if o.children[0].upper() == 'CLASS':
+                _type.polymorphic = True
 
             # Strip import annotations
             return _type.clone(imported=None, module=None)
@@ -1203,19 +1205,21 @@ class FParser2IR(GenericVisitor):
         symbols = as_tuple(self.visit(o.children[3], **kwargs))
 
         # Procedure we bind to this type
-        inits = None
         interface = None
         if o.children[0]:
             # Procedure interface provided
             interface = self.visit(o.children[0], **kwargs)
             interface = AttachScopesMapper()(interface, scope=scope)
+            bind_names = as_tuple(interface)
             func_names = [interface.name] * len(symbols)
             assert o.children[4] is None
         elif o.children[4]:
-            inits = as_tuple(self.visit(o.children[4], **kwargs))
-            assert len(inits) == len(symbols)
-            func_names = [i.name for i in inits]
+            bind_names = as_tuple(self.visit(o.children[4], **kwargs))
+            bind_names = AttachScopesMapper()(bind_names, scope=scope)
+            assert len(bind_names) == len(symbols)
+            func_names = [i.name for i in bind_names]
         else:
+            bind_names = None
             func_names = [s.name for s in symbols]
 
         # Look up the type of the procedure
@@ -1226,11 +1230,9 @@ class FParser2IR(GenericVisitor):
         attrs = dict(attrs)
         types = [t.clone(**attrs) for t in types]
 
-        # Store the initializers
-        if inits:
-            mapper = AttachScopesMapper()
-            inits = [mapper(i, scope=scope) for i in inits]
-            types = [t.clone(initial=i) for t, i in zip(types, inits)]
+        # Store the bind_names
+        if bind_names:
+            types = [t.clone(bind_names=as_tuple(i)) for t, i in zip(types, bind_names)]
 
         # Update symbol table entries
         scope.symbol_attrs.update({s.name: s.type.clone(**t.__dict__) for s, t in zip(symbols, types)})
@@ -1239,11 +1241,48 @@ class FParser2IR(GenericVisitor):
         return ir.ProcedureDeclaration(symbols=symbols, interface=interface,
                                        source=kwargs.get('source'), label=kwargs.get('label'))
 
+    def visit_Generic_Binding(self, o, **kwargs):
+        """
+        A generic binding for a type-bound procedure in a derived type
+
+        :class:`fparser.two.Fortran2003.Generic_Binding has three children:
+            * :class:`fparser.two.Fortran2003.Access_Spec` or None (access specifier)
+            * :class:`fparser.two.Fortran2003.Generic_Spec` (the local name of the binding)
+            * :class:`fparser.two.Fortran2003.Binding_Name_List` (the names it binds to)
+        """
+        scope = kwargs['scope']
+        name = self.visit(o.children[1], **kwargs)
+        bind_names = self.visit(o.children[2], **kwargs)
+        bind_names = AttachScopesMapper()(bind_names, scope=scope)
+        _type = SymbolAttributes(ProcedureType(name=name.name, is_generic=True), bind_names=as_tuple(bind_names))
+        if o.children[0] is not None:
+            access_spec = self.visit(o.children[0], **kwargs)
+            attrs = {access_spec[0]: access_spec[1]}
+            _type = _type.clone(**attrs)
+        scope.symbol_attrs[name.name] = _type
+        name = name.rescope(scope=scope)
+        return ir.ProcedureDeclaration(
+            symbols=(name,), generic=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    def visit_Final_Binding(self, o, **kwargs):
+        """
+        A final binding for type-bound procedures in a derived type
+
+        :class:`fparser.two.Fortran2003.Final_Binding` has two children:
+            * keyword ``'FINAL'`` (`str`)
+            * :class:`fparser.two.Fortran2003.Final_Subroutine_Name_List` (the list of routines)
+        """
+        scope = kwargs['scope']
+        symbols = self.visit(o.children[1], **kwargs)
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(
+            symbols=symbols, final=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Final_Subroutine_Name_List = visit_List
     visit_Contains_Stmt = visit_Intrinsic_Stmt
     visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
-
-    visit_Generic_Binding = visit_Intrinsic_Stmt
-    visit_Final_Binding = visit_Intrinsic_Stmt
 
     #
     # ASSOCIATE blocks

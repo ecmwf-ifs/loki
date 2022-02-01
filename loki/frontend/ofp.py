@@ -471,6 +471,10 @@ class OFP2IR(GenericVisitor):
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
 
+            decl_spec = o.find('declaration-type-spec')
+            if decl_spec is not None and decl_spec.get('udtKeyword') == 'class':
+                _type = _type.clone(polymorphic=True)
+
             # Strip import annotations
             return _type.clone(imported=None, module=None)
 
@@ -556,6 +560,7 @@ class OFP2IR(GenericVisitor):
 
     def visit_specific_binding(self, o, **kwargs):
         scope = kwargs['scope']
+        attrs = kwargs.pop('attrs')
 
         # Name of the binding
         var = sym.Variable(name=o.attrib['bindingName'], source=kwargs['source'])
@@ -580,8 +585,8 @@ class OFP2IR(GenericVisitor):
         elif o.attrib['procedureName']:
             # Binding provided (<bindingName> => <procedureName>)
             procedure_scope = scope.get_symbol_scope(o.attrib['procedureName'])
-            init = sym.Variable(name=o.attrib['procedureName'], scope=procedure_scope)
-            _type = init.type.clone(initial=init)
+            bind_name = sym.Variable(name=o.attrib['procedureName'], scope=procedure_scope)
+            _type = bind_name.type.clone(bind_names=as_tuple(bind_name))
 
         else:
             # Binding has the same name as procedure
@@ -589,7 +594,6 @@ class OFP2IR(GenericVisitor):
             if _type is None:
                 _type = SymbolAttributes(ProcedureType(var.name))
 
-        attrs = kwargs.get('attrs')
         if attrs:
             _type = _type.clone(**attrs)
 
@@ -598,6 +602,41 @@ class OFP2IR(GenericVisitor):
         var = var.rescope(scope=scope)
         return ir.ProcedureDeclaration(
             symbols=(var,), interface=interface, source=kwargs['source'], label=kwargs['label']
+        )
+
+    def visit_generic_binding(self, o, **kwargs):
+        scope = kwargs['scope']
+        spec = kwargs.pop('spec')
+        attrs = kwargs.pop('attrs')
+        names = kwargs.pop('names')
+
+        var = self.visit(spec, **kwargs)
+        bind_names = [self.visit(name, **kwargs) for name in names]
+        bind_names = AttachScopesMapper()(bind_names, scope=scope)
+        _type = SymbolAttributes(ProcedureType(var.name, is_generic=True), bind_names=as_tuple(bind_names))
+
+        if attrs:
+            _type = _type.clone(**attrs)
+        scope.symbol_attrs[var.name] = _type
+        var = var.rescope(scope=scope)
+        return ir.ProcedureDeclaration(
+            symbols=(var,), generic=True, source=kwargs['source'], label=kwargs['label']
+        )
+
+    def visit_final_binding(self, o, **kwargs):
+        scope = kwargs['scope']
+        spec = kwargs.pop('spec')
+        attrs = kwargs.pop('attrs')
+        names = kwargs.pop('names')
+
+        assert spec is None
+        assert not attrs
+
+        symbols = [self.visit(name, **kwargs) for name in names]
+        symbols = AttachScopesMapper()(symbols, scope=scope)
+
+        return ir.ProcedureDeclaration(
+            symbols=symbols, final=True, source=kwargs['source'], label=kwargs['label']
         )
 
     def visit_private_components_stmt(self, o, **kwargs):
@@ -722,8 +761,11 @@ class OFP2IR(GenericVisitor):
 
                 # Once again, this is _hell_ with OFP because binding attributes are not
                 # grouped (like they are for components) and therefore we have to step through
-                # the flat list of items
+                # the flat list of items, picking up the grouped names for generic/final-bindings
+                # on the way...
                 attrs = {}
+                names = []
+                generic_spec = None
                 for i in o[start_idx:]:
                     if i.tag in ('comment', 'binding-private-stmt'):
                         body.append(self.visit(i, **kwargs))
@@ -739,11 +781,25 @@ class OFP2IR(GenericVisitor):
                     if i.tag == 'access-spec':
                         attrs[i.attrib['keyword'].lower()] = True
 
+                    if i.tag == 'names':
+                        names += i.findall('name')
+                    if i.tag == 'name':
+                        generic_spec = i.find('generic_spec')
+
                     if i.tag == 'specific-binding':
+                        assert not names
                         body.append(self.visit(i, attrs=attrs, **kwargs))
                         attrs = {}
 
+                    elif i.tag in ('generic-binding', 'final-binding'):
+                        body.append(self.visit(i, attrs=attrs, names=names, spec=generic_spec, **kwargs))
+                        names = []
+                        attrs = {}
+                        generic_spec = None
+
                 assert not attrs
+                assert not names
+                assert generic_spec is None
 
             # Infer any additional shape information from `!$loki dimension` pragmas
             body = attach_pragmas(body, ir.VariableDeclaration)
@@ -956,14 +1012,6 @@ class OFP2IR(GenericVisitor):
         name = f'OPERATOR({o.attrib["definedOp"]})'
         return sym.Variable(name=name, source=kwargs['source'])
 
-
-#    def visit_interface_stmt(self, o, **kwargs):
-#        if o.attrib['abstract_token']:
-#            return o.attrib['abstract_token']
-#        if o.attrib['hasGenericSpec'] == 'true':
-#            self.warn_or_fail('interface with generic spec not implemented')
-#        return None
-
     def visit_subroutine(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
@@ -1110,8 +1158,7 @@ class OFP2IR(GenericVisitor):
     def visit_only(self, o, **kwargs):
         count = int(o.find('only-list').get('count'))
         nodes = [c for c in o if c.tag in ('name', 'rename', 'defined-operator')]
-        symbols = self.visit(nodes[:count], **kwargs)
-        return as_tuple(symbols)
+        return as_tuple([self.visit(c, **kwargs) for c in nodes[:count]])
 
     def visit_rename(self, o, **kwargs):
         if o.attrib['defOp1'] or o.attrib['defOp2']:

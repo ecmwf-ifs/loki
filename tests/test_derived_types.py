@@ -6,7 +6,8 @@ import numpy as np
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
-    fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType
+    fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
+    VariableDeclaration
 )
 
 
@@ -624,8 +625,6 @@ end subroutine derived_type_procedure_designator
         assert routine.symbol_attrs[name].imported is True
         assert isinstance(routine.symbol_attrs[name].dtype, DerivedType)
         assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
-    assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
-    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
 
     # Make sure type-bound procedure declarations exist
     some_type = module.typedefs['some_type']
@@ -638,11 +637,29 @@ end subroutine derived_type_procedure_designator
     assert all(s.scope is some_type for s in proc_symbols.values())
     assert all(isinstance(s.type.dtype, ProcedureType) for s in proc_symbols.values())
 
-    assert proc_symbols['some_proc'].type.initial == 'some_type_some_proc'
-    assert proc_symbols['some_proc'].type.initial.scope is module
-    assert proc_symbols['some_func'].type.initial == 'some_type_some_func'
-    assert proc_symbols['some_proc'].type.initial.scope is module
-    assert proc_symbols['other_proc'].type.initial is None
+    assert proc_symbols['some_proc'].type.bind_names == ('some_type_some_proc',)
+    assert proc_symbols['some_proc'].type.bind_names[0].scope is module
+    assert proc_symbols['some_func'].type.bind_names == ('some_type_some_func',)
+    assert proc_symbols['some_proc'].type.bind_names[0].scope is module
+    assert proc_symbols['other_proc'].type.bind_names is None
+    assert all(proc.type.initial is None for proc in proc_symbols.values())
+
+    # Verify type representation in bound routines
+    some_type_some_proc = module['some_type_some_proc']
+    self = some_type_some_proc.symbol_map['self']
+    assert isinstance(self.type.dtype, DerivedType)
+    assert self.type.dtype.typedef is some_type
+    assert self.type.polymorphic is True
+    decls = FindNodes(VariableDeclaration).visit(some_type_some_proc.spec)
+    assert 'CLASS(SOME_TYPE)' in fgen(decls[0]).upper()
+
+    # Verify type representation in using routine
+    assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
+    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
+    assert routine.symbol_attrs['tp'].polymorphic is None
+    assert routine.symbol_attrs['tp'].dtype.typedef is some_type
+    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    assert 'TYPE(SOME_TYPE)' in fgen(decls[1]).upper()
 
     # TODO: verify correct type association of calls to type-bound procedures
 
@@ -761,6 +778,90 @@ end module derived_type_bind_deferred_mod
 
     assert ', DEFERRED' in fgen(proc_decl)
     assert ', PASS(HANDLE)' in fgen(proc_decl).upper()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_final_generic(frontend):
+    """
+    Test derived types with generic and final bindings
+    """
+    fcode = """
+module derived_type_final_generic_mod
+    implicit none
+
+    type hdf5_file
+        logical :: is_open = .false.
+        integer :: file_id
+    contains
+        procedure :: open_file => hdf5_file_open
+        procedure, private :: hdf5_file_load_int
+        procedure, private :: hdf5_file_load_real
+        generic, public :: load => hdf5_file_load_int, hdf5_file_load_real
+        final :: hdf5_file_close
+    end type hdf5_file
+
+contains
+
+    subroutine hdf5_file_open (self, filepath)
+        class(hdf5_file) :: self
+        character(len=*), intent(in) :: filepath
+        self%file_id = LEN(filepath)  ! dummy operation
+        self%is_open = .true.
+    end subroutine hdf5_file_open
+
+    subroutine hdf5_file_load_int (self, val)
+        class(hdf5_file) :: self
+        integer, intent(out) :: val
+        val = 0
+        if (self%is_open) then
+            val = self%file_id  ! dummy operation
+        end if
+    end subroutine hdf5_file_load_int
+
+    subroutine hdf5_file_load_real (self, val)
+        class(hdf5_file) :: self
+        real, intent(out) :: val
+        val = 0.
+        if (self%is_open) then
+            val = real(self%file_id)  ! dummy operation
+        end if
+    end subroutine hdf5_file_load_real
+
+    subroutine hdf5_file_close (self)
+        type(hdf5_file) :: self
+        if (self%is_open) then
+            self%file_id = 0
+            self%is_open = .false.
+        end if
+    end subroutine hdf5_file_close
+end module derived_type_final_generic_mod
+    """.strip()
+
+    mod = Module.from_source(fcode, frontend=frontend)
+    hdf5_file = mod.typedefs['hdf5_file']
+    proc_decls = FindNodes(ProcedureDeclaration).visit(hdf5_file.body)
+    assert len(proc_decls) == 5
+
+    assert all(decl.final is False for decl in proc_decls[:-1])
+    assert all(decl.generic is False for decl in proc_decls[:-2])
+
+    proc_map = {proc.name.lower(): proc for decl in proc_decls for proc in decl.symbols}
+
+    assert proc_decls[-2].generic is True
+    assert 'generic, public ::' in fgen(proc_decls[-2]).lower()
+    assert 'load => ' in fgen(proc_decls[-2]).lower()
+    assert proc_decls[-2].symbols == ('load',)
+    assert proc_decls[-2].symbols[0].type.bind_names == ('hdf5_file_load_int', 'hdf5_file_load_real')
+    assert proc_decls[-2].symbols[0].type.dtype.name == 'load'
+    assert proc_decls[-2].symbols[0].type.dtype.is_generic is True
+    assert all(proc.type.dtype.name == proc.name for proc in proc_decls[-2].symbols[0].type.bind_names)
+    assert all(proc == proc_map[proc.name] for proc in proc_decls[-2].symbols[0].type.bind_names)
+
+    assert proc_decls[-1].final is True
+    assert proc_decls[-1].generic is False
+    assert 'final ::' in fgen(proc_decls[-1]).lower()
+    assert proc_decls[-1].symbols == ('hdf5_file_close',)
+    assert proc_decls[-1].symbols[0].type.dtype.name == 'hdf5_file_close'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

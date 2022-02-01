@@ -325,7 +325,13 @@ class FortranCodegen(Stringifier):
     def visit_ProcedureDeclaration(self, o, **kwargs):
         """
         Format procedure declaration as
-          [[MODULE] PROCEDURE[(<interface>)]] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
+          [PROCEDURE[(<interface>)]] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
+        or
+          [MODULE] PROCEDURE [, ...] :: var [, ...]
+        or
+          GENERIC [, PUBLIC|PRIVATE] :: var => bind_name [, bind_name [, ...]]
+        or
+          FINAL :: var [, var [, ...]]
         """
         assert len(o.symbols) > 0
         types = [v.type for v in o.symbols]
@@ -355,6 +361,10 @@ class FortranCodegen(Stringifier):
             attributes = [f'PROCEDURE({self.visit(o.interface, **kwargs)})']
         elif o.module:
             attributes = ['MODULE PROCEDURE']
+        elif o.generic:
+            attributes = ['GENERIC']
+        elif o.final:
+            attributes = ['FINAL']
         else:
             # This is a PROCEDURE declaration without interface provided
             # (as they can appear in a derived type component declaration)
@@ -367,8 +377,11 @@ class FortranCodegen(Stringifier):
         symbols = []
         for v in o.symbols:
             var = self.visit(v, **kwargs)
-            if v.type.initial is not None and o.interface is None:
+            if v.type.initial is not None:
                 symbols += [f'{var} => {self.visit(v.type.initial, **kwargs)}']
+            elif v.type.bind_names is not None and o.interface is None:
+                bind_names = [self.visit(n, **kwargs) for n in v.type.bind_names]
+                symbols += [f'{var} => {self.join_items(bind_names)}']
             else:
                 symbols += [var]
 
@@ -704,7 +717,10 @@ class FortranCodegen(Stringifier):
         if isinstance(o.dtype, ProcedureType):
             typename = ''
         elif isinstance(o.dtype, DerivedType):
-            typename = f'TYPE({o.dtype.name})'
+            if o.polymorphic:
+                typename = f'CLASS({o.dtype.name})'
+            else:
+                typename = f'TYPE({o.dtype.name})'
         else:
             typename = type_map[o.dtype]
 

@@ -119,7 +119,7 @@ class OMNI2IR(GenericVisitor):
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.type_map = type_map
         self.symbol_map = symbol_map
-        self.raw_source = raw_source
+        self.raw_source = raw_source.splitlines(keepends=True)
         self.default_scope = scope
 
     @staticmethod
@@ -146,32 +146,6 @@ class OMNI2IR(GenericVisitor):
             _type = SymbolAttributes(BasicType.from_fortran_type(type_attrib))
         return _type
 
-    def _struct_type_variables(self, o, scope, parent=None, **kwargs):
-        """
-        Helper routine to build the list of variables for a `FstructType` node
-        """
-        variables = []
-        for s in o.find('symbols'):
-            vname = s.find('name').text
-            if parent is not None:
-                vname = f'{parent}%%{vname}'
-            dimensions = None
-
-            t = s.attrib['type']
-            if t in self.type_map:
-                vtype = self.visit(self.type_map[t], **kwargs)
-                dims = self.type_map[t].findall('indexRange')
-                if dims:
-                    dimensions = as_tuple(self.visit(d, **kwargs) for d in dims)
-                    vtype = vtype.clone(shape=dimensions)
-            else:
-                typename = self._omni_types.get(t, t)
-                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-
-            variables += [
-                sym.Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope, source=kwargs['source'])]
-        return variables
-
     def lookup_method(self, instance):
         """
         Alternative lookup method for XML element types, identified by ``element.tag``
@@ -189,7 +163,12 @@ class OMNI2IR(GenericVisitor):
         lineno = o.attrib.get('lineno', None)
         if lineno:
             lineno = int(lineno)
-        kwargs['source'] = Source(lines=(lineno, lineno), file=file)
+            lines = (lineno, lineno)
+            string = self.raw_source[lineno-1]
+        else:
+            lines = (None, None)
+            string = None
+        kwargs['source'] = Source(lines=lines, string=string, file=file)
         kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
 
@@ -442,18 +421,10 @@ class OMNI2IR(GenericVisitor):
 
         if struct_type.find('typeBoundProcedures'):
             # See if components are marked private
-            procedures = self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
             body += [ir.Intrinsic('CONTAINS')]
             if struct_type.attrib.get('is_internal_private') == 'true':
                 body += [ir.Intrinsic('PRIVATE')]
-            for proc in procedures:
-                if proc.type.deferred:
-                    assert proc.type.initial is not None
-                    intf = proc.type.initial
-                    proc = proc.clone(type=proc.type.clone(initial=None))
-                    body += [ir.ProcedureDeclaration(interface=intf, symbols=(proc,))]
-                else:
-                    body += [ir.ProcedureDeclaration(symbols=(proc,))]
+            body += self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
 
         # Finally: update the typedef with its body
         typedef._update(body=as_tuple(body))
@@ -475,7 +446,21 @@ class OMNI2IR(GenericVisitor):
         return variables
 
     def visit_typeBoundProcedures(self, o, **kwargs):
-        return [self.visit(s, **kwargs) for s in o]
+        procedures = []
+        for i in o:
+            proc = self.visit(i, **kwargs)
+            if i.get('is_deferred') == 'true':
+                assert proc.type.deferred is True
+                assert proc.type.bind_names and len(proc.type.bind_names) == 1
+                intf = proc.type.bind_names[0]
+                procedures += [ir.ProcedureDeclaration(interface=intf, symbols=(proc,))]
+            elif i.tag == 'typeBoundGenericProcedure':
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,), generic=True)]
+            elif i.tag == 'finalProcedure':
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,), final=True)]
+            else:
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,))]
+        return procedures
 
     def visit_typeBoundProcedure(self, o, **kwargs):
         scope = kwargs['scope']
@@ -496,23 +481,59 @@ class OMNI2IR(GenericVisitor):
             _type = _type.clone(public=True)
 
         if o.find('binding'):
-            init = self.visit(o.find('binding/name'), **kwargs)
-            init_scope = scope.get_symbol_scope(init.name)
+            bind_name = self.visit(o.find('binding/name'), **kwargs)
+            bind_name_scope = scope.get_symbol_scope(bind_name.name)
 
             # Set correct type for interface/binding
-            if init_scope is not None:
-                init = init.rescope(scope=init_scope)
+            if bind_name_scope is not None:
+                bind_name = bind_name.rescope(scope=bind_name_scope)
             else:
-                init = init.clone(type=init.type.clone(dtype=ProcedureType(init.name)))
+                bind_name = bind_name.clone(type=bind_name.type.clone(dtype=ProcedureType(bind_name.name)))
 
-            if init.name.lower() == var.name.lower() and not _type.deferred:
-                # No need to assign initial property
-                _type = _type.clone(dtype=init.type.dtype)
+            if bind_name.name.lower() == var.name.lower() and not _type.deferred:
+                # No need to assign bind_names property
+                _type = _type.clone(dtype=bind_name.type.dtype)
             else:
-                # Assign the binding as initial (and park the interface here for
+                # Assign the binding as bind_nameial (and park the interface here for
                 # declarations with deferred attribute)
-                _type = _type.clone(dtype=init.type.dtype, initial=init)
+                _type = _type.clone(dtype=bind_name.type.dtype, bind_names=(bind_name,))
 
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
+
+    def visit_typeBoundGenericProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
+        var = self.visit(o.find('name'), **kwargs)
+
+        _type = SymbolAttributes(ProcedureType(name=var.name, is_generic=True))
+        if o.get('is_private') == 'true':
+            _type = _type.clone(private=True)
+        if o.get('is_public') == 'true':
+            _type = _type.clone(public=True)
+
+        assert o.find('binding') is not None
+
+        bind_names = []
+        for name in o.findall('binding/name'):
+            bind_name = self.visit(name, **kwargs)
+            bind_name_scope = scope.get_symbol_scope(bind_name.name)
+
+            # Set correct type for interface/binding
+            if bind_name_scope is not None:
+                bind_name = bind_name.rescope(scope=bind_name_scope)
+            else:
+                bind_name = bind_name.clone(type=bind_name.type.clone(dtype=ProcedureType(bind_name.name)))
+
+            bind_names += [bind_name]
+
+        _type = _type.clone(bind_names=as_tuple(bind_names))
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
+
+    def visit_finalProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
+        var = self.visit(o.find('name'), **kwargs)
+        _type = scope.symbol_attrs.lookup(var.name)
         scope.symbol_attrs[var.name] = _type
         return var.rescope(scope=scope)
 
@@ -546,6 +567,8 @@ class OMNI2IR(GenericVisitor):
             _type = SymbolAttributes(dtype, kind=kind, length=length)
         elif ref in self.type_map:
             _type = self.visit(self.type_map[ref], **kwargs)
+            if o.attrib.get('is_class') == 'true':
+                _type = _type.clone(polymorphic=True)
         elif ref == 'FnumericAll':
             _type = SymbolAttributes(BasicType.DEFERRED)
         else:

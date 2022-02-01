@@ -1103,7 +1103,13 @@ class ProcedureDeclaration(LeafNode):
     external : bool, optional
         This is a Fortran ``EXTERNAL`` declaration.
     module : bool, optional
-        This is a Fortran ``MODULE PROCEDURE`` declaration in an interface.
+        This is a Fortran ``MODULE PROCEDURE`` declaration in an interface
+        (i.e. includes the keyword ``MODULE``)
+    generic : bool,  optional
+        This is a generic binding procedure statement in a derived type.
+    final : bool, optional
+        This is a declaration to mark a subroutine for clean-up of a
+        derived type.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1118,19 +1124,23 @@ class ProcedureDeclaration(LeafNode):
 
     _traversable = ['symbols', 'interface']
 
-    def __init__(self, symbols, interface=None, external=False, module=False, comment=None, pragma=None, **kwargs):
+    def __init__(self, symbols, interface=None, external=False, module=False,
+                 generic=False, final=False, comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
         assert interface is None or isinstance(interface, Expression)
-        assert not ((external and module) or (interface and module))
 
         self.symbols = as_tuple(symbols)
         self.interface = interface
-        self.external = external
-        self.module = module
+        self.external = external or False
+        self.module = module or False
+        self.generic = generic or False
+        self.final = final or False
         self.comment = comment
         self.pragma = pragma
+
+        assert self.external + self.module + self.generic + self.final in (0, 1)
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
