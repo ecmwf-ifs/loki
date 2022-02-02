@@ -650,6 +650,25 @@ class OMNI2IR(GenericVisitor):
         body = self.visit(o.find('body'), **kwargs)
         return as_tuple(values) or None, as_tuple(body)
 
+    def visit_FenumDecl(self, o, **kwargs):
+        enum_type = self.type_map[o.attrib['type']]
+
+        # Build the list of symbols
+        symbols = []
+        for i in enum_type.findall('symbols/id'):
+            var = self.visit(i.find('name'), **kwargs)
+            initial = i.find('value')
+            if initial is not None:
+                initial = self.visit(initial, **kwargs)
+            _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
+            symbols += [var.clone(type=_type)]
+
+        # Put symbols in the right scope (that should register their type in that scope's symbol table)
+        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+
+        # Create the enum
+        return ir.Enumeration(symbols=symbols, source=kwargs['source'])
+
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
         name = f'{parent.name}%{o.attrib["member"]}'

@@ -661,6 +661,29 @@ class FortranCodegen(Stringifier):
     def visit_ProcedureType(self, o, **kwargs):
         return o.name
 
+    def visit_Enumeration(self, o, **kwargs):
+        """
+        Format enum as
+          ENUM, BIND(C)
+            ENUMERATOR :: name [= value]
+            ...
+          END ENUM
+        """
+        header = self.format_line('ENUM, BIND(C)')
+        footer = self.format_line('END ENUM')
+        self.depth += 1
+        body = []
+        for var in o.symbols:
+            name = self.visit(var, **kwargs)
+            if var.type.initial is None:
+                initial = ''
+            else:
+                initial = f' = {self.visit(var.type.initial, **kwargs)}'
+            body += [self.format_line('ENUMERATOR :: ', name, initial)]
+        self.depth -= 1
+        return self.join_lines(header, *body, footer)
+
+
 def fgen(ir, depth=0, conservative=False, linewidth=132):
     """
     Generate standardized Fortran code from one or many IR objects/trees.

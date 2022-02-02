@@ -470,6 +470,8 @@ class OFP2IR(GenericVisitor):
         source = kwargs['source']
         if not o.attrib:
             return None  # Skip empty declarations
+
+        # Dispatch to certain other declarations
         if not 'type' in o.attrib:
             if o.find('access-spec') is not None or o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -479,6 +481,10 @@ class OFP2IR(GenericVisitor):
                 return self.visit(o.find('subroutine'), **kwargs)
             if o.find('function') is not None:
                 return self.visit(o.find('function'), **kwargs)
+            if o.find('module-nature') is not None:
+                return self.visit(o.find('module-nature'), **kwargs)
+            if o.find('enum-def-stmt') is not None:
+                return self.create_enum(o, **kwargs)
             raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -1166,3 +1172,39 @@ class OFP2IR(GenericVisitor):
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
         return ir.VariableDeclaration(symbols=variables, source=source)
+
+    def create_enum(self, o, **kwargs):
+        """
+        Utility method to create an ``ENUM`` IR node from a declaration node
+        """
+        scope = kwargs['scope']
+        symbols = []
+        comments = []
+        value = None
+
+        # Step through the items and keep values and enumerator stmts to build symbol list
+        for i in o:
+
+            if i.tag == 'enumerator':
+                # The actual enumerator stmt (this gives us the symbol name)
+                if i.attrib['hasExpr'] == 'true':
+                    # This has a value assigned, which we must have seen before
+                    assert value is not None
+                    _type = SymbolAttributes(BasicType.INTEGER, initial=value)
+                    value = None
+                else:
+                    assert value is None
+                    _type = SymbolAttributes(BasicType.INTEGER)
+                symbols += [sym.Variable(name=i.attrib['id'], type=_type, scope=scope)]
+
+            else:
+                # Something else: let's just recurse on it and save it as a value if
+                # it doesn't yield None
+                item = self.visit(i, **kwargs)
+                if isinstance(item, ir.Comment):
+                    comments += [item]
+                elif item is not None:
+                    assert value is None
+                    value = item
+
+        return (ir.Enumeration(symbols=as_tuple(symbols), source=kwargs['source'], label=kwargs['label']), *comments)

@@ -1723,6 +1723,87 @@ class FParser2IR(GenericVisitor):
     visit_Component_Spec = visit_Actual_Arg_Spec
     visit_Component_Spec_List = visit_List
 
+    #
+    # ENUM declaration
+    #
+
+    def visit_Enum_Def(self, o, **kwargs):
+        """
+        The definition of an ``ENUM``
+
+        :class:`fparser.two.Fortran2003.Enum_Def` has variable number of children:
+            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+            * :class:`fparser.two.Fortran2003.Enum_Def_Stmt` (the statement indicating the
+              beginning of the enum)
+            * the body of the enum, containing one or multiple
+              :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt`
+            * :class:`fparser.two.Fortran2003.End_Enum_Stmt`
+        """
+        # Find start end end of construct
+        enum_def_stmt = get_child(o, Fortran2003.Enum_Def_Stmt)
+        enum_def_stmt_index = o.children.index(enum_def_stmt)
+        end_enum_stmt = get_child(o, Fortran2003.End_Enum_Stmt)
+        end_enum_stmt_index = o.children.index(end_enum_stmt)
+
+        # Everything before the construct
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:enum_def_stmt_index])
+
+        # Take out any comments (and other stuff which shouldn't be there)
+        # from inside the enum and put them behind it
+        post = as_tuple(
+            self.visit(c, **kwargs) for c in o.children[enum_def_stmt_index+1:end_enum_stmt_index]
+            if not isinstance(c, Fortran2003.Enumerator_Def_Stmt)
+        )
+
+        # Find the constant definitions inside the enum
+        symbols = flatten(
+            self.visit(c, **kwargs) for c in o.children[enum_def_stmt_index+1:end_enum_stmt_index]
+            if isinstance(c, Fortran2003.Enumerator_Def_Stmt)
+        )
+
+        # Update type information for symbols with deferred type
+        # (applies to all constant that are defined without explicit value)
+        symbols = tuple(
+            s.clone(type=SymbolAttributes(BasicType.INTEGER)) if s.type.dtype is BasicType.DEFERRED else s
+            for s in symbols
+        )
+
+        # Put symbols in the right scope (that should register their type in that scope's symbol table)
+        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+
+        # Create the enum and make sure there's nothing else left to do
+        enum = ir.Enumeration(symbols=symbols, source=kwargs['source'], label=kwargs['label'])
+        assert end_enum_stmt_index + 1 == len(o.children)
+        return (*pre, enum, *post)
+
+    def visit_Enumerator_Def_Stmt(self, o, **kwargs):
+        """
+        A definition inside an ``ENUM``
+
+        :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt` has 2 children:
+            * ``'ENUMERATOR'`` (str)
+            * :class:`fparser.two.Fortran2003.Enumerator_List` (the constants)
+        """
+        return self.visit(o.children[1], **kwargs)
+
+    visit_Enumerator_List = visit_List
+
+    def visit_Enumerator(self, o, **kwargs):
+        """
+        A constant definition within an ``ENUM``'s definition stmt
+
+        :class:`fparser.two.Fortran2003.Enumerator` has 3 children:
+            * :class:`fparser.two.Fortran2003.Name` (the constant's name)
+            * ``'='`` (str)
+            * the constant's value given as some constant expression that
+              must evaluate to an integer
+        """
+        assert o.children[1] == '='
+        symbol = self.visit(o.children[0], **kwargs)
+        initial = self.visit(o.children[2], **kwargs)
+        _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
+        return symbol.clone(type=_type)
+
     ### Below functions have not yet been revisited ###
 
     def visit_Base(self, o, **kwargs):

@@ -1,3 +1,7 @@
+"""
+Verify correct frontend behaviour and correct parsing of certain Fortran
+language features.
+"""
 from pathlib import Path
 import numpy as np
 import pytest
@@ -5,7 +9,7 @@ import pytest
 from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     Module, Subroutine, FindNodes, FindVariables, Allocation, Deallocation, Associate,
-    BasicType, OMNI
+    BasicType, OMNI, Enumeration
 )
 from loki.expression import symbols as sym
 
@@ -269,4 +273,57 @@ end subroutine associates_expr
     b = np.zeros(3, dtype='i')
     function(a, b)
     assert np.all(b == [7, 10, 13])
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_enum(here, frontend):
+    """
+    Verify that enums are represented correctly
+    """
+    # F2008, Note 4.67
+    fcode = """
+subroutine test_enum (out)
+    implicit none
+
+    ! Comment 1
+    ENUM, BIND(C)
+        ENUMERATOR :: RED = 4, BLUE = 9
+        ! Comment 2
+        ENUMERATOR YELLOW
+    END ENUM
+    ! Comment 3
+
+    integer, intent(out) :: out
+
+    out = RED + BLUE + YELLOW
+end subroutine test_enum
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Check Enum exists
+    enums = FindNodes(Enumeration).visit(routine.spec)
+    assert len(enums) == 1
+
+    # Check symbols are available
+    assert enums[0].symbols == ('red', 'blue', 'yellow')
+    assert all(name in routine.symbols for name in ('red', 'blue', 'yellow'))
+    assert all(s.scope is routine for s in enums[0].symbols)
+
+    # Check assigned values
+    assert routine.symbol_map['red'].type.initial == '4'
+    assert routine.symbol_map['blue'].type.initial == '9'
+    assert routine.symbol_map['yellow'].type.initial is None
+
+    # Verify comments are preserved (don't care about the actual place)
+    code = routine.to_fortran()
+    for i in range(1, 4):
+        assert f'! Comment {i}' in code
+
+    # Check fgen produces valid code and runs
+    filepath = here/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    out = function()
+    assert out == 23
     clean_test(filepath)

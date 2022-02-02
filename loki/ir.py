@@ -27,7 +27,8 @@ __all__ = [
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'Intrinsic'
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'Intrinsic',
+    'Enumeration'
 ]
 
 
@@ -1325,3 +1326,29 @@ class Intrinsic(LeafNode):
 
     def __repr__(self):
         return f'Intrinsic:: {truncate_string(self.text)}'
+
+
+class Enumeration(LeafNode):
+    """
+    Internal representation of an ``ENUM``
+
+    The constants declared by this are represented as :any:`Variable`
+    objects with their value (if specified explicitly) stored as the
+    ``initial`` property in the symbol's type.
+
+    Parameters
+    ----------
+    symbols : list of :any:`Expression`
+        The named constants declared in this enum
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+    def __init__(self, symbols, **kwargs):
+        super().__init__(**kwargs)
+
+        self.symbols = as_tuple(symbols)
+        assert all(isinstance(s, Expression) for s in self.symbols)
+
+    def __repr__(self):
+        symbols = ', '.join(str(var) for var in self.symbols)
+        return f'Enumeration:: {symbols}'
