@@ -410,6 +410,10 @@ class OMNI2IR(GenericVisitor):
 
         body = []
 
+        # Check if the type is marked as sequence
+        if struct_type.get('is_sequence') == 'true':
+            body += [ir.Intrinsic('SEQUENCE')]
+
         # Build the list of derived type members and individual body for each
         if struct_type.find('symbols'):
             variables = self.visit(struct_type.find('symbols'), **kwargs)

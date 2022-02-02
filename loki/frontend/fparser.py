@@ -903,8 +903,6 @@ class FParser2IR(GenericVisitor):
         init = self.visit(o.children[2], **kwargs)
         return var.clone(type=var.type.clone(initial=init))
 
-    visit_Private_Components_Stmt = visit_Intrinsic_Stmt
-
     #
     # Array constructor
     #
@@ -1290,6 +1288,8 @@ class FParser2IR(GenericVisitor):
     visit_Final_Subroutine_Name_List = visit_List
     visit_Contains_Stmt = visit_Intrinsic_Stmt
     visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
+    visit_Private_Components_Stmt = visit_Intrinsic_Stmt
+    visit_Sequence_Stmt = visit_Intrinsic_Stmt
 
     #
     # ASSOCIATE blocks

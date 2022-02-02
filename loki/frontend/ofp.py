@@ -642,6 +642,9 @@ class OFP2IR(GenericVisitor):
     def visit_private_components_stmt(self, o, **kwargs):
         return ir.Intrinsic(o.attrib['privateKeyword'], source=kwargs['source'], label=kwargs['label'])
 
+    def visit_sequence_stmt(self, o, **kwargs):
+        return ir.Intrinsic(o.attrib['sequenceKeyword'], source=kwargs['source'], label=kwargs['label'])
+
     visit_binding_private_stmt = visit_private_components_stmt
 
     def visit_declaration(self, o, **kwargs):
@@ -719,6 +722,8 @@ class OFP2IR(GenericVisitor):
             kwargs['scope'] = typedef
 
             body = []
+            if o.find('sequence-stmt') is not None:
+                body.append(self.visit(o.find('sequence-stmt'), **kwargs))
             if o.find('private-components-stmt') is not None:
                 body.append(self.visit(o.find('private-components-stmt'), **kwargs))
 

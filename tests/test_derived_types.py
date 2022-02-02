@@ -1019,3 +1019,26 @@ end module derived_type_nested_proc_call_mod
     assert fgen(assignment[0].rhs).lower() == 'this%file%exists(var_name)'
 
     # TODO: Verify type of function symbol etc
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_sequence(frontend):
+    """
+    Verify derived types with ``SEQUENCE`` stmt work as expected
+    """
+    # F2008, Note 4.18
+    fcode = """
+module derived_type_sequence
+    implicit none
+    TYPE NUMERIC_SEQ
+        SEQUENCE
+        INTEGER :: INT_VAL
+        REAL :: REAL_VAL
+        LOGICAL :: LOG_VAL
+    END TYPE NUMERIC_SEQ
+end module derived_type_sequence
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+    numeric_seq = module.typedefs['numeric_seq']
+    assert 'SEQUENCE' in fgen(numeric_seq)
