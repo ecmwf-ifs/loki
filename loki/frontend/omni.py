@@ -569,13 +569,13 @@ class OMNI2IR(GenericVisitor):
         return variable
 
     def visit_FwhereStatement(self, o, **kwargs):
-        condition = self.visit(o.find('condition'), **kwargs)
-        body = self.visit(o.find('then/body'), **kwargs)
+        conditions = [self.visit(c, **kwargs) for c in o.findall('condition')]
+        bodies = [self.visit(b, **kwargs) for b in o.findall('then/body')]
         if o.find('else') is not None:
             default = self.visit(o.find('else/body'), **kwargs)
         else:
             default = ()
-        return ir.MaskedStatement(condition, body, default, source=kwargs['source'])
+        return ir.MaskedStatement(conditions=conditions, bodies=bodies, default=default, source=kwargs['source'])
 
     def visit_FpointerAssignStatement(self, o, **kwargs):
         target = self.visit(o[0], **kwargs)

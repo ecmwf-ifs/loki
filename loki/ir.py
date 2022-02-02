@@ -21,14 +21,14 @@ __all__ = [
     'Node', 'InternalNode', 'LeafNode',
     # Internal node classes
     'Section', 'Associate', 'Loop', 'WhileLoop', 'Conditional',
-    'MaskedStatement', 'PragmaRegion', 'Interface',
+    'PragmaRegion', 'Interface',
     # Leaf node classes
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'Intrinsic',
-    'Enumeration'
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
+    'Intrinsic', 'Enumeration'
 ]
 
 
@@ -540,38 +540,6 @@ class Conditional(InternalNode):
         if self.name:
             return f'Conditional:: {self.name}'
         return 'Conditional::'
-
-
-class MaskedStatement(InternalNode):
-    """
-    Internal representation of a masked array assignment (``WHERE`` clause).
-
-    Parameters
-    ----------
-    condition : :any:`pymbolic.primitives.Expression`
-        The condition that defines the mask.
-    body : tuple
-        The assignment statements.
-    default : tuple
-        The assignment statements to be executed for array entries not
-        captured by the mask (``ELSEWHERE`` statement).
-    **kwargs : optional
-        Other parameters that are passed on to the parent class constructor.
-    """
-
-    _traversable = ['condition', 'body', 'default']
-
-    def __init__(self, condition, body, default, **kwargs):
-        super().__init__(body=body, **kwargs)
-
-        assert isinstance(condition, Expression)
-        assert is_iterable(default)
-
-        self.condition = condition
-        self.default = as_tuple(default)  # The ELSEWHERE stmt
-
-    def __repr__(self):
-        return f'MaskedStatement:: {str(self.condition)}'
 
 
 class PragmaRegion(InternalNode):
@@ -1300,6 +1268,47 @@ class MultiConditional(LeafNode):
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
         return f'MultiConditional::{label} {str(self.expr)}'
+
+
+class MaskedStatement(LeafNode):
+    """
+    Internal representation of a masked array assignment (``WHERE`` clause).
+
+    Parameters
+    ----------
+    conditions : tuple of :any:`pymbolic.primitives.Expression`
+        The conditions that define the mask
+    bodies : tuple of tuple of :any:`Node`
+        The conditional assignment statements corresponding to each condition.
+    default : tuple of :any:`Node`, optional
+        The assignment statements to be executed for array entries not
+        captured by the mask (``ELSEWHERE`` statement).
+    inline : bool, optional
+        Flag to indicate this is a one-line where-stmt
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    _traversable = ['conditions', 'bodies', 'default']
+
+    def __init__(self, conditions, bodies, default, inline=False, **kwargs):
+        super().__init__(**kwargs)
+
+        assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
+        assert is_iterable(bodies) and all(isinstance(c, tuple) for c in bodies)
+        assert len(conditions) == len(bodies)
+        assert is_iterable(default)
+
+        if inline:
+            assert len(bodies) == 1 and len(bodies[0]) == 1 and not default
+
+        self.conditions = as_tuple(conditions)
+        self.bodies = as_tuple(bodies)
+        self.default = as_tuple(default)
+        self.inline = inline or False
+
+    def __repr__(self):
+        return f'MaskedStatement:: {str(self.conditions[0])}'
 
 
 class Intrinsic(LeafNode):

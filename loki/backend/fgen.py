@@ -508,20 +508,32 @@ class FortranCodegen(Stringifier):
         Format masked assignment as
           WHERE (<condition>)
             ...body...
+          [ELSEWHERE (<condition>)]
+            []...body...]
           [ELSEWHERE]
             [...body...]
           END WHERE
+        or
+          WHERE (<condition>) <body>
         """
-        header = self.format_line('WHERE (', self.visit(o.condition, **kwargs), ')')
-        footer = self.format_line('END WHERE')
-        default_header = self.format_line('ELSEWHERE')
-        self.depth += 1
-        body = self.visit(o.body, **kwargs)
-        default = self.visit(o.default, **kwargs)
-        self.depth -= 1
+        if o.inline:
+            cond = self.visit(o.conditions[0], **kwargs)
+            assignment = self.visit(o.bodies[0][0], **kwargs).strip()
+            return self.format_line('WHERE (', cond, ') ', assignment)
+
+        cases = [self.format_line('WHERE (', self.visit(o.conditions[0], **kwargs), ')')]
+        for cond in o.conditions[1:]:
+            cases += [self.format_line('ELSEWHERE (', self.visit(cond, **kwargs), ')')]
         if o.default:
-            return self.join_lines(header, body, default_header, default, footer)
-        return self.join_lines(header, body, footer)
+            cases += [self.format_line('ELSEWHERE')]
+        footer = self.format_line('END WHERE')
+
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.default, **kwargs)
+        self.depth -= 1
+
+        branches = [item for branch in zip(cases, bodies) for item in branch]
+        return self.join_lines(*branches, footer)
 
     def visit_Section(self, o, **kwargs):
         """

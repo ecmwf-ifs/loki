@@ -1804,6 +1804,120 @@ class FParser2IR(GenericVisitor):
         _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
         return symbol.clone(type=_type)
 
+    #
+    # WHERE construct
+    #
+
+    def visit_Where_Construct(self, o, **kwargs):
+        """
+        Fortran's masked array assignment construct
+
+        :class:`fparser.two.Fortran2003.Where_Construct` has variable number of children:
+            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+            * :class:`fparser.two.Fortran2003.Where_Construct_Stmt` (the statement that marks
+              the beginning of the construct)
+            * body of the where-construct, usually an assignment
+            * (optional) :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` (essentially
+              an "else-if"), followed by its body; this can appear more than once
+            * (optional) :class:`fparser.two.Fortran2003.Elsewhere_Stmt` (essentially
+              an "else"), followed by its body
+            * :class:`fparser.two.Fortran2003.End_Where_Stmt`
+        """
+        # Find start and end of construct
+        where_stmt = get_child(o, Fortran2003.Where_Construct_Stmt)
+        where_stmt_index = o.children.index(where_stmt)
+        end_where_stmt = get_child(o, Fortran2003.End_Where_Stmt)
+        end_where_stmt_index = o.children.index(end_where_stmt)
+
+        # The banter before the construct...
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:where_stmt_index])
+
+        # Extract source object for construct
+        lines = (where_stmt.item.span[0], end_where_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # Find all ELSEWHERE statements
+        where_stmts, where_stmts_index = zip(*(
+            [(where_stmt, where_stmt_index)] +
+            [
+                (c, i) for i, c in enumerate(o.children)
+                if isinstance(c, (Fortran2003.Masked_Elsewhere_Stmt, Fortran2003.Elsewhere_Stmt))
+            ]
+        ))
+        where_stmts_index = where_stmts_index + (end_where_stmt_index,)
+
+        # Handle all cases
+        conditions = [self.visit(c, **kwargs) for c in where_stmts]
+        bodies = [
+            as_tuple([self.visit(c, **kwargs) for c in o.children[start+1:stop]])
+            for start, stop in zip(where_stmts_index[:-1], where_stmts_index[1:])
+        ]
+
+        # Extract the default case if any
+        if conditions[-1] == 'DEFAULT':
+            conditions = conditions[:-1]
+            *bodies, default = bodies
+        else:
+            default = ()
+
+        # Make sure there's nothing left to do
+        assert not o.children[end_where_stmt_index+1:]
+
+        masked_statement = ir.MaskedStatement(
+            conditions=conditions, bodies=bodies, default=default, label=kwargs.get('label'), source=source
+        )
+        return (*pre, masked_statement)
+
+    def visit_Where_Construct_Stmt(self, o, **kwargs):
+        """
+        The ``WHERE`` statement that marks the beginning of a where-construct
+
+        :class:`fparser.two.Fortran2003.Where_Construct_Stmt` has 1 child:
+            * the expression that marks the condition
+        """
+        return self.visit(o.children[0], **kwargs)
+
+    def visit_Masked_Elsewhere_Stmt(self, o, **kwargs):
+        """
+        An ``ELSEWHERE`` statement with a condition in a where-construct
+
+        :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` has 2 children:
+            * the expression that marks the condition
+            * the construct name or `None`
+        """
+        if o.children[1] is not None:
+            self.warn_or_fail('where-construct-names not yet implemented')
+        return self.visit(o.children[0], **kwargs)
+
+    def visit_Elsewhere_Stmt(self, o, **kwargs):
+        """
+        An unconditional ``ELSEWHERE`` statement
+
+        :class:`fparser.two.Fortran2003.Elsewhere_Stmt` has 2 children:
+            * ``'ELSEWHERE'`` (str)
+            * the construct name or `None`
+        """
+        if o.children[1] is not None:
+            self.warn_or_fail('where-construct-names not yet implemented')
+        assert o.children[0] == 'ELSEWHERE'
+        return 'DEFAULT'
+
+    def visit_Where_Stmt(self, o, **kwargs):
+        """
+        An inline ``WHERE`` assignment
+
+        :class:`fparser.two.Fortran2003.Where_Stmt` has 2 children:
+            * the expression that marks the condition
+            * the assignment
+        """
+        condition = self.visit(o.children[0], **kwargs)
+        body = as_tuple(self.visit(o.children[1], **kwargs))
+        return ir.MaskedStatement(
+            conditions=[condition], bodies=[body], default=(), inline=True,
+            label=kwargs.get('label'), source=kwargs.get('source')
+        )
+
     ### Below functions have not yet been revisited ###
 
     def visit_Base(self, o, **kwargs):
@@ -2134,38 +2248,6 @@ class FParser2IR(GenericVisitor):
     def visit_Cpp_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
         return ir.Import(module=fname, c_import=True, source=kwargs.get('source'))
-
-    def visit_Where_Construct(self, o, **kwargs):
-        # The banter before the construct...
-        banter = []
-        for ch in o.content:
-            if isinstance(ch, Fortran2003.Where_Construct_Stmt):
-                break
-            banter += [self.visit(ch, **kwargs)]
-        # The mask condition
-        condition = self.visit(get_child(o, Fortran2003.Where_Construct_Stmt), **kwargs)
-        default_ast = node_sublist(o.children, Fortran2003.Elsewhere_Stmt,
-                                   Fortran2003.End_Where_Stmt)
-        if default_ast:
-            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
-                                    Fortran2003.Elsewhere_Stmt)
-        else:
-            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
-                                    Fortran2003.End_Where_Stmt)
-        body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
-        default = as_tuple(self.visit(ch, **kwargs) for ch in default_ast)
-        return (*banter, ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
-                                            source=kwargs.get('source')))
-
-    def visit_Where_Construct_Stmt(self, o, **kwargs):
-        return self.visit(o.items[0], **kwargs)
-
-    def visit_Where_Stmt(self, o, **kwargs):
-        condition = self.visit(o.items[0], **kwargs)
-        body = as_tuple(self.visit(o.items[1], **kwargs))
-        default = ()
-        return ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
-                                  source=kwargs.get('source'))
 
     def visit_Select_Type_Construct(self, o, **kwargs):
         # The banter before the construct...
