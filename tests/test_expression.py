@@ -610,13 +610,13 @@ end subroutine character_concat
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Inline WHERE not implemented')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_statements(here, frontend):
     """
     Masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
     """
     fcode = """
-subroutine masked_statements(length, vec1, vec2, vec3)
+subroutine expression_masked_statements(length, vec1, vec2, vec3)
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: length
   real(kind=jprb), intent(inout), dimension(length) :: vec1, vec2, vec3
@@ -626,25 +626,27 @@ subroutine masked_statements(length, vec1, vec2, vec3)
     vec1(:) = 5.0_jprb
   endwhere
 
-  where (vec2(:) < 0.d0)
-    vec2(:) = 0.0_jprb
-  elsewhere
+  where (vec2(:) < -0.d1)
+    vec2(:) = -1.0_jprb
+  elsewhere (vec2(:) > 0.d1)
     vec2(:) = 1.0_jprb
+  elsewhere
+    vec2(:) = 0.0_jprb
   endwhere
 
   where (0.0_jprb < vec3(:) .and. vec3(:) < 3.0_jprb) vec3(:) = 1.0_jprb
-end subroutine masked_statements
+end subroutine expression_masked_statements
 """
-    filepath = here/(f'expression_masked_statements_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='masked_statements')
+    filepath = here/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Reference solution
     length = 11
     ref1 = np.append(np.arange(0, 6, dtype=np.float64),
                      5 * np.ones(length - 6, dtype=np.float64))
-    ref2 = np.append(np.zeros(5, dtype=np.float64),
-                     np.ones(length - 5, dtype=np.float64))
+    ref2 = np.append(np.append(-1 *np.ones(5, dtype=np.float64), 0.0),
+                     np.ones(5, dtype=np.float64))
     ref3 = np.append(np.arange(-2, 1, dtype=np.float64), np.ones(2, dtype=np.float64))
     ref3 = np.append(ref3, np.arange(3, length - 2, dtype=np.float64))
 
@@ -655,6 +657,51 @@ end subroutine masked_statements
     assert np.all(ref1 == vec1)
     assert np.all(ref2 == vec2)
     assert np.all(ref3 == vec3)
+    clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+    (OFP, 'Current implementation does not handle nested where constructs')
+]))
+def test_masked_statements_nested(here, frontend):
+    """
+    Nested masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
+    """
+    fcode = """
+subroutine expression_nested_masked_statements(length, vec1)
+    integer, parameter :: jprb = selected_real_kind(13,300)
+    integer, intent(in) :: length
+    real(kind=jprb), intent(inout), dimension(length) :: vec1
+
+    where (vec1(:) >= 4.0_jprb)
+        where (vec1(:) > 6.0_jprb)
+            vec1(:) = 6.0_jprb
+        elsewhere
+            vec1(:) = 4.0_jprb
+        endwhere
+    elsewhere
+        where (vec1(:) < 2.0_jprb)
+            vec1(:) = 0.0_jprb
+        elsewhere
+            vec1(:) = 2.0_jprb
+        endwhere
+    endwhere
+end subroutine expression_nested_masked_statements
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = here/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Reference solution
+    length = 11
+    vec1 = np.arange(0, length, dtype=np.float64)
+    ref1 = np.zeros(length, dtype=np.float64)
+    ref1[vec1 >= 4.0] = 4.0
+    ref1[vec1 > 6.0] = 6.0
+    ref1[vec1 < 4.0] = 2.0
+    ref1[vec1 < 2.0] = 0.0
+    function(length, vec1)
+    assert np.all(ref1 == vec1)
     clean_test(filepath)
 
 

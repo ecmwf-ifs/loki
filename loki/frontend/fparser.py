@@ -400,9 +400,15 @@ class FParser2IR(GenericVisitor):
         """
         if o.children[0] is not None:
             # Module nature
-            self.warn_or_fail('module-nature not implemented for USE statements')
+            nature = str(o.children[0])
+        else:
+            nature = None
         name = o.children[2].tostr()
-        module = self.definitions.get(name)
+        if nature and nature.lower() == 'intrinsic':
+            # Do not use module ref if we refer to an intrinsic module
+            module = None
+        else:
+            module = self.definitions.get(name)
         scope = kwargs['scope']
         if o.children[3] == '' or o.children[3] == ',':
             # No ONLY list (import all)
@@ -419,7 +425,9 @@ class FParser2IR(GenericVisitor):
                         local_name = rename_list[k].name
                         scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                     else:
-                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                        # Need to explicitly reset use_name in case we are importing a symbol
+                        # that stems from an import with a rename-list
+                        scope.symbol_attrs[k] = v.clone(imported=True, module=module, use_name=None)
             elif rename_list:
                 # Module not available but some information via rename-list
                 scope.symbol_attrs.update({
@@ -443,17 +451,22 @@ class FParser2IR(GenericVisitor):
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                              use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                            imported=True, module=module, use_name=s[0]
+                        )
                     else:
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                        # Need to explicitly reset use_name in case we are importing a symbol
+                        # that stems from an import with a rename-list
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                            imported=True, module=module, use_name=None
+                        )
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
         else:
             raise ValueError(f'Unexpected only/rename-list value in USE statement: {o.children[3]}')
 
-        return ir.Import(module=name, symbols=symbols, rename_list=rename_list,
+        return ir.Import(module=name, symbols=symbols, nature=nature, rename_list=rename_list,
                          source=kwargs.get('source'), label=kwargs.get('label'))
 
     visit_Only_List = visit_List
@@ -546,24 +559,30 @@ class FParser2IR(GenericVisitor):
         """
         dtype = BasicType.from_str(o.children[0])
         if o.children[1]:
-            if dtype in (BasicType.INTEGER, BasicType.REAL, BasicType.COMPLEX, BasicType.LOGICAL):
-                return SymbolAttributes(dtype, kind=self.visit(o.children[1], **kwargs))
-            if dtype is BasicType.CHARACTER:
-                return SymbolAttributes(dtype, length=self.visit(o.children[1], **kwargs))
-            raise ValueError(f'Unknown kind for intrinsic type: {o.children[0]}')
+            if dtype not in (
+                BasicType.INTEGER, BasicType.REAL, BasicType.COMPLEX, BasicType.LOGICAL, BasicType.CHARACTER
+            ):
+                raise ValueError(f'Unknown kind for intrinsic type: {o.children[0]}')
+
+            attr = self.visit(o.children[1], **kwargs)
+            if attr:
+                attr = dict(attr)
+                return SymbolAttributes(dtype, **attr)
         return SymbolAttributes(dtype)
 
     def visit_Kind_Selector(self, o, **kwargs):
         """
         A kind selector of an intrinsic type
 
-        :class:`fparser.two.Fortran2003.Kind_Selector` has 3 children:
-            * '(' (str)
-            * :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`
-            * ')' (str)
+        :class:`fparser.two.Fortran2003.Kind_Selector` has 2 or 3 children:
+            * ``'*'`` (str) and :class:`fparser.two.Fortran2003.Char_Length`, or
+            * ``'('`` (str), :class:`fparser.two.Fortran2003.Scalar_Int_Initialization_Expr`,
+              and ``')'`` (str)
         """
-        assert o.children[0] == '(' and o.children[2] == ')'
-        return self.visit(o.children[1], **kwargs)
+        if len(o.children) in (2, 3) and (o.children[0] == '*' or o.children[0] + str(o.children[-1]) == '()'):
+            return (('kind', self.visit(o.children[1], **kwargs)),)
+        self.warn_or_fail('Unknown kind selector')
+        return None
 
     def visit_Length_Selector(self, o, **kwargs):
         """
@@ -576,7 +595,32 @@ class FParser2IR(GenericVisitor):
             * ')' (str)
         """
         assert o.children[0] == '*' or (o.children[0] == '(' and o.children[2] == ')')
+        return (('length', self.visit(o.children[1], **kwargs)),)
+
+    def visit_Char_Length(self, o, **kwargs):
+        """
+        Length specifier in the Length_Selector
+
+        :class:`fparser.two.Fortran2003.Length_Selector` has one child:
+            * length value (str)
+        """
+        assert o.children[0] == '(' and o.children[2] == ')'
         return self.visit(o.children[1], **kwargs)
+
+    def visit_Char_Selector(self, o, **kwargs):
+        """
+        Length- and kind-selector for intrinsic character type
+
+        :class:`fparser.two.Fortran2003.Char_Selector` has 2 children:
+            * :class:`fparser.two.Fortran2003.Length_Selector`
+            * some scalar expression for the kind
+        """
+        length = None
+        if o.children[0] is not None:
+            length = self.visit(o.children[0], **kwargs)
+        if o.children[1] is not None:
+            kind = self.visit(o.children[1], **kwargs)
+        return (('length', length), ('kind', kind))
 
     def visit_Type_Param_Value(self, o, **kwargs):
         """
@@ -1637,7 +1681,7 @@ class FParser2IR(GenericVisitor):
             expr = arguments[0]
             if kwarguments:
                 assert len(arguments) == 1
-                assert len(kwarguments) == 1 and kwarguments[0][0] == 'kind'
+                assert len(kwarguments) == 1 and kwarguments[0][0].lower() == 'kind'
                 kind = kwarguments[0][1]
             else:
                 kind = arguments[1] if len(arguments) > 1 else None
@@ -1678,6 +1722,201 @@ class FParser2IR(GenericVisitor):
 
     visit_Component_Spec = visit_Actual_Arg_Spec
     visit_Component_Spec_List = visit_List
+
+    #
+    # ENUM declaration
+    #
+
+    def visit_Enum_Def(self, o, **kwargs):
+        """
+        The definition of an ``ENUM``
+
+        :class:`fparser.two.Fortran2003.Enum_Def` has variable number of children:
+            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+            * :class:`fparser.two.Fortran2003.Enum_Def_Stmt` (the statement indicating the
+              beginning of the enum)
+            * the body of the enum, containing one or multiple
+              :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt`
+            * :class:`fparser.two.Fortran2003.End_Enum_Stmt`
+        """
+        # Find start end end of construct
+        enum_def_stmt = get_child(o, Fortran2003.Enum_Def_Stmt)
+        enum_def_stmt_index = o.children.index(enum_def_stmt)
+        end_enum_stmt = get_child(o, Fortran2003.End_Enum_Stmt)
+        end_enum_stmt_index = o.children.index(end_enum_stmt)
+
+        # Everything before the construct
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:enum_def_stmt_index])
+
+        # Take out any comments (and other stuff which shouldn't be there)
+        # from inside the enum and put them behind it
+        post = as_tuple(
+            self.visit(c, **kwargs) for c in o.children[enum_def_stmt_index+1:end_enum_stmt_index]
+            if not isinstance(c, Fortran2003.Enumerator_Def_Stmt)
+        )
+
+        # Find the constant definitions inside the enum
+        symbols = flatten(
+            self.visit(c, **kwargs) for c in o.children[enum_def_stmt_index+1:end_enum_stmt_index]
+            if isinstance(c, Fortran2003.Enumerator_Def_Stmt)
+        )
+
+        # Update type information for symbols with deferred type
+        # (applies to all constant that are defined without explicit value)
+        symbols = tuple(
+            s.clone(type=SymbolAttributes(BasicType.INTEGER)) if s.type.dtype is BasicType.DEFERRED else s
+            for s in symbols
+        )
+
+        # Put symbols in the right scope (that should register their type in that scope's symbol table)
+        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+
+        # Create the enum and make sure there's nothing else left to do
+        enum = ir.Enumeration(symbols=symbols, source=kwargs['source'], label=kwargs['label'])
+        assert end_enum_stmt_index + 1 == len(o.children)
+        return (*pre, enum, *post)
+
+    def visit_Enumerator_Def_Stmt(self, o, **kwargs):
+        """
+        A definition inside an ``ENUM``
+
+        :class:`fparser.two.Fortran2003.Enumerator_Def_Stmt` has 2 children:
+            * ``'ENUMERATOR'`` (str)
+            * :class:`fparser.two.Fortran2003.Enumerator_List` (the constants)
+        """
+        return self.visit(o.children[1], **kwargs)
+
+    visit_Enumerator_List = visit_List
+
+    def visit_Enumerator(self, o, **kwargs):
+        """
+        A constant definition within an ``ENUM``'s definition stmt
+
+        :class:`fparser.two.Fortran2003.Enumerator` has 3 children:
+            * :class:`fparser.two.Fortran2003.Name` (the constant's name)
+            * ``'='`` (str)
+            * the constant's value given as some constant expression that
+              must evaluate to an integer
+        """
+        assert o.children[1] == '='
+        symbol = self.visit(o.children[0], **kwargs)
+        initial = self.visit(o.children[2], **kwargs)
+        _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
+        return symbol.clone(type=_type)
+
+    #
+    # WHERE construct
+    #
+
+    def visit_Where_Construct(self, o, **kwargs):
+        """
+        Fortran's masked array assignment construct
+
+        :class:`fparser.two.Fortran2003.Where_Construct` has variable number of children:
+            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+            * :class:`fparser.two.Fortran2003.Where_Construct_Stmt` (the statement that marks
+              the beginning of the construct)
+            * body of the where-construct, usually an assignment
+            * (optional) :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` (essentially
+              an "else-if"), followed by its body; this can appear more than once
+            * (optional) :class:`fparser.two.Fortran2003.Elsewhere_Stmt` (essentially
+              an "else"), followed by its body
+            * :class:`fparser.two.Fortran2003.End_Where_Stmt`
+        """
+        # Find start and end of construct
+        where_stmt = get_child(o, Fortran2003.Where_Construct_Stmt)
+        where_stmt_index = o.children.index(where_stmt)
+        end_where_stmt = get_child(o, Fortran2003.End_Where_Stmt)
+        end_where_stmt_index = o.children.index(end_where_stmt)
+
+        # The banter before the construct...
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:where_stmt_index])
+
+        # Extract source object for construct
+        lines = (where_stmt.item.span[0], end_where_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # Find all ELSEWHERE statements
+        where_stmts, where_stmts_index = zip(*(
+            [(where_stmt, where_stmt_index)] +
+            [
+                (c, i) for i, c in enumerate(o.children)
+                if isinstance(c, (Fortran2003.Masked_Elsewhere_Stmt, Fortran2003.Elsewhere_Stmt))
+            ]
+        ))
+        where_stmts_index = where_stmts_index + (end_where_stmt_index,)
+
+        # Handle all cases
+        conditions = [self.visit(c, **kwargs) for c in where_stmts]
+        bodies = [
+            as_tuple([self.visit(c, **kwargs) for c in o.children[start+1:stop]])
+            for start, stop in zip(where_stmts_index[:-1], where_stmts_index[1:])
+        ]
+
+        # Extract the default case if any
+        if conditions[-1] == 'DEFAULT':
+            conditions = conditions[:-1]
+            *bodies, default = bodies
+        else:
+            default = ()
+
+        # Make sure there's nothing left to do
+        assert not o.children[end_where_stmt_index+1:]
+
+        masked_statement = ir.MaskedStatement(
+            conditions=conditions, bodies=bodies, default=default, label=kwargs.get('label'), source=source
+        )
+        return (*pre, masked_statement)
+
+    def visit_Where_Construct_Stmt(self, o, **kwargs):
+        """
+        The ``WHERE`` statement that marks the beginning of a where-construct
+
+        :class:`fparser.two.Fortran2003.Where_Construct_Stmt` has 1 child:
+            * the expression that marks the condition
+        """
+        return self.visit(o.children[0], **kwargs)
+
+    def visit_Masked_Elsewhere_Stmt(self, o, **kwargs):
+        """
+        An ``ELSEWHERE`` statement with a condition in a where-construct
+
+        :class:`fparser.two.Fortran2003.Masked_Elsewhere_Stmt` has 2 children:
+            * the expression that marks the condition
+            * the construct name or `None`
+        """
+        if o.children[1] is not None:
+            self.warn_or_fail('where-construct-names not yet implemented')
+        return self.visit(o.children[0], **kwargs)
+
+    def visit_Elsewhere_Stmt(self, o, **kwargs):
+        """
+        An unconditional ``ELSEWHERE`` statement
+
+        :class:`fparser.two.Fortran2003.Elsewhere_Stmt` has 2 children:
+            * ``'ELSEWHERE'`` (str)
+            * the construct name or `None`
+        """
+        if o.children[1] is not None:
+            self.warn_or_fail('where-construct-names not yet implemented')
+        assert o.children[0] == 'ELSEWHERE'
+        return 'DEFAULT'
+
+    def visit_Where_Stmt(self, o, **kwargs):
+        """
+        An inline ``WHERE`` assignment
+
+        :class:`fparser.two.Fortran2003.Where_Stmt` has 2 children:
+            * the expression that marks the condition
+            * the assignment
+        """
+        condition = self.visit(o.children[0], **kwargs)
+        body = as_tuple(self.visit(o.children[1], **kwargs))
+        return ir.MaskedStatement(
+            conditions=[condition], bodies=[body], default=(), inline=True,
+            label=kwargs.get('label'), source=kwargs.get('source')
+        )
 
     ### Below functions have not yet been revisited ###
 
@@ -2009,38 +2248,6 @@ class FParser2IR(GenericVisitor):
     def visit_Cpp_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
         return ir.Import(module=fname, c_import=True, source=kwargs.get('source'))
-
-    def visit_Where_Construct(self, o, **kwargs):
-        # The banter before the construct...
-        banter = []
-        for ch in o.content:
-            if isinstance(ch, Fortran2003.Where_Construct_Stmt):
-                break
-            banter += [self.visit(ch, **kwargs)]
-        # The mask condition
-        condition = self.visit(get_child(o, Fortran2003.Where_Construct_Stmt), **kwargs)
-        default_ast = node_sublist(o.children, Fortran2003.Elsewhere_Stmt,
-                                   Fortran2003.End_Where_Stmt)
-        if default_ast:
-            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
-                                    Fortran2003.Elsewhere_Stmt)
-        else:
-            body_ast = node_sublist(o.children, Fortran2003.Where_Construct_Stmt,
-                                    Fortran2003.End_Where_Stmt)
-        body = as_tuple(self.visit(ch, **kwargs) for ch in body_ast)
-        default = as_tuple(self.visit(ch, **kwargs) for ch in default_ast)
-        return (*banter, ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
-                                            source=kwargs.get('source')))
-
-    def visit_Where_Construct_Stmt(self, o, **kwargs):
-        return self.visit(o.items[0], **kwargs)
-
-    def visit_Where_Stmt(self, o, **kwargs):
-        condition = self.visit(o.items[0], **kwargs)
-        body = as_tuple(self.visit(o.items[1], **kwargs))
-        default = ()
-        return ir.MaskedStatement(condition, body, default, label=kwargs.get('label'),
-                                  source=kwargs.get('source'))
 
     def visit_Select_Type_Construct(self, o, **kwargs):
         # The banter before the construct...

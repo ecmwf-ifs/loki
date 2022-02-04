@@ -323,35 +323,113 @@ class OFP2IR(GenericVisitor):
             return ir.Nullify(variables=as_tuple(variable), label=kwargs['label'], source=kwargs['source'])
         if o.find('cycle') is not None:
             return self.visit(o.find('cycle'), **kwargs)
-        if o.find('where-construct-stmt') is not None:
-            # Parse a WHERE statement(s)...
+        if o.find('where-construct-stmt') is not None or o.find('where-stmt') is not None:
+            # Parse WHERE statement(s)...
+            # They can appear multiple times within a single statement node and
+            # alongside other, non-WHERE-statement nodes. Conveniently, conditions
+            # and body are also flat in the node and therefore not marked explicitly.
+            # We have to step through them and do our best at picking them out...
             children = [self.visit(c, **kwargs) for c in o]
             children = [c for c in children if c is not None]
 
             stmts = []
-            while 'ENDWHERE_CONSTRUCT' in children:
-                iend = children.index('ENDWHERE_CONSTRUCT')
-                w_children = children[:iend]
-
-                condition = w_children[0]
-                if 'ELSEWHERE_CONSTRUCT' in w_children:
-                    iw = w_children.index('ELSEWHERE_CONSTRUCT')
-                    body = w_children[1:iw]
-                    default = w_children[iw:]
+            # Pick out all nodes that belong to this WHERE construct
+            # TODO: this breaks for nested where constructs...
+            while True:
+                # Find position of relevant constructs
+                if 'ENDWHERE_CONSTRUCT' in children:
+                    construct_start = children.index('WHERE_CONSTRUCT')
                 else:
-                    body = w_children[1:]
-                    default = ()
+                    construct_start = len(children)
+                if 'WHERE_STATEMENT' in children:
+                    statement_start = children.index('WHERE_STATEMENT')
+                else:
+                    statement_start = len(children)
 
-                stmts += [ir.MaskedStatement(condition=condition, body=body, default=default,
-                                             label=kwargs['label'], source=kwargs['source'])]
-                children = children[iend+1:]
+                # Start with where construct if it comes first
+                if construct_start < statement_start:
+                    if construct_start > 1:
+                        # There's stuff before that we retain flat
+                        stmts += children[:construct_start-1]
 
-            # TODO: Deal with alternative conditions (multiple ELSEWHERE)
+                    # That's the stuff that belongs to this construct
+                    iend = children.index('ENDWHERE_CONSTRUCT')
+                    w_children = children[construct_start-1:iend]
+
+                    # That's the stuff that follows after
+                    children = children[iend+1:]
+
+                    # condition of the WHERE statement
+                    conditions = [w_children[0]]
+                    bodies = []  # picking out bodies lags behind
+                    assert w_children[1] == 'WHERE_CONSTRUCT'
+                    w_children = w_children[2:]
+
+                    # any ELSEWHERE statements with a condition?
+                    while 'MASKED_ELSEWHERE_CONSTRUCT' in w_children:
+                        iw = w_children.index('MASKED_ELSEWHERE_CONSTRUCT')
+                        bodies += [as_tuple(w_children[:iw-1])]  # that's the body from the previous case
+                        conditions += [w_children[iw-1]]  # that's the condition for the next case
+                        w_children = w_children[iw+1:]
+
+                    # any ELSEWHERE statement without a condition?
+                    if 'ELSEWHERE_CONSTRUCT' in w_children:
+                        iw = w_children.index('ELSEWHERE_CONSTRUCT')
+                        bodies += [as_tuple(w_children[:iw])]  # again, body from before
+                        default = as_tuple(w_children[iw+1:]) # The default body
+
+                    else:  # No ELSEWHERE, so only body for previous conditional
+                        bodies += [as_tuple(w_children)]
+                        default = ()
+
+                    # Build the masked statement
+                    stmts += [
+                        ir.MaskedStatement(
+                            conditions=conditions, bodies=bodies, default=default,
+                            label=kwargs['label'], source=kwargs['source']
+                        )
+                    ]
+
+                # Where-statement comes first
+                elif statement_start < len(children):
+                    # This is always the sequence of [condition, assignment, WHERE_STATEMENT]
+                    if statement_start > 2:
+                        # There's stuff before that we retain flat
+                        stmts += children[:statement_start-2]
+
+                    # Pick out condition and body, update remaining children list
+                    conditions = [children[statement_start-2]]
+                    bodies = [as_tuple(children[statement_start-1])]
+                    assert children[statement_start] == 'WHERE_STATEMENT'
+                    children = children[statement_start+1:]
+
+                    # Build the masked statement
+                    stmts += [
+                        ir.MaskedStatement(
+                            conditions=conditions, bodies=bodies, default=(), inline=True,
+                            label=kwargs['label'], source=kwargs['source']
+                        )
+                    ]
+
+                else: # Found neither: terminate loop
+                    break
+
+            if children:
+                stmts += children
             return as_tuple(stmts)
+
         if o.find('goto-stmt') is not None:
             target_label = o.find('goto-stmt').attrib['target_label']
             return ir.Intrinsic(text=f'go to {target_label}', label=kwargs['label'], source=kwargs['source'])
         return self.visit_Element(o, **kwargs)
+
+    def visit_where_construct_stmt(self, o, **kwargs):
+        # Only used as a marker above
+        return 'WHERE_CONSTRUCT'
+
+    def visit_masked_elsewhere_stmt(self, o, **kwargs):
+        # Only used as a marker above
+        return 'MASKED_ELSEWHERE_CONSTRUCT'
 
     def visit_elsewhere_stmt(self, o, **kwargs):
         # Only used as a marker above
@@ -360,6 +438,10 @@ class OFP2IR(GenericVisitor):
     def visit_end_where_stmt(self, o, **kwargs):
         # Only used as a marker above
         return 'ENDWHERE_CONSTRUCT'
+
+    def visit_where_stmt(self, o, **kwargs):
+        # Only used as a marker above
+        return 'WHERE_STATEMENT'
 
     def visit_assignment(self, o, **kwargs):
         lhs = self.visit(o.find('target'), **kwargs)
@@ -404,6 +486,10 @@ class OFP2IR(GenericVisitor):
 
     def visit_kind(self, o, **kwargs):
         return self.visit(o[0], **kwargs)
+
+    def visit_kind_selector(self, o, **kwargs):
+        assert o.attrib['token1'] == '*'
+        return sym.IntLiteral(int(o.attrib['token2']))
 
     def visit_attribute_parameter(self, o, **kwargs):
         return self.visit(o.findall('attr-spec'), **kwargs)
@@ -466,6 +552,8 @@ class OFP2IR(GenericVisitor):
         source = kwargs['source']
         if not o.attrib:
             return None  # Skip empty declarations
+
+        # Dispatch to certain other declarations
         if not 'type' in o.attrib:
             if o.find('access-spec') is not None or o.find('save-stmt') is not None:
                 return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -475,6 +563,10 @@ class OFP2IR(GenericVisitor):
                 return self.visit(o.find('subroutine'), **kwargs)
             if o.find('function') is not None:
                 return self.visit(o.find('function'), **kwargs)
+            if o.find('module-nature') is not None:
+                return self.visit(o.find('module-nature'), **kwargs)
+            if o.find('enum-def-stmt') is not None:
+                return self.create_enum(o, **kwargs)
             raise ValueError('Unsupported declaration')
         if o.attrib['type'] in ('implicit', 'intrinsic', 'parameter'):
             return ir.Intrinsic(text=source.string.strip(), label=label, source=source)
@@ -585,11 +677,35 @@ class OFP2IR(GenericVisitor):
             attrs.update((access_spec,))
 
         if _type.dtype == BasicType.CHARACTER:
-            if _type.length is None and o.find('char-selector') is not None:
-                # For _NO_ good reason, the char-length property seems to be
-                # always the first item (fingers crossed) but it is not identified
-                # by any sensible unique tag...
-                attrs['length'] = self.visit(o[0], **kwargs)
+            char_selector = o.find('char-selector')
+            if _type.length is None and char_selector is not None:
+                selector_idx = list(o).index(char_selector)
+
+                if selector_idx > 0:
+                    tk1 = char_selector.get('tk1')
+                    tk2 = char_selector.get('tk2')
+
+                    length = None
+                    kind = None
+                    if tk1 in ('', 'len'):
+                        # The first child _should_ be the length selector
+                        length = self.visit(o[0], **kwargs)
+
+                        if tk2 == 'kind' or selector_idx > 2:
+                            # There is another value, presumably the kind specifier, which
+                            # should be right before the char-selector
+                            kind = self.visit(o[selector_idx-1], **kwargs)
+                    elif tk1 == 'kind':
+                        # The first child _should_ be the kind selector
+                        kind = self.visit(o[0], **kwargs)
+
+                        if tk2 == 'len':
+                            # The second child should then be the length selector
+                            assert selector_idx > 2
+                            length = self.visit(o[1], **kwargs)
+
+                    attrs['length'] = length
+                    attrs['kind'] = kind
 
         # Then, build the common symbol type for all variables
         _type = _type.clone(**attrs)
@@ -606,6 +722,8 @@ class OFP2IR(GenericVisitor):
             variables = as_tuple(v.clone(dimensions=dimensions) for v in variables)
 
         # EXTERNAL attribute means this is actually a function or subroutine
+        # Since every symbol refers to a different function we have to update the
+        # type definition for every symbol individually
         external = o.find('attribute-external') is not None
         if external:
             _type = _type.clone(external=True)
@@ -752,10 +870,13 @@ class OFP2IR(GenericVisitor):
                 # Import symbol attributes from module
                 for s in symbols:
                     if isinstance(s, tuple):  # Renamed symbol
-                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                              use_name=s[0])
+                        scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                            imported=True, module=module, use_name=s[0]
+                        )
                     else:
-                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                        scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                            imported=True, module=module, use_name=None
+                        )
             symbols = tuple(
                 s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
             )
@@ -769,9 +890,13 @@ class OFP2IR(GenericVisitor):
                 for k, v in module.symbol_attrs.items():
                     if k in rename_list:
                         local_name = rename_list[k].name
-                        scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
+                        scope.symbol_attrs[local_name] = v.clone(
+                            imported=True, module=module, use_name=k
+                        )
                     else:
-                        scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                        scope.symbol_attrs[k] = v.clone(
+                            imported=True, module=module, use_name=None
+                        )
             elif rename_list:
                 # Module not available but some information via rename-list
                 scope.symbol_attrs.update({
@@ -1129,3 +1254,39 @@ class OFP2IR(GenericVisitor):
             variables += [sym.Variable(name=v_name, scope=scope, dimensions=dimensions, source=v_source)]
 
         return ir.VariableDeclaration(symbols=variables, source=source)
+
+    def create_enum(self, o, **kwargs):
+        """
+        Utility method to create an ``ENUM`` IR node from a declaration node
+        """
+        scope = kwargs['scope']
+        symbols = []
+        comments = []
+        value = None
+
+        # Step through the items and keep values and enumerator stmts to build symbol list
+        for i in o:
+
+            if i.tag == 'enumerator':
+                # The actual enumerator stmt (this gives us the symbol name)
+                if i.attrib['hasExpr'] == 'true':
+                    # This has a value assigned, which we must have seen before
+                    assert value is not None
+                    _type = SymbolAttributes(BasicType.INTEGER, initial=value)
+                    value = None
+                else:
+                    assert value is None
+                    _type = SymbolAttributes(BasicType.INTEGER)
+                symbols += [sym.Variable(name=i.attrib['id'], type=_type, scope=scope)]
+
+            else:
+                # Something else: let's just recurse on it and save it as a value if
+                # it doesn't yield None
+                item = self.visit(i, **kwargs)
+                if isinstance(item, ir.Comment):
+                    comments += [item]
+                elif item is not None:
+                    assert value is None
+                    value = item
+
+        return (ir.Enumeration(symbols=as_tuple(symbols), source=kwargs['source'], label=kwargs['label']), *comments)

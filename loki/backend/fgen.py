@@ -323,26 +323,34 @@ class FortranCodegen(Stringifier):
         or
           include "..."
         or
-          USE <module> [, ONLY: <symbols>]
+          USE [, <nature> ::] <module> [, ONLY: <symbols>]
         or
-          USE <module> [, <rename-list>]
+          USE [, <nature> ::] <module> [, <rename-list>]
         """
         if o.c_import:
             return f'#include "{o.module}"'
         if o.f_include:
             return self.format_line('include "', o.module, '"')
+
+        if o.nature:
+            use_stmt = f'USE, {o.nature} :: '
+        else:
+            use_stmt = 'USE '
+
         if o.rename_list:
             rename_list = [f'{self.visit(local, **kwargs)} => {use}' for use, local in o.rename_list]
-            return self.format_line('USE ', o.module, ', ', self.join_items(rename_list))
-        if o.symbols:
-            symbols = []
-            for s in o.symbols:
-                if s.type.use_name:
-                    symbols += [f'{self.visit(s, **kwargs)} => {s.type.use_name}']
-                else:
-                    symbols += [self.visit(s, **kwargs)]
-            return self.format_line('USE ', o.module, ', ONLY: ', self.join_items(symbols))
-        return self.format_line('USE ', o.module)
+            return self.format_line(use_stmt, o.module, ', ', self.join_items(rename_list))
+        if not o.symbols:
+            return self.format_line(use_stmt, o.module)
+
+        symbols = []
+        for s in o.symbols:
+            if s.type.use_name:
+                symbols += [f'{self.visit(s, **kwargs)} => {s.type.use_name}']
+            else:
+                symbols += [self.visit(s, **kwargs)]
+
+        return self.format_line(use_stmt, o.module, ', ONLY: ', self.join_items(symbols))
 
     def visit_Interface(self, o, **kwargs):
         """
@@ -500,20 +508,32 @@ class FortranCodegen(Stringifier):
         Format masked assignment as
           WHERE (<condition>)
             ...body...
+          [ELSEWHERE (<condition>)]
+            []...body...]
           [ELSEWHERE]
             [...body...]
           END WHERE
+        or
+          WHERE (<condition>) <body>
         """
-        header = self.format_line('WHERE (', self.visit(o.condition, **kwargs), ')')
-        footer = self.format_line('END WHERE')
-        default_header = self.format_line('ELSEWHERE')
-        self.depth += 1
-        body = self.visit(o.body, **kwargs)
-        default = self.visit(o.default, **kwargs)
-        self.depth -= 1
+        if o.inline:
+            cond = self.visit(o.conditions[0], **kwargs)
+            assignment = self.visit(o.bodies[0][0], **kwargs).strip()
+            return self.format_line('WHERE (', cond, ') ', assignment)
+
+        cases = [self.format_line('WHERE (', self.visit(o.conditions[0], **kwargs), ')')]
+        for cond in o.conditions[1:]:
+            cases += [self.format_line('ELSEWHERE (', self.visit(cond, **kwargs), ')')]
         if o.default:
-            return self.join_lines(header, body, default_header, default, footer)
-        return self.join_lines(header, body, footer)
+            cases += [self.format_line('ELSEWHERE')]
+        footer = self.format_line('END WHERE')
+
+        self.depth += 1
+        bodies = self.visit_all(*o.bodies, o.default, **kwargs)
+        self.depth -= 1
+
+        branches = [item for branch in zip(cases, bodies) for item in branch]
+        return self.join_lines(*branches, footer)
 
     def visit_Section(self, o, **kwargs):
         """
@@ -596,10 +616,15 @@ class FortranCodegen(Stringifier):
             typename = f'TYPE({o.dtype.name})'
         else:
             typename = type_map[o.dtype]
+
+        selector = []
         if o.length:
-            typename += f'(LEN={self.visit(o.length, **kwargs)})'
+            selector += [f'LEN={self.visit(o.length, **kwargs)}']
         if o.kind:
-            typename += f'(KIND={self.visit(o.kind, **kwargs)})'
+            selector += [f'KIND={self.visit(o.kind, **kwargs)}']
+        if selector:
+            typename += '(' + self.join_items(selector) + ')'
+
         if typename:
             attributes += [typename]
 
@@ -647,6 +672,29 @@ class FortranCodegen(Stringifier):
 
     def visit_ProcedureType(self, o, **kwargs):
         return o.name
+
+    def visit_Enumeration(self, o, **kwargs):
+        """
+        Format enum as
+          ENUM, BIND(C)
+            ENUMERATOR :: name [= value]
+            ...
+          END ENUM
+        """
+        header = self.format_line('ENUM, BIND(C)')
+        footer = self.format_line('END ENUM')
+        self.depth += 1
+        body = []
+        for var in o.symbols:
+            name = self.visit(var, **kwargs)
+            if var.type.initial is None:
+                initial = ''
+            else:
+                initial = f' = {self.visit(var.type.initial, **kwargs)}'
+            body += [self.format_line('ENUMERATOR :: ', name, initial)]
+        self.depth -= 1
+        return self.join_lines(header, *body, footer)
+
 
 def fgen(ir, depth=0, conservative=False, linewidth=132):
     """

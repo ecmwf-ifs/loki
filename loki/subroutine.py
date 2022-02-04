@@ -5,7 +5,7 @@ from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fpa
 from loki.backend.fgen import fgen
 from loki.ir import (
     VariableDeclaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef
+    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef, Enumeration
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
@@ -451,6 +451,32 @@ class Subroutine(Scope):
         Map of variable names to :any:`Variable` objects
         """
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
+
+    @property
+    def enum_symbols(self):
+        """
+        List of symbols defined via an enum
+        """
+        return as_tuple(flatten(enum.symbols for enum in FindNodes(Enumeration).visit(self.spec or ())))
+
+    @property
+    def symbols(self):
+        """
+        Return list of all symbols declared or imported in this subroutine scope
+        """
+        return (
+            self.variables + self.imported_symbols + self.enum_symbols +
+            tuple(routine.procedure_symbol for routine in self.members)
+        )
+
+    @property
+    def symbol_map(self):
+        """
+        Map of symbol names to symbols
+        """
+        return CaseInsensitiveDict(
+            (s.name, s) for s in self.symbols
+        )
 
     @property
     def arguments(self):

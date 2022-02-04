@@ -131,7 +131,8 @@ def clean_test(filepath):
     Clean test directory based on JIT'ed source file.
     """
     file_list = [filepath.with_suffix('.f90'), filepath.with_suffix('.o'),
-                 filepath.with_suffix('.py'), filepath.parent/'f90wrap_toplevel.f90']
+                 filepath.with_suffix('.py'), filepath.parent/'f90wrap_toplevel.f90',
+                 filepath.with_suffix('.mod'), filepath.with_suffix('.xmod')]
     for f in file_list:
         if f.exists():
             f.unlink()

@@ -21,13 +21,14 @@ __all__ = [
     'Node', 'InternalNode', 'LeafNode',
     # Internal node classes
     'Section', 'Associate', 'Loop', 'WhileLoop', 'Conditional',
-    'MaskedStatement', 'PragmaRegion', 'Interface',
+    'PragmaRegion', 'Interface',
     # Leaf node classes
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'Intrinsic'
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
+    'Intrinsic', 'Enumeration'
 ]
 
 
@@ -541,38 +542,6 @@ class Conditional(InternalNode):
         return 'Conditional::'
 
 
-class MaskedStatement(InternalNode):
-    """
-    Internal representation of a masked array assignment (``WHERE`` clause).
-
-    Parameters
-    ----------
-    condition : :any:`pymbolic.primitives.Expression`
-        The condition that defines the mask.
-    body : tuple
-        The assignment statements.
-    default : tuple
-        The assignment statements to be executed for array entries not
-        captured by the mask (``ELSEWHERE`` statement).
-    **kwargs : optional
-        Other parameters that are passed on to the parent class constructor.
-    """
-
-    _traversable = ['condition', 'body', 'default']
-
-    def __init__(self, condition, body, default, **kwargs):
-        super().__init__(body=body, **kwargs)
-
-        assert isinstance(condition, Expression)
-        assert is_iterable(default)
-
-        self.condition = condition
-        self.default = as_tuple(default)  # The ELSEWHERE stmt
-
-    def __repr__(self):
-        return f'MaskedStatement:: {str(self.condition)}'
-
-
 class PragmaRegion(InternalNode):
     """
     Internal representation of a block of code defined by two matching pragmas.
@@ -1009,6 +978,8 @@ class Import(LeafNode):
         The name of the module or header file to import from.
     symbols : tuple of :any:`Expression` or :any:`DataType`, optional
         The list of names imported. Can be empty when importing all.
+    nature : str, optional
+        The module nature (``INTRINSIC`` or ``NON_INTRINSIC``)
     c_import : bool, optional
         Flag to indicate that this is a C-style include. Defaults to `False`.
     f_include : bool, optional
@@ -1022,16 +993,23 @@ class Import(LeafNode):
 
     _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, c_import=False, f_include=False, rename_list=False, **kwargs):
+    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False,
+                 rename_list=False, **kwargs):
         super().__init__(**kwargs)
 
         self.module = module
         self.symbols = symbols or ()
-        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
+        self.nature = nature
         self.c_import = c_import
         self.f_include = f_include
         self.rename_list = rename_list
 
+        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
+        assert self.nature is None or (
+            isinstance(self.nature, str) and
+            self.nature.lower() in ('intrinsic', 'non_intrinsic') and
+            not (self.c_import or self.f_include)
+        )
         if c_import and f_include:
             raise ValueError('Import cannot be C include and Fortran include')
         if rename_list and (symbols or c_import or f_include):
@@ -1292,6 +1270,47 @@ class MultiConditional(LeafNode):
         return f'MultiConditional::{label} {str(self.expr)}'
 
 
+class MaskedStatement(LeafNode):
+    """
+    Internal representation of a masked array assignment (``WHERE`` clause).
+
+    Parameters
+    ----------
+    conditions : tuple of :any:`pymbolic.primitives.Expression`
+        The conditions that define the mask
+    bodies : tuple of tuple of :any:`Node`
+        The conditional assignment statements corresponding to each condition.
+    default : tuple of :any:`Node`, optional
+        The assignment statements to be executed for array entries not
+        captured by the mask (``ELSEWHERE`` statement).
+    inline : bool, optional
+        Flag to indicate this is a one-line where-stmt
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    _traversable = ['conditions', 'bodies', 'default']
+
+    def __init__(self, conditions, bodies, default, inline=False, **kwargs):
+        super().__init__(**kwargs)
+
+        assert is_iterable(conditions) and all(isinstance(c, Expression) for c in conditions)
+        assert is_iterable(bodies) and all(isinstance(c, tuple) for c in bodies)
+        assert len(conditions) == len(bodies)
+        assert is_iterable(default)
+
+        if inline:
+            assert len(bodies) == 1 and len(bodies[0]) == 1 and not default
+
+        self.conditions = as_tuple(conditions)
+        self.bodies = as_tuple(bodies)
+        self.default = as_tuple(default)
+        self.inline = inline or False
+
+    def __repr__(self):
+        return f'MaskedStatement:: {str(self.conditions[0])}'
+
+
 class Intrinsic(LeafNode):
     """
     Catch-all generic node for corner-cases.
@@ -1316,3 +1335,29 @@ class Intrinsic(LeafNode):
 
     def __repr__(self):
         return f'Intrinsic:: {truncate_string(self.text)}'
+
+
+class Enumeration(LeafNode):
+    """
+    Internal representation of an ``ENUM``
+
+    The constants declared by this are represented as :any:`Variable`
+    objects with their value (if specified explicitly) stored as the
+    ``initial`` property in the symbol's type.
+
+    Parameters
+    ----------
+    symbols : list of :any:`Expression`
+        The named constants declared in this enum
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+    def __init__(self, symbols, **kwargs):
+        super().__init__(**kwargs)
+
+        self.symbols = as_tuple(symbols)
+        assert all(isinstance(s, Expression) for s in self.symbols)
+
+    def __repr__(self):
+        symbols = ', '.join(str(var) for var in self.symbols)
+        return f'Enumeration:: {symbols}'

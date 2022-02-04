@@ -189,6 +189,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FuseDecl(self, o, **kwargs):
         # No ONLY list
+        nature = 'intrinsic' if o.attrib.get('intrinsic') == 'true' else None
         name = o.attrib['name']
         scope = kwargs['scope']
 
@@ -203,19 +204,25 @@ class OMNI2IR(GenericVisitor):
                     local_name = rename_list[k].name
                     scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
                 else:
-                    scope.symbol_attrs[k] = v.clone(imported=True, module=module)
+                    # Need to explicitly reset use_name in case we are importing a symbol
+                    # that stems from an import with a rename-list
+                    scope.symbol_attrs[k] = v.clone(imported=True, module=module, use_name=None)
         elif rename_list:
             # Module not available but some information via rename-list
             scope.symbol_attrs.update({v.name: v.type.clone(imported=True, use_name=k) for k, v in rename_list.items()})
         rename_list = tuple(rename_list.items()) if rename_list else None
-        return ir.Import(module=name, rename_list=rename_list, c_import=False, source=kwargs['source'])
+        return ir.Import(module=name, nature=nature, rename_list=rename_list, c_import=False, source=kwargs['source'])
 
     def visit_FuseOnlyDecl(self, o, **kwargs):
         # ONLY list given (import only selected symbols)
+        nature = 'intrinsic' if o.attrib.get('intrinsic') == 'true' else None
         name = o.attrib['name']
         scope = kwargs['scope']
         symbols = tuple(self.visit(c, **kwargs) for c in o.findall('renamable'))
-        module = self.definitions.get(name, None)
+        if nature == 'intrinsic':
+            module = None
+        else:
+            module = self.definitions.get(name, None)
         if module is None:
             # Initialize symbol attributes as DEFERRED
             for s in symbols:
@@ -227,14 +234,19 @@ class OMNI2IR(GenericVisitor):
             # Import symbol attributes from module
             for s in symbols:
                 if isinstance(s, tuple):  # Renamed symbol
-                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(imported=True, module=module,
-                                                                          use_name=s[0])
+                    scope.symbol_attrs[s[1].name] = module.symbol_attrs[s[0]].clone(
+                        imported=True, module=module, use_name=s[0]
+                    )
                 else:
-                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(imported=True, module=module)
+                    # Need to explicitly reset use_name in case we are importing a symbol
+                    # that stems from an import with a rename-list
+                    scope.symbol_attrs[s.name] = module.symbol_attrs[s.name].clone(
+                        imported=True, module=module, use_name=None
+                    )
         symbols = tuple(
             s[1].rescope(scope=scope) if isinstance(s, tuple) else s.rescope(scope=scope) for s in symbols
         )
-        return ir.Import(module=name, symbols=symbols, c_import=False, source=kwargs['source'])
+        return ir.Import(module=name, symbols=symbols, nature=nature, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
         if o.attrib.get('local_name'):
@@ -557,13 +569,13 @@ class OMNI2IR(GenericVisitor):
         return variable
 
     def visit_FwhereStatement(self, o, **kwargs):
-        condition = self.visit(o.find('condition'), **kwargs)
-        body = self.visit(o.find('then/body'), **kwargs)
+        conditions = [self.visit(c, **kwargs) for c in o.findall('condition')]
+        bodies = [self.visit(b, **kwargs) for b in o.findall('then/body')]
         if o.find('else') is not None:
             default = self.visit(o.find('else/body'), **kwargs)
         else:
             default = ()
-        return ir.MaskedStatement(condition, body, default, source=kwargs['source'])
+        return ir.MaskedStatement(conditions=conditions, bodies=bodies, default=default, source=kwargs['source'])
 
     def visit_FpointerAssignStatement(self, o, **kwargs):
         target = self.visit(o[0], **kwargs)
@@ -637,6 +649,25 @@ class OMNI2IR(GenericVisitor):
             values = values.pop()
         body = self.visit(o.find('body'), **kwargs)
         return as_tuple(values) or None, as_tuple(body)
+
+    def visit_FenumDecl(self, o, **kwargs):
+        enum_type = self.type_map[o.attrib['type']]
+
+        # Build the list of symbols
+        symbols = []
+        for i in enum_type.findall('symbols/id'):
+            var = self.visit(i.find('name'), **kwargs)
+            initial = i.find('value')
+            if initial is not None:
+                initial = self.visit(initial, **kwargs)
+            _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
+            symbols += [var.clone(type=_type)]
+
+        # Put symbols in the right scope (that should register their type in that scope's symbol table)
+        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+
+        # Create the enum
+        return ir.Enumeration(symbols=symbols, source=kwargs['source'])
 
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
