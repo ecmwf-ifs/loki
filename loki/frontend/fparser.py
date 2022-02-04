@@ -531,9 +531,9 @@ class FParser2IR(GenericVisitor):
             else:
                 scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
-        variables = tuple(v.clone(scope=scope) for v in variables)
-        return ir.Declaration(variables=variables, dimensions=_type.shape, external=_type.external,
-                              source=kwargs.get('source'), label=kwargs.get('label'))
+        variables = tuple(var.rescope(scope=scope) for var in variables)
+        return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, external=_type.external,
+                                      source=kwargs.get('source'), label=kwargs.get('label'))
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         """
@@ -739,8 +739,8 @@ class FParser2IR(GenericVisitor):
             scope.symbol_attrs[var.name] = _type
 
         variables = tuple(v.clone(scope=scope) for v in variables)
-        declaration = ir.Declaration(variables=variables, external=True,
-                                     source=kwargs.get('source'), label=kwargs.get('label'))
+        declaration = ir.VariableDeclaration(symbols=variables, external=True,
+                                             source=kwargs.get('source'), label=kwargs.get('label'))
         return declaration
 
     visit_External_Name_List = visit_List
@@ -923,9 +923,9 @@ class FParser2IR(GenericVisitor):
         # These should become declarations and TypeDef should probably store them separately
 
         # Infer any additional shape information from `!$loki dimension` pragmas
-        body = attach_pragmas(body, ir.Declaration)
+        body = attach_pragmas(body, ir.VariableDeclaration)
         body = process_dimension_pragmas(body)
-        body = detach_pragmas(body, ir.Declaration)
+        body = detach_pragmas(body, ir.VariableDeclaration)
 
         # Finally: update the typedef with its body
         typedef._update(body=body)

@@ -3,7 +3,7 @@ import pytest
 
 from conftest import available_frontends
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
-from loki.ir import Pragma, Loop, Declaration, PragmaRegion
+from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
 from loki.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
     pragmas_attached, pragma_regions_attached
@@ -381,11 +381,11 @@ end module test_tools_pragmas_attached_module
     module = Module.from_source(fcode, frontend=frontend)
 
     assert len(FindNodes(Pragma).visit(module.spec)) == 1
-    decl = FindNodes(Declaration).visit(module.spec)[1]
-    assert len(decl.variables) == 1 and decl.variables[0].name.lower() == 'b'
+    decl = FindNodes(VariableDeclaration).visit(module.spec)[1]
+    assert len(decl.symbols) == 1 and decl.symbols[0].name.lower() == 'b'
     assert decl.pragma is None
 
-    with pragmas_attached(module, Declaration):
+    with pragmas_attached(module, VariableDeclaration):
         assert not FindNodes(Pragma).visit(module.spec)
         assert isinstance(decl.pragma, tuple) and is_loki_pragma(decl.pragma, starts_with='dimension')
 

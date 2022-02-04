@@ -6,7 +6,7 @@ from conftest import available_frontends, jit_compile, jit_compile_lib, clean_te
 from loki import (
     Sourcefile, Subroutine, OFP, OMNI, FindVariables, FindNodes,
     Section, CallStatement, BasicType, Array, Scalar, Variable,
-    SymbolAttributes, StringLiteral, fgen, fexprgen, Declaration,
+    SymbolAttributes, StringLiteral, fgen, fexprgen, VariableDeclaration,
     Transformer, FindTypedSymbols, ProcedureSymbol, ProcedureType,
     StatementFunction
 )
@@ -1111,13 +1111,13 @@ end subroutine routine_call_external_stmt
     routine = source['routine_external_stmt']
     assert len(routine.arguments) == 8
 
-    for decl in FindNodes(Declaration).visit(routine.spec):
+    for decl in FindNodes(VariableDeclaration).visit(routine.spec):
         # Skip local variables
-        if decl.variables[0].name in ('invar', 'outvar', 'tmp'):
+        if decl.symbols[0].name in ('invar', 'outvar', 'tmp'):
             continue
         # Is the EXTERNAL attribute set?
         assert decl.external
-        for v in decl.variables:
+        for v in decl.symbols:
             # Are procedure names represented as Scalar objects?
             assert isinstance(v, ProcedureSymbol)
             assert isinstance(v.type.dtype, ProcedureType)

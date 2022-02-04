@@ -2,7 +2,7 @@ import re
 from contextlib import contextmanager
 
 from loki.expression import symbols as sym
-from loki.ir import Declaration, Pragma, PragmaRegion
+from loki.ir import VariableDeclaration, Pragma, PragmaRegion
 from loki.tools.util import as_tuple, flatten
 from loki.types import BasicType
 from loki.visitors import FindNodes, Visitor, Transformer, MaskedTransformer
@@ -18,12 +18,15 @@ __all__ = [
 
 def is_loki_pragma(pragma, starts_with=None):
     """
-    Checks for a pragma annotation and, if it exists, for the `loki` keyword.
+    Checks for a pragma annotation and, if it exists, for the ``loki`` keyword.
     Optionally, the pragma content is tested for a specific start.
 
-    :param pragma: the pragma or list of pragmas to check.
-    :type pragma: :class:``ir.Pragma`` or ``list``/``tuple`` of ``ir.Pragma`` or ``None``
-    :param str starts_with: the keyword the pragma content should start with.
+    Parameters
+    ----------
+    pragma : :any:`Pragma` or `list`/`tuple` of `ir.Pragma` or `None`
+        the pragma or list of pragmas to check.
+    starts_with : str, optional
+        the keyword the pragma content must start with.
     """
     pragma = as_tuple(pragma)
     if not pragma:
@@ -40,21 +43,27 @@ _get_pragma_parameters_re = re.compile(r'(?P<command>[\w-]+)\s*(?:\((?P<arg>.+?)
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
-    Parse the pragma content for parameters in the form `<command>[(<arg>)]` and
-    return them as a map {<command>: <arg> or None}`.
+    Parse the pragma content for parameters in the form ``<command>[(<arg>)]`` and
+    return them as a map ``{<command>: <arg> or None}``.
 
     Optionally, look only at the pragma with the given keyword at the beginning.
 
     Note that if multiple pragma are given as a tuple/list, arguments with the same
     name will overwrite previous definitions.
 
-    :param pragma: the pragma or list of pragmas to check.
-    :type pragma: :class:``ir.Pragma`` or ``list``/``tuple`` of ``ir.Pragma`` or ``None``
-    :param str starts_with: the keyword the pragma content should start with.
-    :param bool only_loki_pragmas: restrict parameter extraction to ``loki`` pragmas only.
+    Parameters
+    ----------
+    pragma : :any:`Pragma` or `list`/`tuple` of :any:`Pragma` or `None`
+        the pragma or list of pragmas to check.
+    starts_with : str, optional
+        the keyword the pragma content should start with.
+    only_loki_pragmas : bool, optional
+        restrict parameter extraction to ``loki`` pragmas only.
 
-    :return: Mapping of parameters ``{<command>: <arg> or <None>}``.
-    :rtype: ``dict``
+    Returns
+    -------
+    dict :
+        Mapping of parameters ``{<command>: <arg> or <None>}``
     """
     pragma = as_tuple(pragma)
     parameters = {}
@@ -73,14 +82,19 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
 
 def process_dimension_pragmas(ir):
     """
-    Process any '!$loki dimension' pragmas to override deferred dimensions
+    Process any ``!$loki dimension`` pragmas to override deferred dimensions
 
-    Note that this assumes `inline_pragmas` has been run on :param ir: to
-    attach any pragmas to the `Declaration` nodes.
+    Note that this assumes :any:`inline_pragmas` has been run on :data:`ir` to
+    attach any pragmas to the :any:`VariableDeclaration` nodes.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        Root node of the (section of the) internal representation to process
     """
-    for decl in FindNodes(Declaration).visit(ir):
+    for decl in FindNodes(VariableDeclaration).visit(ir):
         if is_loki_pragma(decl.pragma, starts_with='dimension'):
-            for v in decl.variables:
+            for v in decl.symbols:
                 # Found dimension override for variable
                 dims = get_pragma_parameters(decl.pragma)['dimension']
                 dims = [d.strip() for d in dims.split(',')]
@@ -105,16 +119,22 @@ class PragmaAttacher(Visitor):
     the tree as a whole is not modified if no pragmas are found. This means
     existing node references should remain valid.
 
-    :param node_type: the IR node type (or a list of them) to attach pragmas to.
-    :param bool attach_pragma_post: to look for pragmas after the node, too,
-        and attach as ``pragma_post`` if applicable.
+    .. note::
+        When using :data:`attach_pragma_post` and two nodes qualifying according to
+        :data:`node_type` are separated only by :any:`Pragma` nodes inbetween, it
+        is not possible to decide to which node these pragmas belong. In such cases,
+        they are attached to the second node as ``pragma`` property takes precedence.
+        Such situations can only be resolved by full knowledge about the pragma
+        language specification (_way_ out of scope) or modifying the original source,
+        e.g. by inserting a comment between the relevant pragmas.
 
-    NB: When using ``attach_pragma_post`` and two nodes qualifying according to
-    ``node_type`` are separated only by :class:``Pragma`` nodes inbetween, it
-    is not possible to decide to which node these pragmas belong. In such cases,
-    attaching to the second node as ``pragma`` takes precedence. Such
-    situations can only be resolved in the original source, e.g. by inserting
-    a comment between the relevant pragmas.
+    Parameters
+    ----------
+    node_type :
+        the IR node type (or a list of them) to attach pragmas to.
+    attach_pragma_post : bool, optional
+        look for pragmas after the node, too, and attach as ``pragma_post`` if applicable.
+
     """
 
     def __init__(self, node_type, attach_pragma_post=True):
@@ -180,8 +200,12 @@ class PragmaDetacher(Visitor):
     the tree as a whole is not modified if no pragmas are found. This means
     existing node references should remain valid.
 
-    :param node_type: the IR node type (or a list of them) to detach pragmas from.
-    :param bool detach_pragma_post: to detach ``pragma_post`` properties, if applicable.
+    Parameters
+    ----------
+    node_type :
+        the IR node type (or a list of them) to detach pragmas from.
+    detach_pragma_post : bool, optional
+        detach ``pragma_post`` properties, if applicable.
     """
 
     def __init__(self, node_type, detach_pragma_post=False):
@@ -226,23 +250,26 @@ def attach_pragmas(ir, node_type, attach_pragma_post=True):
     Find pragmas and merge them onto the given node type(s).
 
     This can be done for all IR nodes that have a ``pragma`` property
-    (:class:``Declaration``, :class:``Loop``, :class:``WhileLoop`,
-    :class:``CallStatement``).
+    (:any:`VariableDeclaration`, :any:`Loop`, :any:`WhileLoop`,
+    :any:`CallStatement`).
     Optionally, attaching pragmas after nodes as ``pragma_post`` can be
-    disabled by setting ``attach_pragma_post`` to ``False``
-    (relevant only for :class:``Loop`` and :class:``WhileLoop``).
+    disabled by setting :data:`attach_pragma_post` to `False`
+    (relevant only for :any:`Loop` and :any:`WhileLoop`).
 
-    NB: Pragmas are not discovered by :class:``FindNodes`` while attached
-    to IR nodes.
+    .. note::
+        Pragmas are not discovered by :any:`FindNodes` while attached to IR nodes.
 
-    This is implemented using :class:``PragmaAttacher``. Therefore, the IR
+    This is implemented using :any:`PragmaAttacher`. Therefore, the IR
     is not rebuilt but updated and existing references should remain valid.
 
-    :param ir:
-        the intermediate representation in which pragmas are to be attached.
-    :param node_type:
-        the (list of) :class:``ir.Node`` types pragmas should be attached to.
-    :param bool attach_pragma_post:
+    Parameters
+    ----------
+    ir : :any:`Node`
+        the root of (a section of the) intermediate representation in which
+        pragmas are to be attached.
+    node_type : list
+        the (list of) :any:`ir.Node` types pragmas should be attached to.
+    attach_pragma_post : bool, optional
         process ``pragma_post`` attachments.
     """
     return PragmaAttacher(node_type, attach_pragma_post=attach_pragma_post).visit(ir)
@@ -250,24 +277,27 @@ def attach_pragmas(ir, node_type, attach_pragma_post=True):
 
 def detach_pragmas(ir, node_type, detach_pragma_post=True):
     """
-    Revert the inlining of pragmas, e.g. as done by ``inline_pragmas``.
+    Revert the inlining of pragmas, e.g. as done by :any:`inline_pragmas`.
 
     This can be done for all IR nodes that have a ``pragma`` property
     (:class:``Declaration``, :class:``Loop``, :class:``WhileLoop`,
     :class:``CallStatement``).
     Optionally, detaching of pragmas after nodes (for nodes with a
     ``pragma_post`` property) can be disabled by setting
-    ``detach_pragma_post`` to ``False`` (relevant only for :class:``Loop``
-    and :class:``WhileLoop``).
+    :data:`detach_pragma_post` to `False` (relevant only for :any:`Loop`
+    and :any:`WhileLoop`).
 
-    This is implemented using :class:``PragmaDetacher``. Therefore, the IR
+    This is implemented using :any:`PragmaDetacher`. Therefore, the IR
     is not rebuilt but updated and existing references should remain valid.
 
-    :param ir:
-        the intermediate representation in which pragmas are to be detached.
-    :param node_type:
-        the (list of) :class:``ir.Node`` types pragmas should be detached from.
-    :param bool detach_pragma_post:
+    Parameters
+    ----------
+    ir : :any:`Node`
+        the root node of the (section of the) intermediate representation
+        in which pragmas are to be detached.
+    node_type :
+        the (list of) :any:`ir.Node` types that pragmas should be detached from.
+    detach_pragma_post: bool, optional
         process ``pragma_post`` attachments.
     """
     return PragmaDetacher(node_type, detach_pragma_post=detach_pragma_post).visit(ir)
@@ -280,27 +310,28 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
     the module's or routine's IR are attached to these nodes.
 
     This can be done for all IR nodes that have a ``pragma`` property
-    (:class:``Declaration``, :class:``Loop``, :class:``WhileLoop`,
-    :class:``CallStatement``). Inside the created context, attached pragmas
+    (:any:`Declaration`, :any:`Loop`, :any:`WhileLoop`,
+    :any:`CallStatement`). Inside the created context, attached pragmas
     are no longer standalone IR nodes but accessible via the corresponding
     node's ``pragma`` property.
 
     Pragmas after nodes are attached as ``pragma_post``, which can be disabled
-    by setting ``attach_pragma_post`` to ``False`` (for :class:``Loop`` and
-    :class:``WhileLoop``).
+    by setting :data:`attach_pragma_post` to `False` (for :any:`Loop` and
+    :any:`WhileLoop`).
 
-    NB: Pragmas are not discovered by :class:``FindNodes`` while attached
-    to IR nodes.
+    .. note::
+        Pragmas are not discovered by :any:`FindNodes` while attached to IR nodes.
 
-    NB: When leaving the context all pragmas for nodes of the given type
+    When leaving the context all pragmas for nodes of the given type
     are detached, irrespective of whether they had already been attached or not
     when entering the context.
 
-    NB: Pragma attachment is only done for the object itself (i.e. its spec and
-    body), not for any contained subroutines.
+    .. note::
+        Pragma attachment is only done for the object itself (i.e. its spec and
+        body), not for any contained subroutines.
 
-    This is implemented using :class:``PragmaAttacher`` and
-    :class:``PragmaDetacher``, respectively. Therefore, the IR is not rebuilt
+    This is implemented using :any:`PragmaAttacher` and
+    :any:`PragmaDetacher`, respectively. Therefore, the IR is not rebuilt
     but updated and existing references should remain valid when entering the
     context and stay valid beyond exiting the context.
 
@@ -318,11 +349,15 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
         loop_body = loop_of_interest.body
         # Note that loop_body.pragma == None!
 
-    :param module_or_routine: the :class:``Module`` or :class:``Subroutine`` in
-        which pragmas are to be inlined.
-    :param node_type: the (list of) :class:``ir.Node`` types pragmas should be
+    Parameters
+    ----------
+    module_or_routine : :any:`Module` or :any:`Subroutine`
+        the program unit in which pragmas are to be inlined.
+    node_type :
+        the (list of) :any:`ir.Node` types, that pragmas should be
         attached to.
-    :param bool attach_pragma_post: process ``pragma_post`` attachments.
+    attach_pragma_post : bool, optional
+        process ``pragma_post`` attachments.
     """
     if hasattr(module_or_routine, 'spec'):
         module_or_routine.spec = attach_pragmas(module_or_routine.spec, node_type,
@@ -343,7 +378,7 @@ def pragmas_attached(module_or_routine, node_type, attach_pragma_post=True):
 
 def get_matching_region_pragmas(pragmas):
     """
-    Given a list of ``Pragma`` objects return a list of matching pairs
+    Given a list of :any:`Pragma` objects return a list of matching pairs
     that define a pragma region.
 
     Matching pragma pairs are assumed to be of the form
@@ -380,11 +415,11 @@ def get_matching_region_pragmas(pragmas):
 
 def extract_pragma_region(ir, start, end):
     """
-    Create a ``PragmaRegion`` object defined by two ``Pragma`` node
-    objects ``start`` and ``end``.
+    Create a :any:`PragmaRegion` object defined by two :any:`Pragma` node
+    objects :data:`start` and :data:`end`.
 
-    The resulting ``PragmaRegion`` object will be inserted into the
-    ``ir`` tree without rebuilding any IR nodes via ``Transformer(...,
+    The resulting :any:`PragmaRegion` object will be inserted into the
+    :data:`ir` tree without rebuilding any IR nodes via ``Transformer(...,
     inplace=True)``.
     """
     assert isinstance(start, Pragma)
@@ -408,13 +443,13 @@ def extract_pragma_region(ir, start, end):
 
 def attach_pragma_regions(ir):
     """
-    Create ``PragmaRegion`` node objects for all matching pairs of
+    Create :any:`PragmaRegion` node objects for all matching pairs of
     region pragmas.
 
     Matching pragma pairs are assumed to be of the form
     ``!$<keyword> <marker>`` and ``!$<keyword> end <marker>``.
 
-    The defining ``Pragma`` nodes are accessible via the ``pragma``
+    The defining :any:`Pragma` nodes are accessible via the ``pragma``
     and ``pragma_post`` attributes of the region object. Insertion
     is performed in-place, without rebuilding any IR nodes.
     """
@@ -425,9 +460,9 @@ def attach_pragma_regions(ir):
 
 def detach_pragma_regions(ir):
     """
-    Remove any ``PragmaRegion`` node objects and replace with with a
+    Remove any :any:`PragmaRegion` node objects and replace each with a
     tuple of ``(r.pragma, r.body, r.pragma_post)``, where ``r`` is the
-    ``PragmaRegion`` node object.
+    :any:`PragmaRegion` node object.
 
     All replacements are performed in-place, without rebuilding any IR
     nodes.
@@ -440,7 +475,7 @@ def detach_pragma_regions(ir):
 @contextmanager
 def pragma_regions_attached(module_or_routine):
     """
-    Create a context in which ``PragmaRegion`` node objects are
+    Create a context in which :any:`PragmaRegion` node objects are
     inserted into the IR to define code regions marked by matching
     pairs of pragmas.
 
@@ -451,14 +486,14 @@ def pragma_regions_attached(module_or_routine):
     be used to select code regions marked by pragma pairs as node
     objects.
 
-    The defining ``Pragma`` nodes are accessible via the ``pragma``
+    The defining :any:`Pragma` nodes are accessible via the ``pragma``
     and ``pragma_post`` attributes of the region object. Importantly,
-    Pragmas are not discovered by :class:``FindNodes`` while attached
+    Pragmas are not discovered by :any:`FindNodes` while attached
     to IR nodes.
 
-    When leaving the context all ``PragmaRegion`` objects are replaced
+    When leaving the context all :any:`PragmaRegion` objects are replaced
     with a tuple of ``(r.pragma, r.body, r.pragma_post)``, where ``r``
-    is the ``PragmaRegion`` node object.
+    is the :any:`PragmaRegion` node object.
 
     Throughout the setup and teardown of the context IR nodes are only
     updated, never rebuild, meaning node mappings from inside the
@@ -473,8 +508,10 @@ def pragma_regions_attached(module_or_routine):
                 if is_loki_pragma(region.pragma, starts_with='foobar'):
                     <transform code in region.body>
 
-    :param module_or_routine: the :class:``Module`` or :class:``Subroutine`` in
-        which ``PragmaRegion`` objects are to be inserted.
+    Parameters
+    ----------
+    module_or_routine : :any:`Module` or :any:`Subroutine` in
+        which :any:`PragmaRegion` objects are to be inserted.
     """
     if hasattr(module_or_routine, 'spec'):
         module_or_routine.spec = attach_pragma_regions(module_or_routine.spec)

@@ -239,7 +239,7 @@ class MaxjCodegen(Stringifier):
         comments = self.visit_all(o.comments, **kwargs)
         return self.join_lines(*comments)
 
-    def visit_Declaration(self, o, **kwargs):
+    def visit_VariableDeclaration(self, o, **kwargs):
         """
         Format declaration as
           <type> <name> = <initial>
@@ -256,7 +256,7 @@ class MaxjCodegen(Stringifier):
                 return self.format_line(var_type, ' ', var_name, ' = ', initial, ';')
             return self.format_line(var_type, ' ', var_name, ';')
 
-        declarations = [format_declaration(var) for var in o.variables
+        declarations = [format_declaration(var) for var in o.symbols
                         if not var.type.intent or var.type.dfevar]
         return self.join_lines(comment, *declarations)
 

@@ -7,8 +7,8 @@ from loki.visitors import (
     Transformer, NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 )
 from loki.ir import (
-    Assignment, Comment, CommentBlock, Declaration, Loop, Intrinsic, Pragma,
-    StatementFunction
+    Assignment, Comment, CommentBlock, VariableDeclaration,
+    Loop, Intrinsic, Pragma, StatementFunction
 )
 from loki.expression import Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
 from loki.types import ProcedureType, SymbolAttributes
@@ -46,7 +46,7 @@ def inline_comments(ir):
     Identify inline comments and merge them onto statements
     """
     pairs = PatternFinder(pattern=(Assignment, Comment)).visit(ir)
-    pairs += PatternFinder(pattern=(Declaration, Comment)).visit(ir)
+    pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(ir)
     mapper = {}
     for pair in pairs:
         # Comment is in-line and can be merged

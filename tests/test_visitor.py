@@ -487,16 +487,16 @@ END MODULE some_mod
     ref_lines = [
         "<Module:: some_mod>",  # l. 1
         "#<Section::>",
-        "##<Declaration:: n>",
+        "##<VariableDeclaration:: n>",
         "##<Pragma:: loki dimension(klon)>",
-        "##<Declaration:: arr(:)>",
+        "##<VariableDeclaration:: arr(:)>",
         "#<Subroutine:: some_routine>",
         "##<Comment:: ! This is a b...>",
         "##<Section::>",
         "###<Intrinsic:: IMPLICIT NONE>",
-        "###<Declaration:: x>",  # l. 10
-        "###<Declaration:: y>",
-        "###<Declaration:: i>",
+        "###<VariableDeclaration:: x>",  # l. 10
+        "###<VariableDeclaration:: y>",
+        "###<VariableDeclaration:: i>",
         "##<Section::>",
         "###<Comment:: ! And now to ...>",
         "###<Conditional::>",
@@ -517,16 +517,16 @@ END MODULE some_mod
         "#<Function:: my_sqrt>", # l. 30
         "##<Section::>",
         "###<Intrinsic:: IMPLICIT NONE>",
-        "###<Declaration:: arg>",
-        "###<Declaration:: my_sqrt>",
+        "###<VariableDeclaration:: arg>",
+        "###<VariableDeclaration:: my_sqrt>",
         "##<Section::>",
         "###<Assignment:: my_sqrt = SQRT(arg)>",
         "#<Subroutine:: other_routine>",
         "##<CommentBlock:: ! This is jus...>",
         "##<Section::>",
         "###<Intrinsic:: IMPLICIT NONE>",  # l. 40
-        "###<Declaration:: m>",
-        "###<Declaration:: var(:)>",
+        "###<VariableDeclaration:: m>",
+        "###<VariableDeclaration:: var(:)>",
         "##<Section::>",
         "###<Pragma:: loki some pragma>",
         "###<MultiConditional:: m>",
