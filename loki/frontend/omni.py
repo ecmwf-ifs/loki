@@ -297,8 +297,10 @@ class OMNI2IR(GenericVisitor):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(ir.VariableDeclaration).visit(routine.spec)
-                      if d.symbols[0].name == name}
+            mapper = {
+                d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(routine.spec)
+                if name in d.symbols
+            }
             routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
 
         return routine
@@ -348,21 +350,19 @@ class OMNI2IR(GenericVisitor):
                 variable = variable.clone(dimensions=dimensions)
 
             if isinstance(_type.dtype, ProcedureType):
-                return_type = tast.attrib.get('return_type')
-                if return_type in ('Fvoid', None):
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(variable.name, is_function=False)
-                else:
-                    return_type = self.type_from_type_attrib(return_type, **kwargs)
-                    dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
-                _type = _type.clone(dtype=dtype)
+                if _type.dtype.name == 'UNKNOWN':
+                    # _Probably_ a declaration with implicit interface
+                    dtype = ProcedureType(
+                        variable.name, is_function=_type.dtype.is_function, return_type=_type.dtype.return_type
+                    )
+                    _type = _type.clone(dtype=dtype)
 
                 if tast.attrib.get('is_external') == 'true':
                     _type.external = True
-                elif variable == kwargs['scope'].name:
+                elif variable == kwargs['scope'].name and _type.dtype.return_type is not None:
                     # This is the declaration of the return type inside a function, which is
                     # why we restore the return_type
-                    _type = return_type
+                    _type = _type.dtype.return_type
 
         else:
             raise ValueError
@@ -374,11 +374,18 @@ class OMNI2IR(GenericVisitor):
             _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
         scope.symbol_attrs[variable.name] = _type
-        variables = (variable.rescope(scope=scope),)
+        variable = variable.rescope(scope=scope)
+
         if isinstance(_type.dtype, ProcedureType):
             # This is actually a function or subroutine (EXTERNAL or PROCEDURE declaration)
-            return ir.ProcedureDeclaration(symbols=variables, external=True, source=kwargs['source'])
-        return ir.VariableDeclaration(symbols=variables, source=kwargs['source'])
+            if _type.external:
+                return ir.ProcedureDeclaration(symbols=(variable,), external=True, source=kwargs['source'])
+            if _type.dtype.name == variable and _type.dtype.is_function:
+                return ir.ProcedureDeclaration(symbols=(variable,), interface=_type.dtype.return_type.dtype, source=kwargs['source'])
+            interface = sym.Variable(name=_type.dtype.name, scope=scope.get_symbol_scope(_type.dtype.name))
+            return ir.ProcedureDeclaration(symbols=(variable,), interface=interface, source=kwargs['source'])
+
+        return ir.VariableDeclaration(symbols=(variable,), source=kwargs['source'])
 
     def visit_FstructDecl(self, o, **kwargs):
         name = o.find('name')
@@ -419,7 +426,12 @@ class OMNI2IR(GenericVisitor):
             variables = self.visit(struct_type.find('symbols'), **kwargs)
             for v in variables:
                 if isinstance(v.type.dtype, ProcedureType):
-                    body += [ir.ProcedureDeclaration(symbols=(v,))]
+                    if v.type.dtype.name == v and v.type.dtype.is_function:
+                        interface = v.type.dtype.return_type
+                    else:
+                        iface_name = v.type.dtype.name
+                        interface = sym.Variable(name=iface_name, scope=kwargs['scope'].get_symbol_scope(iface_name))
+                    body += [ir.ProcedureDeclaration(symbols=(v,), interface=interface)]
                 else:
                     body += [ir.VariableDeclaration(symbols=(v,))]
 
@@ -570,7 +582,10 @@ class OMNI2IR(GenericVisitor):
                     length = self.visit(length, **kwargs)
             _type = SymbolAttributes(dtype, kind=kind, length=length)
         elif ref in self.type_map:
-            _type = self.visit(self.type_map[ref], **kwargs)
+            if o.find('name') is not None:
+                _type = self.visit(self.type_map[ref], name=o.find('name').text, **kwargs)
+            else:
+                _type = self.visit(self.type_map[ref], **kwargs)
             if o.attrib.get('is_class') == 'true':
                 _type = _type.clone(polymorphic=True)
         elif ref == 'FnumericAll':
@@ -583,17 +598,24 @@ class OMNI2IR(GenericVisitor):
             _type.shape = tuple(self.visit(s, **kwargs) for s in shape)
 
         # OMNI types are build recursively from references (Matroshka-style)
-        _type.intent = o.attrib.get('intent', None)
-        _type.allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
-        _type.pointer = o.attrib.get('is_pointer', 'false') == 'true'
-        _type.optional = o.attrib.get('is_optional', 'false') == 'true'
-        _type.parameter = o.attrib.get('is_parameter', 'false') == 'true'
-        _type.target = o.attrib.get('is_target', 'false') == 'true'
-        _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
-        if 'is_private' in o.attrib:
-            _type.private = o.attrib.get('is_private', 'false') == 'true'
-        if 'is_public' in o.attrib:
-            _type.public = o.attrib.get('is_public', 'false') == 'true'
+        if o.get('intent') is not None:
+            _type.intent = o.get('intent')
+        if o.get('is_allocatable') == 'true':
+            _type.allocatable = True
+        if o.get('is_pointer') == 'true':
+            _type.pointer = True
+        if o.get('is_optional') == 'true':
+            _type.optional = True
+        if o.get('is_parameter') == 'true':
+            _type.parameter = True
+        if o.get('is_target') == 'true':
+            _type.target = True
+        if o.get('is_contiguous') == 'true':
+            _type.contiguous = True
+        if o.get('is_private') == 'true':
+            _type.private = True
+        if o.get('is_public') == 'true':
+            _type.public = True
         return _type
 
     def visit_FfunctionType(self, o, **kwargs):
@@ -606,8 +628,11 @@ class OMNI2IR(GenericVisitor):
         else:
             raise ValueError
 
-        # OMNI doesn't give us the function name at this point
-        dtype = ProcedureType('UNKNOWN', is_function=return_type is not None, return_type=return_type)
+        if o.attrib['type'] in self.symbol_map:
+            name = self.symbol_map[o.attrib['type']].find('name').text
+        else:
+            name = kwargs.get('name', 'UNKNOWN')
+        dtype = ProcedureType(name, is_function=return_type is not None, return_type=return_type)
         return SymbolAttributes(dtype)
 
     def visit_FstructType(self, o, **kwargs):

@@ -235,8 +235,10 @@ class Subroutine(Scope):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(VariableDeclaration).visit(spec)
-                      if d.symbols[0].name == name}
+            mapper = {
+                d: None for d in FindNodes((ProcedureDeclaration, VariableDeclaration)).visit(spec)
+                if name in d.symbols
+            }
             spec = Transformer(mapper, invalidate_source=False).visit(spec)
 
         # Hack: We remove comments from the beginning of the spec to get the docstring

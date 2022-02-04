@@ -1098,7 +1098,7 @@ class ProcedureDeclaration(LeafNode):
     ----------
     symbols : tuple of :any:`pymbolic.primitives.Expression`
         The list of procedure symbols declared by this declaration.
-    interface : :any:`pymbolic.primitves.Expression`, optional
+    interface : :any:`pymbolic.primitves.Expression` or :any:`DataType`, optional
         The procedure interface of the declared procedure entity names.
     external : bool, optional
         This is a Fortran ``EXTERNAL`` declaration.
@@ -1129,7 +1129,7 @@ class ProcedureDeclaration(LeafNode):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
-        assert interface is None or isinstance(interface, Expression)
+        assert interface is None or isinstance(interface, (Expression, DataType))
 
         self.symbols = as_tuple(symbols)
         self.interface = interface

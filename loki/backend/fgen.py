@@ -5,7 +5,7 @@ from pymbolic.mapper.stringifier import (
 from loki.visitors import Stringifier
 from loki.tools import as_tuple, JoinableStringList
 from loki.expression import LokiStringifyMapper
-from loki.types import BasicType, DerivedType, ProcedureType
+from loki.types import DataType, BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters
 
 
@@ -342,7 +342,9 @@ class FortranCodegen(Stringifier):
         ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
         assert all(isinstance(t.dtype, ProcedureType) for t in types)
         assert all(t.compare(types[0], ignore=ignore) for t in types)
-        if o.interface is not None:
+        if isinstance(o.interface, DataType):
+            assert all(t.dtype.return_type.dtype == o.interface for t in types)
+        elif o.interface is not None:
             assert all(t.dtype.name == o.interface for t in types)
 
         if o.external:
@@ -710,9 +712,6 @@ class FortranCodegen(Stringifier):
           <typename>[(<spec>)] [, <attributes>]
         """
         attributes = []
-        type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
-                    BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
-                    BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
 
         if isinstance(o.dtype, ProcedureType):
             typename = ''
@@ -722,7 +721,7 @@ class FortranCodegen(Stringifier):
             else:
                 typename = f'TYPE({o.dtype.name})'
         else:
-            typename = type_map[o.dtype]
+            typename = self.visit(o.dtype)
 
         selector = []
         if o.length:
@@ -803,6 +802,12 @@ class FortranCodegen(Stringifier):
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
         return self.join_lines(header, body, footer)
+
+    def visit_BasicType(self, o, **kwargs):
+        type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
+                    BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
+                    BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
+        return type_map[o]
 
     def visit_DerivedType(self, o, **kwargs):
         return o.name

@@ -549,16 +549,37 @@ class OFP2IR(GenericVisitor):
 
     def visit_procedures(self, o, **kwargs):
         count = int(o.attrib['count'])
-        return self.visit(o.findall('procedure')[:count], **kwargs)
+        nodes = [self.visit(c, **kwargs) for c in o]
+        nodes = [c for c in nodes if c is not None]
+        symbols = []
+        initial = None
+        for c in nodes:
+            if not isinstance(c, sym.TypedSymbol):
+                assert initial is None
+                initial = c
+            else:
+                if initial is not None:
+                    symbols += [c.clone(type=c.type.clone(initial=initial))]
+                    initial = None
+                else:
+                    symbols += [c]
+        assert initial is None
+        assert len(symbols) == count
+        return symbols
 
     def visit_procedure(self, o, **kwargs):
         var = self.visit(o.find('proc-decl'), **kwargs)
         return var
 
+    def visit_null_init(self, o, **kwargs):
+        name = sym.Variable(name='NULL')
+        return sym.InlineCall(name, parameters=(), source=kwargs['source'])
+
     visit_proc_decl = visit_entity_decl
     visit_proc_interface = visit_entity_decl
 
     def visit_specific_binding(self, o, **kwargs):
+        # pylint: disable=no-member  # There is no Variable.member but Variable is a factory
         scope = kwargs['scope']
         attrs = kwargs.pop('attrs')
 
@@ -727,42 +748,70 @@ class OFP2IR(GenericVisitor):
             if o.find('private-components-stmt') is not None:
                 body.append(self.visit(o.find('private-components-stmt'), **kwargs))
 
-            # This is still ugly, but better than before! In order to
-            # process certain tag combinations (groups) into declaration
-            # objects, we first group them in place, while also allowing
-            # comments/pragmas through here. We then explicitly process
-            # them into the intended nodes in the order we found them.
-            grouped_elems = match_tag_sequence(o, [
-                ('type', 'attributes', 'components'),
-                ('type', 'components'),
-                ('comment', ),
-            ])
-
-            for group in grouped_elems:
-                if len(group) == 1:
-                    # Process indidividual comments/pragmas
-                    body.append(self.visit(group[0], **kwargs))
-
-                elif len(group) == 2:
-                    # Process declarations without attributes
-                    decl = self.create_typedef_declaration(t=group[0], comps=group[1],
-                                                           scope=typedef, source=source)
-                    body.append(decl)
-
-                elif len(group) == 3:
-                    # Process declarations with attributes
-                    decl = self.create_typedef_declaration(t=group[0], attr=group[1], comps=group[2],
-                                                           scope=typedef, source=source)
-                    body.append(decl)
-
-                else:
-                    raise RuntimeError("OFP: Unknown tag grouping in TypeDef declaration processing")
+            # Less pretty than before but due to variable components being grouped
+            # and procedure components not, we have to step through children and
+            # collect type, attributes, etc. along the way.
 
             contains_stmt = o.find('contains-stmt')
             if contains_stmt is not None:
+                contains_idx = list(o).index(contains_stmt)
+            else:
+                contains_idx = len(list(o))
+
+            # For variable declarations
+            t = None
+            attr = None
+
+            # For procedure declarations
+            iface = None
+            proc_attrs = []
+
+            for c in o[:contains_idx]:
+                # Variable declarations
+                if c.tag == 'type':
+                    assert iface is None and not proc_attrs
+                    t = c
+                elif c.tag == 'attributes':
+                    assert iface is None and not proc_attrs
+                    attr = c
+                elif c.tag == 'components':
+                    assert iface is None and not proc_attrs
+                    decl = self.create_typedef_variable_declaration(
+                        t=t, comps=c, attr=attr, scope=typedef, source=source
+                    )
+                    body.append(decl)
+                    t = None
+                    attr = None
+
+                # Procedure declarations
+                elif c.tag == 'proc-interface':
+                    assert t is None and attr is None
+                    iface = c
+                elif c.tag == 'proc-component-attr-spec':
+                    assert t is None and attr is None
+                    proc_attrs += [c]
+                elif c.tag == 'procedures':
+                    assert t is None and attr is None
+                    decl = self.create_typedef_procedure_declaration(
+                        iface=iface, comps=c, attrs=proc_attrs, scope=typedef, source=source
+                    )
+                    body.append(decl)
+                    iface = None
+                    proc_attrs = []
+
+                elif c.tag in ('comment',):  # Add here other node types. Unfortunately we can't allow all 
+                                             # because some produce spurious nodes that have been dealt with before
+                    node = self.visit(c, **kwargs)
+                    if node is not None:
+                        body += [node]
+
+            assert t is None and attr is None
+            assert iface is None and not proc_attrs
+
+            if contains_stmt is not None:
                 # The derived type contains type-bound procedures
                 body.append(self.visit(contains_stmt, **kwargs))
-                start_idx = list(o).index(contains_stmt)
+                start_idx = contains_idx
 
                 # Once again, this is _hell_ with OFP because binding attributes are not
                 # grouped (like they are for components) and therefore we have to step through
@@ -938,6 +987,12 @@ class OFP2IR(GenericVisitor):
                 self.warn_or_fail('No type or proc-interface given')
                 _type = SymbolAttributes(BasicType.DEFERRED)
 
+            if o.find('proc-attr-spec') is not None:
+                # Apparently, the POINTER attribute doesn't show up explicitly anywhere,
+                # but a proc-attr-spec node seems to be always present when a declaration
+                # carries the POINTER attribute...
+                _type = _type.clone(pointer=True)
+
             _type = _type.clone(**attrs)
 
             # Build the declared symbols
@@ -950,6 +1005,8 @@ class OFP2IR(GenericVisitor):
                 # This is (presumably!) an external or dummy function with implicit interface,
                 # which is declared as `PROCEDURE(<return_type>) [::] <name>`. Easy, isn't it...?
                 # Great, now we have to update each symbol's type one-by-one...
+                assert o.find('procedure-declaration-stmt').get('hasProcInterface')
+                interface = _type.dtype
                 for var in symbols:
                     dtype = ProcedureType(var.name, is_function=True, return_type=_type)
                     scope.symbol_attrs[var.name] = var.type.clone(dtype=dtype)
@@ -1473,7 +1530,33 @@ class OFP2IR(GenericVisitor):
     def visit_operator(self, o, **kwargs):
         return o.attrib['operator']
 
-    def create_typedef_declaration(self, t, comps, attr=None, scope=None, source=None):
+    def create_typedef_procedure_declaration(self, comps, iface=None, attrs=None, scope=None, source=None):
+        """
+        Utility method to create individual declarations from a group of AST nodes.
+        """
+        if iface is not None:
+            iface = self.visit(iface, scope=scope)
+            iface = AttachScopesMapper()(iface, scope=scope)
+
+        if attrs is not None:
+            attrs = [a.get('attrSpecKeyword').upper() for a in attrs]
+        else:
+            attrs = []
+
+        type_attrs = {
+            'pointer': 'POINTER' in attrs,
+        }
+
+        if iface:
+            type_attrs['dtype'] = iface.type.dtype
+
+        symbols = self.visit(comps, scope=scope, source=source)
+        scope.symbol_attrs.update({s.name: s.type.clone(**type_attrs) for s in symbols})
+        symbols = tuple(s.rescope(scope=scope) for s in symbols)
+        return ir.ProcedureDeclaration(symbols=symbols, interface=iface, source=source)
+
+
+    def create_typedef_variable_declaration(self, t, comps, attr=None, scope=None, source=None):
         """
         Utility method to create individual declarations from a group of AST nodes.
         """
@@ -1486,7 +1569,7 @@ class OFP2IR(GenericVisitor):
             'pointer': 'POINTER' in attrs,
             'allocatable': 'ALLOCATABLE' in attrs,
         }
-        stype = self.visit(t).clone(**type_attrs)
+        stype = self.visit(t, scope=scope).clone(**type_attrs)
 
         # Derive variables for this declaration entry
         variables = []
@@ -1499,16 +1582,29 @@ class OFP2IR(GenericVisitor):
                 deferred_shape = attrib.find('deferred-shape-spec-list')
             else:
                 deferred_shape = v.find('deferred-shape-spec-list')
+
+            initial = None
+            dimensions = []
+
+            v_children = list(v)
+            if v.get('hasInitialComponentValue') == 'true':
+                init_idx = v_children.index(v.find('component-initialization'))
+                initial = self.visit(v_children[init_idx-1], scope=scope)
+                initial = AttachScopesMapper()(initial, scope=scope)
+                v_children = v_children[:init_idx-1] + v_children[init_idx+1:]
+
             if deferred_shape is not None:
                 dim_count = int(deferred_shape.attrib['count'])
                 dimensions = [sym.RangeIndex((None, None, None), source=source)
                               for _ in range(dim_count)]
             else:
-                dimensions = as_tuple(self.visit(c) for c in v)
-            dimensions = as_tuple(d for d in dimensions if d is not None)
-            dimensions = dimensions if len(dimensions) > 0 else None
+                dimensions = as_tuple(self.visit(c, scope=scope) for c in v_children)
+            dimensions = as_tuple(
+                AttachScopesMapper()(d, scope=scope) for d in dimensions if d is not None
+            ) or None
+
             v_source = extract_source(v.attrib, self._raw_source)
-            v_type = stype.clone(shape=dimensions)
+            v_type = stype.clone(shape=dimensions, initial=initial)
             v_name = v.attrib['name']
 
             scope.symbol_attrs[v_name] = v_type

@@ -1145,30 +1145,6 @@ end subroutine routine_call_external_stmt
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_contiguous(here, frontend):
-    """
-    Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
-    all frontends).
-    """
-    fcode = """
-subroutine routine_contiguous(vec)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  real(kind=jprb), pointer, contiguous :: vec(:)
-
-  vec(:) = 2.
-end subroutine routine_contiguous
-    """
-    # We need to write this one to file as OFP has to preprocess the file
-    filepath = here/(f'routine_contiguous_{frontend}.f90')
-    Sourcefile.to_file(fcode, filepath)
-
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
-    assert len(routine.arguments) == 1
-    assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
-    filepath.unlink()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_interface(here, frontend):
     """
     Test auto-generation of an interface block for a given subroutine.

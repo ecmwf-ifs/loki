@@ -856,7 +856,7 @@ class FParser2IR(GenericVisitor):
             interface = AttachScopesMapper()(interface, scope=scope)
             _type = interface.type.clone(**attrs)
         else:
-            interface = None
+            interface = return_type.dtype
             _type = SymbolAttributes(BasicType.DEFERRED, **attrs)
 
         # Make sure any "initial" symbol (i.e. the procedure we're binding to) is in the right scope
@@ -873,7 +873,9 @@ class FParser2IR(GenericVisitor):
                 scope.symbol_attrs[var.name] = _type.clone(dtype=dtype)
 
         symbols = tuple(var.rescope(scope=scope) for var in symbols)
-        return ir.ProcedureDeclaration(symbols=symbols, source=kwargs.get('source'), label=kwargs.get('label'))
+        return ir.ProcedureDeclaration(
+            symbols=symbols, interface=interface, source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     visit_Proc_Attr_Spec_List = visit_List
 
