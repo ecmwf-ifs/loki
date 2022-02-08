@@ -598,7 +598,7 @@ class Interface(InternalNode):
     abstract : bool, optional
         Flag to indicate that this is an abstract interface
     spec : str, optional
-        A generic name, operator, assignment, or I/O specification 
+        A generic name, operator, assignment, or I/O specification
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """

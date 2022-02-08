@@ -799,7 +799,7 @@ class OFP2IR(GenericVisitor):
                     iface = None
                     proc_attrs = []
 
-                elif c.tag in ('comment',):  # Add here other node types. Unfortunately we can't allow all 
+                elif c.tag in ('comment',):  # Add here other node types. Unfortunately we can't allow all
                                              # because some produce spurious nodes that have been dealt with before
                     node = self.visit(c, **kwargs)
                     if node is not None:

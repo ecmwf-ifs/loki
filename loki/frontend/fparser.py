@@ -552,7 +552,9 @@ class FParser2IR(GenericVisitor):
                 return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
                 external_type = scope.symbol_attrs.lookup(var.name)
                 if external_type is None:
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=return_type is not None, return_type=return_type)
+                    type_kwargs['dtype'] = ProcedureType(
+                        var.name, is_function=return_type is not None, return_type=return_type
+                    )
                 else:
                     type_kwargs['dtype'] = external_type.dtype
                 scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)

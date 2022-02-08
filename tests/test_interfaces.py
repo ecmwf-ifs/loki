@@ -261,7 +261,7 @@ end module interface_generic_spec_mod
 
     if frontend == OMNI:
         # FANTASTIC... OMNI helps us to a treat and separates the subroutine interfaces
-        # from the generic interface... 
+        # from the generic interface...
         assert len(module.interfaces) == 4
     else:
         assert len(module.interfaces) == 1

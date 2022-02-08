@@ -381,7 +381,9 @@ class OMNI2IR(GenericVisitor):
             if _type.external:
                 return ir.ProcedureDeclaration(symbols=(variable,), external=True, source=kwargs['source'])
             if _type.dtype.name == variable and _type.dtype.is_function:
-                return ir.ProcedureDeclaration(symbols=(variable,), interface=_type.dtype.return_type.dtype, source=kwargs['source'])
+                return ir.ProcedureDeclaration(
+                    symbols=(variable,), interface=_type.dtype.return_type.dtype, source=kwargs['source']
+                )
             interface = sym.Variable(name=_type.dtype.name, scope=scope.get_symbol_scope(_type.dtype.name))
             return ir.ProcedureDeclaration(symbols=(variable,), interface=interface, source=kwargs['source'])
 
