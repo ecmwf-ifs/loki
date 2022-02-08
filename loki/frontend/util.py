@@ -7,7 +7,7 @@ from loki.visitors import (
     Transformer, NestedTransformer, FindNodes, PatternFinder, SequenceFinder
 )
 from loki.ir import (
-    Assignment, Comment, CommentBlock, VariableDeclaration,
+    Assignment, Comment, CommentBlock, VariableDeclaration, ProcedureDeclaration,
     Loop, Intrinsic, Pragma, StatementFunction
 )
 from loki.expression import Scalar, Array, InlineCall, FindVariables, ProcedureSymbol
@@ -47,6 +47,7 @@ def inline_comments(ir):
     """
     pairs = PatternFinder(pattern=(Assignment, Comment)).visit(ir)
     pairs += PatternFinder(pattern=(VariableDeclaration, Comment)).visit(ir)
+    pairs += PatternFinder(pattern=(ProcedureDeclaration, Comment)).visit(ir)
     mapper = {}
     for pair in pairs:
         # Comment is in-line and can be merged
@@ -201,7 +202,7 @@ def inject_statement_functions(routine):
         procedure_query = lambda x: [f for f in FindNodes(StatementFunction).visit(x.spec)
                                         if f.variable == str(stmt_func.variable)][0]
         procedure = LazyNodeLookup(routine, procedure_query)
-        return SymbolAttributes(ProcedureType(is_function=True, procedure=procedure))
+        return SymbolAttributes(ProcedureType(is_function=True, procedure=procedure), is_stmt_func=True)
 
     # Only locally declared scalar variables are potential candidates
     candidates = [str(v).lower() for v in routine.variables if isinstance(v, Scalar)]

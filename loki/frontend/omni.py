@@ -119,7 +119,7 @@ class OMNI2IR(GenericVisitor):
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
         self.type_map = type_map
         self.symbol_map = symbol_map
-        self.raw_source = raw_source
+        self.raw_source = raw_source.splitlines(keepends=True)
         self.default_scope = scope
 
     @staticmethod
@@ -129,31 +129,22 @@ class OMNI2IR(GenericVisitor):
             raise NotImplementedError
         warning(msg)
 
-    def _struct_type_variables(self, o, scope, parent=None, **kwargs):
+    def type_from_type_attrib(self, type_attrib, **kwargs):
         """
-        Helper routine to build the list of variables for a `FstructType` node
+        Helper routine to derive :any:`SymbolAttributes` for a given type name/hash/id
         """
-        variables = []
-        for s in o.find('symbols'):
-            vname = s.find('name').text
-            if parent is not None:
-                vname = f'{parent}%%{vname}'
-            dimensions = None
-
-            t = s.attrib['type']
-            if t in self.type_map:
-                vtype = self.visit(self.type_map[t], **kwargs)
-                dims = self.type_map[t].findall('indexRange')
-                if dims:
-                    dimensions = as_tuple(self.visit(d, **kwargs) for d in dims)
-                    vtype = vtype.clone(shape=dimensions)
-            else:
-                typename = self._omni_types.get(t, t)
-                vtype = SymbolAttributes(BasicType.from_fortran_type(typename))
-
-            variables += [
-                sym.Variable(name=vname, dimensions=dimensions, type=vtype, scope=scope, source=kwargs['source'])]
-        return variables
+        if type_attrib in self._omni_types:
+            typename = self._omni_types[type_attrib]
+            _type = SymbolAttributes(BasicType.from_fortran_type(typename))
+        elif type_attrib in self.type_map:
+            _type = self.visit(self.type_map[type_attrib], **kwargs)
+            dims = self.type_map[type_attrib].findall('indexRange')
+            if dims:
+                dimensions = as_tuple(self.visit(d, **kwargs) for d in dims)
+                _type = _type.clone(shape=dimensions)
+        else:
+            _type = SymbolAttributes(BasicType.from_fortran_type(type_attrib))
+        return _type
 
     def lookup_method(self, instance):
         """
@@ -172,7 +163,12 @@ class OMNI2IR(GenericVisitor):
         lineno = o.attrib.get('lineno', None)
         if lineno:
             lineno = int(lineno)
-        kwargs['source'] = Source(lines=(lineno, lineno), file=file)
+            lines = (lineno, lineno)
+            string = self.raw_source[lineno-1]
+        else:
+            lines = (None, None)
+            string = None
+        kwargs['source'] = Source(lines=lines, string=string, file=file)
         kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
 
@@ -249,20 +245,39 @@ class OMNI2IR(GenericVisitor):
         return ir.Import(module=name, symbols=symbols, nature=nature, c_import=False, source=kwargs['source'])
 
     def visit_renamable(self, o, **kwargs):
+        name = o.attrib['use_name']
+        if o.attrib.get('is_operator') == 'true':
+            if name == '=':
+                name = 'ASSIGNMENT(=)'
+            else:
+                name = f'OPERATOR({name})'
+
         if o.attrib.get('local_name'):
-            return (o.attrib['use_name'], sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
-        return sym.Variable(name=o.attrib['use_name'], source=kwargs['source'])
+            return (name, sym.Variable(name=o.attrib['local_name'], source=kwargs['source']))
+        return sym.Variable(name=name, source=kwargs['source'])
 
     visit_rename = visit_renamable
 
     def visit_FinterfaceDecl(self, o, **kwargs):
-        # TODO: We can only deal with interface blocks partially
-        # in the frontend, as we cannot yet create `Subroutine` objects
-        # cleanly here. So for now we skip this, but we should start
-        # moving the `Subroutine` constructors into the frontend.
-        spec = None
+        abstract = o.get('is_abstract') == 'true'
+
+        if o.get('is_assignment') == 'true':
+            name = 'ASSIGNMENT(=)'
+        elif o.get('is_operator') == 'true':
+            name = f'OPERATOR({o.get("name")})'
+        else:
+            name = o.get('name')
+
+        if name is not None:
+            scope = kwargs['scope']
+            if name not in scope.symbol_attrs:
+                scope.symbol_attrs[name] = SymbolAttributes(ProcedureType(name, is_generic=True))
+            spec = sym.Variable(name=name, scope=kwargs['scope'])
+        else:
+            spec = None
+
         body = tuple(self.visit(c, **kwargs) for c in o)
-        return ir.Interface(spec=spec, body=body, source=kwargs['source'])
+        return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
     def visit_FfunctionDecl(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
@@ -282,11 +297,18 @@ class OMNI2IR(GenericVisitor):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(ir.VariableDeclaration).visit(routine.spec)
-                      if d.symbols[0].name == name}
+            mapper = {
+                d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(routine.spec)
+                if name in d.symbols
+            }
             routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
 
         return routine
+
+    def visit_FmoduleProcedureDecl(self, o, **kwargs):
+        symbols = as_tuple(self.visit(o.find('name'), **kwargs))
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.ProcedureDeclaration(symbols=symbols, module=True, source=kwargs.get('source'))
 
     def visit_declarations(self, o, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
@@ -297,6 +319,13 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         body = tuple(c for c in body if c is not None)
         return body
+
+    def visit_FimportDecl(self, o, **kwargs):
+        symbols = [self.visit(i, **kwargs) for i in o]
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.Import(
+            module=None, symbols=symbols, f_import=True, source=kwargs['source']
+        )
 
     def visit_varDecl(self, o, **kwargs):
         # OMNI has only one variable per declaration, find and create that
@@ -321,27 +350,19 @@ class OMNI2IR(GenericVisitor):
                 variable = variable.clone(dimensions=dimensions)
 
             if isinstance(_type.dtype, ProcedureType):
-                return_type = tast.attrib['return_type']
-                if return_type != 'Fvoid':
-                    if return_type in self._omni_types:
-                        return_type = SymbolAttributes(BasicType.from_fortran_type(self._omni_types[return_type]))
-                    elif return_type in self.type_map:
-                        # Any attributes (like kind) are on the return type, therefore we
-                        # overwrite the _type here
-                        _type = self.visit(self.type_map[return_type], **kwargs)
-                        return_type = SymbolAttributes(_type.dtype)
-                    else:
-                        raise ValueError
-                    _type.dtype = ProcedureType(variable.name, is_function=True, return_type=return_type)
-                else:
-                    _type.dtype = ProcedureType(variable.name, is_function=False)
+                if _type.dtype.name == 'UNKNOWN':
+                    # _Probably_ a declaration with implicit interface
+                    dtype = ProcedureType(
+                        variable.name, is_function=_type.dtype.is_function, return_type=_type.dtype.return_type
+                    )
+                    _type = _type.clone(dtype=dtype)
 
                 if tast.attrib.get('is_external') == 'true':
                     _type.external = True
-                else:
+                elif variable == kwargs['scope'].name and _type.dtype.return_type is not None:
                     # This is the declaration of the return type inside a function, which is
-                    # why we restore the dtype from return_type
-                    _type = _type.clone(dtype=getattr(_type.dtype.return_type, 'dtype', BasicType.DEFERRED))
+                    # why we restore the return_type
+                    _type = _type.dtype.return_type
 
         else:
             raise ValueError
@@ -353,31 +374,186 @@ class OMNI2IR(GenericVisitor):
             _type = _type.clone(kind=AttachScopesMapper()(_type.kind, scope=scope))
 
         scope.symbol_attrs[variable.name] = _type
-        variables = (variable.clone(scope=scope),)
-        return ir.VariableDeclaration(symbols=variables, external=_type.external is True, source=kwargs['source'])
+        variable = variable.rescope(scope=scope)
+
+        if isinstance(_type.dtype, ProcedureType):
+            # This is actually a function or subroutine (EXTERNAL or PROCEDURE declaration)
+            if _type.external:
+                return ir.ProcedureDeclaration(symbols=(variable,), external=True, source=kwargs['source'])
+            if _type.dtype.name == variable and _type.dtype.is_function:
+                return ir.ProcedureDeclaration(
+                    symbols=(variable,), interface=_type.dtype.return_type.dtype, source=kwargs['source']
+                )
+            interface = sym.Variable(name=_type.dtype.name, scope=scope.get_symbol_scope(_type.dtype.name))
+            return ir.ProcedureDeclaration(symbols=(variable,), interface=interface, source=kwargs['source'])
+
+        return ir.VariableDeclaration(symbols=(variable,), source=kwargs['source'])
 
     def visit_FstructDecl(self, o, **kwargs):
         name = o.find('name')
+        struct_type = self.type_map[name.attrib['type']]
+
+        # Type attributes
+        abstract = struct_type.get('is_abstract') == 'true'
+        if 'extends' in struct_type.attrib:
+            base_type = self.symbol_map[struct_type.attrib['extends']]
+            extends = base_type.find('name').text
+        else:
+            extends = None
+        bind_c = struct_type.get('bind', '').lower() == 'c'
+        private = struct_type.get('is_private', '').lower() == 'true'
+        public = struct_type.get('is_public', '').lower() == 'true'
+
+        # Type Parameters
+        if struct_type.find('typeParams') is not None:
+            self.warn_or_fail('Parameterized types not implemented')
 
         # Instantiate the TypeDef without its body
         # Note: This creates the symbol table for the declarations and
         # the typedef object registers itself in the parent scope
-        typedef = ir.TypeDef(name=name.text, body=(), parent=kwargs['scope'])
+        typedef = ir.TypeDef(
+            name=name.text, body=(), abstract=abstract, extends=extends, bind_c=bind_c,
+            private=private, public=public, parent=kwargs['scope'], source=kwargs['source']
+        )
         kwargs['scope'] = typedef
 
-        # Build the list of derived type members
-        struct_type = self.type_map[name.attrib['type']]
-        variables = self._struct_type_variables(struct_type, **kwargs)
+        body = []
 
-        if 'extends' in struct_type.attrib:
-            self.warn_or_fail('extends attribute for derived types not implemented')
+        # Check if the type is marked as sequence
+        if struct_type.get('is_sequence') == 'true':
+            body += [ir.Intrinsic('SEQUENCE')]
 
-        # Build individual declarations for each member
-        declarations = as_tuple(ir.VariableDeclaration(symbols=(v, )) for v in variables)
+        # Build the list of derived type members and individual body for each
+        if struct_type.find('symbols'):
+            variables = self.visit(struct_type.find('symbols'), **kwargs)
+            for v in variables:
+                if isinstance(v.type.dtype, ProcedureType):
+                    if v.type.dtype.name == v and v.type.dtype.is_function:
+                        interface = v.type.dtype.return_type
+                    else:
+                        iface_name = v.type.dtype.name
+                        interface = sym.Variable(name=iface_name, scope=kwargs['scope'].get_symbol_scope(iface_name))
+                    body += [ir.ProcedureDeclaration(symbols=(v,), interface=interface)]
+                else:
+                    body += [ir.VariableDeclaration(symbols=(v,))]
+
+        if struct_type.find('typeBoundProcedures'):
+            # See if components are marked private
+            body += [ir.Intrinsic('CONTAINS')]
+            if struct_type.attrib.get('is_internal_private') == 'true':
+                body += [ir.Intrinsic('PRIVATE')]
+            body += self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
 
         # Finally: update the typedef with its body
-        typedef._update(body=declarations)
+        typedef._update(body=as_tuple(body))
         return typedef
+
+    def visit_symbols(self, o, **kwargs):
+        """
+        Build the list of variables for a `FstructType` node
+        """
+        variables = []
+        for s in o:
+            var = self.visit(s.find('name'), **kwargs)
+            _type = self.type_from_type_attrib(s.attrib['type'], **kwargs)
+            kwargs['scope'].symbol_attrs[var.name] = _type
+
+            if _type.shape:
+                var = var.clone(dimensions=_type.shape)
+            variables += [var.rescope(scope=kwargs['scope'])]
+        return variables
+
+    def visit_typeBoundProcedures(self, o, **kwargs):
+        procedures = []
+        for i in o:
+            proc = self.visit(i, **kwargs)
+            if i.get('is_deferred') == 'true':
+                assert proc.type.deferred is True
+                assert proc.type.bind_names and len(proc.type.bind_names) == 1
+                intf = proc.type.bind_names[0]
+                procedures += [ir.ProcedureDeclaration(interface=intf, symbols=(proc,))]
+            elif i.tag == 'typeBoundGenericProcedure':
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,), generic=True)]
+            elif i.tag == 'finalProcedure':
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,), final=True)]
+            else:
+                procedures += [ir.ProcedureDeclaration(symbols=(proc,))]
+        return procedures
+
+    def visit_typeBoundProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
+        var = self.visit(o.find('name'), **kwargs)
+
+        _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
+        if o.get('pass') == 'pass':
+            _type = _type.clone(pass_attr=o.get('pass_arg_name', True))
+        elif o.get('pass') == 'nopass':
+            _type = _type.clone(pass_attr=False)
+        if o.get('is_deferred') == 'true':
+            _type = _type.clone(deferred=True)
+        if o.get('is_non_overridable') == 'true':
+            _type = _type.clone(non_overridable=True)
+        if o.get('is_private') == 'true':
+            _type = _type.clone(private=True)
+        if o.get('is_public') == 'true':
+            _type = _type.clone(public=True)
+
+        if o.find('binding'):
+            bind_name = self.visit(o.find('binding/name'), **kwargs)
+            bind_name_scope = scope.get_symbol_scope(bind_name.name)
+
+            # Set correct type for interface/binding
+            if bind_name_scope is not None:
+                bind_name = bind_name.rescope(scope=bind_name_scope)
+            else:
+                bind_name = bind_name.clone(type=bind_name.type.clone(dtype=ProcedureType(bind_name.name)))
+
+            if bind_name.name.lower() == var.name.lower() and not _type.deferred:
+                # No need to assign bind_names property
+                _type = _type.clone(dtype=bind_name.type.dtype)
+            else:
+                # Assign the binding as bind_nameial (and park the interface here for
+                # declarations with deferred attribute)
+                _type = _type.clone(dtype=bind_name.type.dtype, bind_names=(bind_name,))
+
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
+
+    def visit_typeBoundGenericProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
+        var = self.visit(o.find('name'), **kwargs)
+
+        _type = SymbolAttributes(ProcedureType(name=var.name, is_generic=True))
+        if o.get('is_private') == 'true':
+            _type = _type.clone(private=True)
+        if o.get('is_public') == 'true':
+            _type = _type.clone(public=True)
+
+        assert o.find('binding') is not None
+
+        bind_names = []
+        for name in o.findall('binding/name'):
+            bind_name = self.visit(name, **kwargs)
+            bind_name_scope = scope.get_symbol_scope(bind_name.name)
+
+            # Set correct type for interface/binding
+            if bind_name_scope is not None:
+                bind_name = bind_name.rescope(scope=bind_name_scope)
+            else:
+                bind_name = bind_name.clone(type=bind_name.type.clone(dtype=ProcedureType(bind_name.name)))
+
+            bind_names += [bind_name]
+
+        _type = _type.clone(bind_names=as_tuple(bind_names))
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
+
+    def visit_finalProcedure(self, o, **kwargs):
+        scope = kwargs['scope']
+        var = self.visit(o.find('name'), **kwargs)
+        _type = scope.symbol_attrs.lookup(var.name)
+        scope.symbol_attrs[var.name] = _type
+        return var.rescope(scope=scope)
 
     def visit_FdataDecl(self, o, **kwargs):
         variable = self.visit(o.find('varList'), **kwargs)
@@ -408,7 +584,14 @@ class OMNI2IR(GenericVisitor):
                     length = self.visit(length, **kwargs)
             _type = SymbolAttributes(dtype, kind=kind, length=length)
         elif ref in self.type_map:
-            _type = self.visit(self.type_map[ref], **kwargs)
+            if o.find('name') is not None:
+                _type = self.visit(self.type_map[ref], name=o.find('name').text, **kwargs)
+            else:
+                _type = self.visit(self.type_map[ref], **kwargs)
+            if o.attrib.get('is_class') == 'true':
+                _type = _type.clone(polymorphic=True)
+        elif ref == 'FnumericAll':
+            _type = SymbolAttributes(BasicType.DEFERRED)
         else:
             raise ValueError
 
@@ -417,17 +600,24 @@ class OMNI2IR(GenericVisitor):
             _type.shape = tuple(self.visit(s, **kwargs) for s in shape)
 
         # OMNI types are build recursively from references (Matroshka-style)
-        _type.intent = o.attrib.get('intent', None)
-        _type.allocatable = o.attrib.get('is_allocatable', 'false') == 'true'
-        _type.pointer = o.attrib.get('is_pointer', 'false') == 'true'
-        _type.optional = o.attrib.get('is_optional', 'false') == 'true'
-        _type.parameter = o.attrib.get('is_parameter', 'false') == 'true'
-        _type.target = o.attrib.get('is_target', 'false') == 'true'
-        _type.contiguous = o.attrib.get('is_contiguous', 'false') == 'true'
-        if 'is_private' in o.attrib:
-            _type.private = o.attrib.get('is_private', 'false') == 'true'
-        if 'is_public' in o.attrib:
-            _type.public = o.attrib.get('is_public', 'false') == 'true'
+        if o.get('intent') is not None:
+            _type.intent = o.get('intent')
+        if o.get('is_allocatable') == 'true':
+            _type.allocatable = True
+        if o.get('is_pointer') == 'true':
+            _type.pointer = True
+        if o.get('is_optional') == 'true':
+            _type.optional = True
+        if o.get('is_parameter') == 'true':
+            _type.parameter = True
+        if o.get('is_target') == 'true':
+            _type.target = True
+        if o.get('is_contiguous') == 'true':
+            _type.contiguous = True
+        if o.get('is_private') == 'true':
+            _type.private = True
+        if o.get('is_public') == 'true':
+            _type.public = True
         return _type
 
     def visit_FfunctionType(self, o, **kwargs):
@@ -440,8 +630,11 @@ class OMNI2IR(GenericVisitor):
         else:
             raise ValueError
 
-        # OMNI doesn't give us the function name at this point
-        dtype = ProcedureType('UNKNOWN', is_function=return_type is not None, return_type=return_type)
+        if o.attrib['type'] in self.symbol_map:
+            name = self.symbol_map[o.attrib['type']].find('name').text
+        else:
+            name = kwargs.get('name', 'UNKNOWN')
+        dtype = ProcedureType(name, is_function=return_type is not None, return_type=return_type)
         return SymbolAttributes(dtype)
 
     def visit_FstructType(self, o, **kwargs):

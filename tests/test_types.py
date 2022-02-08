@@ -1,12 +1,19 @@
+from pathlib import Path
 from random import choice
 import pytest
 
 from conftest import available_frontends
 from loki import (
     OFP, OMNI, Sourcefile, Module, Subroutine, BasicType,
-    SymbolAttributes, DerivedType, TypeDef, Array, Scalar, FCodeMapper,
-    DataType, fgen
+    SymbolAttributes, DerivedType, TypeDef, FCodeMapper,
+    DataType, fgen, ProcedureType, FindNodes, ProcedureDeclaration
 )
+from loki.expression import symbols as sym
+
+
+@pytest.fixture(scope='module', name='here')
+def fixture_here():
+    return Path(__file__).parent
 
 
 def test_basic_type():
@@ -178,13 +185,13 @@ end module test_type_derived_type_mod
     routine = module['test_type_derived_type']
 
     a, b, c = routine.variables
-    assert isinstance(a, Scalar)
+    assert isinstance(a, sym.Scalar)
     assert isinstance(a.type.dtype, DerivedType)
     assert a.type.target
-    assert isinstance(b, Array)
+    assert isinstance(b, sym.Array)
     assert isinstance(b.type.dtype, DerivedType)
     assert b.type.allocatable
-    assert isinstance(c, Scalar)
+    assert isinstance(c, sym.Scalar)
     assert isinstance(c.type.dtype, DerivedType)
     assert c.type.pointer
 
@@ -390,3 +397,140 @@ end subroutine test_type_kind_value
         for var in routine.variables:
             if var.name.lower().startswith(f'real_{kind}'):
                 assert var.type.kind == kind and f'REAL(KIND={kind.upper()})' in str(fgen(var.type)).upper()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_contiguous(here, frontend):
+    """
+    Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
+    all frontends).
+    """
+    fcode = """
+subroutine routine_contiguous(vec)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), pointer, contiguous :: vec(:)
+
+  vec(:) = 2.
+end subroutine routine_contiguous
+    """
+    # We need to write this one to file as OFP has to preprocess the file
+    filepath = here/(f'routine_contiguous_{frontend}.f90')
+    Sourcefile.to_file(fcode, filepath)
+
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
+    assert len(routine.arguments) == 1
+    assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
+    filepath.unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_type_procedure_pointer_declaration(frontend):
+    # Example code from F2008 standard, Note 12.15
+    fcode = """
+MODULE some_mod
+
+ABSTRACT INTERFACE
+    FUNCTION REAL_FUNC (X)
+        REAL, INTENT (IN) :: X
+        REAL :: REAL_FUNC
+    END FUNCTION REAL_FUNC
+END INTERFACE
+INTERFACE
+    SUBROUTINE SUB (X)
+        REAL, INTENT (IN) :: X
+    END SUBROUTINE SUB
+END INTERFACE
+
+!-- Some external or dummy procedures with explicit interface.
+PROCEDURE (REAL_FUNC) :: BESSEL, GFUN
+PROCEDURE (SUB) :: PRINT_REAL
+
+!-- Some procedure pointers with explicit interface,
+!-- one initialized to NULL().
+PROCEDURE (REAL_FUNC), POINTER :: P, R => NULL()
+PROCEDURE (REAL_FUNC), POINTER :: PTR_TO_GFUN
+
+!-- A derived type with a procedure pointer component ...
+TYPE STRUCT_TYPE
+    PROCEDURE (REAL_FUNC), POINTER :: COMPONENT
+END TYPE STRUCT_TYPE
+
+!-- ... and a variable of that type.
+TYPE(STRUCT_TYPE) :: STRUCT
+
+!-- An external or dummy function with implicit interface
+PROCEDURE (REAL) :: PSI
+
+END MODULE some_mod
+    """.strip()
+
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # FIXME: Because of our broken way of capturing function return types this gets the wrong
+    #        variable type currently...
+    assert isinstance(module.symbol_map['real_func'], (sym.Scalar, sym.ProcedureSymbol))
+
+    decl_map = {s.name.lower(): d for d in FindNodes(ProcedureDeclaration).visit(module.spec) for s in d.symbols}
+
+    # Check symbols are declared and have the right type
+    procedure_names = ('sub', 'bessel', 'gfun', 'print_real', 'p', 'r', 'ptr_to_gfun', 'psi')  # 'real_func'
+    pointer_names = ('p', 'r', 'ptr_to_gfun')
+    null_init_names = ('r')
+    for name in procedure_names:
+        assert name in module.symbols
+        symbol = module.symbol_map[name]
+        assert isinstance(symbol, sym.ProcedureSymbol)
+        assert isinstance(symbol.type.dtype, ProcedureType)
+        if name in pointer_names:
+            assert symbol.type.pointer is True
+            assert ', POINTER' in fgen(decl_map[name])
+        else:
+            assert symbol.type.pointer is None
+        if name in null_init_names:
+            assert fgen(symbol.type.initial).upper() == 'NULL()'
+        else:
+            assert symbol.type.initial is None
+
+    # Assert symbols have the right procedure type associated
+    real_funcs = ('bessel', 'gfun', 'p', 'r', 'ptr_to_gfun')  # 'real_func'
+    for name in real_funcs:
+        symbol = module.symbol_map[name]
+        assert symbol.type.dtype.name.upper() == 'REAL_FUNC'
+        assert symbol.type.dtype.is_function is True
+        if name in decl_map:
+            assert decl_map[name].interface == 'REAL_FUNC'
+            assert 'PROCEDURE(REAL_FUNC)' in fgen(decl_map[name]).upper()
+        if name in null_init_names:
+            assert f'{name.upper()} => NULL()' in fgen(decl_map[name]).upper()
+
+    sub_funcs = ('print_real', 'sub')
+    for name in sub_funcs:
+        symbol = module.symbol_map[name]
+        assert symbol.type.dtype.name.upper() == 'SUB'
+        assert symbol.type.dtype.is_function is False
+        if name in decl_map:
+            assert decl_map[name].interface == 'SUB'
+            assert 'PROCEDURE(SUB)' in fgen(decl_map[name]).upper()
+
+    # Assert procedure pointer component in the derived_type is sane
+    struct_type = module.typedefs['struct_type']
+    decls = FindNodes(ProcedureDeclaration).visit(struct_type.body)
+    assert len(decls) == 1
+    assert decls[0].symbols == ('component',)
+    assert decls[0].symbols[0].type.dtype.name.upper() == 'REAL_FUNC'
+    assert decls[0].symbols[0].type.pointer is True
+    assert decls[0].interface == 'real_func'
+
+    # Assert the variable of that type is sane
+    struct = module.symbol_map['struct']
+    assert struct.type.dtype.name.upper() == 'STRUCT_TYPE'
+    assert struct.type.dtype.typedef is struct_type
+
+    # Assert the external procedure with implicit interface is sane
+    psi = module.symbol_map['psi']
+    assert isinstance(psi, sym.ProcedureSymbol)
+    assert isinstance(psi.type.dtype, ProcedureType)
+    assert psi.type.dtype.name.upper() == 'PSI'
+    assert psi.type.dtype.return_type.compare(SymbolAttributes(BasicType.REAL))
+    assert decl_map['psi'].interface == BasicType.REAL
+    assert 'PROCEDURE(REAL)' in fgen(decl_map['psi']).upper()

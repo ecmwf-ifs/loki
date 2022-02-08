@@ -507,6 +507,18 @@ class LokiIdentityMapper(IdentityMapper):
             # it does not affect the outcome of expr.clone
             expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
 
+        initial = self.rec(expr.type.initial, *args, **kwargs)
+        if initial is not expr.type.initial and expr.scope:
+            # Update symbol table entry for initial directly because with a scope attached
+            # it does not affect the outcome of expr.clone
+            expr.scope.symbol_attrs[expr.name] = expr.type.clone(initial=initial)
+
+        bind_names = self.rec(expr.type.bind_names, *args, **kwargs)
+        if not (bind_names is None or all(new is old for new, old in zip_longest(bind_names, expr.type.bind_names))):
+            # Update symbol table entry for bind_names directly because with a scope attached
+            # it does not affect the outcome of expr.clone
+            expr.scope.symbol_attrs[expr.name] = expr.type.clone(bind_names=as_tuple(bind_names))
+
         parent = self.rec(expr.parent, *args, **kwargs)
         if parent is expr.parent and (kind is expr.type.kind or expr.scope):
             return expr

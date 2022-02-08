@@ -26,7 +26,7 @@ __all__ = [
     'Assignment', 'ConditionalAssignment', 'CallStatement',
     'CallContext', 'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
-    'Import', 'VariableDeclaration', 'DataDeclaration',
+    'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
     'Intrinsic', 'Enumeration'
 ]
@@ -592,23 +592,45 @@ class Interface(InternalNode):
 
     Parameters
     ----------
-    spec : tuple
-        The imports, declarations, etc. of the interface block.
     body : tuple
-        The body of the interface block.
+        The body of the interface block, containing function and subroutine
+        specifications or procedure statements
+    abstract : bool, optional
+        Flag to indicate that this is an abstract interface
+    spec : str, optional
+        A generic name, operator, assignment, or I/O specification
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['body']
 
-    def __init__(self, spec=None, body=None, **kwargs):
+    def __init__(self, body=None, abstract=False, spec=None, **kwargs):
         super().__init__(body=body, **kwargs)
-
+        self.abstract = abstract
         self.spec = spec
+        assert not (self.abstract and self.spec)
+
+    @property
+    def symbols(self):
+        """
+        The list of symbol names declared by this interface
+        """
+        symbols = as_tuple(flatten(
+            getattr(node, 'procedure_symbol', getattr(node, 'symbols', ()))
+            for node in self.body
+        ))
+        if self.spec:
+            return (self.spec,) + symbols
+        return symbols
 
     def __repr__(self):
-        return 'Interface::'
+        symbols = ', '.join(str(var) for var in self.symbols)
+        if self.abstract:
+            return f'Abstract Interface:: {symbols}'
+        if self.spec:
+            return f'Interface {self.spec}:: {symbols}'
+        return f'Interface:: {symbols}'
 
 # Leaf node types
 
@@ -985,6 +1007,8 @@ class Import(LeafNode):
     f_include : bool, optional
         Flag to indicate that this is a preprocessor-style include in
         Fortran source code.
+    f_import : bool, optional
+        Flag to indicate that this is a Fortran ``IMPORT``.
     rename_list: tuple of tuples (`str`, :any:`Expression`), optional
         Rename list with pairs of `(use name, local name)` entries
     **kwargs : optional
@@ -993,29 +1017,32 @@ class Import(LeafNode):
 
     _traversable = ['symbols', 'rename_list']
 
-    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False,
+    def __init__(self, module, symbols=None, nature=None, c_import=False, f_include=False, f_import=False,
                  rename_list=False, **kwargs):
         super().__init__(**kwargs)
 
         self.module = module
         self.symbols = symbols or ()
         self.nature = nature
-        self.c_import = c_import
-        self.f_include = f_include
+        self.c_import = c_import or False
+        self.f_include = f_include or False
+        self.f_import = f_import or False
         self.rename_list = rename_list
 
         assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
         assert self.nature is None or (
             isinstance(self.nature, str) and
             self.nature.lower() in ('intrinsic', 'non_intrinsic') and
-            not (self.c_import or self.f_include)
+            not (self.c_import or self.f_include or self.f_import)
         )
-        if c_import and f_include:
-            raise ValueError('Import cannot be C include and Fortran include')
-        if rename_list and (symbols or c_import or f_include):
+        if self.c_import + self.f_include + self.f_import not in (0, 1):
+            raise ValueError('Import can only be either C include, F include or F import')
+        if self.rename_list and (self.symbols or self.c_import or self.f_include or self.f_import):
             raise ValueError('Import cannot have rename and only lists or be an include')
 
     def __repr__(self):
+        if self.f_import:
+            return f'Import:: {self.symbols}'
         _c = 'C-' if self.c_import else 'F-' if self.f_include else ''
         return f'{_c}Import:: {self.module} => {self.symbols}'
 
@@ -1031,8 +1058,6 @@ class VariableDeclaration(LeafNode):
     dimensions : tuple of :any:`pymbolic.primitives.Expression`, optional
         The declared allocation size if given as part of the declaration
         attributes.
-    external : bool, optional
-        This is a Fortran ``EXTERNAL`` declaration.
     comment : :py:class:`Comment`, optional
         Inline comment that appears in-line after the declaration in the
         original source.
@@ -1047,8 +1072,7 @@ class VariableDeclaration(LeafNode):
 
     _traversable = ['symbols', 'dimensions']
 
-    def __init__(self, symbols, dimensions=None, external=False,
-                 comment=None, pragma=None, **kwargs):
+    def __init__(self, symbols, dimensions=None, comment=None, pragma=None, **kwargs):
         super().__init__(**kwargs)
 
         assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
@@ -1057,7 +1081,6 @@ class VariableDeclaration(LeafNode):
 
         self.symbols = as_tuple(symbols)
         self.dimensions = as_tuple(dimensions) if dimensions else None
-        self.external = external
 
         self.comment = comment
         self.pragma = pragma
@@ -1065,6 +1088,63 @@ class VariableDeclaration(LeafNode):
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
         return f'VariableDeclaration:: {symbols}'
+
+
+class ProcedureDeclaration(LeafNode):
+    """
+    Internal representation of a procedure declaration.
+
+    Parameters
+    ----------
+    symbols : tuple of :any:`pymbolic.primitives.Expression`
+        The list of procedure symbols declared by this declaration.
+    interface : :any:`pymbolic.primitves.Expression` or :any:`DataType`, optional
+        The procedure interface of the declared procedure entity names.
+    external : bool, optional
+        This is a Fortran ``EXTERNAL`` declaration.
+    module : bool, optional
+        This is a Fortran ``MODULE PROCEDURE`` declaration in an interface
+        (i.e. includes the keyword ``MODULE``)
+    generic : bool,  optional
+        This is a generic binding procedure statement in a derived type.
+    final : bool, optional
+        This is a declaration to mark a subroutine for clean-up of a
+        derived type.
+    comment : :py:class:`Comment`, optional
+        Inline comment that appears in-line after the declaration in the
+        original source.
+    pragma : tuple of :any:`Pragma`, optional
+        Pragma(s) that appear before the declaration. By default
+        :any:`Pragma` nodes appear as standalone nodes in the IR.
+        Only a bespoke context created by :py:func:`pragmas_attached`
+        attaches them for convenience.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    _traversable = ['symbols', 'interface']
+
+    def __init__(self, symbols, interface=None, external=False, module=False,
+                 generic=False, final=False, comment=None, pragma=None, **kwargs):
+        super().__init__(**kwargs)
+
+        assert is_iterable(symbols) and all(isinstance(var, Expression) for var in symbols)
+        assert interface is None or isinstance(interface, (Expression, DataType))
+
+        self.symbols = as_tuple(symbols)
+        self.interface = interface
+        self.external = external or False
+        self.module = module or False
+        self.generic = generic or False
+        self.final = final or False
+        self.comment = comment
+        self.pragma = pragma
+
+        assert self.external + self.module + self.generic + self.final in (0, 1)
+
+    def __repr__(self):
+        symbols = ', '.join(str(var) for var in self.symbols)
+        return f'ProcedureDeclaration:: {symbols}'
 
 
 class DataDeclaration(LeafNode):
@@ -1157,8 +1237,16 @@ class TypeDef(ScopedNode, LeafNode):
         The name of the type.
     body : tuple
         The body of the type definition.
+    abstract : bool, optional
+        Flag to indicate that this is an abstract type definition.
+    extends : str, optional
+        The parent type name
     bind_c : bool, optional
         Flag to indicate that this contains a ``BIND(C)`` attribute.
+    private : bool, optional
+        Flag to indicate that this has been declared explicitly as ``PRIVATE``
+    public : bool, optional
+        Flag to indicate that this has been declared explicitly as ``PUBLIC``
     parent : :any:`Scope`, optional
         The parent scope in which the type definition appears
     symbol_attrs : :any:`SymbolTable`, optional
@@ -1169,13 +1257,20 @@ class TypeDef(ScopedNode, LeafNode):
 
     _traversable = ['body']
 
-    def __init__(self, name, body, bind_c=False, parent=None, symbol_attrs=None, **kwargs):
+    def __init__(self, name, body, abstract=False, extends=None, bind_c=False,
+                 private=False, public=False, parent=None, symbol_attrs=None, **kwargs):
         assert is_iterable(body)
+        assert extends is None or isinstance(extends, str)
+        assert not (private and public)
 
         # First, store the local properties
         self.name = name
         self.body = as_tuple(body)
+        self.abstract = abstract
+        self.extends = extends
         self.bind_c = bind_c
+        self.private = private
+        self.public = public
 
         # Then, call the parent constructors to take care of any generic
         # properties and handle the scope information

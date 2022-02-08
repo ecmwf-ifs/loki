@@ -302,6 +302,12 @@ class FParser2IR(GenericVisitor):
         """
         return tuple(self.visit(i, **kwargs) for i in o.children)
 
+    def visit_Intrinsic_Stmt(self, o, **kwargs):
+        """
+        Universal routine to capture nodes as plain string in the IR
+        """
+        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+
     #
     # Base blocks
     #
@@ -378,7 +384,13 @@ class FParser2IR(GenericVisitor):
         for c in o.children[1:]:
             parent = var
             var = self.visit(c, **kwargs)
-            var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
+            if isinstance(var, sym.InlineCall):
+                # This is a function call with a type-bound procedure, so we need to
+                # update the name slightly different
+                function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
+                var = var.clone(function=function)
+            else:
+                var = var.clone(name=f'{parent.name}%{var.name}', parent=parent)
         return var
 
     #
@@ -495,7 +507,7 @@ class FParser2IR(GenericVisitor):
 
     def visit_Type_Declaration_Stmt(self, o, **kwargs):
         """
-        Declaration statement
+        Variable declaration statement
 
         :class:`fparser.two.Fortran2003.Type_Declaration_Stmt` has 3 children:
             * :class:`fparser.two.Fortran2003.Declaration_Type_Spec`
@@ -522,31 +534,44 @@ class FParser2IR(GenericVisitor):
             # representation of variables in declarations
             variables = as_tuple(v.clone(dimensions=_type.shape) for v in variables)
 
-        # Make sure KIND (which can be a name) is in the right scope
+        # Make sure KIND and INITIAL (which can be a name) are in the right scope
         scope = kwargs['scope']
         if _type.kind is not None:
             kind = AttachScopesMapper()(_type.kind, scope=scope)
             _type = _type.clone(kind=kind)
+        if _type.initial is not None:
+            initial = AttachScopesMapper()(_type.initial, scope=scope)
+            _type = _type.clone(initial=initial)
 
-        # Update symbol table entries
-        for var in variables:
-            # EXTERNAL attribute means this is actually a function or subroutine
-            # Since every symbol refers to a different function we have to update the
-            # type definition for every symbol individually
-            if _type.external:
+        # EXTERNAL attribute means this is actually a function or subroutine
+        # Since every symbol refers to a different function we have to update the
+        # type definition for every symbol individually
+        if _type.external:
+            for var in variables:
                 type_kwargs = _type.__dict__.copy()
-                if _type.dtype is not None:
-                    return_type = SymbolAttributes(_type.dtype)
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=True, return_type=return_type)
+                return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
+                external_type = scope.symbol_attrs.lookup(var.name)
+                if external_type is None:
+                    type_kwargs['dtype'] = ProcedureType(
+                        var.name, is_function=return_type is not None, return_type=return_type
+                    )
                 else:
-                    type_kwargs['dtype'] = ProcedureType(var.name, is_function=False)
+                    type_kwargs['dtype'] = external_type.dtype
                 scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
-            else:
-                scope.symbol_attrs[var.name] = var.type.clone(**_type.__dict__)
 
+            variables = tuple(var.rescope(scope=scope) for var in variables)
+            return ir.ProcedureDeclaration(
+                symbols=variables, external=True, source=kwargs.get('source'), label=kwargs.get('label')
+            )
+
+        # Update symbol table entries and rescope
+        scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
         variables = tuple(var.rescope(scope=scope) for var in variables)
-        return ir.VariableDeclaration(symbols=variables, dimensions=_type.shape, external=_type.external,
-                                      source=kwargs.get('source'), label=kwargs.get('label'))
+
+        return ir.VariableDeclaration(
+            symbols=variables, dimensions=_type.shape,
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
         """
@@ -643,13 +668,15 @@ class FParser2IR(GenericVisitor):
             * :class:`fparser.two.Fortran2003.Derived_Type_Spec`
         """
         if o.children[0].upper() in ('TYPE', 'CLASS'):
-            # TODO: record if `TYPE` or `CLASS` is used
             dtype = self.visit(o.children[1], **kwargs)
 
             # Look for a previous definition of this type
             _type = kwargs['scope'].symbol_attrs.lookup(dtype.name)
             if _type is None or _type.dtype is BasicType.DEFERRED:
                 _type = SymbolAttributes(dtype)
+
+            if o.children[0].upper() == 'CLASS':
+                _type.polymorphic = True
 
             # Strip import annotations
             return _type.clone(imported=None, module=None)
@@ -682,11 +709,17 @@ class FParser2IR(GenericVisitor):
         """
         A declaration attribute
 
-        :class:`fparser.two.Fortran2003.Attr_Spec` has no children
+        :class:`fparser.two.Fortran2003.Attr_Spec` has no children.
         """
-        return (o.tostr().lower(), True)
+        return (str(o).lower(), True)
 
-    visit_Access_Spec = visit_Attr_Spec
+    def visit_Access_Spec(self, o, **kwargs):
+        """
+        A declaration attribute for access specification (PRIVATE, PUBLIC)
+
+        :class:`fparser.two.Fortran2003.Access_Spec` has no children.
+        """
+        return (o.string.lower(), True)
 
     visit_Entity_Decl_List = visit_List
 
@@ -770,24 +803,109 @@ class FParser2IR(GenericVisitor):
         assert o.children[0].upper() == 'EXTERNAL'
 
         # Compile the list of names...
-        variables = self.visit(o.children[1], **kwargs)
+        symbols = self.visit(o.children[1], **kwargs)
 
         # ...and update their symbol table entry...
         scope = kwargs['scope']
-        for var in variables:
+        for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name)
             if _type is None:
-                _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
+                dtype = ProcedureType(var.name, is_function=False)
             else:
-                _type = _type.clone(external=True)
-            scope.symbol_attrs[var.name] = _type
+                dtype = _type.dtype
+            scope.symbol_attrs[var.name] = SymbolAttributes(dtype, external=True)
 
-        variables = tuple(v.clone(scope=scope) for v in variables)
-        declaration = ir.VariableDeclaration(symbols=variables, external=True,
-                                             source=kwargs.get('source'), label=kwargs.get('label'))
+        symbols = tuple(v.rescope(scope=scope) for v in symbols)
+        declaration = ir.ProcedureDeclaration(symbols=symbols, external=True,
+                                              source=kwargs.get('source'), label=kwargs.get('label'))
         return declaration
 
     visit_External_Name_List = visit_List
+
+    #
+    # Procedure declarations
+    #
+
+    def visit_Procedure_Declaration_Stmt(self, o, **kwargs):
+        """
+        Procedure declaration statement
+
+        :class:`fparser.two.Fortran2003.Procedure_Declaration_Stmt` has 3 children:
+            * :class:`fparser.two.Fortran2003.Name`: the name of the procedure interface
+            * :class:`fparser.two.Fortran2003.Proc_Attr_Spec_List` or `None`:
+              the declared attributes (if any)
+            * :class:`fparser.two.Fortran2003.Proc_Decl_List`: the local procedure names
+        """
+        scope = kwargs['scope']
+
+        # Instantiate declared symbols
+        symbols = as_tuple(self.visit(o.children[2], **kwargs))
+
+        # Any additional declared attributes
+        attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
+        attrs = dict(attrs)
+
+        # Find out which procedure we are declaring (i.e., PROCEDURE(<func_name>))
+        assert o.children[0] is not None
+        try:
+            # This could be an implicit interface or dummy routine...
+            return_type = SymbolAttributes(BasicType.from_str(o.children[0].tostr()))
+        except ValueError:
+            return_type = None
+
+        if return_type is None:
+            interface = self.visit(o.children[0], **kwargs)
+            interface = AttachScopesMapper()(interface, scope=scope)
+            _type = interface.type.clone(**attrs)
+        else:
+            interface = return_type.dtype
+            _type = SymbolAttributes(BasicType.DEFERRED, **attrs)
+
+        # Make sure any "initial" symbol (i.e. the procedure we're binding to) is in the right scope
+        if _type.initial is not None:
+            initial = AttachScopesMapper()(_type.initial, scope=scope)
+            _type = _type.clone(initial=initial)
+
+        # Update symbol table entries
+        if return_type is None:
+            scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+        else:
+            for var in symbols:
+                dtype = ProcedureType(var.name, is_function=True, return_type=return_type)
+                scope.symbol_attrs[var.name] = _type.clone(dtype=dtype)
+
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(
+            symbols=symbols, interface=interface, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Proc_Attr_Spec_List = visit_List
+
+    def visit_Proc_Attr_Spec(self, o, **kwargs):
+        """
+        Procedure declaration attribute
+
+        :class:`fparser.two.Fortran2003.Proc_Attr_Spec` has 2 children:
+            * attribute name (`str`)
+            * attribute value (such as ``IN``, ``OUT``, ``INOUT``) or `None`
+        """
+        return (o.children[0].lower(), o.children[1].lower() if o.children[1] is not None else True)
+
+    visit_Proc_Decl_List = visit_List
+
+    def visit_Proc_Decl(self, o, **kwargs):
+        """
+        A symbol entity in a procedure declaration with initialization
+
+        :class:`fparser.two.Fortran2003.Proc_Decl` has 3 children:
+            * object name (:class:`fparser.two.Fortran2003.Name`)
+            * operator ``=>`` (`str`)
+            * initializer (:class:`fparser.two.Fortran2003.Function_Reference`)
+        """
+        var = self.visit(o.children[0], **kwargs)
+        assert o.children[1] == '=>'
+        init = self.visit(o.children[2], **kwargs)
+        return var.clone(type=var.type.clone(initial=init))
 
     #
     # Array constructor
@@ -948,23 +1066,15 @@ class FParser2IR(GenericVisitor):
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:derived_type_stmt_index])
 
-        # Name of the derived type
-        name = self.visit(derived_type_stmt, **kwargs)
-        source = kwargs.get('source')
-        label = kwargs.get('label')
-
         # Instantiate the TypeDef without its body
         # Note: This creates the symbol table for the declarations and
         # the typedef object registers itself in the parent scope
-        typedef = ir.TypeDef(name=name, body=(), source=source, label=label, parent=kwargs['scope'])
+        typedef = self.visit(derived_type_stmt, **kwargs)
 
         # Pass down the typedef scope when building the body
         kwargs['scope'] = typedef
         body = [self.visit(c, **kwargs) for c in o.children[derived_type_stmt_index+1:end_type_stmt_index]]
         body = as_tuple(flatten(body))
-
-        # TODO: type-bound procedures are currently stored flat as Intrinsic in the body.
-        # These should become declarations and TypeDef should probably store them separately
 
         # Infer any additional shape information from `!$loki dimension` pragmas
         body = attach_pragmas(body, ir.VariableDeclaration)
@@ -972,7 +1082,7 @@ class FParser2IR(GenericVisitor):
         body = detach_pragmas(body, ir.VariableDeclaration)
 
         # Finally: update the typedef with its body
-        typedef._update(body=body)
+        typedef._update(body=body, source=kwargs['source'])
         return (*pre, typedef)
 
     def visit_Derived_Type_Stmt(self, o, **kwargs):
@@ -985,11 +1095,72 @@ class FParser2IR(GenericVisitor):
             * parameter name list (:class:`fparser.two.Fortran2003.Type_Param_Name_List`)
         """
         if o.children[0] is not None:
-            self.warn_or_fail('attribute-spec-list not implemented for derived types')
+            attrs = dict(self.visit(o.children[0], **kwargs))
+            abstract = attrs.get('abstract', False)
+            extends = attrs.get('extends')
+            bind_c = attrs.get('bind') == 'c'
+            private = attrs.get('private', False)
+            public = attrs.get('public', False)
+        else:
+            abstract = False
+            extends = None
+            bind_c = False
+            private = False
+            public = False
         name = o.children[1].tostr()
         if o.children[2] is not None:
             self.warn_or_fail('parameter-name-list not implemented for derived types')
-        return name
+        return ir.TypeDef(
+            name=name, body=(), abstract=abstract, extends=extends, bind_c=bind_c,
+            private=private, public=public, label=kwargs['label'], parent=kwargs['scope']
+        )
+
+    visit_Type_Attr_Spec_List = visit_List
+
+    def visit_Type_Attr_Spec(self, o, **kwargs):
+        """
+        A component declaration attribute
+
+        :class:`fparser.two.Fortran2003.Type_Attr_Spec` has 2 children:
+            * keyword (`str`)
+            * value (`str`) or `None`
+        """
+        if o.children[1] is not None:
+            return (str(o.children[0]).lower(), str(o.children[1]).lower())
+        return (str(o.children[0]).lower(), True)
+
+    def visit_Type_Param_Def_Stmt(self,o , **kwargs):
+        self.warn_or_fail('Parameterized types not implemented')
+
+    visit_Binding_Attr_List = visit_List
+
+    def visit_Binding_Attr(self, o, **kwargs):
+        """
+        A binding attribute
+
+        :class:`fparser.two.Fortran2003.Binding_Attr_Spec` has no children
+        """
+        keyword = str(o).lower()
+        if keyword == 'pass':
+            return ('pass_attr', True)
+        if keyword == 'nopass':
+            return ('pass_attr', False)
+
+        if keyword in ('non_overridable', 'deferred'):
+            return (keyword, True)
+
+        self.warn_or_fail(f'Unsupported binding attribute: {str(o)}')
+        return None
+
+    def visit_Binding_PASS_Arg_Name(self, o, **kwargs):
+        """
+        Named PASS attribute
+
+        :class:`fparser.two.Fortran2003.Binding_PASS_Arg_Name` has two children:
+            * `str`: 'PASS'
+            * `Name`: the argument name
+        """
+        return ('pass_attr', str(o.children[1]))
 
     def visit_Component_Part(self, o, **kwargs):
         """
@@ -1001,18 +1172,18 @@ class FParser2IR(GenericVisitor):
         """
         return tuple(self.visit(c, **kwargs) for c in o.children)
 
+    # The definition stmts (= components of a derived type) look identical to regular
+    # variable and procedure declarations in the parse tree and are represented by
+    # the same IR nodes in Loki
     visit_Data_Component_Def_Stmt = visit_Type_Declaration_Stmt
     visit_Component_Attr_Spec_List = visit_List
     visit_Component_Attr_Spec = visit_Attr_Spec
     visit_Dimension_Component_Attr_Spec = visit_Dimension_Attr_Spec
     visit_Component_Decl_List = visit_List
     visit_Component_Decl = visit_Entity_Decl
-
-    def visit_Proc_Component_Def_Stmt(self, o, **kwargs):
-        """
-        A procedure declaration in a derived type definition
-        """
-        return self.visit_Base(o, **kwargs)
+    visit_Proc_Component_Def_Stmt = visit_Procedure_Declaration_Stmt
+    visit_Proc_Component_Attr_Spec_List = visit_List
+    visit_Proc_Component_Attr_Spec = visit_Attr_Spec
 
     def visit_Type_Bound_Procedure_Part(self, o, **kwargs):
         """
@@ -1036,12 +1207,93 @@ class FParser2IR(GenericVisitor):
             * name :class:`fparser.two.Fortran2003.Binding_Name`
             * procedure name :class:`fparser.two.Fortran2003.Procedure_Name`
         """
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
+        scope = kwargs['scope']
 
-    visit_Contains_Stmt = visit_Specific_Binding
-    visit_Binding_Private_Stmt = visit_Specific_Binding
-    visit_Generic_Binding = visit_Specific_Binding
-    visit_Final_Binding = visit_Specific_Binding
+        # Instantiate declared symbols
+        symbols = as_tuple(self.visit(o.children[3], **kwargs))
+
+        # Procedure we bind to this type
+        interface = None
+        if o.children[0]:
+            # Procedure interface provided
+            interface = self.visit(o.children[0], **kwargs)
+            interface = AttachScopesMapper()(interface, scope=scope)
+            bind_names = as_tuple(interface)
+            func_names = [interface.name] * len(symbols)
+            assert o.children[4] is None
+        elif o.children[4]:
+            bind_names = as_tuple(self.visit(o.children[4], **kwargs))
+            bind_names = AttachScopesMapper()(bind_names, scope=scope)
+            assert len(bind_names) == len(symbols)
+            func_names = [i.name for i in bind_names]
+        else:
+            bind_names = None
+            func_names = [s.name for s in symbols]
+
+        # Look up the type of the procedure
+        types = [scope.symbol_attrs.lookup(name) or SymbolAttributes(dtype=ProcedureType(name)) for name in func_names]
+
+        # Any declared attributes
+        attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
+        attrs = dict(attrs)
+        types = [t.clone(**attrs) for t in types]
+
+        # Store the bind_names
+        if bind_names:
+            types = [t.clone(bind_names=as_tuple(i)) for t, i in zip(types, bind_names)]
+
+        # Update symbol table entries
+        scope.symbol_attrs.update({s.name: s.type.clone(**t.__dict__) for s, t in zip(symbols, types)})
+
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(symbols=symbols, interface=interface,
+                                       source=kwargs.get('source'), label=kwargs.get('label'))
+
+    def visit_Generic_Binding(self, o, **kwargs):
+        """
+        A generic binding for a type-bound procedure in a derived type
+
+        :class:`fparser.two.Fortran2003.Generic_Binding has three children:
+            * :class:`fparser.two.Fortran2003.Access_Spec` or None (access specifier)
+            * :class:`fparser.two.Fortran2003.Generic_Spec` (the local name of the binding)
+            * :class:`fparser.two.Fortran2003.Binding_Name_List` (the names it binds to)
+        """
+        scope = kwargs['scope']
+        name = self.visit(o.children[1], **kwargs)
+        bind_names = self.visit(o.children[2], **kwargs)
+        bind_names = AttachScopesMapper()(bind_names, scope=scope)
+        _type = SymbolAttributes(ProcedureType(name=name.name, is_generic=True), bind_names=as_tuple(bind_names))
+        if o.children[0] is not None:
+            access_spec = self.visit(o.children[0], **kwargs)
+            attrs = {access_spec[0]: access_spec[1]}
+            _type = _type.clone(**attrs)
+        scope.symbol_attrs[name.name] = _type
+        name = name.rescope(scope=scope)
+        return ir.ProcedureDeclaration(
+            symbols=(name,), generic=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    def visit_Final_Binding(self, o, **kwargs):
+        """
+        A final binding for type-bound procedures in a derived type
+
+        :class:`fparser.two.Fortran2003.Final_Binding` has two children:
+            * keyword ``'FINAL'`` (`str`)
+            * :class:`fparser.two.Fortran2003.Final_Subroutine_Name_List` (the list of routines)
+        """
+        scope = kwargs['scope']
+        symbols = self.visit(o.children[1], **kwargs)
+        symbols = tuple(var.rescope(scope=scope) for var in symbols)
+        return ir.ProcedureDeclaration(
+            symbols=symbols, final=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Binding_Name_List = visit_List
+    visit_Final_Subroutine_Name_List = visit_List
+    visit_Contains_Stmt = visit_Intrinsic_Stmt
+    visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
+    visit_Private_Components_Stmt = visit_Intrinsic_Stmt
+    visit_Sequence_Stmt = visit_Intrinsic_Stmt
 
     #
     # ASSOCIATE blocks
@@ -1179,10 +1431,23 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # The interface spec and body
+        # The interface spec
+        abstract = False
         spec = self.visit(interface_stmt, **kwargs)
+        if spec == 'ABSTRACT':
+            # This is an abstract interface
+            abstract = True
+            spec = None
+        elif spec is not None:
+            # This has a generic specification (and we might need to update symbol table)
+            scope = kwargs['scope']
+            if spec.name not in scope.symbol_attrs:
+                scope.symbol_attrs[spec.name] = SymbolAttributes(ProcedureType(name=spec.name, is_generic=True))
+            spec = spec.rescope(scope=scope)
+
+        # Traverse the body and build the object
         body = as_tuple(self.visit(c, **kwargs) for c in o.children[interface_stmt_index+1:end_interface_stmt_index])
-        interface = ir.Interface(spec=spec, body=body, label=kwargs.get('label'), source=source)
+        interface = ir.Interface(body=body, abstract=abstract, spec=spec, label=kwargs.get('label'), source=source)
 
         # Everything past the END INTERFACE (should be empty)
         assert not o.children[end_interface_stmt_index+1:]
@@ -1198,12 +1463,61 @@ class FParser2IR(GenericVisitor):
             * ``'ABSTRACT'`` (`str`) for an abstract interface
             * :class:`fparser.two.Fortran2003.Generic_Spec` for other specifications
         """
-        if o.children[0] is None:
-            return None
         if o.children[0] == 'ABSTRACT':
             return 'ABSTRACT'
-        # We are currently capturing this simply as a string
-        return o.children[0].tostr()
+        if o.children[0] is not None:
+            return self.visit(o.children[0], **kwargs)
+        return None
+
+    def visit_Generic_Spec(self, o, **kwargs):
+        """
+        The generic-spec of an interface
+
+        :class:`fparser.two.Fortran2003.Generic_Spec` has two children, which is either:
+            * ``'OPERATOR'`` (`str`) followed by
+            * :class:`fparser.two.Fortran2003.Defined_Operator`
+        or:
+            * ``'ASSIGNMENT'`` (`str`) followed by
+            * ``'='`` (`str`)
+        """
+        return sym.Variable(name=str(o), source=kwargs.get('source'))
+
+    def visit_Procedure_Stmt(self, o, **kwargs):
+        """
+        Procedure statement
+
+        :class:`fparser.two.Fortran2003.Procedure_Stmt` has 1 child:
+            * :class:`fparser.two.Fortran2003.Procedure_Name_List`: the names of the procedures
+        """
+        module_proc = o.string.upper().startswith('MODULE')
+        symbols = self.visit(o.children[0], **kwargs)
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.ProcedureDeclaration(
+            symbols=symbols, module=module_proc,
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Procedure_Name_List = visit_List
+    visit_Procedure_Name = visit_Name
+
+    def visit_Import_Stmt(self, o, **kwargs):
+        """
+        An import statement for named entities in an interface body
+
+        :class:`fparser.two.Fortran2003.Import_Stmt` has two children:
+            * The string ``'IMPORT'``
+            * :class:`fparser.two.Fortran2003.Import_Name_List` with the names
+              of imported entities
+        """
+        assert o.children[0] == 'IMPORT'
+        symbols = self.visit(o.children[1], **kwargs)
+        symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
+        return ir.Import(
+            module=None, symbols=symbols, f_import=True, source=kwargs.get('source'), label=kwargs.get('label')
+        )
+
+    visit_Import_Name_List = visit_List
+    visit_Import_Name = visit_Name
 
     def visit_Subroutine_Body(self, o, **kwargs):
         """
@@ -2204,9 +2518,6 @@ class FParser2IR(GenericVisitor):
             expression = ParenthesisedPow(expression.base, expression.exponent, source=source)
         return expression
 
-    def visit_Intrinsic_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text=o.tostr(), label=kwargs.get('label'), source=kwargs.get('source'))
-
     visit_Format_Stmt = visit_Intrinsic_Stmt
     visit_Write_Stmt = visit_Intrinsic_Stmt
     visit_Goto_Stmt = visit_Intrinsic_Stmt
@@ -2223,8 +2534,6 @@ class FParser2IR(GenericVisitor):
     visit_Namelist_Stmt = visit_Intrinsic_Stmt
     visit_Parameter_Stmt = visit_Intrinsic_Stmt
     visit_Dimension_Stmt = visit_Intrinsic_Stmt
-    visit_Final_Binding = visit_Intrinsic_Stmt
-    visit_Procedure_Stmt = visit_Intrinsic_Stmt
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt

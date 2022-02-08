@@ -5,7 +5,7 @@ from pymbolic.mapper.stringifier import (
 from loki.visitors import Stringifier
 from loki.tools import as_tuple, JoinableStringList
 from loki.expression import LokiStringifyMapper
-from loki.types import BasicType, DerivedType, ProcedureType
+from loki.types import DataType, BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters
 
 
@@ -148,7 +148,9 @@ class FortranCodegen(Stringifier):
         spec = self.visit(o.spec, **kwargs)
         routines = self.visit(o.routines, **kwargs)
         self.depth -= 1
-        return self.join_lines(header, spec, contains, routines, footer)
+        if routines:
+            return self.join_lines(header, spec, contains, routines, footer)
+        return self.join_lines(header, spec, footer)
 
     def visit_Subroutine(self, o, **kwargs):
         """
@@ -257,7 +259,7 @@ class FortranCodegen(Stringifier):
     def visit_VariableDeclaration(self, o, **kwargs):
         """
         Format declaration as
-          [<type>] [, DIMENSION(...)] [, EXTERNAL] :: var [= initial] [, var [= initial] ] ...
+          [<type>] [, DIMENSION(...)] :: var [= initial] [, var [= initial] ] ...
         """
         attributes = []
         assert len(o.symbols) > 0
@@ -267,21 +269,38 @@ class FortranCodegen(Stringifier):
         # TODO: Should extend to deeper recursion of `variables` if
         # the symbol has a known derived type
         ignore = ['shape', 'dimensions', 'variables', 'source', 'initial']
-        if o.external or isinstance(types[0].dtype, ProcedureType):
-            # TODO: We can't fully compare forward declarations of functions or statement functions,
-            # yet but we can make at least sure other declared attributes are compatible and that all
-            # have the same return type
+
+        if isinstance(types[0].dtype, ProcedureType):
+            # Statement functions are the only symbol with ProcedureType that should appear
+            # in a VariableDeclaration as all other forms of procedure declarations (bindings,
+            # pointers, EXTERNAL statements) are handled by ProcedureDeclaration.
+            # However, the fact that statement function declarations can appear mixed with actual
+            # variable declarations forbids this in this case.
+            assert types[0].is_stmt_func
+            # TODO: We can't fully compare statement functions, yet but we can make at least sure
+            # other declared attributes are compatible and that all have the same return type
             ignore += ['dtype']
             assert all(t.dtype.return_type == types[0].dtype.return_type or
                        t.dtype.return_type.compare(types[0].dtype.return_type, ignore=ignore) for t in types)
 
         assert all(t.compare(types[0], ignore=ignore) for t in types)
 
-        dtype = self.visit(types[0], dimensions=o.dimensions, **kwargs)
+        is_function = isinstance(types[0].dtype, ProcedureType) and types[0].dtype.is_function
+        if is_function:
+            assert types[0].is_stmt_func
+            # Return type of a function (great syntax there, Fortran!)
+            attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+
+        # Declaration type and attributes
+        dtype = self.visit(types[0], **kwargs)
         if str(dtype):
             attributes += [dtype]
-        if o.external:
-            attributes += ['EXTERNAL']
+
+        # Dimensions specification
+        if o.dimensions:
+            attributes += [f'DIMENSION({", ".join(self.visit_all(o.dimensions, **kwargs))})']
+
+        # Declared entities
         variables = []
         for v in o.symbols:
             # This is a bit dubious, but necessary, as we otherwise pick up
@@ -292,11 +311,90 @@ class FortranCodegen(Stringifier):
                 op = '=>' if v.type.pointer else '='
                 initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
             variables += [f'{var}{initial}']
+
+        # In-line comment
         comment = None
         if o.comment:
             comment = str(self.visit(o.comment, **kwargs))
-        return self.format_line(self.join_items(attributes), ' :: ', self.join_items(variables),
-                                comment=comment)
+
+        return self.format_line(
+            self.join_items(attributes), ' :: ', self.join_items(variables),
+            comment=comment
+        )
+
+    def visit_ProcedureDeclaration(self, o, **kwargs):
+        """
+        Format procedure declaration as
+          [PROCEDURE[(<interface>)]] [, POINTER] [, INTENT(...)] [, ...] :: var [=> initial] [, var [=> initial] ] ...
+        or
+          [MODULE] PROCEDURE [, ...] :: var [, ...]
+        or
+          GENERIC [, PUBLIC|PRIVATE] :: var => bind_name [, bind_name [, ...]]
+        or
+          FINAL :: var [, var [, ...]]
+        """
+        assert len(o.symbols) > 0
+        types = [v.type for v in o.symbols]
+
+        # Ensure all symbol types are equal, except for shape and dimension
+        # TODO: We can't fully compare procedure types, yet, but we can make at least sure
+        # names match and other declared attributes are compatible
+        ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
+        assert all(isinstance(t.dtype, ProcedureType) for t in types)
+        assert all(t.compare(types[0], ignore=ignore) for t in types)
+        if isinstance(o.interface, DataType):
+            assert all(t.dtype.return_type.dtype == o.interface for t in types)
+        elif o.interface is not None:
+            assert all(t.dtype.name == o.interface for t in types)
+
+        if o.external:
+            # This is an EXTERNAL statement (i.e., a kind of forward declaration)
+            assert o.interface is None
+            assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
+            if types[0].dtype.is_function:
+                # EXTERNAL statement for functions must include return_type
+                assert all(t.dtype.return_type.compare(types[0].dtype.return_type) for t in types)
+                attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+            else:
+                attributes = []
+            # NB: no need to provide EXTERNAL here, as EXTERNAL is specified by visit_SymbolAttributes
+        elif o.interface:
+            # This is a PROCEDURE declaration with interface provided
+            attributes = [f'PROCEDURE({self.visit(o.interface, **kwargs)})']
+        elif o.module:
+            attributes = ['MODULE PROCEDURE']
+        elif o.generic:
+            attributes = ['GENERIC']
+        elif o.final:
+            attributes = ['FINAL']
+        else:
+            # This is a PROCEDURE declaration without interface provided
+            # (as they can appear in a derived type component declaration)
+            attributes = ['PROCEDURE']
+
+        decl_attrs = self.visit(types[0], **kwargs)
+        if str(decl_attrs):
+            attributes += [decl_attrs]
+
+        symbols = []
+        for v in o.symbols:
+            var = self.visit(v, **kwargs)
+            if v.type.initial is not None:
+                symbols += [f'{var} => {self.visit(v.type.initial, **kwargs)}']
+            elif v.type.bind_names is not None and o.interface is None:
+                bind_names = [self.visit(n, **kwargs) for n in v.type.bind_names]
+                symbols += [f'{var} => {self.join_items(bind_names)}']
+            else:
+                symbols += [var]
+
+        comment = None
+        if o.comment:
+            comment = str(self.visit(o.comment, **kwargs))
+
+        return self.format_line(
+            self.join_items(attributes), ' :: ', self.join_items(symbols),
+            comment=comment
+        )
 
     def visit_DataDeclaration(self, o, **kwargs):
         """
@@ -326,6 +424,8 @@ class FortranCodegen(Stringifier):
           USE [, <nature> ::] <module> [, ONLY: <symbols>]
         or
           USE [, <nature> ::] <module> [, <rename-list>]
+        or
+          IMPORT <symbols>
         """
         if o.c_import:
             return f'#include "{o.module}"'
@@ -350,6 +450,8 @@ class FortranCodegen(Stringifier):
             else:
                 symbols += [self.visit(s, **kwargs)]
 
+        if o.f_import:
+            return self.format_line('IMPORT ', self.join_items(symbols))
         return self.format_line(use_stmt, o.module, ', ONLY: ', self.join_items(symbols))
 
     def visit_Interface(self, o, **kwargs):
@@ -359,9 +461,16 @@ class FortranCodegen(Stringifier):
             ...body...
           END INTERFACE
         """
-        spec = f' {o.spec}' if o.spec else ''
-        header = self.format_line('INTERFACE', spec)
-        footer = self.format_line('END INTERFACE', spec)
+        if o.abstract:
+            header = self.format_line('ABSTRACT INTERFACE')
+            footer = self.format_line('END INTERFACE')
+        elif o.spec:
+            generic_spec = self.visit(o.spec, **kwargs)
+            header = self.format_line('INTERFACE ', generic_spec)
+            footer = self.format_line('END INTERFACE ', generic_spec)
+        else:
+            header = self.format_line('INTERFACE')
+            footer = self.format_line('END INTERFACE')
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
@@ -602,20 +711,17 @@ class FortranCodegen(Stringifier):
         Format declaration attributes as
           <typename>[(<spec>)] [, <attributes>]
         """
-        dimensions = kwargs.pop('dimensions', None)
         attributes = []
-        type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
-                    BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
-                    BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
+
         if isinstance(o.dtype, ProcedureType):
-            if o.dtype.is_function:
-                typename = self.visit(o.dtype.return_type, **kwargs)
-            else:
-                typename = ''
+            typename = ''
         elif isinstance(o.dtype, DerivedType):
-            typename = f'TYPE({o.dtype.name})'
+            if o.polymorphic:
+                typename = f'CLASS({o.dtype.name})'
+            else:
+                typename = f'TYPE({o.dtype.name})'
         else:
-            typename = type_map[o.dtype]
+            typename = self.visit(o.dtype)
 
         selector = []
         if o.length:
@@ -628,8 +734,8 @@ class FortranCodegen(Stringifier):
         if typename:
             attributes += [typename]
 
-        if dimensions:
-            attributes += [f'DIMENSION({", ".join(self.visit_all(dimensions, **kwargs))})']
+        if o.external:
+            attributes += ['EXTERNAL']
         if o.allocatable:
             attributes += ['ALLOCATABLE']
         if o.pointer:
@@ -646,10 +752,25 @@ class FortranCodegen(Stringifier):
             attributes += ['CONTIGUOUS']
         if o.intent:
             attributes += [f'INTENT({o.intent.upper()})']
+
+        # Access spec
         if o.private:
             attributes += ['PRIVATE']
         if o.public:
             attributes += ['PUBLIC']
+
+        # Binding attributes
+        if o.pass_attr is True:
+            attributes += ['PASS']
+        elif o.pass_attr is False:
+            attributes += ['NOPASS']
+        elif o.pass_attr is not None:
+            attributes += [f'PASS({o.pass_attr!s})']
+        if o.non_overridable:
+            attributes += ['NON_OVERRIDABLE']
+        if o.deferred:
+            attributes += ['DEFERRED']
+
         return self.join_items(attributes)
 
     def visit_TypeDef(self, o, **kwargs):
@@ -659,13 +780,34 @@ class FortranCodegen(Stringifier):
             ...declarations...
           END TYPE <name>
         """
-        bind_c = ', BIND(c) ::' if o.bind_c else ''
-        header = self.format_line('TYPE', bind_c, ' ', o.name)
+        attrs = []
+        if o.abstract:
+            attrs += ['ABSTRACT']
+        if o.extends:
+            attrs += [f'EXTENDS({o.extends})']
+        if o.bind_c:
+            attrs += ['BIND(C)']
+        if o.private:
+            attrs += ['PRIVATE']
+        if o.public:
+            attrs += ['PUBLIC']
+
+        if attrs:
+            attrs = f', {self.join_items(attrs)} ::'
+        else:
+            attrs = ''
+        header = self.format_line('TYPE', attrs, ' ', o.name)
         footer = self.format_line('END TYPE ', o.name)
         self.depth += 1
         body = self.visit(o.body, **kwargs)
         self.depth -= 1
         return self.join_lines(header, body, footer)
+
+    def visit_BasicType(self, o, **kwargs):
+        type_map = {BasicType.LOGICAL: 'LOGICAL', BasicType.INTEGER: 'INTEGER',
+                    BasicType.REAL: 'REAL', BasicType.CHARACTER: 'CHARACTER',
+                    BasicType.COMPLEX: 'COMPLEX', BasicType.DEFERRED: ''}
+        return type_map[o]
 
     def visit_DerivedType(self, o, **kwargs):
         return o.name

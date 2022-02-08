@@ -4,10 +4,10 @@ from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source, extract_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
-    VariableDeclaration, Allocation, Import, Section, CallStatement,
+    VariableDeclaration, ProcedureDeclaration, Allocation, Import, Section, CallStatement,
     CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef, Enumeration
 )
-from loki.expression import FindVariables, Array, SubstituteExpressions
+from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -235,8 +235,10 @@ class Subroutine(Scope):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         if not is_function:
-            mapper = {d: None for d in FindNodes(VariableDeclaration).visit(spec)
-                      if d.symbols[0].name == name}
+            mapper = {
+                d: None for d in FindNodes((ProcedureDeclaration, VariableDeclaration)).visit(spec)
+                if name in d.symbols
+            }
             spec = Transformer(mapper, invalidate_source=False).visit(spec)
 
         # Hack: We remove comments from the beginning of the spec to get the docstring
@@ -400,11 +402,22 @@ class Subroutine(Scope):
         return routine
 
     @property
+    def procedure_symbol(self):
+        """
+        Return the procedure symbol for this subroutine
+        """
+        return Variable(name=self.name, scope=self)
+
+    @property
     def variables(self):
         """
         Return the variables (including arguments) declared in this subroutine
         """
-        return as_tuple(flatten(decl.symbols for decl in FindNodes(VariableDeclaration).visit(self.spec)))
+        return as_tuple(
+            flatten(
+                decl.symbols for decl in FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
+            )
+        )
 
     @variables.setter
     def variables(self, variables):
@@ -415,20 +428,23 @@ class Subroutine(Scope):
         removal from this list will also remove arguments from the subroutine signature.
         """
         # First map variables to existing declarations
-        declarations = FindNodes(VariableDeclaration).visit(self.spec)
+        declarations = FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         for v in as_tuple(variables):
             if v not in decl_map:
                 # By default, append new symbols to the end of the spec
-                new_decl = VariableDeclaration(symbols=[v])
+                if isinstance(v.type.dtype, ProcedureType):
+                    new_decl = ProcedureDeclaration(symbols=[v])
+                else:
+                    new_decl = VariableDeclaration(symbols=[v])
                 self.spec.append(new_decl)
 
         # Run through existing declarations and check that all variables still exist
         dmap = {}
         typedef_decls = set(decl for typedef in FindNodes(TypeDef).visit(self.spec)
                             for decl in typedef.declarations)
-        for decl in FindNodes(VariableDeclaration).visit(self.spec):
+        for decl in FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec):
             if decl in typedef_decls:
             # Slightly hacky: We need to exclude declarations inside TypeDef explicitly
                 continue
@@ -453,6 +469,52 @@ class Subroutine(Scope):
         return CaseInsensitiveDict((v.name, v) for v in self.variables)
 
     @property
+    def imported_symbols(self):
+        """
+        Return the symbols imported in this procedure
+        """
+        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(Import).visit(self.spec or ())))
+
+    @property
+    def imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
+
+    @property
+    def interfaces(self):
+        """
+        Return the list of interfaces declared in this procedure
+        """
+        return as_tuple(FindNodes(Interface).visit(self.spec))
+
+    @property
+    def interface_symbols(self):
+        """
+        Return the list of symbols declared via interfaces in this subroutine
+        """
+        return as_tuple(flatten(intf.symbols for intf in self.interfaces))
+
+    @property
+    def interface_map(self):
+        """
+        Map of declared interface names to interfaces
+        """
+        return CaseInsensitiveDict(
+            (s.name, intf) for intf in self.interfaces for s in intf.symbols
+        )
+
+    @property
+    def interface_symbol_map(self):
+        """
+        Map of declared interface names to symbols
+        """
+        return CaseInsensitiveDict(
+            (s.name, s) for s in self.interface_symbols
+        )
+
+    @property
     def enum_symbols(self):
         """
         List of symbols defined via an enum
@@ -465,7 +527,7 @@ class Subroutine(Scope):
         Return list of all symbols declared or imported in this subroutine scope
         """
         return (
-            self.variables + self.imported_symbols + self.enum_symbols +
+            self.variables + self.imported_symbols + self.interface_symbols + self.enum_symbols +
             tuple(routine.procedure_symbol for routine in self.members)
         )
 
@@ -483,9 +545,7 @@ class Subroutine(Scope):
         """
         Return arguments in order of the defined signature (dummy list).
         """
-        # TODO: Can be simplified once we can directly lookup variables objects in scope
-        arg_map = {v.name.lower(): v for v in self.variables if v.name.lower() in self._dummies}
-        return as_tuple(arg_map[a.lower()] for a in self._dummies)
+        return as_tuple(self.symbol_map[arg] for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
@@ -494,8 +554,10 @@ class Subroutine(Scope):
 
         Note that removing arguments from this property does not actually remove declarations.
         """
+        # FIXME: This will fail if one of the argument is declared via an interface!
+
         # First map variables to existing declarations
-        declarations = FindNodes(VariableDeclaration).visit(self.spec)
+        declarations = FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec)
         decl_map = dict((v, decl) for decl in declarations for v in decl.symbols)
 
         arguments = as_tuple(arguments)
@@ -503,7 +565,10 @@ class Subroutine(Scope):
             if arg not in decl_map:
                 # By default, append new variables to the end of the spec
                 assert arg.type.intent is not None
-                new_decl = VariableDeclaration(symbols=[arg])
+                if isinstance(arg.type, ProcedureType):
+                    new_decl = ProcedureDeclaration(symbols=[arg])
+                else:
+                    new_decl = VariableDeclaration(symbols=[arg])
                 self.spec.append(new_decl)
 
         # Set new dummy list according to input
@@ -515,20 +580,6 @@ class Subroutine(Scope):
         Return names of arguments in order of the defined signature (dummy list)
         """
         return [a.name for a in self.arguments]
-
-    @property
-    def imported_symbols(self):
-        """
-        Return the symbols imported in this procedure
-        """
-        return as_tuple(flatten(imprt.symbols for imprt in FindNodes(Import).visit(self.spec or ())))
-
-    @property
-    def imported_symbol_map(self):
-        """
-        Map of imported symbol names to objects
-        """
-        return CaseInsensitiveDict((s.name, s) for s in self.imported_symbols)
 
     @property
     def ir(self):
@@ -562,7 +613,7 @@ class Subroutine(Scope):
         arg_names = [arg.name for arg in self.arguments]
         routine = Subroutine(name=self.name, args=arg_names, spec=None, body=None)
         decl_map = {}
-        for decl in FindNodes(VariableDeclaration).visit(self.spec):
+        for decl in FindNodes((VariableDeclaration, ProcedureDeclaration)).visit(self.spec):
             if any(v in arg_names for v in decl.symbols):
                 assert all(v in arg_names and v.type.intent is not None for v in decl.symbols), \
                     "Declarations must have intents and dummy and local arguments cannot be mixed."
