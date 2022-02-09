@@ -155,7 +155,7 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> <name> ([<args>]) [BIND(c, name=<name>)]
+          <ftype> [<prefix>] <name> ([<args>]) [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
@@ -164,9 +164,12 @@ class FortranCodegen(Stringifier):
           END <ftype> <name>
         """
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        prefix = self.join_items(o.prefix, sep=' ')
+        if o.prefix:
+            prefix += ' '
         arguments = self.join_items(o.argnames)
         bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         contains = self.format_line('CONTAINS')
         footer = self.format_line('END ', ftype, ' ', o.name)
 

@@ -1431,6 +1431,7 @@ end subroutine subroutine_stmt_func
     assert function(3) == 14
     clean_test(filepath)
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_mixed_declaration_interface(frontend):
     """
@@ -1450,3 +1451,40 @@ end subroutine valid_fortran
         _ = routine.interface
 
     assert "Declarations must have intents" in str(error.value)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_prefix(frontend):
+    """
+    Test various prefixes that can occur in function/subroutine definitions
+    """
+    fcode = """
+pure elemental real function f_elem(a)
+    real, intent(in) :: a
+    f_elem = a
+end function f_elem
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert 'PURE' in routine.prefix
+    assert 'ELEMENTAL' in routine.prefix
+    assert routine.is_function is True
+    assert routine.return_type.dtype is BasicType.REAL
+
+    assert routine.name in routine.symbol_map
+    decl = [d for d in FindNodes(VariableDeclaration).visit(routine.spec) if routine.name in d.symbols]
+    assert len(decl) == 1
+    decl = decl[0]
+
+    assert routine.procedure_type.is_function is True
+    assert routine.procedure_type.return_type.dtype is BasicType.REAL
+    assert routine.procedure_type.procedure is routine
+
+    assert routine.procedure_symbol.type.dtype.is_function is True
+    assert routine.procedure_symbol.type.dtype.return_type.dtype is BasicType.REAL
+    assert routine.procedure_symbol.type.dtype.procedure is routine
+
+    code = fgen(routine)
+    assert 'PURE' in code
+    assert 'ELEMENTAL' in code
+    assert fgen(decl) in code

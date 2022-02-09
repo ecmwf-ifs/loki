@@ -12,12 +12,12 @@ try:
 except ImportError:
     HAVE_FP = False
 
-from loki.visitors import GenericVisitor
+from loki.visitors import GenericVisitor, Transformer, FindNodes
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
 from loki.frontend.util import (
     inline_comments, cluster_comments, read_file, FP,
-    combine_multiline_pragmas
+    combine_multiline_pragmas, inject_statement_functions
 )
 from loki import ir
 import loki.expression.symbols as sym
@@ -29,7 +29,9 @@ from loki.expression import (
 )
 from loki.logging import DEBUG, warning, error
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
-from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
+from loki.pragma_utils import (
+    attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
+)
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
 
@@ -61,6 +63,41 @@ def parse_fparser_source(source):
     return f2008_parser(reader)
 
 
+def sanitize_fparser_ir(_ir, pp_info=None):
+    """
+    Utility function to sanitize internal representation after creating it
+    from an Fparser parse tree
+
+    It carries out post-processing according to :data:`pp_info` and applies
+    the following operations:
+
+    * :any:`inline_comments` to attach inline-comments to IR nodes
+    * :any:`cluster_comments` to combine multi-line comments into :any:`CommentBlock`
+    * :any:`combine_mulitline_pragmas` to combine multi-line pragmas into a
+      single node
+
+    Parameters
+    ----------
+    _ir : :any:`Node`
+        The root node of the internal representation tree to be processed
+    pp_info : optional
+        Information from internal preprocessing step that was applied to work around
+        parser limitations and that should be re-inserted
+    """
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    if pp_info is not None:
+        for r_name, rule in sanitize_registry[FP].items():
+            info = pp_info.get(r_name, None)
+            _ir = rule.postprocess(_ir, info)
+
+    # Perform some minor sanitation tasks
+    _ir = inline_comments(_ir)
+    _ir = cluster_comments(_ir)
+    _ir = combine_multiline_pragmas(_ir)
+
+    return _ir
+
+
 @timeit(log_level=DEBUG)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
@@ -86,19 +123,8 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
         The control flow tree
     """
     # Parse the raw FParser language AST into our internal IR
-    _ir = FParser2IR(raw_source=raw_source, definitions=definitions, scope=scope).visit(ast)
-
-    # Apply postprocessing rules to re-insert information lost during preprocessing
-    if pp_info is not None:
-        for r_name, rule in sanitize_registry[FP].items():
-            info = pp_info.get(r_name, None)
-            _ir = rule.postprocess(_ir, info)
-
-    # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
-    _ir = combine_multiline_pragmas(_ir)
-
+    _ir = FParser2IR(raw_source=raw_source, definitions=definitions, pp_info=pp_info, scope=scope).visit(ast)
+    _ir = sanitize_fparser_ir(_ir, pp_info)
     return _ir
 
 
@@ -244,10 +270,11 @@ class FParser2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, definitions=None, scope=None):
+    def __init__(self, raw_source, definitions=None, pp_info=None, scope=None):
         super().__init__()
         self.raw_source = raw_source.splitlines(keepends=True)
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
+        self.pp_info = pp_info
         self.default_scope = scope
 
     @staticmethod
@@ -1531,8 +1558,6 @@ class FParser2IR(GenericVisitor):
             * the closing :class:`fparser.two.Fortran2003.End_Subroutine_Stmt`
 
         """
-        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
-
         # Find start and end of construct
         subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
         subroutine_stmt_index = o.children.index(subroutine_stmt)
@@ -1542,22 +1567,47 @@ class FParser2IR(GenericVisitor):
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
 
+        # Instantiate the object
+        (routine, return_type) = self.visit(subroutine_stmt, **kwargs)
+        kwargs['scope'] = routine
+
         # Extract source object for construct
         lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # Name and dummy args
-        name, args, bind = self.visit(subroutine_stmt, **kwargs)
-        is_function = isinstance(subroutine_stmt, Fortran2003.Function_Stmt)
-        routine = Subroutine(name=name, ast=o, args=args, bind=bind, is_function=is_function,
-                             source=source, parent=kwargs['scope'])
-
         # Spec
-        kwargs['scope'] = routine
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         spec_ast_index = o.children.index(spec_ast)
-        routine.spec = self.visit(spec_ast, **kwargs)
+        spec = self.visit(spec_ast, **kwargs)
+        spec = sanitize_fparser_ir(spec, pp_info=self.pp_info)
+
+        # To simplify things, we always declare the result-type of a function with
+        # a declaration in the spec as this can capture every possible situation.
+        # Therefore, if it has been declared as a prefix in the subroutine statement,
+        # we now have to inject a declaration instead. To ensure we do this in the
+        # right place in the spec to not violate the intrinsic order Fortran mandates,
+        # we search for the first occurence of any VariableDeclaration or
+        # ProcedureDeclaration and inject it before that one
+        if return_type is not None:
+            routine.symbol_attrs[routine.name] = return_type
+            return_var = sym.Variable(name=routine.name, scope=routine)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
+
+            decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
+            if not decls:
+                # No other declarations: add it to the end
+                spec.append(return_var_decl)
+            else:
+                spec.insert(spec.body.index(decls[0]), return_var_decl)
+
+        # Finally, call the subroutine constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        routine.__init__(
+            name=routine.name, args=routine._dummies, spec=spec,
+            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
+        )
 
         # Make sure there is nothing else in there
         assert (subroutine_stmt_index, spec_ast_index, end_subroutine_stmt_index) == \
@@ -1565,6 +1615,161 @@ class FParser2IR(GenericVisitor):
         return (*pre, routine)
 
     visit_Function_Body = visit_Subroutine_Body
+
+    def visit_Subroutine_Subprogram(self, o, **kwargs):
+        """
+        The entire block that comprises a ``SUBROUTINE`` definition, i.e.
+        everything from the subroutine-stmt to the end-stmt
+
+        :class:`fparser.two.Fortran2003.Subroutine_Subprogram` has variable number of children,
+        where the internal nodes may be optional:
+            * :class:`fparser.two.Fortran2003.Subroutine_Stmt` (the opening statement)
+            * :class:`fparser.two.Fortran2003.Specification_Part` (variable declarations, module
+              imports etc.); due to an fparser bug, this can appear multiple times interleaved with
+              the execution-part
+            * :class:`fparser.two.Fortran2003.Execution_Part` (the body of the routine)
+            * :class:`fparser.two.Fortran2003.Internal_Subprogram_Part` (any member procedures
+              declared inside the procedure)
+            * :class:`fparser.two.Fortran2003.End_Subroutine_Stmt` (the final statement)
+        """
+        # Find start and end of construct
+        subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
+        subroutine_stmt_index = o.children.index(subroutine_stmt)
+        end_subroutine_stmt = get_child(o, (Fortran2003.End_Subroutine_Stmt, Fortran2003.End_Function_Stmt))
+        end_subroutine_stmt_index = o.children.index(end_subroutine_stmt)
+
+        # Everything before the construct
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
+        if pre:
+            self.warn_or_fail('Comments or other nodes before Subroutine')
+
+        # ...and there shouldn't be anything after the construct
+        assert end_subroutine_stmt_index + 1 == len(o.children)
+
+        # Instantiate the object
+        (routine, return_type) = self.visit(subroutine_stmt, **kwargs)
+        kwargs['scope'] = routine
+
+        # Extract source object for construct
+        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # We make sure the subroutine objects for all member routines are
+        # instantiated before parsing the actual spec and body of the parent routine.
+        # This way, all procedure types should exist and any use of their symbol
+        # (e.g. in a CallStatement) should have type.dtype.procedure initialized correctly
+        contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
+        if contains_ast is None:
+            member_asts = []
+            members = []
+        else:
+            member_asts = [
+                c for c in contains_ast.children
+                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
+            ]
+            members = [
+                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
+                for c in member_asts
+            ]
+
+        # Hack: Collect all spec and body parts and use all but the
+        # last body as spec. Reason is that Fparser misinterprets statement
+        # functions as array assignments and thus breaks off spec early
+        part_asts = [
+            c for c in o.children if isinstance(c, (Fortran2003.Specification_Part, Fortran2003.Execution_Part))
+        ]
+        if not part_asts:
+            spec_asts = []
+            body_ast = None
+        elif isinstance(part_asts[-1], Fortran2003.Execution_Part):
+            *spec_asts, body_ast = part_asts
+        else:
+            spec_asts = part_asts
+            body_ast = None
+
+        # Build the spec by parsing all relevant parts of the AST and appending them
+        # to the same section object
+        spec_parts = [self.visit(spec_ast, **kwargs) for spec_ast in spec_asts]
+        spec_parts = flatten([part.body for part in spec_parts if part is not None])
+        spec = ir.Section(body=as_tuple(spec_parts))
+
+        # Now all declarations are well-defined and we can parse the member routines
+        if member_asts:
+            members = as_tuple([self.visit(c, **kwargs) for c in member_asts])
+
+        # Finally, take care of the body
+        if body_ast is None:
+            body = ir.Section(body=())
+        else:
+            body = self.visit(body_ast, **kwargs)
+
+        # Perform sanitation tasks on the spec and body
+        spec = sanitize_fparser_ir(spec, pp_info=self.pp_info)
+        body = sanitize_fparser_ir(body, pp_info=self.pp_info)
+
+        # Another big hack: fparser allocates all comments before and after the
+        # spec to the spec. We remove them from the beginning to get the docstring.
+        comment_map = {}
+        docs = []
+        for node in spec.body:
+            if not isinstance(node, (ir.Comment, ir.CommentBlock)):
+                break
+            docs.append(node)
+            comment_map[node] = None
+
+        # Now we move comments from the end to the beginning of the body as those
+        # can potentially be pragmas.
+        for node in reversed(spec.body):
+            if not isinstance(node, (ir.Pragma, ir.Comment, ir.CommentBlock)):
+                break
+            body.prepend(node)
+            comment_map[node] = None
+        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
+
+        # To simplify things, we always declare the result-type of a function with
+        # a declaration in the spec as this can capture every possible situation.
+        # Therefore, if it has been declared as a prefix in the subroutine statement,
+        # we now have to inject a declaration instead. To ensure we do this in the
+        # right place in the spec to not violate the intrinsic order Fortran mandates,
+        # we search for the first occurence of any VariableDeclaration or
+        # ProcedureDeclaration and inject it before that one
+        if return_type is not None:
+            routine.symbol_attrs[routine.name] = return_type
+            return_var = sym.Variable(name=routine.name, scope=routine)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
+
+            decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
+            if not decls:
+                # No other declarations: add it to the end
+                spec.append(return_var_decl)
+            else:
+                spec.insert(spec.body.index(decls[0]), return_var_decl)
+
+        # Finally, call the subroutine constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        routine.__init__(
+            name=routine.name, args=routine._dummies,
+            docstring=docs, spec=spec, body=body, members=members,
+            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
+        )
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        routine.spec, routine.body = routine._infer_allocatable_shapes(routine.spec, routine.body)
+
+        # Update array shapes with Loki dimension pragmas
+        with pragmas_attached(routine, ir.VariableDeclaration):
+            routine.spec = process_dimension_pragmas(routine.spec)
+
+        # Inject statement function definitions
+        inject_statement_functions(routine)
+
+        return routine
+
+    visit_Function_Subprogram = visit_Subroutine_Subprogram
 
     def visit_Subroutine_Stmt(self, o, **kwargs):
         """
@@ -1576,28 +1781,70 @@ class FParser2IR(GenericVisitor):
             * dummy argument list :class:`fparser.two.Fortran2003.Dummy_Arg_List`
             * language binding specs :class:`fparser.two.Fortran2003.Proc_Language_Binding_Spec`
         """
+        from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
+
+        # Parse the prefix
+        prefix = ()
+        return_type = None
         if o.children[0] is not None:
-            # We can't handle prefix, yet
-            self.warn_or_fail('Subroutine prefix not implemented')
+            prefix = self.visit(o.children[0], **kwargs)
+            return_type = [i for i in prefix if not isinstance(i, str)]
+            prefix = [i for i in prefix if isinstance(i, str)]
+            assert len(return_type) in (0, 1)
+            return_type = return_type[0] if return_type else None
 
         name = self.visit(o.children[1], **kwargs)
         name = name.name
 
+        # Check if the Subroutine node has been created before by looking it up in the scope
+        if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
+            proc_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
+            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+                return (proc_type.dtype.procedure, proc_type.dtype.return_type)
+
+        # Build the dummy argument list
         if o.children[2] is None:
             args = ()
         else:
             dummy_arg_list = self.visit(o.children[2], **kwargs)
             args = tuple(str(arg) for arg in dummy_arg_list)
 
+        # Parse language binding specs
         bind = None if o.children[3] is None else o.children[3].tostr()
 
-        return name, args, bind
+        # Instantiate the object
+        is_function = isinstance(o, Fortran2003.Function_Stmt)
+        routine = Subroutine(
+            name=name, args=args, prefix=prefix, bind=bind,
+            is_function=is_function, parent=kwargs['scope']
+        )
+        return (routine, return_type)
 
     visit_Function_Stmt = visit_Subroutine_Stmt
     visit_Subroutine_Name = visit_Name
     visit_Function_Name = visit_Name
     visit_Dummy_Arg_List = visit_List
 
+    def visit_Prefix(self, o, **kwargs):
+        """
+        The prefix of a subprogram definition
+
+        :class:`fparser.two.Fortran2003.Prefix` has variable number of children
+        that have the type
+            * :class:`fparser.two.Fortran2003.Prefix_Spec` to declare attributes
+            * :class:`fparser.two.Fortran2003.Declaration_Type_Spec` (or any of its
+              variations) to declare the return type of a function
+        """
+        attrs = [self.visit(c, **kwargs) for c in o.children]
+        return as_tuple(attrs)
+
+    def visit_Prefix_Spec(self, o, **kwargs):
+        """
+        A prefix keyword in a subprogram definition
+
+        :class:`fparser.two.Fortran2003.Prefix_Spec` has no children
+        """
+        return o.string
     #
     # Conditional
     #

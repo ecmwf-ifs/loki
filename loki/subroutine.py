@@ -38,6 +38,8 @@ class Subroutine(Scope):
         Member subroutines contained in this subroutine.
     ast : optional
         Frontend node for this subroutine (from parse tree of the frontend).
+    prefix : iterable, optional
+        Prefix specifications for the procedure
     bind : optional
         Bind information (e.g., for Fortran ``BIND(C)`` annotation).
     is_function : bool, optional
@@ -60,14 +62,15 @@ class Subroutine(Scope):
     """
 
     def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
-                 ast=None, bind=None, is_function=False, rescope_symbols=False, source=None,
-                 parent=None, symbol_attrs=None):
+                 ast=None, prefix=None, bind=None, is_function=False, rescope_symbols=False,
+                 source=None, parent=None, symbol_attrs=None):
         # First, store all local poperties
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self._source = source
 
+        self.prefix = as_tuple(prefix)
         self.bind = bind
         self.is_function = is_function
 
@@ -291,122 +294,31 @@ class Subroutine(Scope):
         return routine
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
-        routine_stmt = get_fparser_node(ast, 'Function_Stmt')
-        is_function = routine_stmt is not None
-        if is_function:
-            name = name or routine_stmt.items[1].tostr()
-        else:
-            routine_stmt = get_fparser_node(ast, 'Subroutine_Stmt')
-            name = name or routine_stmt.get_name().string
-
-        source = extract_fparser_source(ast, raw_source)
-
-        dummy_arg_list = routine_stmt.items[2]
-        args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
-
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Hack: Collect all spec and body parts and use all but the
-        # last body as spec. Reason is that Fparser misinterprets statement
-        # functions as array assignments and thus breaks off spec early
-        part_asts = get_fparser_node(ast, ('Specification_Part', 'Execution_Part'), first_only=False)
-        if not part_asts:
-            spec_asts = []
-            body_ast = None
-        elif type(part_asts[-1]).__name__ == 'Execution_Part':
-            *spec_asts, body_ast = part_asts
-        else:
-            spec_asts = part_asts
-            body_ast = None
-
-        # Build the spec by parsing all relevant parts of the AST and appending them
-        # to the same section object
-        spec = Section(body=())
-        for spec_ast in spec_asts:
-            part = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
-            if part is not None:
-                spec.append(part.body)
-
-        # Parse "member" subroutines recursively
-        contains_ast = get_fparser_node(ast, 'Internal_Subprogram_Part')
-        if contains_ast:
-            # We need to pre-populate the ProcedureType type table to
-            # correctly class inline function calls within the module
-            routine_asts = get_fparser_node(
-                contains_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
-                first_only=False
-            )
-            for s in routine_asts:
-                if type(s).__name__ == 'Function_Subprogram':
-                    routine_stmt = get_fparser_node(s, 'Function_Stmt')
-                    fname = routine_stmt.items[1].tostr()
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
-                    fname = routine_stmt.get_name().string
-                    dtype = ProcedureType(fname, is_function=False)
-                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
-
-            # Now create the actual Subroutine objects
-            members = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=routine,
-                                               pp_info=pp_info, raw_source=raw_source)
-                       for s in routine_asts]
-            routine._members = as_tuple(members)
-
-        # Take care of the body
-        if body_ast:
-            body = parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
-        else:
-            body = Section(body=())
-
-        # Another big hack: fparser allocates all comments before and after the spec to the spec.
-        # We remove them from the beginning to get the docstring and move them from the end to the
-        # body as those can potentially be pragmas.
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (Comment, CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
-        routine.docstring = as_tuple(docs)
-
-        for node in reversed(spec.body):
-            if not isinstance(node, (Pragma, Comment, CommentBlock)):
-                break
-            body.prepend(node)
-            comment_map[node] = None
-        routine.spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-        routine.body = body
-
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        # Inject statement function definitions
-        inject_statement_functions(routine)
-
-        return routine
+    def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
 
     @property
     def procedure_symbol(self):
         """
         Return the procedure symbol for this subroutine
         """
-        return Variable(name=self.name, scope=self)
+        return Variable(name=self.name, type=SymbolAttributes(self.procedure_type), scope=self.parent)
+
+    @property
+    def procedure_type(self):
+        """
+        Return the :any:`ProcedureType` of this subroutine
+        """
+        return ProcedureType(procedure=self)
+
+    @property
+    def return_type(self):
+        """
+        Return the return_type of this subroutine
+        """
+        if not self.is_function:
+            return None
+        return self.symbol_attrs.get(self.name)
 
     @property
     def variables(self):

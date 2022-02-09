@@ -7,7 +7,7 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import (
     OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment
+    VariableDeclaration, Assignment, InlineCall
 )
 
 
@@ -1016,6 +1016,7 @@ end module derived_type_nested_proc_call_mod
 
     assignment = FindNodes(Assignment).visit(mod['exists'].body)
     assert len(assignment) == 1
+    assert isinstance(assignment[0].rhs, InlineCall)
     assert fgen(assignment[0].rhs).lower() == 'this%file%exists(var_name)'
 
     # TODO: Verify type of function symbol etc
