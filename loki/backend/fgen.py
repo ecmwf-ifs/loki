@@ -170,17 +170,16 @@ class FortranCodegen(Stringifier):
         arguments = self.join_items(o.argnames)
         bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
         header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
-        contains = self.format_line('CONTAINS')
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
         body = self.visit(o.body, **kwargs)
-        members = self.visit(o.members, **kwargs)
+        contains = self.visit(o.contains, **kwargs)
         self.depth -= 1
-        if members:
-            return self.join_lines(header, docstring, spec, body, contains, members, footer)
+        if contains:
+            return self.join_lines(header, docstring, spec, body, contains, footer)
         return self.join_lines(header, docstring, spec, body, footer)
 
     # Handler for AST base nodes

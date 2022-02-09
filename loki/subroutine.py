@@ -1,11 +1,11 @@
-from loki.frontend import Frontend, Source, extract_source, inject_statement_functions
+from loki.frontend import Frontend, Source, extract_source
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
-from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source, extract_fparser_source
+from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
     VariableDeclaration, ProcedureDeclaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef, Enumeration
+    CallContext, Intrinsic, Interface, Comment, CommentBlock, TypeDef, Enumeration
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
@@ -34,8 +34,9 @@ class Subroutine(Scope):
         The spec of the subroutine.
     body : :any:`Section`, optional
         The body of the subroutine.
-    members : iterable of :any:`Subroutine`
-        Member subroutines contained in this subroutine.
+    contains : :any:`Section`, optional
+        The internal-subprogram part following a ``CONTAINS`` statement
+        declaring member procedures
     ast : optional
         Frontend node for this subroutine (from parse tree of the frontend).
     prefix : iterable, optional
@@ -61,7 +62,7 @@ class Subroutine(Scope):
         Use the provided :any:`SymbolTable` object instead of creating a new
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
                  ast=None, prefix=None, bind=None, is_function=False, rescope_symbols=False,
                  source=None, parent=None, symbol_attrs=None):
         # First, store all local poperties
@@ -80,7 +81,8 @@ class Subroutine(Scope):
         self.spec = spec
         assert isinstance(body, Section) or body is None
         self.body = body
-        self._members = as_tuple(members)
+        assert isinstance(contains, Section) or contains is None
+        self.contains = contains
 
         # Then call the parent constructor to take care of symbol table and rescoping
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
@@ -502,17 +504,27 @@ class Subroutine(Scope):
 
     @property
     def source(self):
+        """
+        Return the :any:`Source` object associated with this subroutine
+        """
         return self._source
 
     def to_fortran(self, conservative=False):
+        """
+        Convert subroutine to Fortran source code
+        """
         return fgen(self, conservative=conservative)
 
     @property
     def members(self):
         """
-        Tuple of member function defined in this `Subroutine`.
+        Tuple of member functions defined in this subroutine
         """
-        return as_tuple(self._members)
+        if self.contains is None:
+            return ()
+        return as_tuple([
+            member for member in self.contains.body if isinstance(member, Subroutine)
+        ])
 
     @property
     def interface(self):
@@ -597,25 +609,43 @@ class Subroutine(Scope):
             kwargs['name'] = self.name
         if self.argnames and 'args' not in kwargs:
             kwargs['args'] = self.argnames
+        if self.docstring and 'docstring' not in kwargs:
+            kwargs['docstring'] = self.docstring
+        if self.spec and 'spec' not in kwargs:
+            kwargs['spec'] = self.spec
+        if self.body and 'body' not in kwargs:
+            kwargs['body'] = self.body
         if self._ast and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
+        if self.prefix and 'prefix' not in kwargs:
+            kwargs['prefix'] = self.prefix
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
         if self.is_function and 'is_function' not in kwargs:
             kwargs['is_function'] = self.is_function
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
 
         if 'rescope_symbols' not in kwargs:
             kwargs['rescope_symbols'] = True
 
-        kwargs['docstring'] = Transformer({}).visit(self.docstring)
-        kwargs['spec'] = Transformer({}).visit(self.spec)
-        kwargs['body'] = Transformer({}).visit(self.body)
+        if 'docstring' in kwargs:
+            kwargs['docstring'] = Transformer({}).visit(kwargs['docstring'])
+        if 'spec' in kwargs:
+            kwargs['spec'] = Transformer({}).visit(kwargs['spec'])
+        if 'body' in kwargs:
+            kwargs['body'] = Transformer({}).visit(kwargs['body'])
 
         # Clone the routine and continue with any members
         routine = super().clone(**kwargs)
-        if self.members and 'members' not in kwargs:
-            routine._members = tuple(member.clone(parent=routine, rescope_symbols=kwargs['rescope_symbols'])
-                                     for member in self.members)
+
+        if self.contains and 'contains' not in kwargs:
+            contains = [
+                node.clone(parent=routine, rescope_symbols=kwargs['rescope_symbols']) if isinstance(node, Subroutine)
+                else node.clone() for node in self.contains.body
+            ]
+            routine.contains = self.contains.clone(body=as_tuple(contains))
+
         return routine

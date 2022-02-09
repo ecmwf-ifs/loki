@@ -352,6 +352,7 @@ class FParser2IR(GenericVisitor):
     visit_Implicit_Part = visit_List
 
     visit_Execution_Part = visit_Specification_Part
+    visit_Internal_Subprogram_Part = visit_Specification_Part
 
     #
     # Variable, procedure and type names
@@ -1660,15 +1661,17 @@ class FParser2IR(GenericVisitor):
         # This way, all procedure types should exist and any use of their symbol
         # (e.g. in a CallStatement) should have type.dtype.procedure initialized correctly
         contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
-        if contains_ast is None:
-            member_asts = []
-            members = []
-        else:
+        if contains_ast is not None:
             member_asts = [
                 c for c in contains_ast.children
                 if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
             ]
-            members = [
+            # Note that we overwrite this variable subsequently with the fully parsed subroutines
+            # where the visit-method for the subroutine/function statement will pick out the existing
+            # subroutine objects using the weakref pointers stored in the symbol table.
+            # I know, it's not pretty but alternatively we could hand down this array as part of
+            # kwargs but that feels like carrying around a lot of bulk, too.
+            contains = [
                 self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
                 for c in member_asts
             ]
@@ -1695,8 +1698,10 @@ class FParser2IR(GenericVisitor):
         spec = ir.Section(body=as_tuple(spec_parts))
 
         # Now all declarations are well-defined and we can parse the member routines
-        if member_asts:
-            members = as_tuple([self.visit(c, **kwargs) for c in member_asts])
+        if contains_ast is not None:
+            contains = self.visit(contains_ast, **kwargs)
+        else:
+            contains = None
 
         # Finally, take care of the body
         if body_ast is None:
@@ -1750,7 +1755,7 @@ class FParser2IR(GenericVisitor):
         # bits and pieces in place and rescope all symbols
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, members=members,
+            docstring=docs, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
             rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
         )
@@ -1845,6 +1850,9 @@ class FParser2IR(GenericVisitor):
         :class:`fparser.two.Fortran2003.Prefix_Spec` has no children
         """
         return o.string
+
+
+
     #
     # Conditional
     #
