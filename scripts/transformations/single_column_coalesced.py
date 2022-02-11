@@ -7,8 +7,7 @@ from loki import (
     Transformation, FindNodes, FindScopes, FindVariables,
     FindExpressions, Transformer, NestedMaskedTransformer,
     SubstituteExpressions, SymbolAttributes, BasicType, DerivedType,
-    pragmas_attached, CaseInsensitiveDict, JoinableStringList,
-    as_tuple, flatten
+    pragmas_attached, CaseInsensitiveDict, as_tuple, flatten
 )
 
 
@@ -631,11 +630,8 @@ class SingleColumnCoalescedTransformation(Transformation):
                                       for v, dims in zip(column_locals, arg_dims))
 
         # Add explicit OpenACC statements for creating device variables
-        def _pragma_string(items):
-            return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
-
         if self.directive == 'openacc':
-            vnames = _pragma_string(v.name for v in column_locals)
+            vnames = ', '.join(v.name for v in column_locals)
             pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
             pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment

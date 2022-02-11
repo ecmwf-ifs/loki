@@ -1,7 +1,6 @@
 from loki import (
     pragma_regions_attached, PragmaRegion, Transformation, FindNodes,
-    CallStatement, Pragma, Array, as_tuple, Transformer, JoinableStringList,
-    warning
+    CallStatement, Pragma, Array, as_tuple, Transformer, warning
 )
 
 
@@ -118,15 +117,11 @@ class DataOffloadTransformation(Transformation):
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
                             outargs += [str(arg.name).lower()]
 
-                def _pragma_string(items):
-                    # items = list(dict.fromkeys(items))
-                    return str(JoinableStringList(items, cont=' &\n!$acc &   ', sep=', ', width=72))
-
                 # Now geenerate the pre- and post pragmas (OpenACC)
-                copyin = '!$acc & copyin(' + _pragma_string(inargs) + ')' if inargs else ''
-                copy = '!$acc & copy(' + _pragma_string(inoutargs) + ')' if inoutargs else ''
-                copyout = '!$acc & copyout(' + _pragma_string(outargs) + ')' if outargs else ''
-                pragma = Pragma(keyword='acc', content=f'data &\n{copyin} &\n{copy} &\n{copyout}')
+                copyin = 'copyin(' + ', '.join(inargs) + ')' if inargs else ''
+                copy = 'copy(' + ', '.join(inoutargs) + ')' if inoutargs else ''
+                copyout = 'copyout(' + ', '.join(outargs) + ')' if outargs else ''
+                pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post

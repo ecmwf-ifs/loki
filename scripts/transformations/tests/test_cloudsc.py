@@ -28,10 +28,9 @@ def fixture_bundle_create(here):
 ))
 def test_cloudsc(here, frontend):
     build_cmd = [
-        './cloudsc-bundle', 'build', '--verbose', '--clean', '--with-hdf5',
+        './cloudsc-bundle', 'build', '--verbose', '--clean',
         '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
-        '--cmake="ENABLE_ACC=OFF"'
     ]
 
     if 'CLOUDSC_ARCH' in os.environ:
