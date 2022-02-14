@@ -359,9 +359,6 @@ def ecphys(mode, config, header, source, build, frontend):
     paths += [Path(h).resolve().parent for h in header]
     scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
 
-    # First, remove all derived-type arguments; caller first!
-    scheduler.process(transformation=DerivedTypeArgumentsTransformation())
-
     # Backward insert argument shapes (for surface routines)
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
 
