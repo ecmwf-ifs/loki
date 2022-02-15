@@ -324,12 +324,14 @@ def resolve_masked_stmts(routine, loop_variable):
     """
     mapper = {}
     for masked in FindNodes(ir.MaskedStatement).visit(routine.body):
-        ranges = [e for e in FindExpressions().visit(masked.condition) if isinstance(e, sym.RangeIndex)]
+        # TODO: Currently limited to simple, single-clause WHERE stmts
+        assert len(masked.conditions) == 1 and len(masked.bodies) == 1
+        ranges = [e for e in FindExpressions().visit(masked.conditions[0]) if isinstance(e, sym.RangeIndex)]
         exprmap = {r: loop_variable for r in ranges}
         assert len(ranges) > 0
         assert all(r == ranges[0] for r in ranges)
         bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
-        cond = ir.Conditional(condition=masked.condition, body=masked.body, else_body=masked.default)
+        cond = ir.Conditional(condition=masked.conditions[0], body=masked.bodies[0], else_body=masked.default)
         loop = ir.Loop(variable=loop_variable, bounds=bounds, body=cond)
         # Substitute the loop ranges with the loop index and add to mapper
         mapper[masked] = SubstituteExpressions(exprmap).visit(loop)
