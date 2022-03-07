@@ -2,6 +2,10 @@
 *.pyc
 *.swp
 
+# NFS artifacts and core dumps
+.nfs*
+core.*
+
 loki.egg-info/*
 .eggs/*
 .cache/*
