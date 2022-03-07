@@ -18,7 +18,7 @@ from loki.logging import warning
 
 __all__ = [
     'Frontend', 'OFP', 'OMNI', 'FP', 'inline_comments', 'cluster_comments', 'read_file',
-    'combine_multiline_pragmas', 'inject_statement_functions'
+    'combine_multiline_pragmas', 'inject_statement_functions', 'sanitize_ir'
 ]
 
 
@@ -271,3 +271,47 @@ def inject_statement_functions(routine):
 
         # And make sure all symbols have the right type
         routine.rescope_symbols()
+
+
+def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
+    """
+    Utility function to sanitize internal representation after creating it
+    from the parse tree of a frontend
+
+    It carries out post-processing according to :data:`pp_info` and applies
+    the following operations:
+
+    * :any:`inline_comments` to attach inline-comments to IR nodes
+    * :any:`cluster_comments` to combine multi-line comments into :any:`CommentBlock`
+    * :any:`combine_mulitline_pragmas` to combine multi-line pragmas into a
+      single node
+
+    Parameters
+    ----------
+    _ir : :any:`Node`
+        The root node of the internal representation tree to be processed
+    frontend : :any:`Frontend`
+        The frontend from which the IR was created
+    pp_registry: dict, optional
+        Registry of pre-processing items to be applied
+    pp_info : optional
+        Information from internal preprocessing step that was applied to work around
+        parser limitations and that should be re-inserted
+    """
+    # Apply postprocessing rules to re-insert information lost during preprocessing
+    if pp_info is not None and pp_registry is not None:
+        for r_name, rule in pp_registry.items():
+            info = pp_info.get(r_name, None)
+            _ir = rule.postprocess(_ir, info)
+
+    # Perform some minor sanitation tasks
+    _ir = inline_comments(_ir)
+    _ir = cluster_comments(_ir)
+
+    if frontend in (OMNI, OFP):
+        _ir = inline_labels(_ir)
+
+    if frontend in (FP, OFP):
+        _ir = combine_multiline_pragmas(_ir)
+
+    return _ir

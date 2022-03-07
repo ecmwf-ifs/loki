@@ -15,10 +15,7 @@ except ImportError:
 from loki.visitors import GenericVisitor, Transformer, FindNodes
 from loki.frontend.source import Source
 from loki.frontend.preprocessing import sanitize_registry
-from loki.frontend.util import (
-    inline_comments, cluster_comments, read_file, FP,
-    combine_multiline_pragmas, inject_statement_functions
-)
+from loki.frontend.util import read_file, FP, inject_statement_functions, sanitize_ir
 from loki import ir
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -63,41 +60,6 @@ def parse_fparser_source(source):
     return f2008_parser(reader)
 
 
-def sanitize_fparser_ir(_ir, pp_info=None):
-    """
-    Utility function to sanitize internal representation after creating it
-    from an Fparser parse tree
-
-    It carries out post-processing according to :data:`pp_info` and applies
-    the following operations:
-
-    * :any:`inline_comments` to attach inline-comments to IR nodes
-    * :any:`cluster_comments` to combine multi-line comments into :any:`CommentBlock`
-    * :any:`combine_mulitline_pragmas` to combine multi-line pragmas into a
-      single node
-
-    Parameters
-    ----------
-    _ir : :any:`Node`
-        The root node of the internal representation tree to be processed
-    pp_info : optional
-        Information from internal preprocessing step that was applied to work around
-        parser limitations and that should be re-inserted
-    """
-    # Apply postprocessing rules to re-insert information lost during preprocessing
-    if pp_info is not None:
-        for r_name, rule in sanitize_registry[FP].items():
-            info = pp_info.get(r_name, None)
-            _ir = rule.postprocess(_ir, info)
-
-    # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
-    _ir = combine_multiline_pragmas(_ir)
-
-    return _ir
-
-
 @timeit(log_level=DEBUG)
 def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=None):
     """
@@ -124,7 +86,7 @@ def parse_fparser_ast(ast, raw_source, pp_info=None, definitions=None, scope=Non
     """
     # Parse the raw FParser language AST into our internal IR
     _ir = FParser2IR(raw_source=raw_source, definitions=definitions, pp_info=pp_info, scope=scope).visit(ast)
-    _ir = sanitize_fparser_ir(_ir, pp_info)
+    _ir = sanitize_ir(_ir, FP, pp_registry=sanitize_registry[FP], pp_info=pp_info)
     return _ir
 
 
@@ -1581,7 +1543,7 @@ class FParser2IR(GenericVisitor):
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         spec_ast_index = o.children.index(spec_ast)
         spec = self.visit(spec_ast, **kwargs)
-        spec = sanitize_fparser_ir(spec, pp_info=self.pp_info)
+        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
         # To simplify things, we always declare the result-type of a function with
         # a declaration in the spec as this can capture every possible situation.
@@ -1710,8 +1672,8 @@ class FParser2IR(GenericVisitor):
             body = self.visit(body_ast, **kwargs)
 
         # Perform sanitation tasks on the spec and body
-        spec = sanitize_fparser_ir(spec, pp_info=self.pp_info)
-        body = sanitize_fparser_ir(body, pp_info=self.pp_info)
+        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+        body = sanitize_ir(body, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
         # Another big hack: fparser allocates all comments before and after the
         # spec to the spec. We remove them from the beginning to get the docstring.
