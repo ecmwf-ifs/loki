@@ -1,11 +1,11 @@
-from loki.frontend import Frontend, Source, extract_source
+from loki.frontend import Frontend, extract_source
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
     VariableDeclaration, ProcedureDeclaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock, TypeDef, Enumeration
+    CallContext, Interface, TypeDef, Enumeration
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
 from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
@@ -211,89 +211,15 @@ class Subroutine(Scope):
         return routine
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, definitions=None, name=None, symbol_map=None, parent=None):
-        name = name or ast.find('name').text
+    def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {}
         symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
 
-        # Check if it is a function or a subroutine. There may be a better way to do
-        # this but OMNI does not seem to make it obvious, thus checking the return type
-        name_id = ast.find('name').attrib['type']
-        is_function = name_id in type_map and type_map[name_id].attrib['return_type'] != 'Fvoid'
-
-        source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-
-        # Get the names of dummy variables from the type_map
-        fhash = ast.find('name').attrib['type']
-        ftype = [t for t in typetable.findall('FfunctionType')
-                 if t.attrib['type'] == fhash][0]
-        args = as_tuple(name.text for name in ftype.findall('params/name'))
-
-        # Instantiate the subroutine
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Generate spec
-        spec = parse_omni_ast(ast.find('declarations'), definitions=definitions, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=routine)
-
-        # Filter out the declaration for the subroutine name but keep it for functions (since
-        # this declares the return type)
-        if not is_function:
-            mapper = {
-                d: None for d in FindNodes((ProcedureDeclaration, VariableDeclaration)).visit(spec)
-                if name in d.symbols
-            }
-            spec = Transformer(mapper, invalidate_source=False).visit(spec)
-
-        # Hack: We remove comments from the beginning of the spec to get the docstring
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (Comment, CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
-        routine.docstring = as_tuple(docs)
-        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-
-        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
-        f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
-        spec_body = list(spec.body)
-        spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
-        spec._update(body=as_tuple(spec_body))
-        routine.spec = spec
-
-        # Parse member functions properly
-        contains = ast.find('body/FcontainsStatement')
-        members = None
-        if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, definitions=definitions,
-                                            symbol_map=symbol_map, raw_source=raw_source, parent=routine)
-                       for s in contains.findall('FfunctionDefinition')]
-            routine._members = as_tuple(members)
-
-            # Strip members from the XML before we proceed
-            ast.find('body').remove(contains)
-
-        # Convert the core kernel to IR
-        body = parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=routine)
-        routine.body = Section(body=body)
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        return routine
+        return parse_omni_ast(
+            ast=ast, definitions=definitions, raw_source=raw_source,
+            type_map=type_map, symbol_map=symbol_map, scope=parent
+        )
 
     @classmethod
     def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
