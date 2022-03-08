@@ -1455,7 +1455,7 @@ end subroutine valid_fortran
     assert "Declarations must have intents" in str(error.value)
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Prefix support not implemented')]))
 def test_subroutine_prefix(frontend):
     """
     Test various prefixes that can occur in function/subroutine definitions
