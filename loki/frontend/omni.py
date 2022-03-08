@@ -303,37 +303,38 @@ class OMNI2IR(GenericVisitor):
             ast=o, source=kwargs['source']
         )
         kwargs['scope'] = routine
-        
+
         # Parse the spec
         spec = self.visit(o.find('declarations'), **kwargs)
         spec = sanitize_ir(spec, OMNI)
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
+        spec_map = {}
         if not is_function:
-            mapper = {
+            spec_map.update({
                 d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(spec)
                 if name in d.symbols
-            }
-            spec = Transformer(mapper, invalidate_source=False).visit(spec)
+            })
 
         # Hack: We remove comments from the beginning of the spec to get the docstring
-        comment_map = {}
-        docs = []
+        docstring = []
         for node in spec.body:
+            if node in spec_map:
+                continue
             if not isinstance(node, (ir.Comment, ir.CommentBlock)):
                 break
-            docs.append(node)
-            comment_map[node] = None
-        routine.docstring = as_tuple(docs)
-        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
+            docstring.append(node)
+            spec_map[node] = None
+        docstring = as_tuple(docstring)
+        spec = Transformer(spec_map, invalidate_source=False).visit(spec)
 
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(ir.Import).visit(spec) if not im.c_import]
-        spec_body = list(spec.body)
-        spec_body.insert(len(f_imports), ir.Intrinsic(text='IMPLICIT NONE'))
-        spec._update(body=as_tuple(spec_body))
-        spec = spec
+        if not f_imports:
+            spec.prepend(ir.Intrinsic(text='IMPLICIT NONE'))
+        else:
+            spec.insert(spec.body.index(f_imports[-1])+1, ir.Intrinsic(text='IMPLICIT NONE'))
 
         # Parse member functions
         body_ast = o.find('body')
@@ -357,7 +358,7 @@ class OMNI2IR(GenericVisitor):
         # bits and pieces in place and rescope all symbols
         routine.__init__(
             name=routine.name, args=routine._dummies,
-            docstring=docs, spec=spec, body=body, contains=contains,
+            docstring=docstring, spec=spec, body=body, contains=contains,
             ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
             rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
             source=routine.source
