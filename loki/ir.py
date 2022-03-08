@@ -1282,7 +1282,7 @@ class TypeDef(ScopedNode, LeafNode):
 
     @property
     def declarations(self):
-        return as_tuple(c for c in self.body if isinstance(c, VariableDeclaration))
+        return as_tuple(c for c in self.body if isinstance(c, (VariableDeclaration, ProcedureDeclaration)))
 
     @property
     def comments(self):
