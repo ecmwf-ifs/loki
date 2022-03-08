@@ -147,68 +147,8 @@ class Subroutine(Scope):
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
-        name = name or ast.attrib['name']
-        is_function = ast.tag == 'function'
-        source = extract_source(ast, raw_source, full_lines=True)
-
-        # Store the names of variables in the subroutine signature
-        if is_function:
-            arg_ast = ast.findall('header/names/name')
-            args = [arg.attrib['id'].upper() for arg in arg_ast]
-        else:
-            arg_ast = ast.findall('header/arguments/argument')
-            args = [arg.attrib['name'].upper() for arg in arg_ast]
-
-        # Decompose the body into known sections
-        ast_body = list(ast.find('body'))
-        ast_spec = ast.find('body/specification')
-        idx_spec = ast_body.index(ast_spec)
-        ast_docs = ast_body[:idx_spec]
-        ast_body = ast_body[idx_spec+1:]
-
-        # Instantiate the subroutine
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Create IRs for the docstring and the declaration spec
-        routine.docstring = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=routine)
-        routine.spec = parse_ofp_ast(ast_spec, definitions=definitions, pp_info=pp_info,
-                                     raw_source=raw_source, scope=routine)
-
-        # Parse "member" subroutines and functions recursively
-        if ast.find('members'):
-            # We need to pre-populate the ProcedureType symbol table to
-            # correctly classify inline function calls within the module
-            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
-            for routine_ast in routine_asts:
-                fname = routine_ast.attrib['name']
-                if routine_ast.tag == 'function':
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    dtype = ProcedureType(fname, is_function=False)
-                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
-            members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions, parent=routine)
-                       for member in routine_asts]
-            routine._members = as_tuple(members)
-
-        # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=routine)
-        routine.body = Section(body=body)
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        return routine
+    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        return parse_ofp_ast(ast=ast, pp_info=pp_info, raw_source=raw_source, definitions=definitions, scope=parent)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):
