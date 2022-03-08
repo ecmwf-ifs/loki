@@ -1509,76 +1509,6 @@ class FParser2IR(GenericVisitor):
     visit_Import_Name_List = visit_List
     visit_Import_Name = visit_Name
 
-    def visit_Subroutine_Body(self, o, **kwargs):
-        """
-        A subroutine definition in an interface block
-
-        :class:`fparser.two.Fortran2003.Subroutine_Body` has variable number of children:
-            * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
-            * :class:`fparser.two.Fortran2003.Subroutine_Stmt` (the actual statement
-              that begins the construct)
-            * the spec :class:`fparser.two.Fortran2003.Specification_Part`
-            * the closing :class:`fparser.two.Fortran2003.End_Subroutine_Stmt`
-
-        """
-        # Find start and end of construct
-        subroutine_stmt = get_child(o, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt))
-        subroutine_stmt_index = o.children.index(subroutine_stmt)
-        end_subroutine_stmt = get_child(o, (Fortran2003.End_Subroutine_Stmt, Fortran2003.End_Function_Stmt))
-        end_subroutine_stmt_index = o.children.index(end_subroutine_stmt)
-
-        # Everything before the construct
-        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
-
-        # Instantiate the object
-        (routine, return_type) = self.visit(subroutine_stmt, **kwargs)
-        kwargs['scope'] = routine
-
-        # Extract source object for construct
-        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
-
-        # Spec
-        spec_ast = get_child(o, Fortran2003.Specification_Part)
-        spec_ast_index = o.children.index(spec_ast)
-        spec = self.visit(spec_ast, **kwargs)
-        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
-
-        # To simplify things, we always declare the result-type of a function with
-        # a declaration in the spec as this can capture every possible situation.
-        # Therefore, if it has been declared as a prefix in the subroutine statement,
-        # we now have to inject a declaration instead. To ensure we do this in the
-        # right place in the spec to not violate the intrinsic order Fortran mandates,
-        # we search for the first occurence of any VariableDeclaration or
-        # ProcedureDeclaration and inject it before that one
-        if return_type is not None:
-            routine.symbol_attrs[routine.name] = return_type
-            return_var = sym.Variable(name=routine.name, scope=routine)
-            return_var_decl = ir.VariableDeclaration(symbols=(return_var,))
-
-            decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
-            if not decls:
-                # No other declarations: add it to the end
-                spec.append(return_var_decl)
-            else:
-                spec.insert(spec.body.index(decls[0]), return_var_decl)
-
-        # Finally, call the subroutine constructor on the object again to register all
-        # bits and pieces in place and rescope all symbols
-        routine.__init__(
-            name=routine.name, args=routine._dummies, spec=spec,
-            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
-            rescope_symbols=True, source=source, parent=routine.parent, symbol_attrs=routine.symbol_attrs
-        )
-
-        # Make sure there is nothing else in there
-        assert (subroutine_stmt_index, spec_ast_index, end_subroutine_stmt_index) == \
-                as_tuple(range(subroutine_stmt_index, len(o.children)))
-        return (*pre, routine)
-
-    visit_Function_Body = visit_Subroutine_Body
-
     def visit_Subroutine_Subprogram(self, o, **kwargs):
         """
         The entire block that comprises a ``SUBROUTINE`` definition, i.e.
@@ -1603,7 +1533,7 @@ class FParser2IR(GenericVisitor):
 
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
-        if pre:
+        if pre and isinstance(o, Fortran2003.Subroutine_Subprogram):
             self.warn_or_fail('Comments or other nodes before Subroutine')
 
         # ...and there shouldn't be anything after the construct
@@ -1658,6 +1588,7 @@ class FParser2IR(GenericVisitor):
         spec_parts = [self.visit(spec_ast, **kwargs) for spec_ast in spec_asts]
         spec_parts = flatten([part.body for part in spec_parts if part is not None])
         spec = ir.Section(body=as_tuple(spec_parts))
+        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
@@ -1670,10 +1601,7 @@ class FParser2IR(GenericVisitor):
             body = ir.Section(body=())
         else:
             body = self.visit(body_ast, **kwargs)
-
-        # Perform sanitation tasks on the spec and body
-        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
-        body = sanitize_ir(body, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+            body = sanitize_ir(body, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
         # Another big hack: fparser allocates all comments before and after the
         # spec to the spec. We remove them from the beginning to get the docstring.
@@ -1734,9 +1662,15 @@ class FParser2IR(GenericVisitor):
         # Inject statement function definitions
         inject_statement_functions(routine)
 
+        if isinstance(o, Fortran2003.Subroutine_Body):
+            # Return the subroutine object along with any clutter before it for interface declarations
+            return (*pre, routine)
+
         return routine
 
     visit_Function_Subprogram = visit_Subroutine_Subprogram
+    visit_Subroutine_Body = visit_Subroutine_Subprogram
+    visit_Function_Body = visit_Subroutine_Body
 
     def visit_Subroutine_Stmt(self, o, **kwargs):
         """
