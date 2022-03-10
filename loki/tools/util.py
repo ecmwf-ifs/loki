@@ -559,4 +559,4 @@ def auto_post_mortem_debugger(type, value, tb):  # pylint: disable=redefined-bui
         # we are NOT in interactive mode, print the exception...
         traceback.print_exception(type, value, tb)
         # ...then start the debugger in post-mortem mode.
-        pdb.post_mortem(tb) # more "modern"
+        pdb.post_mortem(tb)   # pylint: disable=no-member

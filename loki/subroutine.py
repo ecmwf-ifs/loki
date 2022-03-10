@@ -1,4 +1,4 @@
-from loki.frontend import Frontend, extract_source
+from loki.frontend import Frontend
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source
@@ -8,10 +8,10 @@ from loki.ir import (
     CallContext, Interface, TypeDef, Enumeration
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
-from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import ProcedureType, SymbolAttributes, BasicType
+from loki.types import ProcedureType, SymbolAttributes
 from loki.scope import Scope
 
 

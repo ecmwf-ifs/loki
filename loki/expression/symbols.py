@@ -197,7 +197,8 @@ class TypedSymbol:
                 # If the parent isn't delivering straight away (may happen e.g. for nested derived types)
                 # we'll try discovering its parent's type via the provided scope
                 parent = self._lookup_parent(scope)
-                tdef_var = parent.variable_map.get(self.basename)
+                if parent:
+                    tdef_var = parent.variable_map.get(self.basename)
             if tdef_var:
                 return tdef_var.type
 

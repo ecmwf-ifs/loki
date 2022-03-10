@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
