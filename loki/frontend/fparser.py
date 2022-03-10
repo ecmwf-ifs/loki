@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
-from loki.logging import DEBUG, warning, error
+from loki.logging import DEBUG, warning, error, debug
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -1533,8 +1533,6 @@ class FParser2IR(GenericVisitor):
 
         # Everything before the construct
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:subroutine_stmt_index])
-        if pre and isinstance(o, Fortran2003.Subroutine_Subprogram):
-            self.warn_or_fail('Comments or other nodes before Subroutine')
 
         # ...and there shouldn't be anything after the construct
         assert end_subroutine_stmt_index + 1 == len(o.children)
@@ -1666,6 +1664,8 @@ class FParser2IR(GenericVisitor):
             # Return the subroutine object along with any clutter before it for interface declarations
             return (*pre, routine)
 
+        if pre:
+            debug('Comments (or other nodes) ignored before Subroutine %s', routine.name)
         return routine
 
     visit_Function_Subprogram = visit_Subroutine_Subprogram
