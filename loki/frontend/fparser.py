@@ -2696,6 +2696,7 @@ class FParser2IR(GenericVisitor):
     visit_Equivalence_Stmt = visit_Intrinsic_Stmt
     visit_Common_Stmt = visit_Intrinsic_Stmt
     visit_Stop_Stmt = visit_Intrinsic_Stmt
+    visit_Error_Stop_Stmt = visit_Intrinsic_Stmt
     visit_Backspace_Stmt = visit_Intrinsic_Stmt
     visit_Rewind_Stmt = visit_Intrinsic_Stmt
     visit_Entry_Stmt = visit_Intrinsic_Stmt
