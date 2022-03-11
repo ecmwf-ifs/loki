@@ -54,6 +54,14 @@ def parse_fparser_source(source):
     if not HAVE_FP:
         error('Fparser is not available. Try "pip install fparser".')
         raise RuntimeError
+
+    # Clear FParser's symbol tables if the FParser version is new enough to have them 
+    try:
+        from fparser.two.symbol_table import SYMBOL_TABLES  # pylint: disable=import-outside-toplevel
+        SYMBOL_TABLES.clear()
+    except ImportError:
+        pass
+
     reader = FortranStringReader(source, ignore_comments=False)
     f2008_parser = ParserFactory().create(std='f2008')
 
