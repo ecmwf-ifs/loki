@@ -77,8 +77,8 @@ def fixture_cmake_project(here, config, srcdir, builddir):
     """
     Create a CMake project and set-up paths
     """
-    projA = '${CMAKE_CURRENT_SOURCE_DIR}/projA'
-    projB = '${CMAKE_CURRENT_SOURCE_DIR}/projB'
+    proj_a = '${CMAKE_CURRENT_SOURCE_DIR}/projA'
+    proj_b = '${CMAKE_CURRENT_SOURCE_DIR}/projB'
 
     file_content = f"""
 cmake_minimum_required( VERSION 3.17 FATAL_ERROR )
@@ -98,17 +98,17 @@ add_subdirectory( loki )
 find_package( loki )
 
 loki_transform_plan(
-    MODE idem
-    FRONTEND fp
-    CONFIG {config}
-    ROOT ${{CMAKE_CURRENT_SOURCE_DIR}}
+    MODE      idem
+    FRONTEND  fp
+    CONFIG    {config}
+    SOURCEDIR ${{CMAKE_CURRENT_SOURCE_DIR}}
     CALLGRAPH {builddir}/loki_callgraph
-    PLAN {builddir}/loki_plan.cmake
-    SOURCE
-        {projA}
-        {projB}
-    HEADER
-        {projA}/module/header_mod.f90
+    PLAN      {builddir}/loki_plan.cmake
+    SOURCES
+        {proj_a}
+        {proj_b}
+    HEADERS
+        {proj_a}/module/header_mod.f90
 )
     """
     filepath = srcdir/'CMakeLists.txt'
