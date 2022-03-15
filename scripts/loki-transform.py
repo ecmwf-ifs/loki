@@ -11,12 +11,13 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info,
-    CallStatement, Literal, Conditional, Transformer, FindNodes
+    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info
 )
 
 # Get generalized transformations provided by Loki
-from loki.transform import DependencyTransformation, FortranCTransformation
+from loki.transform import (
+    DependencyTransformation, FortranCTransformation, CMakePlanner
+)
 
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent))
@@ -25,6 +26,7 @@ from transformations import DerivedTypeArgumentsTransformation, InferArgShapeTra
 from transformations import DataOffloadTransformation
 from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import SingleColumnCoalescedTransformation
+from transformations import DrHookTransformation
 
 
 """
@@ -285,66 +287,6 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     driver.write(path=Path(out_path)/driver.path.with_suffix('.c.F90').name)
 
 
-class CMakePlanner(Transformation):
-    """
-    Generates a list of files to inject/replace into CMake targets.
-    """
-
-    def __init__(self, rootpath, mode, config=None, build=None):
-        self.build = None if build is None else Path(build)
-        self.config = config
-        self.mode = mode
-
-        self.rootpath = Path(rootpath).resolve()
-        self.sources_to_append = []
-        self.sources_to_remove = []
-        self.sources_to_transform = []
-
-    def transform_subroutine(self, routine, **kwargs):
-        """
-        Construct lists of source files to process, add and remove.
-        """
-        item = kwargs.get('item')
-        role = kwargs.get('role')
-
-        # Back out, if this is Subroutine is not part of the plan
-        if item.name.lower() != routine.name.lower():
-            return
-
-        sourcepath = item.path.resolve()
-        newsource = sourcepath.with_suffix(f'.{self.mode.lower()}.F90')
-        if self.build is not None:
-            newsource = self.build/newsource.name
-
-        # Make new CMake paths relative to source again
-        sourcepath = sourcepath.relative_to(self.rootpath)
-
-        info(f'Planning:: {routine.name} (role={role}, mode={self.mode})')
-
-        self.sources_to_transform += [sourcepath]
-
-        # Inject new object into the final binary libs
-        if item.replicate:
-            # Add new source file next to the old one
-            self.sources_to_append += [newsource]
-        else:
-            # Replace old source file to avoid ghosting
-            self.sources_to_append += [newsource]
-            self.sources_to_remove += [sourcepath]
-
-    def write_planfile(self, filepath):
-        info(f'[Loki] CMakePlanner writing plan: {filepath}')
-        with Path(filepath).open('w') as f:
-            s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform)
-            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
-
-            s_append = '\n'.join(f'    {s}' for s in self.sources_to_append)
-            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
-
-            s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove)
-            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
-
-
 @cli.command('plan')
 @click.option('--mode', '-m', default='sca',
               type=click.Choice(['idem', 'sca', 'claw', 'scc', 'scc-hoist']))
@@ -381,53 +323,17 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
     # Generate a cmake include file to tell CMake what we're gonna do!
-    planner = CMakePlanner(rootpath=root, config=scheduler.config, mode=mode, build=build)
+    planner = CMakePlanner(rootpath=root, mode=mode, build=build)
     scheduler.process(transformation=planner)
     planner.write_planfile(plan_file)
 
     # Output the resulting callgraph
     if callgraph:
         scheduler.callgraph(callgraph)
-
-
-class DrHookTransformation(Transformation):
-    """
-    Re-write the DrHook label markers in transformed routines or
-    remove them if so configured.
-    """
-    def __init__(self, remove=False, mode=None, **kwargs):
-        self.remove = remove
-        self.mode = mode
-        super().__init__(**kwargs)
-
-    def transform_subroutine(self, routine, **kwargs):
-        role = kwargs['item'].role
-
-        # Leave DR_HOOK annotations in driver routine
-        if role == 'driver':
-            return
-
-        mapper = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
-            # Lazily changing the DrHook label in-place
-            if call.name == 'DR_HOOK':
-                new_label = f'{call.arguments[0].value.upper()}_{str(self.mode).upper()}'
-                new_args = (Literal(value=new_label),) + call.arguments[1:]
-                if self.remove:
-                    mapper[call] = None
-                else:
-                    mapper[call] = call.clone(arguments=new_args)
-
-        if self.remove:
-            for cond in FindNodes(Conditional).visit(routine.body):
-                if cond.inline and 'LHOOK' in as_tuple(cond.condition):
-                    mapper[cond] = None
-
-        routine.body = Transformer(mapper).visit(routine.body)
 
 
 @cli.command('ecphys')
@@ -463,7 +369,7 @@ def ecphys(mode, config, header, source, build, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
