@@ -11,13 +11,13 @@ import click
 
 from loki import (
     Sourcefile, Transformation, Scheduler, SchedulerConfig,
-    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info,
-    CallStatement, Literal, Conditional, Transformer, FindNodes,
-    CMakePlanner
+    Frontend, as_tuple, auto_post_mortem_debugger, flatten, info
 )
 
 # Get generalized transformations provided by Loki
-from loki.transform import DependencyTransformation, FortranCTransformation
+from loki.transform import (
+    DependencyTransformation, FortranCTransformation, CMakePlanner
+)
 
 # Bootstrap the local transformations directory for custom transformations
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,6 +26,7 @@ from transformations import DerivedTypeArgumentsTransformation, InferArgShapeTra
 from transformations import DataOffloadTransformation
 from transformations import ExtractSCATransformation, CLAWTransformation
 from transformations import SingleColumnCoalescedTransformation
+from transformations import DrHookTransformation
 
 
 """
@@ -322,7 +323,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
 
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
     # Generate a cmake include file to tell CMake what we're gonna do!
@@ -333,42 +334,6 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
     # Output the resulting callgraph
     if callgraph:
         scheduler.callgraph(callgraph)
-
-
-class DrHookTransformation(Transformation):
-    """
-    Re-write the DrHook label markers in transformed routines or
-    remove them if so configured.
-    """
-    def __init__(self, remove=False, mode=None, **kwargs):
-        self.remove = remove
-        self.mode = mode
-        super().__init__(**kwargs)
-
-    def transform_subroutine(self, routine, **kwargs):
-        role = kwargs['item'].role
-
-        # Leave DR_HOOK annotations in driver routine
-        if role == 'driver':
-            return
-
-        mapper = {}
-        for call in FindNodes(CallStatement).visit(routine.body):
-            # Lazily changing the DrHook label in-place
-            if call.name == 'DR_HOOK':
-                new_label = f'{call.arguments[0].value.upper()}_{str(self.mode).upper()}'
-                new_args = (Literal(value=new_label),) + call.arguments[1:]
-                if self.remove:
-                    mapper[call] = None
-                else:
-                    mapper[call] = call.clone(arguments=new_args)
-
-        if self.remove:
-            for cond in FindNodes(Conditional).visit(routine.body):
-                if cond.inline and 'LHOOK' in as_tuple(cond.condition):
-                    mapper[cond] = None
-
-        routine.body = Transformer(mapper).visit(routine.body)
 
 
 @cli.command('ecphys')
@@ -404,7 +369,7 @@ def ecphys(mode, config, header, source, build, frontend):
     # Create and setup the scheduler for bulk-processing
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions)
+    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
     # First, remove all derived-type arguments; caller first!
