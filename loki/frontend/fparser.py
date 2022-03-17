@@ -1079,8 +1079,10 @@ class FParser2IR(GenericVisitor):
         body = process_dimension_pragmas(body)
         body = detach_pragmas(body, ir.VariableDeclaration)
 
-        # Finally: update the typedef with its body
+        # Finally: update the typedef with its body and make sure all symbols
+        # are in the right scope
         typedef._update(body=body, source=kwargs['source'])
+        typedef.rescope_symbols()
         return (*pre, typedef)
 
     def visit_Derived_Type_Stmt(self, o, **kwargs):

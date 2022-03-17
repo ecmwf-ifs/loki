@@ -3,17 +3,22 @@ import re
 import pytest
 import numpy as np
 
-from conftest import jit_compile, clean_test, available_frontends
+from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
     OMNI, Module, Subroutine, BasicType, DerivedType, TypeDef,
     fgen, FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall
+    VariableDeclaration, Assignment, InlineCall, Builder
 )
 
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
+
+
+@pytest.fixture(scope='module', name='builder')
+def fixture_builder(here):
+    return Builder(source_dirs=here, build_dir=here/'build')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1043,3 +1048,126 @@ end module derived_type_sequence
     module = Module.from_source(fcode, frontend=frontend)
     numeric_seq = module.typedefs['numeric_seq']
     assert 'SEQUENCE' in fgen(numeric_seq)
+
+
+@pytest.fixture(scope='module', name='shadowed_typedef_symbols_fcode')
+def fixture_shadowed_typedef_symbols_fcode(here, builder):
+    # Excerpt from ecrad's radiation_random_numbers.F90
+    fcode = """
+module radiation_random_numbers
+
+  implicit none
+
+  public :: rng_type, IRngNative
+
+  enum, bind(c) 
+    enumerator IRngNative      ! Built-in Fortran-90 RNG
+  end enum
+
+  integer, parameter            :: jpim = selected_int_kind(9)
+  integer, parameter            :: jprb = selected_real_kind(13,300)
+  integer(kind=jpim), parameter :: NMaxStreams = 512
+
+  type rng_type
+
+    integer(kind=jpim) :: itype = IRngNative
+    real(kind=jprb)    :: istate(NMaxStreams) 
+    integer(kind=jpim) :: nmaxstreams = NMaxStreams
+    integer(kind=jpim) :: iseed = 0
+
+  end type rng_type 
+
+contains
+
+  subroutine rng_default(istate_dim, maxstreams)
+    integer, intent(out) :: istate_dim, maxstreams
+    type(rng_type) :: rng
+    integer :: dim(1)
+    rng = rng_type(istate=0._jprb)
+    dim = shape(rng%istate)
+    istate_dim = dim(1)
+    maxstreams = rng%nmaxstreams
+  end subroutine rng_default
+
+  subroutine rng_init(istate_dim, maxstreams)
+    integer, intent(out) :: istate_dim, maxstreams
+    type(rng_type) :: rng
+    integer :: dim(1)
+    rng = rng_type(nmaxstreams=256, istate=0._jprb)
+    dim = shape(rng%istate)
+    istate_dim = dim(1)
+    maxstreams = rng%nmaxstreams
+  end subroutine rng_init
+
+end module radiation_random_numbers
+    """.strip()
+
+    # Verify that this code behaves as expected
+    ref_path = here/'radiation_random_numbers.F90'
+    ref_path.write_text(fcode)
+
+    ref_lib = jit_compile_lib([ref_path], path=here, name='radiation_random_numbers', builder=builder)
+    ref_mod = ref_lib.radiation_random_numbers
+    ref_default_shape, ref_default_maxstreams = ref_mod.rng_default()
+    ref_init_shape, ref_init_maxstreams = ref_mod.rng_init()
+
+    assert ref_default_shape == 512
+    assert ref_default_maxstreams == 512
+    assert ref_init_shape == 512
+    assert ref_init_maxstreams == 256
+
+    yield fcode
+
+    clean_test(ref_path)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_rescope_symbols_shadowed(here, shadowed_typedef_symbols_fcode, frontend):
+    """
+    Test the rescoping of symbols with shadowed symbols in a typedef.
+    """
+    # Parse into Loki IR
+    module = Module.from_source(shadowed_typedef_symbols_fcode, frontend=frontend)
+    mod_var = module.variable_map['nmaxstreams']
+    assert mod_var.scope is module
+
+    # Verify scope of variables in type def
+    rng_type = module.typedefs['rng_type']
+    istate = rng_type.variable_map['istate']
+    tdef_var = rng_type.variable_map['nmaxstreams']
+
+    assert istate in ('istate(nmaxstreams)', 'istate(1:nmaxstreams)')
+    assert istate.scope is rng_type
+
+    if frontend == OMNI:
+        assert istate.dimensions[0] == '1:nmaxstreams'
+        assert istate.dimensions[0].stop.scope
+    else:
+        assert istate.dimensions[0] == 'nmaxstreams'
+        assert istate.dimensions[0].scope
+
+    # FIXME: Use of NMaxStreams from parent scope is in the wrong scope (LOKI-52)
+    #assert istate.dimensions[0].scope is module
+
+    assert tdef_var.scope is rng_type
+
+    if frontend != OMNI:
+        # FIXME: OMNI doesn't retain the initializer expressions in the typedef
+        assert tdef_var.type.initial == 'NMaxStreams'
+        assert tdef_var.type.initial.scope is module
+        assert tdef_var.type.initial == mod_var
+        assert tdef_var.type.initial != tdef_var
+
+        # Test the outcome works as expected
+        filepath = here/f'{module.name}_{frontend}.F90'
+        mod = jit_compile(module, filepath=filepath, objname=module.name)
+
+        default_shape, default_maxstreams = mod.rng_default()
+        init_shape, init_maxstreams = mod.rng_init()
+
+        assert default_shape == 512
+        assert default_maxstreams == 512
+        assert init_shape == 512
+        assert init_maxstreams == 256
+
+        clean_test(filepath)

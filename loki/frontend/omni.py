@@ -524,6 +524,7 @@ class OMNI2IR(GenericVisitor):
 
         # Finally: update the typedef with its body
         typedef._update(body=as_tuple(body))
+        typedef.rescope_symbols()
         return typedef
 
     def visit_symbols(self, o, **kwargs):
@@ -1043,6 +1044,19 @@ class OMNI2IR(GenericVisitor):
             else:
                 kind = args[1] if len(args) > 1 else None
             return sym.Cast(name, expr, kind=kind, source=kwargs['source'])
+
+        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
+
+    def visit_FstructConstructor(self, o, **kwargs):
+        _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
+        assert isinstance(_type.dtype, DerivedType)
+
+        name = sym.Variable(name=_type.dtype.name)
+        args = [self.visit(a, **kwargs) for a in o]
+
+        # Separate keyword argument from positional arguments
+        kw_args = as_tuple(arg for arg in args if isinstance(arg, tuple))
+        args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
 
         return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
 
