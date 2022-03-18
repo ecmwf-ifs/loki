@@ -685,17 +685,19 @@ function( loki_transform_target )
     endforeach()
     set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources} )
 
-    # Mark the generated stuff as build-time generated
-    set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
-
-    ecbuild_info( "[Loki] LOKI_SOURCES_TO_APPEND ${LOKI_SOURCES_TO_APPEND}" )
-
     if ( LOKI_APPEND_LENGTH GREATER 0 )
+        # Mark the generated stuff as build-time generated
+        set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
+	ecbuild_info( "[Loki] LOKI_SOURCES_TO_APPEND ${LOKI_SOURCES_TO_APPEND}" )
+
         # Add the Loki-generated sources to our target (CLAW is not called)
         target_sources( ${_PAR_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
     endif()
 
-    # Copy over compile flags for generated source (relies on index matching!))
+    # Copy over compile flags for generated source. Note that this assumes
+    # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
+    # to encode the source-to-source mapping. This matching is strictly enforced
+    # in the `CMakePlannerTransformation`.
     list( LENGTH LOKI_SOURCES_TO_TRANSFORM nsources )
     math( EXPR maxidx "${nsources} - 1" )
     if ( nsources GREATER 0 )
