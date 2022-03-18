@@ -124,16 +124,18 @@ else()
         set( _INSTALL_OPTIONS "[${_INSTALL_OPT_STR}]" )
     endif()
 
-    add_custom_target( loki ALL ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
+    # We install Loki at configure time (for now), since bulk-transformation planning
+    # requires configure time execution to allow injection with CMake targets. 
+    message( STATUS "Install Loki in virtual environment" )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
+    message( STATUS "Install Loki in virtual environment - done" )
 
     # Make CLI executables available in add_custom_command
     add_executable( loki-lint.py IMPORTED GLOBAL )
     set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-lint.py )
-    add_dependencies( loki-lint.py loki )
 
     add_executable( loki-transform.py IMPORTED GLOBAL )
     set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-transform.py )
-    add_dependencies( loki-transform.py loki )
 
     if( ${HAVE_CLAW} )
         add_dependencies( loki-transform.py clawfc )

@@ -4,52 +4,49 @@ macro( _loki_transform_parse_args _func_name )
         ecbuild_critical( "Unknown keywords given to ${_func_name}(): \"${_PAR_UNPARSED_ARGUMENTS}\"" )
     endif()
 
-    if( NOT _PAR_OUTPUT )
-        ecbuild_critical( "No OUTPUT specified for ${_func_name}()" )
-    endif()
-
-    if( NOT _PAR_DEPENDS )
-        ecbuild_critical( "No DEPENDS specified for ${_func_name}()" )
-    endif()
-
     if( NOT _PAR_FRONTEND )
         ecbuild_critical( "No FRONTEND specified for ${_func_name}()" )
     endif()
     list( APPEND _ARGS --frontend ${_PAR_FRONTEND} )
 
-    if( ${_PAR_CPP} )
-        list( APPEND _ARGS --cpp )
-    endif()
-
-    if( _PAR_OUTPATH )
-        file( MAKE_DIRECTORY ${_PAR_OUTPATH} )
-        list( APPEND _ARGS --out-path ${_PAR_OUTPATH} )
-    endif()
-
     if( _PAR_HEADER )
-        foreach( _HEADER ${_PAR_HEADER} )
+        if ( _PAR_HEADERS )
+            ecbuild_critical( "Both HEADERS and HEADER given to ${_func_name}(): Please use HEADERS only" )
+        else()
+            ecbuild_warn( "${_func_name}(): HEADER is deprecated, please use HEADERS" )
+            set( _PAR_HEADERS ${_PAR_HEADER} )
+        endif()
+    endif()
+
+    if( _PAR_HEADERS )
+        foreach( _HEADER ${_PAR_HEADERS} )
             list( APPEND _ARGS --header ${_HEADER} )
         endforeach()
     endif()
 
     if( _PAR_INCLUDE )
-        foreach( _INCLUDE ${_PAR_INCLUDE} )
+        if ( _PAR_INCLUDES )
+            ecbuild_critical( "Both INCLUDES and INCLUDE given to ${_func_name}(): Please use INCLUDES only" )
+        else()
+            ecbuild_warn( "${_func_name}(): INCLUDE is deprecated, please use INCLUDES" )
+            set( _PAR_INCLUDES ${_PAR_INCLUDE} )
+        endif()
+    endif()
+
+    if( _PAR_INCLUDES )
+        foreach( _INCLUDE ${_PAR_INCLUDES} )
             list( APPEND _ARGS --include ${_INCLUDE} )
         endforeach()
     endif()
 
-    if( _PAR_DEFINE )
-        foreach( _DEFINE ${_PAR_DEFINE} )
-            list( APPEND _ARGS --define ${_DEFINE} )
-        endforeach()
-    endif()
+endmacro()
 
-    if( _PAR_XMOD )
-        foreach( _XMOD ${_PAR_XMOD} )
-            file( MAKE_DIRECTORY ${XMOD_DIR} )
-            list( APPEND _ARGS --xmod ${_XMOD} )
-        endforeach()
-    endif()
+##############################################################################
+
+macro( _loki_transform_env_setup )
+
+    # The full path of the loki-transform.py executable
+    get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
 
     set( _LOKI_TRANSFORM_ENV )
     set( _LOKI_TRANSFORM_PATH )
@@ -79,7 +76,6 @@ macro( _loki_transform_parse_args _func_name )
             # the executable in add_custom_command as a previously declared target, which would
             # enable choosing the correct path automatically. Therefore, we have to insert also
             # loki-transform.py into the PATH variable.
-            get_target_property( _LOKI_TRANSFORM_EXECUTABLE loki-transform.py IMPORTED_LOCATION )
             get_filename_component( _LOKI_TRANSFORM_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} DIRECTORY )
             list( APPEND _LOKI_TRANSFORM_PATH ${_LOKI_TRANSFORM_LOCATION} )
         endif()
@@ -105,6 +101,53 @@ macro( _loki_transform_parse_args _func_name )
 endmacro()
 
 ##############################################################################
+
+macro( _loki_transform_parse_convert_args _func_name )
+
+    _loki_transform_parse_args( ${_func_name} )
+
+    if( NOT _PAR_OUTPUT )
+        ecbuild_critical( "No OUTPUT specified for ${_func_name}()" )
+    endif()
+
+    if( NOT _PAR_DEPENDS )
+        ecbuild_critical( "No DEPENDS specified for ${_func_name}()" )
+    endif()
+
+    if( ${_PAR_CPP} )
+        list( APPEND _ARGS --cpp )
+    endif()
+
+    if( _PAR_OUTPATH )
+        file( MAKE_DIRECTORY ${_PAR_OUTPATH} )
+        list( APPEND _ARGS --out-path ${_PAR_OUTPATH} )
+    endif()
+
+    if( _PAR_DEFINE )
+        if ( _PAR_DEFINITIONS )
+            ecbuild_critical( "Both DEFINITIONS and DEFINE given to ${_func_name}(): Please use DEFINITIONS only" )
+        else()
+            ecbuild_warn( "${_func_name}(): DEFINE is deprecated, please use DEFINITIONS" )
+            set( _PAR_DEFINITIONS ${_PAR_DEFINE} )
+        endif()
+    endif()
+
+    if( _PAR_DEFINITIONS )
+        foreach( _DEFINE ${_PAR_DEFINITIONS} )
+            list( APPEND _ARGS --define ${_DEFINE} )
+        endforeach()
+    endif()
+
+    if( _PAR_XMOD )
+        foreach( _XMOD ${_PAR_XMOD} )
+            file( MAKE_DIRECTORY ${XMOD_DIR} )
+            list( APPEND _ARGS --xmod ${_XMOD} )
+        endforeach()
+    endif()
+
+endmacro()
+
+##############################################################################
 # .rst:
 #
 # loki_transform_convert
@@ -121,9 +164,9 @@ endmacro()
 #       [CONFIG <config-file>]
 #       [PATH <path>]
 #       [OUTPATH <outpath>]
-#       [INCLUDE <include1> [<include2> ...]]
-#       [HEADER <header1> [<header2> ...]]
-#       [DEFINE <define1> [<define2> ...]]
+#       [INCLUDES <include1> [<include2> ...]]
+#       [HEADERS <header1> [<header2> ...]]
+#       [DEFINITIONS <define1> [<define2> ...]]
 #       [OMNI_INCLUDE <omni-inc1> [<omni-inc2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
 #       [REMOVE_OPENMP] [DATA_OFFLOAD]
@@ -145,7 +188,7 @@ function( loki_transform_convert )
 
     set( options CPP DATA_OFFLOAD REMOVE_OPENMP )
     set( oneValueArgs MODE FRONTEND CONFIG PATH OUTPATH )
-    set( multiValueArgs OUTPUT DEPENDS INCLUDE HEADER DEFINE OMNI_INCLUDE XMOD )
+    set( multiValueArgs OUTPUT DEPENDS INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE OMNI_INCLUDE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
@@ -156,7 +199,7 @@ function( loki_transform_convert )
     endif()
     list( APPEND _ARGS --mode ${_PAR_MODE} )
 
-    _loki_transform_parse_args( loki_transform_convert )
+    _loki_transform_parse_convert_args( loki_transform_convert )
 
     if( _PAR_CONFIG )
         list( APPEND _ARGS --config ${_PAR_CONFIG} )
@@ -180,6 +223,8 @@ function( loki_transform_convert )
         list( APPEND _ARGS --remove-openmp )
     endif()
 
+    _loki_transform_env_setup()
+
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
         COMMAND ${_LOKI_TRANSFORM} convert ${_ARGS}
@@ -202,11 +247,11 @@ endfunction()
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       FRONTEND <frontend> [CPP]
 #       [DRIVER <driver>]
-#       [SOURCE <source1> [<source2> ...]]
+#       [SOURCES <source1> [<source2> ...]]
 #       [OUTPATH <outpath>]
-#       [INCLUDE <include1> [<include2> ...]]
-#       [HEADER <header1> [<header2> ...]]
-#       [DEFINE <define1> [<define2> ...]]
+#       [INCLUDES <include1> [<include2> ...]]
+#       [HEADERS <header1> [<header2> ...]]
+#       [DEFINITIONS <define1> [<define2> ...]]
 #       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
 #   )
 #
@@ -226,12 +271,13 @@ function( loki_transform_transpile )
 
     set( options CPP )
     set( oneValueArgs FRONTEND OUTPATH DRIVER )
-    set( multiValueArgs OUTPUT DEPENDS SOURCE INCLUDE HEADER DEFINE XMOD )
+    set( multiValueArgs OUTPUT DEPENDS SOURCES SOURCE INCLUDES INCLUDE HEADERS HEADER DEFINITIONS DEFINE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
     set( _ARGS )
-    _loki_transform_parse_args( loki_transform_transpile )
+
+    _loki_transform_parse_convert_args( loki_transform_transpile )
 
     if( _PAR_SOURCE )
         foreach( _SRC ${_PAR_SOURCE} )
@@ -242,6 +288,8 @@ function( loki_transform_transpile )
     if( _PAR_DRIVER )
         list( APPEND _ARGS --driver ${_PAR_DRIVER} )
     endif()
+
+    _loki_transform_env_setup()
 
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
@@ -386,5 +434,288 @@ function( generate_xmod )
         DEPENDS ${_PAR_SOURCE} ${_PAR_DEPENDS}
         COMMENT "[OMNI] Pre-processing: ${_PAR_SOURCE}"
     )
+
+endfunction()
+
+##############################################################################
+
+macro( _loki_transform_parse_target_args _func_name )
+
+    _loki_transform_parse_args( ${_func_name} )
+
+    if( _PAR_MODE )
+        list( APPEND _ARGS --mode ${_PAR_MODE} )
+    else()
+        ecbuild_critical( "No MODE specified for ${_func_name}()" )
+    endif()
+
+    if( _PAR_CONFIG )
+        list( APPEND _ARGS --config ${_PAR_CONFIG} )
+    else()
+        ecbuild_critical( "No CONFIG specified for ${_func_name}()" )
+    endif()
+
+    if( _PAR_BUILDDIR )
+        list( APPEND _ARGS --build ${_PAR_BUILDDIR} )
+    endif()
+
+    if( _PAR_SOURCES )
+        foreach( _SOURCE ${_PAR_SOURCES} )
+            list( APPEND _ARGS --source ${_SOURCE} )
+        endforeach()
+    endif()
+
+endmacro()
+
+##############################################################################
+# .rst:
+#
+# loki_transform_plan
+# ===================
+#
+# Run Loki bulk transformation in plan mode.::
+#
+#   loki_transform_plan(
+#       MODE <mode>
+#       FRONTEND <frontend>
+#       [CONFIG <config-file>]
+#       [BUILDDIR <build-path>]
+#       [SOURCEDIR <source-path>]
+#       [CALLGRAPH <callgraph-path>]
+#       [PLAN <plan-file>]
+#       [SOURCES <source1> [<source2> ...]]
+#       [HEADERS <header1> [<header2> ...]]
+#   )
+#
+# Call ``loki-transform.py plan ...`` with the provided arguments.
+# See ``loki-transform.py`` for a description of all options.
+#
+##############################################################################
+
+function( loki_transform_plan )
+
+    set( options "" )
+    set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
+    set( multiValueArgs SOURCES HEADERS )
+
+    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
+
+    set( _ARGS )
+
+    _loki_transform_parse_target_args( loki_transform_plan )
+
+    if( _PAR_SOURCEDIR )
+        list( APPEND _ARGS --root ${_PAR_SOURCEDIR} )
+    else()
+        ecbuild_critical( "No SOURCEDIR specified for loki_transform_plan()" )
+    endif()
+
+    if( _PAR_CALLGRAPH )
+        list( APPEND _ARGS --callgraph ${_PAR_CALLGRAPH} )
+    endif()
+
+    if( _PAR_PLAN )
+        list( APPEND _ARGS --plan-file ${_PAR_PLAN} )
+    else()
+        ecbuild_critical( "No PLAN file specified for loki_transform_plan()" )
+    endif()
+
+    _loki_transform_env_setup()
+
+    # Create a source transformation plan to tell CMake which files will be affected
+    ecbuild_info( "[Loki] Creating plan: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND} config=${_PAR_CONFIG}" )
+
+    execute_process(
+        COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMAND_ERROR_IS_FATAL ANY
+        ECHO_ERROR_VARIABLE
+    )
+
+endfunction()
+
+##############################################################################
+# .rst:
+#
+# loki_transform_ecphys
+# =====================
+#
+# Apply Loki transformation in "ecphys" mode.::
+#
+#   loki_transform_ecphys(
+#       OUTPUT <outfile1> [<outfile2> ...]
+#       DEPENDS <dependency1> [<dependency2> ...]
+#       MODE <mode>
+#       CONFIG <config-file>
+#       [FRONTEND <frontend>]
+#       [BUILDDIR <build-path>]
+#       [SOURCES <source1> [<source2> ...]]
+#       [HEADERS <header1> [<header2> ...]]
+#   )
+#
+# Call ``loki-transform.py ecphys ...`` with the provided arguments.
+# See ``loki-transform.py`` for a description of all options.
+#
+# Options
+# -------
+#
+# :OUTPUT:     The output files generated by Loki. Providing them here allows
+#              to declare dependencies on this command later.
+# :DEPENDS:    The input files or targets this call depends on.
+#
+##############################################################################
+
+function( loki_transform_ecphys )
+
+    set( options "" )
+    set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR )
+    set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS )
+
+    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
+
+    set( _ARGS )
+
+    _loki_transform_parse_target_args( loki_transform_ecphys )
+    _loki_transform_env_setup()
+
+    add_custom_command(
+        OUTPUT ${_PAR_OUTPUT}
+        COMMAND ${_LOKI_TRANSFORM} ecphys ${_ARGS}
+        DEPENDS ${_PAR_DEPENDS} ${_LOKI_TRANSFORM_DEPENDENCY}
+        COMMENT "[Loki] Pre-processing: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
+    )
+
+endfunction()
+
+##############################################################################
+# .rst:
+#
+# loki_transform_target
+# ======================
+#
+# Apply Loki source transformations to sources in a CMake target.::
+#
+#   loki_transform_target(
+#       TARGET <target>
+#       MODE <mode>
+#       CONFIG <config-file>
+#       PLAN <plan-file>
+#       [FRONTEND <frontend>]
+#       [SOURCES <source1> [<source2> ...]]
+#       [HEADERS <header1> [<header2> ...]]
+#   )
+#
+# Applies a Loki bulk transformation to the source files belonging to particular
+# CMake target according to the specified entry points in the ``config-file``.
+# This is done via a call to ``loki-transform.py plan ...`` during configure
+# from which the specific additions and deletions of source objects within the 
+# target are derived. Subsequently, the actual bulk transformation of source
+# files (in EC-Physics mode) is scheduled via ``loki-transform.py ecphys``.
+#
+# See ``loki-transform.py`` for a description of all options.
+#
+##############################################################################
+
+function( loki_transform_target )
+
+    set( options "" )
+    set( single_value_args TARGET MODE FRONTEND CONFIG PLAN )
+    set( multi_value_args SOURCES HEADERS )
+
+    cmake_parse_arguments( _PAR "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+
+    _loki_transform_parse_target_args( loki_transform_target )
+
+    if( NOT _PAR_TARGET )
+        ecbuild_critical( "The call to loki_transform_target() doesn't specify the TARGET." )
+    endif()
+
+    if( NOT _PAR_PLAN )
+        ecbuild_critical( "No PLAN specified for loki_transform_plan()" )
+    endif()
+
+    ecbuild_info( "[Loki] Loki scheduler:: target=${_PAR_TARGET} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}")
+
+    # Ensure that changes to the config file trigger the planning stage
+    configure_file( ${_PAR_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${_PAR_TARGET}.config )
+
+    # Create the bulk-transformation plan
+    loki_transform_plan(
+        MODE      ${_PAR_MODE}
+        CONFIG    ${_PAR_CONFIG}
+        FRONTEND  ${_PAR_FRONTEND}
+        SOURCES   ${_PAR_SOURCES}
+        PLAN      ${_PAR_PLAN}
+        BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
+        SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
+        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_TARGET}
+    )
+
+    # Import the generated plan
+    include( ${_PAR_PLAN} )
+    ecbuild_info( "[Loki] Imported transformation plan: ${_PAR_PLAN}" )
+    ecbuild_debug( "[Loki] Loki transform: ${LOKI_SOURCES_TO_TRANSFORM}" )
+    ecbuild_debug( "[Loki] Loki append: ${LOKI_SOURCES_TO_APPEND}" )
+    ecbuild_debug( "[Loki] Loki remove: ${LOKI_SOURCES_TO_REMOVE}" )
+
+    # Schedule the source-to-source transformation on the source files from the schedule
+    list( LENGTH LOKI_SOURCES_TO_TRANSFORM LOKI_APPEND_LENGTH )
+    if ( LOKI_APPEND_LENGTH GREATER 0 )
+
+        # Apply the bulk-transformation according to the plan
+        loki_transform_ecphys(
+            OUTPUT    ${LOKI_SOURCES_TO_APPEND}
+            MODE      ${_PAR_MODE}
+            CONFIG    ${_PAR_CONFIG}
+            FRONTEND  ${_PAR_FRONTEND}
+            BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
+            SOURCES   ${_PAR_SOURCES}
+            HEADERS   ${_PAR_HEADERS}
+            DEPENDS   ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_HEADER}
+        )
+    endif()
+
+    # Exclude source files that Loki has re-generated.
+    # Note, this is done explicitly here because the HEADER_FILE_ONLY
+    # property is not always being honoured by CMake.
+    get_target_property( _target_sources ${_PAR_TARGET} SOURCES )
+    foreach( source ${LOKI_SOURCES_TO_REMOVE} )
+        get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
+        list( FILTER _target_sources EXCLUDE REGEX ${source} )
+    endforeach()
+    set_property( TARGET ${_PAR_TARGET} PROPERTY SOURCES ${_target_sources} )
+
+    if ( LOKI_APPEND_LENGTH GREATER 0 )
+        # Mark the generated stuff as build-time generated
+        set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
+	ecbuild_info( "[Loki] LOKI_SOURCES_TO_APPEND ${LOKI_SOURCES_TO_APPEND}" )
+
+        # Add the Loki-generated sources to our target (CLAW is not called)
+        target_sources( ${_PAR_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
+    endif()
+
+    # Copy over compile flags for generated source. Note that this assumes
+    # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
+    # to encode the source-to-source mapping. This matching is strictly enforced
+    # in the `CMakePlannerTransformation`.
+    list( LENGTH LOKI_SOURCES_TO_TRANSFORM nsources )
+    math( EXPR maxidx "${nsources} - 1" )
+    if ( nsources GREATER 0 )
+        foreach( idx RANGE 0 ${maxidx} )
+            list( GET LOKI_SOURCES_TO_TRANSFORM ${idx} orig )
+            list( GET LOKI_SOURCES_TO_APPEND ${idx} newsrc )
+
+            foreach( _prop COMPILE_FLAGS
+                     COMPILE_FLAGS_${CMAKE_BUILD_TYPE_CAPS}
+                     OVERRIDE_COMPILE_FLAGS
+                     OVERRIDE_COMPILE_FLAGS_${CMAKE_BUILD_TYPE_CAPS} )
+
+                get_source_file_property( ${orig}_${_prop} ${orig} ${_prop} )
+                if( ${orig}_${_prop} )
+                    set_source_files_properties( ${newsrc} PROPERTIES ${_prop} ${${orig}_${_prop}} )
+                endif()
+            endforeach()
+        endforeach()
+    endif()
 
 endfunction()

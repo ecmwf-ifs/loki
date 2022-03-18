@@ -46,7 +46,8 @@ import pytest
 
 from loki import (
     Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP, HAVE_FP, HAVE_OFP,
-    Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType
+    Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType,
+    CMakePlanner
 )
 
 
@@ -591,8 +592,8 @@ def test_scheduler_missing_files(here, config, frontend):
 
 def test_scheduler_dependencies_ignore(here, frontend):
     """
-    Test multi-lib trnasformation by applying the :any:`DependencyTransformation`
-    over two distinct projects with two distinc invocations.
+    Test multi-lib transformation by applying the :any:`DependencyTransformation`
+    over two distinct projects with two distinct invocations.
 
     projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
                          |
@@ -645,3 +646,79 @@ def test_scheduler_dependencies_ignore(here, frontend):
 
     assert schedulerB.items[0].source.all_subroutines[0].name == 'ext_driver_test'
     assert schedulerB.items[1].source.all_subroutines[0].name == 'ext_kernel_test'
+
+
+def test_scheduler_cmake_planner(here, frontend):
+    """
+    Test the plan generation feature over a call hierarchy spanning two
+    distinctive projects.
+
+    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
+                         |
+    projB:          ext_driver -> ext_kernel
+    """
+
+    sourcedir = here/'sources'
+    proj_a = sourcedir/'projA'
+    proj_b = sourcedir/'projB'
+
+    config = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': True},
+        'routine': [
+            {'name': 'driverB', 'role': 'driver'},
+            {'name': 'kernelB', 'ignore': ['ext_driver']},
+        ]
+    })
+
+    # Populate the scheduler
+    scheduler = Scheduler(paths=[proj_a, proj_b], includes=proj_a/'include', config=config, frontend=frontend)
+    scheduler.populate(routines=config.routines.keys())
+
+    # Apply the transformation
+    builddir = here/'scheduler_cmake_planner_dummy_dir'
+    builddir.mkdir(exist_ok=True)
+    planfile = builddir/'loki_plan.cmake'
+
+    planner = CMakePlanner(rootpath=sourcedir, mode='foobar', build=builddir)
+    scheduler.process(transformation=planner)
+
+    # Validate the generated lists
+    expected_files = {
+        proj_a/'module/driverB_mod.f90', proj_a/'module/kernelB_mod.F90',
+        proj_a/'module/compute_l1_mod.f90', proj_a/'module/compute_l2_mod.f90'
+    }
+
+    assert set(planner.sources_to_remove) == {f.relative_to(sourcedir) for f in expected_files}
+    assert set(planner.sources_to_append) == {
+        (builddir/f.stem).with_suffix('.foobar.F90') for f in expected_files
+    }
+    assert set(planner.sources_to_transform) == {f.relative_to(sourcedir) for f in expected_files}
+
+    # Write the plan file
+    planner.write_planfile(planfile)
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+
+    loki_plan = planfile.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    expected_files = {
+        'driverB_mod', 'kernelB_mod',
+        'compute_l1_mod', 'compute_l2_mod'
+    }
+
+    assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
+
+    assert 'LOKI_SOURCES_TO_REMOVE' in plan_dict
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
+
+    assert 'LOKI_SOURCES_TO_APPEND' in plan_dict
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
+        f'{name}.foobar' for name in expected_files
+    }
+
+    planfile.unlink()
+    builddir.rmdir()
