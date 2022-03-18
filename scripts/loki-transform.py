@@ -347,7 +347,7 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
               help='Path to source files to transform.')
 @click.option('--build', '-s', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
-@click.option('--frontend', default='ofp', type=click.Choice(['ofp', 'omni', 'fp']),
+@click.option('--frontend', default='fp', type=click.Choice(['ofp', 'omni', 'fp']),
               help='Frontend parser to use (default OFP)')
 def ecphys(mode, config, header, source, build, frontend):
     """
