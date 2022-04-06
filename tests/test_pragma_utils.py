@@ -47,9 +47,10 @@ def test_is_loki_pragma(keyword, content, starts_with, ref):
     ('dataflow group(1)', None, {'dataflow': None, 'group': '1'}),
     ('dataflow group(1)', 'dataflow', {'group': '1'}),
     ('dataflow group(1)', 'foo', {}),
-    ('dataflow group(1) group(2)', 'dataflow', {'group': '2'}),
+    ('dataflow group(1) group(2)', 'dataflow', {'group': ['1', '2']}),
     ('foo bar(^£!$%*[]:@+-_=~#/?.,<>;) baz foobar(abc_123")', 'foo',
      {'bar':'^£!$%*[]:@+-_=~#/?.,<>;', 'baz': None, 'foobar': 'abc_123"'}),
+    ('target map(a) map(to: b) map(from: c)', None, {'target': None, 'map': ['a', 'to: b', 'from: c']})
 ])
 def test_get_pragma_parameters(content, starts_with, ref):
     """
@@ -146,8 +147,9 @@ end subroutine test_tools_pragma_inlining_multiple
     assert not is_loki_pragma(loops[0].pragma, starts_with='other')
     assert get_pragma_parameters(loops[0].pragma) == {'some': None, 'pragma': '5', 'more': None}
     assert get_pragma_parameters(loops[0].pragma, starts_with='some') == {'pragma': '5'}
+    # Note: the following is really unexpected behaviour
     assert get_pragma_parameters(loops[0].pragma, only_loki_pragmas=False) == \
-            {'some': None, 'pragma': '5', 'more': None, 'other': None}
+            {'some': None, 'pragma': [None, '5'], 'more': None, 'other': None}
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -560,3 +562,45 @@ end subroutine test_long_pragmas
 
     for line in fgen(routine).splitlines():
         assert len(line) < 135
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pragmas_map(frontend):
+    """
+    Test correct handling of pragmas with multiple occurences of same keyword.
+    """
+    fcode = """
+subroutine test_pragmas_map(n, a, b, c)
+    implicit none
+    integer, intent(in) :: n
+    real, intent(in) :: a(:,:), b(:,:)
+    real, intent(inout) :: c(:,:)
+    integer :: i, j, k
+
+!$omp target map(to: a) map(b) map(tofrom: c)
+!$omp parallel do private(j,i,k)
+    do j=1,n
+        do i=1,n
+            do k=1,n
+                c(i,j) = c(i,j) + a(i,k) * b(k,j)
+            enddo
+        enddo
+    enddo
+!$omp end parallel do
+!$omp end target
+end subroutine test_pragmas_map
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    pragmas = FindNodes(Pragma).visit(routine.body)
+
+    assert len(pragmas) == 4
+    assert all(p.keyword.lower() == 'omp' for p in pragmas)
+    assert all(v in pragmas[0].content for v in ['target', 'map(to: a)', 'map(b)', 'map(tofrom: c)'])
+    
+    fgen_code = fgen(pragmas[0]).lower()
+    assert '!$omp' in fgen_code
+    assert 'target' in fgen_code
+    assert 'map( to: a )' in fgen_code
+    assert 'map( b )' in fgen_code
+    assert 'map( tofrom: c )' in fgen_code

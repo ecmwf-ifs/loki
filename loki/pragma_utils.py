@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 from contextlib import contextmanager
 
 from loki.expression import symbols as sym
@@ -63,10 +64,11 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     Returns
     -------
     dict :
-        Mapping of parameters ``{<command>: <arg> or <None>}``
+        Mapping of parameters ``{<command>: <arg> or <None>}`` with the values being a list
+        when multiple entries have the same key
     """
     pragma = as_tuple(pragma)
-    parameters = {}
+    parameters = defaultdict(list)
     for p in pragma:
         if only_loki_pragmas and p.keyword.lower() != 'loki':
             continue
@@ -75,8 +77,9 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             if not content.startswith(starts_with):
                 continue
             content = content[len(starts_with):]
-        parameters.update({match.group('command'): match.group('arg')
-                           for match in re.finditer(_get_pragma_parameters_re, content)})
+        for match in re.finditer(_get_pragma_parameters_re, content):
+            parameters[match.group('command')].append(match.group('arg'))
+    parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
 
 
