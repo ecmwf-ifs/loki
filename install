@@ -33,7 +33,7 @@ with_jdk=false
 with_ant=false
 with_claw=false
 claw_install_env=""
-with_ofp=true
+with_ofp=false
 with_docs=false
 with_dace=true
 with_tests=true
@@ -163,7 +163,7 @@ while getopts "$optspec" optchar; do
       echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
       echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
       echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
-      echo "  --with[out]-ofp              Install Open Fortran Parser (default: enabled)"
+      echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
       echo "  --with[out]-dace             Install DaCe (default: enabled)"
       echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
       echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
