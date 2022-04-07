@@ -3,7 +3,7 @@ from pymbolic.mapper.stringifier import (
 )
 
 from loki.visitors import Stringifier
-from loki.tools import as_tuple, JoinableStringList
+from loki.tools import as_tuple, JoinableStringList, flatten
 from loki.expression import LokiStringifyMapper
 from loki.types import DataType, BasicType, DerivedType, ProcedureType
 from loki.pragma_utils import get_pragma_parameters
@@ -232,11 +232,13 @@ class FortranCodegen(Stringifier):
             line_cont = f' &\n!${o.keyword} & '
             items = [f'!${o.keyword}']
             for k, v in get_pragma_parameters(o, only_loki_pragmas=False).items():
-                items += [k + '(' if v else k]
                 if v:
-                    # Need to additionally filter all old line continuations
-                    items += list(v.replace('&', '').strip().split())
-                    items += [')']
+                    # Need to filter all old line continuations
+                    values = [i.replace('&', '').strip().split(' ') for i in as_tuple(v)]
+                    # v can be a list if the key occurs more than once
+                    items += flatten([(k + '(', *i, ')') for i in values])
+                else:
+                    items += [k]
 
             # Ensure '!$<keyword> &' line continuation in final string
             return str(JoinableStringList(items, sep=' ', width=self.linewidth,
