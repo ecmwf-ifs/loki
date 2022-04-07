@@ -9,6 +9,10 @@ ecmwf_java_version=11.0.1
 ecmwf_python_version=3.8.8-01
 ecmwf_cmake_version=3.19.5
 
+hpc2020_java_version=11.0.6
+hpc2020_python_version=3.8.8-01
+hpc2020_cmake_version=3.19.5
+
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
 # use the path of this install script
@@ -21,6 +25,7 @@ fi
 # Configuration default values
 verbose=false
 is_ecmwf=false
+is_hpc2020=false
 proxy_certificate=""
 jdk_certificate=""
 venv_path=
@@ -28,7 +33,7 @@ with_jdk=false
 with_ant=false
 with_claw=false
 claw_install_env=""
-with_ofp=true
+with_ofp=false
 with_docs=false
 with_dace=true
 with_tests=true
@@ -75,6 +80,9 @@ while getopts "$optspec" optchar; do
           ;;
         ecmwf)       # Load ECMWF workstation specific modules and settings
           is_ecmwf=true
+          ;;
+        hpc2020)     # Load ECMWF HPC2020 (Atos) specific modules and settings
+          is_hpc2020=true
           ;;
         use-venv)    # Specify existing virtual environment
           venv_path=$(realpath "${!OPTIND}")
@@ -148,13 +156,14 @@ while getopts "$optspec" optchar; do
       echo "  -h                           Display this help message"
       echo "  -v                           Enable verbose output"
       echo "  --ecmwf                      Load ECMWF workstation specific modules and settings"
+      echo "  --hpc2020                    Load HPC2020 (Atos) specific modules and settings"
       echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads"
       echo "  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime"
       echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
       echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
       echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
       echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
-      echo "  --with[out]-ofp              Install Open Fortran Parser (default: enabled)"
+      echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
       echo "  --with[out]-dace             Install DaCe (default: enabled)"
       echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
       echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
@@ -179,6 +188,7 @@ if [ "$verbose" == true ]; then
   print_step "Installation configuration:"
 
   [[ "$is_ecmwf" == true ]]  && echo "    --ecmwf"
+  [[ "$is_hpc2020" == true ]]  && echo "    --hpc2020"
   [[ "$venv_path" != "" ]]   && echo "    --use-venv='$venv_path'"
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
   [[ "$with_ant" == true ]]  && echo "    --with-ant"
@@ -207,6 +217,11 @@ if [[ "$with_max" == true && "$is_ecmwf" == false ]]; then
   exit 1
 fi
 
+if [[ "$is_ecmwf" == true && "$is_hpc2020" == true ]]; then
+  echo "Error: Options '--ecmwf' and '--hpc2020' are mutually exclusive."
+  exit 1
+fi
+
 # Load modules
 if [ "$is_ecmwf" == true ]; then
   print_step "Loading ECMWF modules and settings"
@@ -226,6 +241,23 @@ if [ "$is_ecmwf" == true ]; then
     module unload python3
     module load python3/${ecmwf_python_version}
   fi
+
+elif [ "$is_hpc2020" == true ]; then
+  print_step "Loading HPC2020 modules and settings"
+
+  module unload cmake
+  module load cmake/${hpc2020_cmake_version}
+
+  if [ "$with_jdk" == false ]; then
+    module unload java
+    module load java/${hpc2020_java_version}
+  fi
+
+  if [ "$venv_path" == "" ]; then
+    module unload python3
+    module load python3/${hpc2020_python_version}
+  fi
+
 fi
 
 #
@@ -436,7 +468,16 @@ echo "
 if [ "${is_ecmwf}" == true ]; then
   if [ "$with_jdk" == false ]; then
     echo "
+module unload java
 module load java/${ecmwf_java_version}
+" >> "${loki_path}/loki-activate"
+  fi
+
+elif [ "${is_hpc2020}" == true ]; then
+  if [ "$with_jdk" == false ]; then
+    echo "
+module unload java
+module load java/${hpc2020_java_version}
 " >> "${loki_path}/loki-activate"
   fi
 fi

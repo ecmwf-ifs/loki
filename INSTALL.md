@@ -21,42 +21,61 @@ Call it with `-h` to display usage information:
 $ ./install -h
 Loki install script. This installs Loki and selected dependencies.
 
-Usage: ./install [-v] [--ecmwf] [--use-venv[=]<path>] [--with-*]
+Usage: ./install [-v] [--ecmwf] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]
 
 Available options:
-  -h                    Display this help message
-  -v                    Enable verbose output
-  --ecmwf               Load ECMWF workstation specific modules and settings
-  --use-venv[=]<path>   Use existing virtual environment at <path>
-  --with-jdk            Install JDK instead of using system version
-  --with-ant            Install ant instead of using system version
-  --with-claw           Install CLAW and OMNI Compiler
+  -h                           Display this help message
+  -v                           Enable verbose output
+  --ecmwf                      Load ECMWF workstation specific modules and settings
+  --hpc2020                    Load HPC2020 (Atos) specific modules and settings
+  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads
+  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime
+  --use-venv[=]<path>          Use existing virtual environment at <path>
+  --with[out]-jdk              Install JDK instead of using system version (default: use system version)
+  --with[out]-ant              Install ant instead of using system version (default: use system version)
+  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)
+  --with[out]-ofp              Install Open Fortran Parser (default: disabled)
+  --with[out]-dace             Install DaCe (default: enabled)
+  --with[out]-tests            Install dependencies to run tests (default: enabled)
+  --with[out]-docs             Install dependencies to generate documentation (default: disabled)
+  --with[out]-max              Enable experimental use of Maxeler simulator, requires --ecmwf (default: disabled)
+  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install
 ```
 
-On an ECMWF machine the `--ecmwf` flag is recommended as it makes sure the proxy settings are correct.
+On an ECMWF workstation the `--ecmwf` flag is recommended as it loads required modules and makes sure the proxy settings are correct.
+On the Atos HPC facility, the `--hpc2020` flag is recommended as it loads required modules.
+Omitting (other) options (i.e., any of the `--with-*`) will install only the Fparser2 frontend.
 
-The default command on an ECMWF workstation is
+### Examples:
+
+The default command on an ECMWF workstation for a full stack installation is
 
 ```bash
-./install --ecmwf --with-ant --with-claw
+./install --ecmwf --with-ant --with-claw --with-ofp
+```
+
+The equivalent command on the Atos HPC facility for a full stack installation is
+
+```bash
+./install --hpc2020 --with-ant --with-claw --with-ofp
 ```
 
 On the `volta` host it requires a local installation of JDK (note that it will mention missing modules but that does not cause problems because system-versions are sufficiently up-to-date)
 
 ```bash
-./install --ecmwf --with-jdk --with-ant --with-claw
+./install --ecmwf --with-jdk --with-ant --with-claw --with-ofp
 ```
 
 On standard Linux hosts with up-to-date JDK and ant, it is as easy as
 
 ```bash
-./install --with-claw
+./install --with-claw --with-ofp
 ```
 
 To update the installation (e.g., to add JDK), the existing virtual environment can be provided, e.g.,
 
 ```bash
-./install --with-claw --with-jdk --with-ant --use-venv=loki_env
+./install --with-claw --with-jdk --with-ant --use-venv=loki_env --with-ofp
 ```
 
 ## Installation using CMake/ecbuild
