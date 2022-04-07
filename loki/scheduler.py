@@ -443,7 +443,7 @@ class Scheduler:
                 try:
                     path = self.find_path(routine)
                 except FileNotFoundError as err:
-                    warning(f'Scheduler could not find file for enrichment:\n{path}')
+                    warning(f'Scheduler could not find file for enrichment:\n{routine}')
                     if self.config.default['strict']:
                         raise err
                     continue

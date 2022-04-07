@@ -597,7 +597,7 @@ end subroutine test_pragmas_map
     assert len(pragmas) == 4
     assert all(p.keyword.lower() == 'omp' for p in pragmas)
     assert all(v in pragmas[0].content for v in ['target', 'map(to: a)', 'map(b)', 'map(tofrom: c)'])
-    
+
     fgen_code = fgen(pragmas[0]).lower()
     assert '!$omp' in fgen_code
     assert 'target' in fgen_code
