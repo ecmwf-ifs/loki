@@ -210,14 +210,9 @@ class Scheduler:
                 raise fnferr
             return None
 
-        if path in self.source_map:
-            source = self.source_map[path]
-        else:
-            source = Sourcefile.from_file(filename=path, **self.build_args)
-            self.source_map[path]= source
-
         debug(f'[Loki] Scheduler creating item: {name} => {path}')
-        return Item(name=name, path=path, source=source, config=item_conf)
+        return Item(name=name, path=path, config=item_conf, source_cache=self.source_map,
+                    build_args=self.build_args)
 
     def populate(self, routines):
         """

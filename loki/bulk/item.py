@@ -1,5 +1,8 @@
+from functools import cached_property
+
 from loki.tools import as_tuple
 from loki.visitors import FindNodes
+from loki.sourcefile import Sourcefile
 from loki.ir import CallStatement
 
 
@@ -46,13 +49,14 @@ class Item:
         Dict of build arguments to pass to ``SourceFile.from_file`` constructors
     """
 
-    def __init__(self, name, path, source, config=None):
+    def __init__(self, name, path, config=None, source_cache=None, build_args=None):
         self.name = name
         self.path = path
-        self.source = source
         self.config = config or {}
 
-        self.routine = self.source[self.name]
+        # Private constructor arguments for delayed sourcefile creation
+        self._source_cache = source_cache
+        self._build_args = build_args
 
     def __repr__(self):
         return f'loki.scheduler.Item<{self.name}>'
@@ -66,6 +70,35 @@ class Item:
 
     def __hash__(self):
         return hash(self.name)
+
+    @cached_property
+    def routine(self):
+        """
+        :any:`Subroutine` object that this :any:`Item` encapsulates for processing.
+
+        Note that this property is cached, so that updating the name of an associated
+        :any:`Subroutine` with (eg. via the :any:`DependencyTransformation`) may not
+        break the association with this :any:`Item`.
+        """
+        return self.source[self.name]
+
+    @cached_property
+    def source(self):
+        """
+        :any:`Sourcefile` that this :any:`Item` encapsulates for processing.
+
+        Note that this property is cached, so that we may defer the creation of the
+        :any:`Sourcefile` to the processing stage, as it triggers the potentially
+        costly full frontend parser.
+        """
+        if self.path in self._source_cache:
+            return self._source_cache[self.path]
+
+        # Parse the sourcefile with build options and store in cache
+        source = Sourcefile.from_file(filename=self.path, **self._build_args)
+        self._source_cache[self.path]= source
+
+        return source
 
     @property
     def role(self):
