@@ -6,8 +6,8 @@ from loki.build import Obj
 from loki.frontend import FP
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.logging import warning, debug
+from loki.tools import as_tuple, CaseInsensitiveDict, timeit
+from loki.logging import warning, debug, INFO
 from loki.bulk.item import Item
 
 
@@ -214,6 +214,7 @@ class Scheduler:
         return Item(name=name, path=path, config=item_conf, source_cache=self.source_map,
                     build_args=self.build_args)
 
+    @timeit(log_level=INFO)
     def populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
@@ -259,7 +260,12 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-        # Enrich subroutine calls for inter-procedural transformations
+    @timeit(log_level=INFO)
+    def enrich(self):
+        """
+        Enrich subroutine calls for inter-procedural transformations
+        """
+
         for item in self.item_graph:
             item.routine.enrich_calls(routines=self.routines)
 
@@ -282,6 +288,14 @@ class Scheduler:
         order, which ensures that :class:`CallStatement`s are always processed
         before their target :class:`Subroutine`s.
         """
+
+        # Force the parsing of the routines
+        for item in nx.topological_sort(self.item_graph):
+            _ = item.routine
+
+        # Enrich routines in graph with type info
+        self.enrich()
+
         for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel

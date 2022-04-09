@@ -471,6 +471,9 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
     assert 'ext_kernel' in schedulerB.items
     assert ('ext_driver', 'ext_kernel') in schedulerB.dependencies
 
+    # Enforce type enrichment to get call context
+    schedulerA.enrich()
+
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
     assert call.context is not None

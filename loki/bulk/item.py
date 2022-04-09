@@ -1,4 +1,6 @@
+import re
 from functools import cached_property
+from pathlib import Path
 
 from loki.tools import as_tuple
 from loki.visitors import FindNodes
@@ -7,6 +9,10 @@ from loki.ir import CallStatement
 
 
 __all__ = ['Item']
+
+
+_re_call = re.compile(r'^\s*call\s+(?P<routine>\w+)', re.IGNORECASE | re.MULTILINE)
+_re_subroutine = re.compile(r'subroutine\s+(\w+).*?end subroutine', re.IGNORECASE | re.DOTALL)
 
 
 class Item:
@@ -70,6 +76,28 @@ class Item:
 
     def __hash__(self):
         return hash(self.name)
+
+    @cached_property
+    def source_string(self):
+        """
+
+        """
+        with self.path.open(encoding='latin1') as f:
+            source = f.read()
+        return source
+
+    @cached_property
+    def call_stmts(self):
+        """
+
+        """
+        return list(_re_call.findall(self.source_string))
+
+    @cached_property
+    def subroutines(self):
+        """
+        """
+        return list(_re_subroutine.findall(self.source_string))
 
     @cached_property
     def routine(self):
@@ -173,15 +201,16 @@ class Item:
         will apply a transformation over, but rather the set of nodes that
         defines the next level of the internal call tree.
         """
-        members = [m.name.lower() for m in as_tuple(self.routine.members)]
+        # members = [m.name.lower() for m in as_tuple(self.routine.members)]
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
+        children = as_tuple(str(call).lower() for call in self.call_stmts)
 
         # Filter out local members and disabled sub-branches
-        children = [c for c in children if c not in members]
+        # children = [c for c in children if c not in members]
         children = [c for c in children if c not in disabled]
+        print(f'Item::{self.name} got children: {children}')
         return as_tuple(children)
 
     @property
