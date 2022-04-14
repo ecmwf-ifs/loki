@@ -12,7 +12,8 @@ class Configuration(OrderedDict):
 
     Example usage:
 
-    .. codeblock::
+    .. code-block::
+
         config = Configuration('Loki')
         config.register('log-level', 'INFO', env_variable='LOKI_LOGGING')
         ...

@@ -159,15 +159,15 @@ class Scheduler:
     @property
     def items(self):
         """
-        All `Items` contained in the `Scheduler`s call graph.
+        All :any:`Item` objects contained in the :any:`Scheduler` call graph.
         """
         return as_tuple(self.item_graph.nodes)
 
     @property
     def dependencies(self):
         """
-        All individual pairs of `Item`s that represent a dependency
-        and form an edge in the `Scheduler`s call graph.
+        All individual pairs of :any:`Item`s that represent a dependency
+        and form an edge in the :any`Scheduler` call graph.
         """
         return as_tuple(self.item_graph.edges)
 
@@ -285,8 +285,8 @@ class Scheduler:
         """
         Process all enqueued source modules and routines with the
         stored kernel. The traversal is performed in topological
-        order, which ensures that :class:`CallStatement`s are always processed
-        before their target :class:`Subroutine`s.
+        order, which ensures that :any:`CallStatement` objects are
+        always processed before their target :any:`Subroutine`.
         """
 
         # Force the parsing of the routines

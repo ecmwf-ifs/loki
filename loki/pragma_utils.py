@@ -13,7 +13,7 @@ __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
     'attach_pragmas', 'detach_pragmas', 'extract_pragma_region',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
-    'pragma_regions_attached'
+    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher'
 ]
 
 

@@ -22,12 +22,25 @@ class Item:
     own subroutine calls and can be configured to ignore individual
     sub-tree.
 
+    Parameters
+    ----------
+    name : str
+        Name to identify items in the schedulers graph
+    path : path
+        Filepath to the underlying source file
+    config : dict
+        Dict of item-specific config markers
+    build_args : dict
+        Dict of build arguments to pass to ``SourceFile.from_file`` constructors
+
+    Notes
+    -----
+
     Each work item may have its own configuration settings that
     primarily inherit values from the `'default'`, but can be
     specialised explicitly in the config file or dictionary.
 
-    Config markers
-    ==============
+    Possible arguments are:
 
     * ``role``: Role string to pass to the :any:`Transformation` (eg. "kernel")
     * ``mode``: Transformation "mode" to pass to the transformation
@@ -43,16 +56,6 @@ class Item:
     * ``block``: List of subroutines that should should not be added to the scheduler
       tree. Note, these might still be shown in the graph visulisation.
 
-    Parameters
-    ----------
-    name : str
-        Name to identify items in the schedulers graph
-    path : path
-        Filepath to the underlying source file
-    config : dict
-        Dict of item-specific config markers
-    build_args : dict
-        Dict of build arguments to pass to ``SourceFile.from_file`` constructors
     """
 
     def __init__(self, name, path, config=None, source_cache=None, build_args=None):
@@ -65,7 +68,7 @@ class Item:
         self._build_args = build_args
 
     def __repr__(self):
-        return f'loki.scheduler.Item<{self.name}>'
+        return f'loki.bulk.Item<{self.name}>'
 
     def __eq__(self, other):
         if isinstance(other, Item):
@@ -236,9 +239,9 @@ class Item:
         Set of "active" child routines that are part of the transformation
         traversal.
 
-        This defines all child routines of an item that will be traversed
-        when applying ``Transformation``s as well, after tree pruning rules
-        are applied.
+        This defines all child routines of an item that will be
+        traversed when applying a :any:`Transformation` as well, after
+        tree pruning rules are applied.
         """
         disabled = as_tuple(str(b).lower() for b in self.disable)
         blocked = as_tuple(str(b).lower() for b in self.block)

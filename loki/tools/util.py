@@ -433,7 +433,8 @@ class LazyNodeLookup:
        **Example:**
        Reference a declaration node that contains variable "a"
 
-       .. codeblock::
+       .. code-block::
+
           from loki import LazyNodeLookup, FindNodes, Declaration
           # Assume this has been initialized before
           # routine = ...
@@ -482,6 +483,7 @@ def yaml_include_constructor(loader, node):
     This allows to include other YAML files or parts of them inside a YAML file:
 
     .. code-block:: yaml
+
         # include.yml
         tag0:
           foo: bar
@@ -490,6 +492,7 @@ def yaml_include_constructor(loader, node):
           baz: bar
 
     .. code-block:: yaml
+
         # main.yml
         nested: !include include.yml
 
@@ -498,6 +501,7 @@ def yaml_include_constructor(loader, node):
     which is equivalent to the following:
 
     ..code-block:: yaml
+
         nested:
           tag0:
             foo: bar
