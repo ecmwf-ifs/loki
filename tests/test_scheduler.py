@@ -45,9 +45,9 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Scheduler, SchedulerConfig, DependencyTransformation, FP, OFP, HAVE_FP, HAVE_OFP,
-    Sourcefile, FindNodes, CallStatement, fexprgen, Transformation, BasicType,
-    CMakePlanner
+    Scheduler, SchedulerConfig, Item, DependencyTransformation, FP,
+    OFP, HAVE_FP, HAVE_OFP, Sourcefile, FindNodes, CallStatement,
+    fexprgen, Transformation, BasicType, CMakePlanner
 )
 
 
@@ -725,3 +725,24 @@ def test_scheduler_cmake_planner(here, frontend):
 
     planfile.unlink()
     builddir.rmdir()
+
+
+def test_scheduler_item(here, frontend):
+    """
+    Test the basic regex accessors in :any:`Item` objects for fast dependency detection.
+    """
+    filepath = here/'sources/sourcefile_item.f90'
+
+    item_a = Item(name='routine_a', path=filepath)
+    assert item_a._re_subroutine_calls == ('routine_b',)
+    assert item_a._re_subroutine_members == ()
+
+    item_module = Item(name='module_routine', path=filepath)
+    assert item_module._re_subroutine_calls == ('routine_b',)
+    assert item_module._re_subroutine_members == ()
+
+    item_b = Item(name='routine_b', path=filepath)
+    assert item_b._re_subroutine_calls == ('contained_c', 'routine_a')
+    assert 'contained_c' in item_b._re_subroutine_members
+    assert 'contained_d' in item_b._re_subroutine_members
+    assert item_b.children == ('routine_a',)

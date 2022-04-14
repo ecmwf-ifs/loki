@@ -2,7 +2,7 @@ import re
 from functools import cached_property
 from pathlib import Path
 
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.visitors import FindNodes
 from loki.sourcefile import Sourcefile
 from loki.ir import CallStatement
@@ -11,8 +11,8 @@ from loki.ir import CallStatement
 __all__ = ['Item']
 
 
-_re_call = re.compile(r'^\s*call\s+(?P<routine>\w+)', re.IGNORECASE | re.MULTILINE)
-_re_subroutine = re.compile(r'subroutine\s+(\w+).*?end subroutine', re.IGNORECASE | re.DOTALL)
+_re_call = re.compile(r'^\s*call\s+(?P<routine>[a-zA-Z0-9_% ]+)', re.IGNORECASE | re.MULTILINE)
+_re_subroutine = re.compile(r'subroutine\s+(?P<routine>\w+)(?P<body>.*?)end\s+subroutine\s+(?=\1)', re.IGNORECASE | re.DOTALL)
 
 
 class Item:
@@ -80,24 +80,42 @@ class Item:
     @cached_property
     def source_string(self):
         """
+        The original source string as read from file. This property is cached.
 
+        This is primarily used for establishing dependency trees via
+        regexes during the initial planning stage.
         """
         with self.path.open(encoding='latin1') as f:
             source = f.read()
         return source
 
     @cached_property
-    def call_stmts(self):
+    def _re_subroutines(self):
         """
+        A :any:`CaseInsensitiveDict` matching subroutine names to
+        their body as determined by fast regex-matching.
 
+        This is intended for fast subroutine detection without triggering full frontend parsers.
         """
-        return list(_re_call.findall(self.source_string))
+        return CaseInsensitiveDict(_re_subroutine.findall(self.source_string))
 
-    @cached_property
-    def subroutines(self):
+    @property
+    def _re_subroutine_calls(self):
         """
+        A :any:`tuple` of strings with subroutine calls in the
+        :any:`Item`'s associated subroutine.
         """
-        return list(_re_subroutine.findall(self.source_string))
+        body = self._re_subroutines[self.name]
+        return tuple(r.replace(' ', '') for r in _re_call.findall(body))
+
+    @property
+    def _re_subroutine_members(self):
+        """
+        A :any:`tuple` of strings with names of member subroutines
+        contained in the :any:`Item`'s associated subroutine.
+        """
+        body = self._re_subroutines[self.name]
+        return tuple(r for r, _ in _re_subroutine.findall(body))
 
     @cached_property
     def routine(self):
@@ -201,16 +219,15 @@ class Item:
         will apply a transformation over, but rather the set of nodes that
         defines the next level of the internal call tree.
         """
-        # members = [m.name.lower() for m in as_tuple(self.routine.members)]
+        members = [str(m).lower() for m in self._re_subroutine_members]
         disabled = as_tuple(str(b).lower() for b in self.disable)
 
         # Base definition of child is a procedure call (for now)
-        children = as_tuple(str(call).lower() for call in self.call_stmts)
+        children = as_tuple(str(call).lower() for call in self._re_subroutine_calls)
 
         # Filter out local members and disabled sub-branches
-        # children = [c for c in children if c not in members]
+        children = [c for c in children if c not in members]
         children = [c for c in children if c not in disabled]
-        print(f'Item::{self.name} got children: {children}')
         return as_tuple(children)
 
     @property
