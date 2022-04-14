@@ -56,15 +56,18 @@ DEBUG = logging.DEBUG
 INFO = logging.INFO
 WARNING = logging.WARNING
 ERROR = logging.ERROR
+PERF = 15
 
 # Internally accepted log levels
 log_levels = {
     'DEBUG': DEBUG,
+    'PERF': PERF,
     'INFO': INFO,
     'WARNING': WARNING,
     'ERROR': ERROR,
     # Lower case keywords for env variables
     'debug': DEBUG,
+    'perf': PERF,
     'info': INFO,
     'warning': WARNING,
     'error': ERROR,
@@ -77,6 +80,7 @@ BLUE = '\033[1;37;34m%s\033[0m'
 GREEN = '\033[1;37;32m%s\033[0m'
 colors = {
     DEBUG: NOCOLOR,
+    PERF: GREEN,
     INFO: GREEN,
     WARNING: BLUE,
     ERROR: RED,

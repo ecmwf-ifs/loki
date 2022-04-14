@@ -7,7 +7,7 @@ from loki.frontend import FP
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
-from loki.logging import info, warning, debug, INFO
+from loki.logging import info, warning, debug, PERF
 from loki.bulk.item import Item
 
 
@@ -214,7 +214,7 @@ class Scheduler:
         return Item(name=name, path=path, config=item_conf, source_cache=self.source_map,
                     build_args=self.build_args)
 
-    @timeit(log_level=INFO)
+    @timeit(log_level=PERF)
     def populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
@@ -260,7 +260,7 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-    @timeit(log_level=INFO)
+    @timeit(log_level=PERF)
     def enrich(self):
         """
         Enrich subroutine calls for inter-procedural transformations
@@ -342,7 +342,7 @@ class Scheduler:
 
         callgraph.render(cg_path, view=False)
 
-    @timeit(log_level=INFO)
+    @timeit(log_level=PERF)
     def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
         """
         Generate the "plan file", a CMake file defining three lists

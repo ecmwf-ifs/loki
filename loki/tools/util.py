@@ -16,7 +16,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki.logging import log, debug, error, INFO
+from loki.logging import log, debug, error, PERF
 
 
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
@@ -169,7 +169,7 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def timeit(log_level=INFO, getter=None):
+def timeit(log_level=PERF, getter=None):
     """
     Timing decorator that logs the time taken in a specific function call.
 
