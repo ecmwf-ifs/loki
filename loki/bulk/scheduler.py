@@ -7,7 +7,7 @@ from loki.frontend import FP
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
 from loki.tools import as_tuple, CaseInsensitiveDict, timeit
-from loki.logging import warning, debug, INFO
+from loki.logging import info, warning, debug, INFO
 from loki.bulk.item import Item
 
 
@@ -341,3 +341,53 @@ class Scheduler:
                     callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
+
+    @timeit(log_level=INFO)
+    def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
+        """
+        Generate the "plan file", a CMake file defining three lists
+        that contain the respective files to append / remove /
+        transform. These lists are used by the CMake wrappers to
+        schedule the source updates and update the source lists of the
+        CMake target object accordingly.
+        """
+        info(f'[Loki] Scheduler writing CMake plan: {filepath}')
+
+        rootpath = Path(rootpath).resolve()
+        buildpath = None if buildpath is None else Path(buildpath)
+        sources_to_append = []
+        sources_to_remove = []
+        sources_to_transform = []
+
+        for item in self.items:
+            sourcepath = item.path.resolve()
+            newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
+            if buildpath:
+                newsource = buildpath/newsource.name
+
+            # Make new CMake paths relative to source again
+            sourcepath = sourcepath.relative_to(rootpath)
+
+            debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
+
+            sources_to_transform += [sourcepath]
+
+            # Inject new object into the final binary libs
+            if item.replicate:
+                # Add new source file next to the old one
+                sources_to_append += [newsource]
+            else:
+                # Replace old source file to avoid ghosting
+                sources_to_append += [newsource]
+                sources_to_remove += [sourcepath]
+
+        info(f'[Loki] CMakePlanner writing plan: {filepath}')
+        with Path(filepath).open('w') as f:
+            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
+            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
+
+            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
+            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
+
+            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
+            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')

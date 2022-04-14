@@ -315,21 +315,13 @@ def plan(mode, config, header, source, build, root, frontend, callgraph, plan_fi
     info(f'[Loki] Creating CMake plan file from config: {config}')
     config = SchedulerConfig.from_file(config)
 
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-
-    headers = [Sourcefile.from_file(h, frontend=frontend_type) for h in header]
-    definitions = flatten(h.modules for h in headers)
-
     paths = [Path(s).resolve().parent for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, definitions=definitions, frontend=frontend)
+    scheduler = Scheduler(paths=paths, config=config, frontend=frontend)
     scheduler.populate(routines=config.routines.keys())
 
-    # Generate a cmake include file to tell CMake what we're gonna do!
-    planner = CMakePlanner(rootpath=root, mode=mode, build=build)
-    scheduler.process(transformation=planner)
-    planner.write_planfile(plan_file)
+    # Construct the transformation plan as a set of CMake lists of source files 
+    scheduler.write_cmake_plan(filepath=plan_file, mode=mode, buildpath=build, rootpath=root)
 
     # Output the resulting callgraph
     if callgraph:
