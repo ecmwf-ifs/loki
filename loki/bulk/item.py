@@ -11,8 +11,23 @@ from loki.ir import CallStatement
 __all__ = ['Item']
 
 
+"""
+Matches subroutine calls within a string via the ``call`` keyword.
+"""
 _re_call = re.compile(r'^\s*call\s+(?P<routine>[a-zA-Z0-9_% ]+)', re.IGNORECASE | re.MULTILINE)
-_re_subroutine = re.compile(r'subroutine\s+(?P<routine>\w+)(?P<body>.*?)end\s+subroutine\s+(?=\1)', re.IGNORECASE | re.DOTALL)
+
+"""
+Matches subroutines and potential member subroutines via the
+``subroutine...end subroutine`` keywords. This is safe, since F2008's
+C1260 limits nesting to one level.
+"""
+_re_subroutine_members = re.compile(
+    r'subroutine\s+(?P<routine>\w+)'  # Match the initial routine name
+    r'(?P<body>.*?)'  # Match the body and store it
+    r'(?P<contains>contains.*?(?:(?:subroutine\s+).*?(?:end\s+subroutine).*?)*)?' # Match the optional internal-subprogram part
+    r'end\s+subroutine(?:(?=\s+\1)|(?!\s*\1))',  # Match the named or unnamed `end subroutine`
+    re.IGNORECASE | re.DOTALL
+)
 
 
 class Item:
@@ -100,7 +115,10 @@ class Item:
 
         This is intended for fast subroutine detection without triggering full frontend parsers.
         """
-        return CaseInsensitiveDict(_re_subroutine.findall(self.source_string))
+        result = _re_subroutine_members.findall(self.source_string)
+        s = CaseInsensitiveDict((r[0], r[1]) for r in result)
+        m = CaseInsensitiveDict((r[0], r[2]) for r in result)
+        return s, m
 
     @property
     def _re_subroutine_calls(self):
@@ -108,8 +126,8 @@ class Item:
         A :any:`tuple` of strings with subroutine calls in the
         :any:`Item`'s associated subroutine.
         """
-        body = self._re_subroutines[self.name]
-        return tuple(r.replace(' ', '') for r in _re_call.findall(body))
+        body, _ = self._re_subroutines
+        return tuple(r.replace(' ', '') for r in _re_call.findall(body[self.name]))
 
     @property
     def _re_subroutine_members(self):
@@ -117,8 +135,8 @@ class Item:
         A :any:`tuple` of strings with names of member subroutines
         contained in the :any:`Item`'s associated subroutine.
         """
-        body = self._re_subroutines[self.name]
-        return tuple(r for r, _ in _re_subroutine.findall(body))
+        _, members = self._re_subroutines
+        return tuple(r[0] for r in _re_subroutine_members.findall(members[self.name]))
 
     @cached_property
     def routine(self):
