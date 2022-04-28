@@ -1293,6 +1293,10 @@ class TypeDef(ScopedNode, LeafNode):
         return tuple(flatten([decl.symbols for decl in self.declarations]))
 
     @property
+    def variable_map(self):
+        return CaseInsensitiveDict((s.name, s) for s in self.variables)
+
+    @property
     def imported_symbols(self):
         """
         Return the symbols imported in this typedef

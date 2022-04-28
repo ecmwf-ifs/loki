@@ -55,7 +55,7 @@ def parse_fparser_source(source):
         error('Fparser is not available. Try "pip install fparser".')
         raise RuntimeError
 
-    # Clear FParser's symbol tables if the FParser version is new enough to have them 
+    # Clear FParser's symbol tables if the FParser version is new enough to have them
     try:
         from fparser.two.symbol_table import SYMBOL_TABLES  # pylint: disable=import-outside-toplevel
         SYMBOL_TABLES.clear()
