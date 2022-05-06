@@ -537,7 +537,7 @@ contains
         class(type_bound_proc_type) :: self
         integer :: result
         result = self%val
-    end function proc
+    end function other_proc
 
 end module derived_type_private_comp_mod
     """.strip()
