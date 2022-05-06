@@ -1,6 +1,12 @@
 import re
-from functools import cached_property
-from pathlib import Path
+try:
+    from functools import cached_property
+except ImportError:
+    try:
+        from cached_property import cached_property
+    except ImportError:
+        def cached_property(func):
+            return func
 
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.visitors import FindNodes
@@ -22,9 +28,10 @@ Matches subroutines and potential member subroutines via the
 C1260 limits nesting to one level.
 """
 _re_subroutine_members = re.compile(
-    r'subroutine\s+(?P<routine>\w+)'  # Match the initial routine name
+    r'\bsubroutine\s+(?P<routine>\w+)'  # Match the initial routine name
     r'(?P<body>.*?)'  # Match the body and store it
-    r'(?P<contains>contains.*?(?:(?:subroutine\s+).*?(?:end\s+subroutine).*?)*)?' # Match the optional internal-subprogram part
+    # Match the optional internal-subprogram part
+    r'(?P<contains>contains.*?(?:(?:subroutine\s+).*?(?:end\s+subroutine).*?)*)?'
     r'end\s+subroutine(?:(?=\s+\1)|(?!\s*\1))',  # Match the named or unnamed `end subroutine`
     re.IGNORECASE | re.DOTALL
 )
@@ -45,6 +52,10 @@ class Item:
         Filepath to the underlying source file
     config : dict
         Dict of item-specific config markers
+    source_cache : dict
+        Dict to cache and lookup :any:`SourceFile` objects that might have been
+        built previously. This avoids two :any:`Item` objects aliasing to the same
+        source file, which can lead to overriding prior source changes.
     build_args : dict
         Dict of build arguments to pass to ``SourceFile.from_file`` constructors
 
@@ -79,8 +90,8 @@ class Item:
         self.config = config or {}
 
         # Private constructor arguments for delayed sourcefile creation
-        self._source_cache = source_cache
-        self._build_args = build_args
+        self._source_cache = {} if source_cache is None else source_cache
+        self._build_args = {} if build_args is None else build_args
 
     def __repr__(self):
         return f'loki.bulk.Item<{self.name}>'
