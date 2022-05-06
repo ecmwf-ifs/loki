@@ -41,6 +41,10 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
 
     class _LokiCPreprocessor(pcpp.Preprocessor):
 
+        def on_comment(self, tok):  # pylint: disable=unused-argument
+            # Pass through C-style comments
+            return True
+
         def on_error(self, file, line, msg):
             # Redirect CPP error to our logger and increment return code
             debug(f'[Loki-CPP] {file}:{line: d} error: {msg}')
