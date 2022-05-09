@@ -16,7 +16,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki.logging import log, debug, error, INFO
+from loki.logging import log, debug, error, PERF
 
 
 __all__ = ['as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks', 'timeit',
@@ -169,7 +169,7 @@ def chunks(l, n):
         yield l[i:i + n]
 
 
-def timeit(log_level=INFO, getter=None):
+def timeit(log_level=PERF, getter=None):
     """
     Timing decorator that logs the time taken in a specific function call.
 
@@ -433,7 +433,8 @@ class LazyNodeLookup:
        **Example:**
        Reference a declaration node that contains variable "a"
 
-       .. codeblock::
+       .. code-block::
+
           from loki import LazyNodeLookup, FindNodes, Declaration
           # Assume this has been initialized before
           # routine = ...
@@ -482,6 +483,7 @@ def yaml_include_constructor(loader, node):
     This allows to include other YAML files or parts of them inside a YAML file:
 
     .. code-block:: yaml
+
         # include.yml
         tag0:
           foo: bar
@@ -490,6 +492,7 @@ def yaml_include_constructor(loader, node):
           baz: bar
 
     .. code-block:: yaml
+
         # main.yml
         nested: !include include.yml
 
@@ -498,6 +501,7 @@ def yaml_include_constructor(loader, node):
     which is equivalent to the following:
 
     ..code-block:: yaml
+
         nested:
           tag0:
             foo: bar

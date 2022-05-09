@@ -296,9 +296,9 @@ class FParser2IR(GenericVisitor):
 
     def visit_List(self, o, **kwargs):
         """
-        Universal routine for auto-generated *_List types in fparser
+        Universal routine for auto-generated ``*_List`` types in fparser
 
-        `*_List` types have their items children
+        ``*_List`` types have their items children
         """
         return tuple(self.visit(i, **kwargs) for i in o.children)
 

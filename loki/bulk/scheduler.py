@@ -4,15 +4,14 @@ import networkx as nx
 
 from loki.build import Obj
 from loki.frontend import FP
-from loki.ir import CallStatement
-from loki.visitors import FindNodes
 from loki.sourcefile import Sourcefile
 from loki.dimension import Dimension
-from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.logging import warning, debug
+from loki.tools import as_tuple, CaseInsensitiveDict, timeit
+from loki.logging import info, warning, debug, PERF
+from loki.bulk.item import Item
 
 
-__all__ = ['Item', 'Scheduler', 'SchedulerConfig']
+__all__ = ['Scheduler', 'SchedulerConfig']
 
 
 class SchedulerConfig:
@@ -72,175 +71,6 @@ class SchedulerConfig:
             config = toml.load(f)
 
         return cls.from_dict(config)
-
-
-class Item:
-    """
-    A work item that represents a single source routine to be
-    processed. Each :any:`Item` spawns new work items according to its
-    own subroutine calls and can be configured to ignore individual
-    sub-tree.
-
-    Each work item may have its own configuration settings that
-    primarily inherit values from the `'default'`, but can be
-    specialised explicitly in the config file or dictionary.
-
-    Config markers
-    ==============
-
-    * ``role``: Role string to pass to the :any:`Transformation` (eg. "kernel")
-    * ``mode``: Transformation "mode" to pass to the transformation
-    * ``expand``: Flag to generally enable/disable expansion under this item
-    * ``strict``: Flag controlling whether to strictly fail if source file cannot be parsed
-    * ``replicated``: Flag indicating whether to mark item as "replicated" in call graphs
-    * ``ignore``: Individual list of subroutine calls to "ignore" during expansion.
-      The routines will still be added to the schedulers tree, but not
-      followed during expansion.
-    * ``enrich``: List of subroutines that should still be looked up and used to "enrich"
-      :any:`CallStatement` nodes in this :any:`Item` for inter-procedural
-      transformation passes.
-    * ``block``: List of subroutines that should should not be added to the scheduler
-      tree. Note, these might still be shown in the graph visulisation.
-
-    Parameters
-    ----------
-    name : str
-        Name to identify items in the schedulers graph
-    path : path
-        Filepath to the underlying source file
-    config : dict
-        Dict of item-specific config markers
-    build_args : dict
-        Dict of build arguments to pass to ``SourceFile.from_file`` constructors
-    """
-
-    def __init__(self, name, path, source, config=None):
-        self.name = name
-        self.path = path
-        self.source = source
-        self.config = config or {}
-
-        self.routine = self.source[self.name]
-
-    def __repr__(self):
-        return f'loki.scheduler.Item<{self.name}>'
-
-    def __eq__(self, other):
-        if isinstance(other, Item):
-            return self.name.lower() == other.name.lower()
-        if isinstance(other, str):
-            return self.name.lower() == other.lower()
-        return super().__eq__(other)
-
-    def __hash__(self):
-        return hash(self.name)
-
-    @property
-    def role(self):
-        """
-        Role in the transformation chain, for example 'driver' or 'kernel'
-        """
-        return self.config.get('role', None)
-
-    @property
-    def mode(self):
-        """
-        Transformation "mode" to pass to the transformation
-        """
-        return self.config.get('mode', None)
-
-    @property
-    def expand(self):
-        """
-        Flag to trigger expansion of children under this node
-        """
-        return self.config.get('expand', False)
-
-    @property
-    def strict(self):
-        """
-        Flag controlling whether to strictly fail if source file cannot be parsed
-        """
-        return self.config.get('strict', True)
-
-    @property
-    def replicate(self):
-        """
-        Flag indicating whether to mark item as "replicated" in call graphs
-        """
-        return self.config.get('replicate', False)
-
-    @property
-    def disable(self):
-        """
-        List of sources to completely exclude from expansion and the source tree.
-        """
-        return self.config.get('disable', tuple())
-
-    @property
-    def block(self):
-        """
-        List of sources to block from processing, but add to the
-        source tree for visualisation.
-        """
-        return self.config.get('block', tuple())
-
-    @property
-    def ignore(self):
-        """
-        List of sources to expand but ignore during processing
-        """
-        return self.config.get('ignore', tuple())
-
-    @property
-    def enrich(self):
-        """
-        List of sources to to use for IPA enrichment
-        """
-        return self.config.get('enrich', tuple())
-
-    @property
-    def children(self):
-        """
-        Set of all child routines that this work item has in the call tree.
-
-        Note that this is not the set of active children that a traversal
-        will apply a transformation over, but rather the set of nodes that
-        defines the next level of the internal call tree.
-        """
-        members = [m.name.lower() for m in as_tuple(self.routine.members)]
-        disabled = as_tuple(str(b).lower() for b in self.disable)
-
-        # Base definition of child is a procedure call (for now)
-        children = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
-
-        # Filter out local members and disabled sub-branches
-        children = [c for c in children if c not in members]
-        children = [c for c in children if c not in disabled]
-        return as_tuple(children)
-
-    @property
-    def targets(self):
-        """
-        Set of "active" child routines that are part of the transformation
-        traversal.
-
-        This defines all child routines of an item that will be traversed
-        when applying ``Transformation``s as well, after tree pruning rules
-        are applied.
-        """
-        disabled = as_tuple(str(b).lower() for b in self.disable)
-        blocked = as_tuple(str(b).lower() for b in self.block)
-        ignored = as_tuple(str(b).lower() for b in self.ignore)
-
-        # Base definition of child is a procedure call
-        targets = as_tuple(str(call.name).lower() for call in FindNodes(CallStatement).visit(self.routine.ir))
-
-        # Filter out blocked and ignored children
-        targets = [c for c in targets if c not in disabled]
-        targets = [t for t in targets if t not in blocked]
-        targets = [t for t in targets if t not in ignored]
-        return as_tuple(targets)
 
 
 class Scheduler:
@@ -329,15 +159,15 @@ class Scheduler:
     @property
     def items(self):
         """
-        All `Items` contained in the `Scheduler`s call graph.
+        All :any:`Item` objects contained in the :any:`Scheduler` call graph.
         """
         return as_tuple(self.item_graph.nodes)
 
     @property
     def dependencies(self):
         """
-        All individual pairs of `Item`s that represent a dependency
-        and form an edge in the `Scheduler`s call graph.
+        All individual pairs of :any:`Item`s that represent a dependency
+        and form an edge in the :any`Scheduler` call graph.
         """
         return as_tuple(self.item_graph.edges)
 
@@ -380,15 +210,11 @@ class Scheduler:
                 raise fnferr
             return None
 
-        if path in self.source_map:
-            source = self.source_map[path]
-        else:
-            source = Sourcefile.from_file(filename=path, **self.build_args)
-            self.source_map[path]= source
-
         debug(f'[Loki] Scheduler creating item: {name} => {path}')
-        return Item(name=name, path=path, source=source, config=item_conf)
+        return Item(name=name, path=path, config=item_conf, source_cache=self.source_map,
+                    build_args=self.build_args)
 
+    @timeit(log_level=PERF)
     def populate(self, routines):
         """
         Populate the callgraph of this scheduler through automatic expansion of
@@ -434,7 +260,12 @@ class Scheduler:
 
                     self.item_graph.add_edge(item, child)
 
-        # Enrich subroutine calls for inter-procedural transformations
+    @timeit(log_level=PERF)
+    def enrich(self):
+        """
+        Enrich subroutine calls for inter-procedural transformations
+        """
+
         for item in self.item_graph:
             item.routine.enrich_calls(routines=self.routines)
 
@@ -454,9 +285,17 @@ class Scheduler:
         """
         Process all enqueued source modules and routines with the
         stored kernel. The traversal is performed in topological
-        order, which ensures that :class:`CallStatement`s are always processed
-        before their target :class:`Subroutine`s.
+        order, which ensures that :any:`CallStatement` objects are
+        always processed before their target :any:`Subroutine`.
         """
+
+        # Force the parsing of the routines
+        for item in nx.topological_sort(self.item_graph):
+            _ = item.routine
+
+        # Enrich routines in graph with type info
+        self.enrich()
+
         for item in nx.topological_sort(self.item_graph):
 
             # Process work item with appropriate kernel
@@ -502,3 +341,53 @@ class Scheduler:
                     callgraph.edge(item.name.upper(), child.upper())
 
         callgraph.render(cg_path, view=False)
+
+    @timeit(log_level=PERF)
+    def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
+        """
+        Generate the "plan file", a CMake file defining three lists
+        that contain the respective files to append / remove /
+        transform. These lists are used by the CMake wrappers to
+        schedule the source updates and update the source lists of the
+        CMake target object accordingly.
+        """
+        info(f'[Loki] Scheduler writing CMake plan: {filepath}')
+
+        rootpath = Path(rootpath).resolve()
+        buildpath = None if buildpath is None else Path(buildpath)
+        sources_to_append = []
+        sources_to_remove = []
+        sources_to_transform = []
+
+        for item in self.items:
+            sourcepath = item.path.resolve()
+            newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
+            if buildpath:
+                newsource = buildpath/newsource.name
+
+            # Make new CMake paths relative to source again
+            sourcepath = sourcepath.relative_to(rootpath)
+
+            debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
+
+            sources_to_transform += [sourcepath]
+
+            # Inject new object into the final binary libs
+            if item.replicate:
+                # Add new source file next to the old one
+                sources_to_append += [newsource]
+            else:
+                # Replace old source file to avoid ghosting
+                sources_to_append += [newsource]
+                sources_to_remove += [sourcepath]
+
+        info(f'[Loki] CMakePlanner writing plan: {filepath}')
+        with Path(filepath).open('w') as f:
+            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
+            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
+
+            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
+            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
+
+            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
+            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
