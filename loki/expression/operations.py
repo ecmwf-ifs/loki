@@ -4,11 +4,13 @@ niche things like mathematically irrelevant parenthesis that
 nevertheless change code results.
 """
 
+from sys import intern
 import pymbolic.primitives as pmbl
-from six.moves import intern
 
-from loki.expression.mappers import LokiStringifyMapper
-from loki.expression.symbols import StringLiteral, ExprMetadataMixin, Sum, Product, Quotient, Power
+from loki.expression.symbols import (
+    StringLiteral, ExprMetadataMixin, Sum, Product, Quotient, Power,
+    loki_make_stringifier
+)
 
 
 class ParenthesisedAdd(Sum):
@@ -18,9 +20,7 @@ class ParenthesisedAdd(Sum):
     """
 
     mapper_method = intern("map_parenthesised_add")
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
 
 class ParenthesisedMul(Product):
@@ -30,9 +30,7 @@ class ParenthesisedMul(Product):
     """
 
     mapper_method = intern("map_parenthesised_mul")
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
 
 class ParenthesisedDiv(Quotient):
@@ -42,9 +40,7 @@ class ParenthesisedDiv(Quotient):
     """
 
     mapper_method = intern("map_parenthesised_div")
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
 
 class ParenthesisedPow(Power):
@@ -54,9 +50,7 @@ class ParenthesisedPow(Power):
     """
 
     mapper_method = intern("map_parenthesised_pow")
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
 
 class StringConcat(ExprMetadataMixin, pmbl._MultiChildExpression):

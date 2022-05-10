@@ -13,6 +13,7 @@ from loki.expression.mappers import ExpressionRetriever
 
 
 __all__ = [
+    'loki_make_stringifier',
     # Mix-ins
     'ExprMetadataMixin', 'StrCompareMixin',
     # Typed leaf nodes
@@ -34,6 +35,9 @@ def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disabl
     """
     Return a :any:`LokiStringifyMapper` instance that can be used to generate a
     human-readable representation of :data:`self`.
+
+    This is used as common abstraction for the :meth:`make_stringifier` method in
+    Pymbolic expression nodes.
     """
     from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
     return LokiStringifyMapper()
