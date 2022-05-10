@@ -9,7 +9,7 @@ import pymbolic.primitives as pmbl
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
-from loki.expression.mappers import LokiStringifyMapper, ExpressionRetriever
+from loki.expression.mappers import ExpressionRetriever
 
 
 __all__ = [
@@ -28,6 +28,15 @@ __all__ = [
 
 
 # pylint: disable=abstract-method
+
+
+def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
+    """
+    Return a :any:`LokiStringifyMapper` instance that can be used to generate a
+    human-readable representation of :data:`self`.
+    """
+    from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
+    return LokiStringifyMapper()
 
 
 class ExprMetadataMixin:
@@ -61,9 +70,7 @@ class ExprMetadataMixin:
         """The :any:`Source` object for this expression node."""
         return self._metadata['source']
 
-    @staticmethod
-    def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument,missing-function-docstring
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
     def clone(self, **kwargs):
         """
@@ -396,9 +403,6 @@ class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Varia
 
     mapper_method = intern('map_variable_symbol')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 class _FunctionSymbol(pmbl.FunctionSymbol):
     """
@@ -556,9 +560,7 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         return self.symbol.source
 
     mapper_method = intern('map_meta_symbol')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return self.symbol.__getinitargs__()
@@ -610,9 +612,6 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_scalar')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class Array(MetaSymbol):
@@ -939,9 +938,6 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_float_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 class IntLiteral(ExprMetadataMixin, _Literal):
     """
@@ -1019,9 +1015,6 @@ class IntLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_int_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 # Register IntLiteral as a constant class in Pymbolic
 pmbl.register_constant_class(IntLiteral)
@@ -1045,9 +1038,6 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
         return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_logic_literal')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class StringLiteral(ExprMetadataMixin, _Literal):
@@ -1084,9 +1074,6 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_string_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 class IntrinsicLiteral(ExprMetadataMixin, _Literal):
     """
@@ -1109,9 +1096,6 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
         return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_intrinsic_literal')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class Literal:
@@ -1229,9 +1213,6 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
 
     mapper_method = intern('map_inline_call')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     @property
     def name(self):
         return self.function.name
@@ -1266,9 +1247,6 @@ class Cast(ExprMetadataMixin, pmbl.Call):
 
     mapper_method = intern('map_cast')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     @property
     def name(self):
         return self.function.name
@@ -1296,9 +1274,6 @@ class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
         if self.children[0] == 1 and self.children[2] is None:
             return self.children[1] == other or super().__eq__(other)
         return super().__eq__(other)
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
     @property
     def lower(self):
@@ -1339,7 +1314,4 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of an array subscript.
     """
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     mapper_method = intern('map_array_subscript')
