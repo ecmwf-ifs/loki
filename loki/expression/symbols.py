@@ -9,10 +9,11 @@ import pymbolic.primitives as pmbl
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
-from loki.expression.mappers import LokiStringifyMapper, ExpressionRetriever
+from loki.expression.mappers import ExpressionRetriever
 
 
 __all__ = [
+    'loki_make_stringifier',
     # Mix-ins
     'ExprMetadataMixin', 'StrCompareMixin',
     # Typed leaf nodes
@@ -28,6 +29,18 @@ __all__ = [
 
 
 # pylint: disable=abstract-method
+
+
+def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
+    """
+    Return a :any:`LokiStringifyMapper` instance that can be used to generate a
+    human-readable representation of :data:`self`.
+
+    This is used as common abstraction for the :meth:`make_stringifier` method in
+    Pymbolic expression nodes.
+    """
+    from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
+    return LokiStringifyMapper()
 
 
 class ExprMetadataMixin:
@@ -61,9 +74,7 @@ class ExprMetadataMixin:
         """The :any:`Source` object for this expression node."""
         return self._metadata['source']
 
-    @staticmethod
-    def make_stringifier(originating_stringifier=None):  # pylint:disable=unused-argument,missing-function-docstring
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
     def clone(self, **kwargs):
         """
@@ -175,24 +186,60 @@ class TypedSymbol:
             return None
         return self._scope()
 
-    @property
-    def type(self):
+    def _lookup_type(self, scope):
         """
-        Internal representation of the declared data type.
+        Helper method to look-up type information in any :data:`scope`
+
+        Note that this is useful when trying to discover type information
+        without putting the variable in :data:`scope` first. Combined with
+        the recursive lookup of type information via the parent, this allows
+        e.g. to distinguish between procedure calls and array subscripts for
+        ambiguous derived type components.
         """
-        _default_val = None # SymbolAttributes(BasicType.DEFERRED)
-        if self.scope is None:
-            return self._type or _default_val
-        _type = self.scope.symbol_attrs.lookup(self.name)
-        if _type:
+        _type = scope.symbol_attrs.lookup(self.name)
+        if _type and _type.dtype is not BasicType.DEFERRED:
+            # We have a clean entry in the symbol table which is not deferred
             return _type
 
         # Try a look-up via parent
         if self.parent:
             tdef_var = self.parent.variable_map.get(self.basename)
+            if not tdef_var and self.parent.scope is not scope:
+                # If the parent isn't delivering straight away (may happen e.g. for nested derived types)
+                # we'll try discovering its parent's type via the provided scope
+                parent = self._lookup_parent(scope)
+                if parent:
+                    tdef_var = parent.variable_map.get(self.basename)
             if tdef_var:
                 return tdef_var.type
-        return _default_val
+
+        return _type
+
+    def _lookup_parent(self, scope):
+        """
+        Helper method to look-up parent variable using provided :data:`scope`
+        """
+        # Start at the root, i.e. the declared derived type object
+        parent_name = self.name_parts[0]
+        parent_type = scope.symbol_attrs.lookup(parent_name)
+        parent_var = Variable(name=parent_name, scope=scope, type=parent_type)
+        # Walk through nested derived types (if any)...
+        for name in self.name_parts[1:-1]:
+            if not parent_var:
+                # If the look-up fails somewhere we have to bail out
+                return None
+            parent_var = parent_var.variable_map.get(name)  # pylint: disable=no-member
+        # ...until we are at the actual parent
+        return parent_var
+
+    @property
+    def type(self):
+        """
+        Internal representation of the declared data type.
+        """
+        if self.scope is None:
+            return self._type
+        return self._lookup_type(self.scope)
 
     @property
     def parent(self):
@@ -205,14 +252,7 @@ class TypedSymbol:
             The parent variable or None
         """
         if not self._parent and '%' in self.name and self.scope:
-            parent_name = self.name_parts[0]
-            parent_type = self.scope.symbol_attrs.lookup(parent_name)
-            parent_var = Variable(name=parent_name, scope=self.scope, type=parent_type)
-            for name in self.name_parts[1:-1]:
-                if not parent_var:
-                    return None
-                parent_var = parent_var.variable_map.get(name)  # pylint: disable=no-member
-            self._parent = parent_var
+            self._parent = self._lookup_parent(self.scope)
         return self._parent
 
     @property
@@ -267,13 +307,13 @@ class TypedSymbol:
         Replicate the object with the provided overrides.
         """
         # Add existing meta-info to the clone arguments, only if we have them.
-        if self.name and 'name' not in kwargs:
+        if 'name' not in kwargs and self.name:
             kwargs['name'] = self.name
-        if self.scope and 'scope' not in kwargs:
+        if 'scope' not in kwargs and self.scope:
             kwargs['scope'] = self.scope
-        if self.type and 'type' not in kwargs:
+        if 'type' not in kwargs and self.type:
             kwargs['type'] = self.type
-        if self.parent and 'parent' not in kwargs:
+        if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
 
         return Variable(**kwargs)
@@ -288,7 +328,7 @@ class TypedSymbol:
         symbol table entry in the provided scope.
         """
         if self.type:
-            existing_type = scope.symbol_attrs.lookup(self.name)
+            existing_type = self._lookup_type(scope)
             if existing_type:
                 return self.clone(scope=scope, type=existing_type)
         return self.clone(scope=scope)
@@ -366,9 +406,6 @@ class VariableSymbol(ExprMetadataMixin, StrCompareMixin, TypedSymbol, pmbl.Varia
         self.type.initial = value
 
     mapper_method = intern('map_variable_symbol')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class _FunctionSymbol(pmbl.FunctionSymbol):
@@ -527,9 +564,7 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         return self.symbol.source
 
     mapper_method = intern('map_meta_symbol')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
+    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return self.symbol.__getinitargs__()
@@ -581,9 +616,6 @@ class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors
         return super().__getinitargs__() + tuple(args)
 
     mapper_method = intern('map_scalar')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class Array(MetaSymbol):
@@ -910,9 +942,6 @@ class FloatLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_float_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 class IntLiteral(ExprMetadataMixin, _Literal):
     """
@@ -990,9 +1019,6 @@ class IntLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_int_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 # Register IntLiteral as a constant class in Pymbolic
 pmbl.register_constant_class(IntLiteral)
@@ -1016,9 +1042,6 @@ class LogicLiteral(ExprMetadataMixin, _Literal):
         return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_logic_literal')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class StringLiteral(ExprMetadataMixin, _Literal):
@@ -1055,9 +1078,6 @@ class StringLiteral(ExprMetadataMixin, _Literal):
 
     mapper_method = intern('map_string_literal')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
 
 class IntrinsicLiteral(ExprMetadataMixin, _Literal):
     """
@@ -1080,9 +1100,6 @@ class IntrinsicLiteral(ExprMetadataMixin, _Literal):
         return (self.value,) + super().__getinitargs__()
 
     mapper_method = intern('map_intrinsic_literal')
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
 
 class Literal:
@@ -1200,9 +1217,6 @@ class InlineCall(ExprMetadataMixin, pmbl.CallWithKwargs):
 
     mapper_method = intern('map_inline_call')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     @property
     def name(self):
         return self.function.name
@@ -1237,9 +1251,6 @@ class Cast(ExprMetadataMixin, pmbl.Call):
 
     mapper_method = intern('map_cast')
 
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     @property
     def name(self):
         return self.function.name
@@ -1267,9 +1278,6 @@ class Range(ExprMetadataMixin, StrCompareMixin, pmbl.Slice):
         if self.children[0] == 1 and self.children[2] is None:
             return self.children[1] == other or super().__eq__(other)
         return super().__eq__(other)
-
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
 
     @property
     def lower(self):
@@ -1310,7 +1318,4 @@ class ArraySubscript(ExprMetadataMixin, StrCompareMixin, pmbl.Subscript):
     """
     Internal representation of an array subscript.
     """
-    def make_stringifier(self, originating_stringifier=None):
-        return LokiStringifyMapper()
-
     mapper_method = intern('map_array_subscript')

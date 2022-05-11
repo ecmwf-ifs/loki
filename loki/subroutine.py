@@ -1,17 +1,17 @@
-from loki.frontend import Frontend, Source, extract_source, inject_statement_functions
+from loki.frontend import Frontend
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
-from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source, extract_fparser_source
+from loki.frontend.fparser import get_fparser_node, parse_fparser_ast, parse_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
     VariableDeclaration, ProcedureDeclaration, Allocation, Import, Section, CallStatement,
-    CallContext, Intrinsic, Interface, Comment, CommentBlock, Pragma, TypeDef, Enumeration
+    CallContext, Interface, TypeDef, Enumeration
 )
 from loki.expression import FindVariables, Array, SubstituteExpressions, Variable
-from loki.pragma_utils import is_loki_pragma, pragmas_attached, process_dimension_pragmas
+from loki.pragma_utils import is_loki_pragma, pragmas_attached
 from loki.visitors import FindNodes, Transformer
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import ProcedureType, SymbolAttributes, BasicType
+from loki.types import ProcedureType, SymbolAttributes
 from loki.scope import Scope
 
 
@@ -34,10 +34,13 @@ class Subroutine(Scope):
         The spec of the subroutine.
     body : :any:`Section`, optional
         The body of the subroutine.
-    members : iterable of :any:`Subroutine`
-        Member subroutines contained in this subroutine.
+    contains : :any:`Section`, optional
+        The internal-subprogram part following a ``CONTAINS`` statement
+        declaring member procedures
     ast : optional
         Frontend node for this subroutine (from parse tree of the frontend).
+    prefix : iterable, optional
+        Prefix specifications for the procedure
     bind : optional
         Bind information (e.g., for Fortran ``BIND(C)`` annotation).
     is_function : bool, optional
@@ -59,15 +62,16 @@ class Subroutine(Scope):
         Use the provided :any:`SymbolTable` object instead of creating a new
     """
 
-    def __init__(self, name, args=None, docstring=None, spec=None, body=None, members=None,
-                 ast=None, bind=None, is_function=False, rescope_symbols=False, source=None,
-                 parent=None, symbol_attrs=None):
+    def __init__(self, name, args=None, docstring=None, spec=None, body=None, contains=None,
+                 ast=None, prefix=None, bind=None, is_function=False, rescope_symbols=False,
+                 source=None, parent=None, symbol_attrs=None):
         # First, store all local poperties
         self.name = name
         self._ast = ast
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self._source = source
 
+        self.prefix = as_tuple(prefix)
         self.bind = bind
         self.is_function = is_function
 
@@ -77,7 +81,8 @@ class Subroutine(Scope):
         self.spec = spec
         assert isinstance(body, Section) or body is None
         self.body = body
-        self._members = as_tuple(members)
+        assert isinstance(contains, Section) or contains is None
+        self.contains = contains
 
         # Then call the parent constructor to take care of symbol table and rescoping
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
@@ -142,271 +147,46 @@ class Subroutine(Scope):
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
-        name = name or ast.attrib['name']
-        is_function = ast.tag == 'function'
-        source = extract_source(ast, raw_source, full_lines=True)
-
-        # Store the names of variables in the subroutine signature
-        if is_function:
-            arg_ast = ast.findall('header/names/name')
-            args = [arg.attrib['id'].upper() for arg in arg_ast]
-        else:
-            arg_ast = ast.findall('header/arguments/argument')
-            args = [arg.attrib['name'].upper() for arg in arg_ast]
-
-        # Decompose the body into known sections
-        ast_body = list(ast.find('body'))
-        ast_spec = ast.find('body/specification')
-        idx_spec = ast_body.index(ast_spec)
-        ast_docs = ast_body[:idx_spec]
-        ast_body = ast_body[idx_spec+1:]
-
-        # Instantiate the subroutine
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Create IRs for the docstring and the declaration spec
-        routine.docstring = parse_ofp_ast(ast_docs, pp_info=pp_info, raw_source=raw_source, scope=routine)
-        routine.spec = parse_ofp_ast(ast_spec, definitions=definitions, pp_info=pp_info,
-                                     raw_source=raw_source, scope=routine)
-
-        # Parse "member" subroutines and functions recursively
-        if ast.find('members'):
-            # We need to pre-populate the ProcedureType symbol table to
-            # correctly classify inline function calls within the module
-            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
-            for routine_ast in routine_asts:
-                fname = routine_ast.attrib['name']
-                if routine_ast.tag == 'function':
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    dtype = ProcedureType(fname, is_function=False)
-                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
-            members = [Subroutine.from_ofp(ast=member, raw_source=raw_source, definitions=definitions, parent=routine)
-                       for member in routine_asts]
-            routine._members = as_tuple(members)
-
-        # Generate the subroutine body with all shape and type info
-        body = parse_ofp_ast(ast_body, pp_info=pp_info, raw_source=raw_source, scope=routine)
-        routine.body = Section(body=body)
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        return routine
+    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        return parse_ofp_ast(ast=ast, pp_info=pp_info, raw_source=raw_source, definitions=definitions, scope=parent)
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, definitions=None, name=None, symbol_map=None, parent=None):
-        name = name or ast.find('name').text
+    def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {}
         symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
 
-        # Check if it is a function or a subroutine. There may be a better way to do
-        # this but OMNI does not seem to make it obvious, thus checking the return type
-        name_id = ast.find('name').attrib['type']
-        is_function = name_id in type_map and type_map[name_id].attrib['return_type'] != 'Fvoid'
-
-        source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-
-        # Get the names of dummy variables from the type_map
-        fhash = ast.find('name').attrib['type']
-        ftype = [t for t in typetable.findall('FfunctionType')
-                 if t.attrib['type'] == fhash][0]
-        args = as_tuple(name.text for name in ftype.findall('params/name'))
-
-        # Instantiate the subroutine
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Generate spec
-        spec = parse_omni_ast(ast.find('declarations'), definitions=definitions, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=routine)
-
-        # Filter out the declaration for the subroutine name but keep it for functions (since
-        # this declares the return type)
-        if not is_function:
-            mapper = {
-                d: None for d in FindNodes((ProcedureDeclaration, VariableDeclaration)).visit(spec)
-                if name in d.symbols
-            }
-            spec = Transformer(mapper, invalidate_source=False).visit(spec)
-
-        # Hack: We remove comments from the beginning of the spec to get the docstring
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (Comment, CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
-        routine.docstring = as_tuple(docs)
-        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-
-        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
-        f_imports = [im for im in FindNodes(Import).visit(spec) if not im.c_import]
-        spec_body = list(spec.body)
-        spec_body.insert(len(f_imports), Intrinsic(text='IMPLICIT NONE'))
-        spec._update(body=as_tuple(spec_body))
-        routine.spec = spec
-
-        # Parse member functions properly
-        contains = ast.find('body/FcontainsStatement')
-        members = None
-        if contains is not None:
-            members = [Subroutine.from_omni(ast=s, typetable=typetable, definitions=definitions,
-                                            symbol_map=symbol_map, raw_source=raw_source, parent=routine)
-                       for s in contains.findall('FfunctionDefinition')]
-            routine._members = as_tuple(members)
-
-            # Strip members from the XML before we proceed
-            ast.find('body').remove(contains)
-
-        # Convert the core kernel to IR
-        body = parse_omni_ast(ast.find('body'), definitions=definitions, type_map=type_map,
-                              symbol_map=symbol_map, raw_source=raw_source, scope=routine)
-        routine.body = Section(body=body)
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        return routine
+        return parse_omni_ast(
+            ast=ast, definitions=definitions, raw_source=raw_source,
+            type_map=type_map, symbol_map=symbol_map, scope=parent
+        )
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
-        routine_stmt = get_fparser_node(ast, 'Function_Stmt')
-        is_function = routine_stmt is not None
-        if is_function:
-            name = name or routine_stmt.items[1].tostr()
-        else:
-            routine_stmt = get_fparser_node(ast, 'Subroutine_Stmt')
-            name = name or routine_stmt.get_name().string
-
-        source = extract_fparser_source(ast, raw_source)
-
-        dummy_arg_list = routine_stmt.items[2]
-        args = [arg.string for arg in dummy_arg_list.items] if dummy_arg_list else []
-
-        routine = cls(name=name, args=args, ast=ast, is_function=is_function, source=source, parent=parent)
-
-        # Hack: Collect all spec and body parts and use all but the
-        # last body as spec. Reason is that Fparser misinterprets statement
-        # functions as array assignments and thus breaks off spec early
-        part_asts = get_fparser_node(ast, ('Specification_Part', 'Execution_Part'), first_only=False)
-        if not part_asts:
-            spec_asts = []
-            body_ast = None
-        elif type(part_asts[-1]).__name__ == 'Execution_Part':
-            *spec_asts, body_ast = part_asts
-        else:
-            spec_asts = part_asts
-            body_ast = None
-
-        # Build the spec by parsing all relevant parts of the AST and appending them
-        # to the same section object
-        spec = Section(body=())
-        for spec_ast in spec_asts:
-            part = parse_fparser_ast(spec_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
-            if part is not None:
-                spec.append(part.body)
-
-        # Parse "member" subroutines recursively
-        contains_ast = get_fparser_node(ast, 'Internal_Subprogram_Part')
-        if contains_ast:
-            # We need to pre-populate the ProcedureType type table to
-            # correctly class inline function calls within the module
-            routine_asts = get_fparser_node(
-                contains_ast, ('Subroutine_Subprogram', 'Function_Subprogram'),
-                first_only=False
-            )
-            for s in routine_asts:
-                if type(s).__name__ == 'Function_Subprogram':
-                    routine_stmt = get_fparser_node(s, 'Function_Stmt')
-                    fname = routine_stmt.items[1].tostr()
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
-                    fname = routine_stmt.get_name().string
-                    dtype = ProcedureType(fname, is_function=False)
-                routine.symbol_attrs[fname] = SymbolAttributes(dtype)
-
-            # Now create the actual Subroutine objects
-            members = [Subroutine.from_fparser(ast=s, definitions=definitions, parent=routine,
-                                               pp_info=pp_info, raw_source=raw_source)
-                       for s in routine_asts]
-            routine._members = as_tuple(members)
-
-        # Take care of the body
-        if body_ast:
-            body = parse_fparser_ast(body_ast, pp_info=pp_info, definitions=definitions,
-                                     scope=routine, raw_source=raw_source)
-        else:
-            body = Section(body=())
-
-        # Another big hack: fparser allocates all comments before and after the spec to the spec.
-        # We remove them from the beginning to get the docstring and move them from the end to the
-        # body as those can potentially be pragmas.
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (Comment, CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
-        routine.docstring = as_tuple(docs)
-
-        for node in reversed(spec.body):
-            if not isinstance(node, (Pragma, Comment, CommentBlock)):
-                break
-            body.prepend(node)
-            comment_map[node] = None
-        routine.spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-        routine.body = body
-
-
-        # Now make sure all symbols have their scope attached
-        routine.rescope_symbols()
-
-        # Big, but necessary hack:
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine.spec, routine.body = cls._infer_allocatable_shapes(routine.spec, routine.body)
-
-        # Update array shapes with Loki dimension pragmas
-        with pragmas_attached(routine, VariableDeclaration):
-            routine.spec = process_dimension_pragmas(routine.spec)
-
-        # Inject statement function definitions
-        inject_statement_functions(routine)
-
-        return routine
+    def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
 
     @property
     def procedure_symbol(self):
         """
         Return the procedure symbol for this subroutine
         """
-        return Variable(name=self.name, scope=self)
+        return Variable(name=self.name, type=SymbolAttributes(self.procedure_type), scope=self.parent)
+
+    @property
+    def procedure_type(self):
+        """
+        Return the :any:`ProcedureType` of this subroutine
+        """
+        return ProcedureType(procedure=self)
+
+    @property
+    def return_type(self):
+        """
+        Return the return_type of this subroutine
+        """
+        if not self.is_function:
+            return None
+        return self.symbol_attrs.get(self.name)
 
     @property
     def variables(self):
@@ -590,17 +370,27 @@ class Subroutine(Scope):
 
     @property
     def source(self):
+        """
+        Return the :any:`Source` object associated with this subroutine
+        """
         return self._source
 
     def to_fortran(self, conservative=False):
+        """
+        Convert subroutine to Fortran source code
+        """
         return fgen(self, conservative=conservative)
 
     @property
     def members(self):
         """
-        Tuple of member function defined in this `Subroutine`.
+        Tuple of member functions defined in this subroutine
         """
-        return as_tuple(self._members)
+        if self.contains is None:
+            return ()
+        return as_tuple([
+            member for member in self.contains.body if isinstance(member, Subroutine)
+        ])
 
     @property
     def interface(self):
@@ -685,25 +475,43 @@ class Subroutine(Scope):
             kwargs['name'] = self.name
         if self.argnames and 'args' not in kwargs:
             kwargs['args'] = self.argnames
+        if self.docstring and 'docstring' not in kwargs:
+            kwargs['docstring'] = self.docstring
+        if self.spec and 'spec' not in kwargs:
+            kwargs['spec'] = self.spec
+        if self.body and 'body' not in kwargs:
+            kwargs['body'] = self.body
         if self._ast and 'ast' not in kwargs:
             kwargs['ast'] = self._ast
+        if self.prefix and 'prefix' not in kwargs:
+            kwargs['prefix'] = self.prefix
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
         if self.is_function and 'is_function' not in kwargs:
             kwargs['is_function'] = self.is_function
         if self.source and 'source' not in kwargs:
             kwargs['source'] = self.source
+        if self.parent and 'parent' not in kwargs:
+            kwargs['parent'] = self.parent
 
         if 'rescope_symbols' not in kwargs:
             kwargs['rescope_symbols'] = True
 
-        kwargs['docstring'] = Transformer({}).visit(self.docstring)
-        kwargs['spec'] = Transformer({}).visit(self.spec)
-        kwargs['body'] = Transformer({}).visit(self.body)
+        if 'docstring' in kwargs:
+            kwargs['docstring'] = Transformer({}).visit(kwargs['docstring'])
+        if 'spec' in kwargs:
+            kwargs['spec'] = Transformer({}).visit(kwargs['spec'])
+        if 'body' in kwargs:
+            kwargs['body'] = Transformer({}).visit(kwargs['body'])
 
         # Clone the routine and continue with any members
         routine = super().clone(**kwargs)
-        if self.members and 'members' not in kwargs:
-            routine._members = tuple(member.clone(parent=routine, rescope_symbols=kwargs['rescope_symbols'])
-                                     for member in self.members)
+
+        if self.contains and 'contains' not in kwargs:
+            contains = [
+                node.clone(parent=routine, rescope_symbols=kwargs['rescope_symbols']) if isinstance(node, Subroutine)
+                else node.clone() for node in self.contains.body
+            ]
+            routine.contains = self.contains.clone(body=as_tuple(contains))
+
         return routine

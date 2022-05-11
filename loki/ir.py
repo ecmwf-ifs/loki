@@ -1282,7 +1282,7 @@ class TypeDef(ScopedNode, LeafNode):
 
     @property
     def declarations(self):
-        return as_tuple(c for c in self.body if isinstance(c, VariableDeclaration))
+        return as_tuple(c for c in self.body if isinstance(c, (VariableDeclaration, ProcedureDeclaration)))
 
     @property
     def comments(self):
@@ -1291,6 +1291,10 @@ class TypeDef(ScopedNode, LeafNode):
     @property
     def variables(self):
         return tuple(flatten([decl.symbols for decl in self.declarations]))
+
+    @property
+    def variable_map(self):
+        return CaseInsensitiveDict((s.name, s) for s in self.variables)
 
     @property
     def imported_symbols(self):

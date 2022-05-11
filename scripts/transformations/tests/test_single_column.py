@@ -192,7 +192,7 @@ def test_extract_sca_nested_level_one(frontend, horizontal):
     REAL, INTENT(IN) :: c
     REAL, INTENT(INOUT)   :: t(nlon,nz)
     REAL, INTENT(INOUT)   :: q(nlon,nz)
-    INTEGER :: jl, jk
+    INTEGER :: jl
 
     DO jl = jstart, jend
       t(jl, jk) = c * jk

@@ -253,7 +253,7 @@ def transpile(out_path, header, source, driver, cpp, include, define, frontend, 
     definitions = []
     for h in header:
         sfile = Sourcefile.from_file(h, xmods=xmod, definitions=definitions,
-                                     frontend=frontend_type)
+                                     frontend=frontend_type, preprocess=cpp)
         definitions = definitions + list(sfile.modules)
 
     # Parse original driver and kernel routine, and enrich the driver

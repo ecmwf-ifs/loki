@@ -155,7 +155,7 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> <name> ([<args>]) [BIND(c, name=<name>)]
+          <ftype> [<prefix>] <name> ([<args>]) [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
@@ -164,20 +164,22 @@ class FortranCodegen(Stringifier):
           END <ftype> <name>
         """
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        prefix = self.join_items(o.prefix, sep=' ')
+        if o.prefix:
+            prefix += ' '
         arguments = self.join_items(o.argnames)
         bind_c = f' BIND(c, name=\'{o.bind}\')' if o.bind else ''
-        header = self.format_line(ftype, ' ', o.name, ' (', arguments, ')', bind_c)
-        contains = self.format_line('CONTAINS')
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
         self.depth += 1
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
         body = self.visit(o.body, **kwargs)
-        members = self.visit(o.members, **kwargs)
+        contains = self.visit(o.contains, **kwargs)
         self.depth -= 1
-        if members:
-            return self.join_lines(header, docstring, spec, body, contains, members, footer)
+        if contains:
+            return self.join_lines(header, docstring, spec, body, contains, footer)
         return self.join_lines(header, docstring, spec, body, footer)
 
     # Handler for AST base nodes

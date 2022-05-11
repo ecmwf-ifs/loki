@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
@@ -13,9 +14,7 @@ except ImportError:
 
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
-from loki.frontend.util import (
-    inline_comments, cluster_comments, inline_labels, OFP, combine_multiline_pragmas
-)
+from loki.frontend.util import OFP, sanitize_ir
 from loki.visitors import GenericVisitor
 from loki import ir
 import loki.expression.symbols as sym
@@ -27,7 +26,7 @@ from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
 from loki.tools import (
     as_tuple, timeit, disk_cached, flatten, gettempdir, filehash, CaseInsensitiveDict,
 )
-from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas
+from loki.pragma_utils import attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
 from loki.logging import info, debug, DEBUG, error, warning
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.config import config
@@ -79,18 +78,11 @@ def parse_ofp_ast(ast, pp_info=None, raw_source=None, definitions=None, scope=No
     Generate an internal IR from the raw OMNI parser AST.
     """
     # Parse the raw OMNI language AST
-    _ir = OFP2IR(definitions=definitions, raw_source=raw_source, scope=scope).visit(ast)
+    _ir = OFP2IR(definitions=definitions, raw_source=raw_source, pp_info=pp_info, scope=scope).visit(ast)
 
     # Apply postprocessing rules to re-insert information lost during preprocessing
-    for r_name, rule in sanitize_registry[OFP].items():
-        _info = pp_info[r_name] if pp_info is not None and r_name in pp_info else None
-        _ir = rule.postprocess(_ir, _info)
-
-    # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
-    _ir = inline_labels(_ir)
-    _ir = combine_multiline_pragmas(_ir)
+    # and perform some minor sanitation tasks
+    _ir = sanitize_ir(_ir, OFP, pp_registry=sanitize_registry[OFP], pp_info=pp_info)
 
     return _ir
 
@@ -113,11 +105,12 @@ class OFP2IR(GenericVisitor):
     # pylint: disable=no-self-use  # Stop warnings about visitor methods that could do without self
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
-    def __init__(self, raw_source, definitions=None, scope=None):
+    def __init__(self, raw_source, definitions=None, pp_info=None, scope=None):
         super().__init__()
 
         self._raw_source = raw_source
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
+        self.pp_info = pp_info
         self.default_scope = scope
 
     @staticmethod
@@ -1077,29 +1070,79 @@ class OFP2IR(GenericVisitor):
     def visit_subroutine(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
-        # Name and dummy args
+        # Extract known sections
         name = o.attrib['name']
+        header_ast = o.find('header')
+        body_ast = list(o.find('body'))
+        spec_ast = o.find('body/specification')
+        spec_ast_idx = body_ast.index(spec_ast)
+        docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
+        members_ast = o.find('members')
+
+        # Dummy args and procedure attributes
         if o.tag == 'function':
             is_function = True
-            args = [a.attrib['id'].upper() for a in o.findall('header/names/name')]
-            bind = None
+            args = [a.attrib['id'].upper() for a in header_ast.findall('names/name')]
         else:
             is_function = False
-            args = [a.attrib['name'].upper() for a in o.findall('header/arguments/argument')]
-            bind = None
-            if o.find('header/subroutine-stmt').attrib['hasBindingSpec'] == 'true':
+            args = [a.attrib['name'].upper() for a in header_ast.findall('arguments/argument')]
+            if header_ast.find('subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
-        parent_scope = kwargs['scope']
-        routine = Subroutine(name=name, args=args, ast=o, bind=bind, is_function=is_function,
-                             source=kwargs['source'], parent=parent_scope)
+        # Instantiate the object
+        routine = Subroutine(
+            name=name, args=args, prefix=None, bind=None,
+            is_function=is_function, parent=kwargs['scope'],
+            ast=o, source=kwargs['source']
+        )
         kwargs['scope'] = routine
 
-        # Spec
-        routine.spec = self.visit(o.find('body/specification'), **kwargs)
+        # Create IRs for the docstring and the declaration spec
+        docstring = self.visit(docs_ast, **kwargs)
+        docstring = sanitize_ir(docstring, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+        spec = self.visit(spec_ast, **kwargs)
+        spec = sanitize_ir(spec, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+
+        # Parse "member" subroutines and functions recursively
+        contains = None
+        if members_ast is not None:
+            contains = self.visit(members_ast, **kwargs)
+            contains.prepend(self.visit(o.find('contains-stmt'), **kwargs))
+
+        # Finally, take care of the body
+        if not body_ast:
+            body = ir.Section(body=())
+        else:
+            body = ir.Section(body=self.visit(body_ast, **kwargs))
+            body = sanitize_ir(body, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+
+        # Finally, call the subroutine constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        routine.__init__(
+            name=routine.name, args=routine._dummies,
+            docstring=docstring, spec=spec, body=body, contains=contains,
+            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+            source=kwargs['source']
+        )
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        routine.spec, routine.body = routine._infer_allocatable_shapes(routine.spec, routine.body)
+
+        # Update array shapes with Loki dimension pragmas
+        with pragmas_attached(routine, ir.VariableDeclaration):
+            routine.spec = process_dimension_pragmas(routine.spec)
+
         return routine
 
     visit_function = visit_subroutine
+
+    def visit_members(self, o, **kwargs):
+        body = [self.visit(c, **kwargs) for c in o]
+        body = [c for c in body if c is not None]
+        return ir.Section(body=as_tuple(body), source=kwargs['source'])
 
     def visit_association(self, o, **kwargs):
         return sym.Variable(name=o.attrib['associate-name'])
@@ -1413,7 +1456,7 @@ class OFP2IR(GenericVisitor):
             if str(name).upper() in intrinsic_calls or kwarguments:
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 
-            _type = kwargs['scope'].symbol_attrs.lookup(name.name)
+            _type = name._lookup_type(kwargs['scope'])
             if subscripts and _type and isinstance(_type.dtype, ProcedureType):
                 return sym.InlineCall(name, parameters=arguments, kw_parameters=kwarguments, source=source)
 

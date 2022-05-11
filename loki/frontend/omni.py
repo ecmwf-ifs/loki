@@ -3,7 +3,7 @@ from shutil import which
 import xml.etree.ElementTree as ET
 
 from loki.frontend.source import Source
-from loki.frontend.util import inline_comments, cluster_comments, inline_labels
+from loki.frontend.util import OMNI, sanitize_ir
 from loki.visitors import GenericVisitor, FindNodes, Transformer
 from loki import ir
 from loki.expression import (
@@ -14,6 +14,9 @@ from loki.logging import info, debug, DEBUG, warning, error
 from loki.config import config
 from loki.tools import (
     as_tuple, timeit, execute, gettempdir, filehash, CaseInsensitiveDict
+)
+from loki.pragma_utils import (
+    process_dimension_pragmas, pragmas_attached
 )
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 
@@ -91,9 +94,7 @@ def parse_omni_ast(ast, definitions=None, type_map=None, symbol_map=None,
                   raw_source=raw_source, scope=scope).visit(ast)
 
     # Perform some minor sanitation tasks
-    _ir = inline_comments(_ir)
-    _ir = cluster_comments(_ir)
-    _ir = inline_labels(_ir)
+    _ir = sanitize_ir(_ir, OMNI)
 
     return _ir
 
@@ -279,31 +280,108 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
-    def visit_FfunctionDecl(self, o, **kwargs):
+    def visit_FfunctionDefinition(self, o, **kwargs):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
 
         # Name and dummy args
         name = o.find('name').text
         ftype = self.type_map[o.find('name').attrib['type']]
+        proc_type = self.visit(ftype, **kwargs)
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
 
-        parent_scope = kwargs['scope']
-        routine = Subroutine(name=name, args=args, ast=o, is_function=is_function,
-                             source=kwargs['source'], parent=parent_scope)
+        # Function/Subroutine prefix
+        prefix = proc_type.prefix or ()
+        if prefix:
+            # We store the prefix on the Subroutine object, so let's remove it from the symbol attrs
+            proc_type = proc_type.clone(prefix=None)
+
+        # Instantiate the object
+        routine = Subroutine(
+            name=name, args=args, prefix=prefix, bind=None,
+            is_function=is_function, parent=kwargs['scope'],
+            ast=o, source=kwargs['source']
+        )
         kwargs['scope'] = routine
-        routine.spec = self.visit(o.find('declarations'), **kwargs)
+
+        # Parse the spec
+        spec = self.visit(o.find('declarations'), **kwargs)
+        spec = sanitize_ir(spec, OMNI)
 
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
+        spec_map = {}
         if not is_function:
-            mapper = {
-                d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(routine.spec)
+            spec_map.update({
+                d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(spec)
                 if name in d.symbols
-            }
-            routine.spec = Transformer(mapper, invalidate_source=False).visit(routine.spec)
+            })
+
+        # Hack: We remove comments from the beginning of the spec to get the docstring
+        docstring = []
+        for node in spec.body:
+            if node in spec_map:
+                continue
+            if not isinstance(node, (ir.Comment, ir.CommentBlock)):
+                break
+            docstring.append(node)
+            spec_map[node] = None
+        docstring = as_tuple(docstring)
+        spec = Transformer(spec_map, invalidate_source=False).visit(spec)
+
+        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
+        f_imports = [im for im in FindNodes(ir.Import).visit(spec) if not im.c_import]
+        if not f_imports:
+            spec.prepend(ir.Intrinsic(text='IMPLICIT NONE'))
+        else:
+            spec.insert(spec.body.index(f_imports[-1])+1, ir.Intrinsic(text='IMPLICIT NONE'))
+
+        # Parse member functions
+        body_ast = o.find('body')
+        contains_ast = None if body_ast is None else body_ast.find('FcontainsStatement')
+        if contains_ast is not None:
+            contains = self.visit(contains_ast, **kwargs)
+
+            # Strip contains part from the XML before we proceed
+            body_ast.remove(contains_ast)
+        else:
+            contains = None
+
+        # Finally, take care of the body
+        if body_ast is None:
+            body = ir.Section(body=())
+        else:
+            body = ir.Section(body=self.visit(body_ast, **kwargs))
+            body = sanitize_ir(body, OMNI)
+
+        # Finally, call the subroutine constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        routine.__init__(
+            name=routine.name, args=routine._dummies,
+            docstring=docstring, spec=spec, body=body, contains=contains,
+            ast=o, prefix=routine.prefix, bind=routine.bind, is_function=routine.is_function,
+            rescope_symbols=True, parent=routine.parent, symbol_attrs=routine.symbol_attrs,
+            source=routine.source
+        )
+
+        # Big, but necessary hack:
+        # For deferred array dimensions on allocatables, we infer the conceptual
+        # dimension by finding any `allocate(var(<dims>))` statements.
+        routine.spec, routine.body = routine._infer_allocatable_shapes(routine.spec, routine.body)
+
+        # Update array shapes with Loki dimension pragmas
+        with pragmas_attached(routine, ir.VariableDeclaration):
+            routine.spec = process_dimension_pragmas(routine.spec)
 
         return routine
+
+    visit_FfunctionDecl = visit_FfunctionDefinition
+
+    def visit_FcontainsStatement(self, o, **kwargs):
+        body = [self.visit(c, **kwargs) for c in o]
+        body = [c for c in body if c is not None]
+        body = [ir.Intrinsic('CONTAINS', source=kwargs['source'])] + body
+        return ir.Section(body=as_tuple(body))
 
     def visit_FmoduleProcedureDecl(self, o, **kwargs):
         symbols = as_tuple(self.visit(o.find('name'), **kwargs))
@@ -446,6 +524,7 @@ class OMNI2IR(GenericVisitor):
 
         # Finally: update the typedef with its body
         typedef._update(body=as_tuple(body))
+        typedef.rescope_symbols()
         return typedef
 
     def visit_symbols(self, o, **kwargs):
@@ -635,7 +714,13 @@ class OMNI2IR(GenericVisitor):
         else:
             name = kwargs.get('name', 'UNKNOWN')
         dtype = ProcedureType(name, is_function=return_type is not None, return_type=return_type)
-        return SymbolAttributes(dtype)
+
+        prefix = []
+        if o.attrib.get('is_pure') == 'true':
+            prefix += ['PURE']
+        if o.attrib.get('is_elemental') == 'true':
+            prefix += ['ELEMENTAL']
+        return SymbolAttributes(dtype, prefix=prefix or None)
 
     def visit_FstructType(self, o, **kwargs):
         # We have encountered a derived type as part of the declaration in the spec
@@ -959,6 +1044,19 @@ class OMNI2IR(GenericVisitor):
             else:
                 kind = args[1] if len(args) > 1 else None
             return sym.Cast(name, expr, kind=kind, source=kwargs['source'])
+
+        return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
+
+    def visit_FstructConstructor(self, o, **kwargs):
+        _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
+        assert isinstance(_type.dtype, DerivedType)
+
+        name = sym.Variable(name=_type.dtype.name)
+        args = [self.visit(a, **kwargs) for a in o]
+
+        # Separate keyword argument from positional arguments
+        kw_args = as_tuple(arg for arg in args if isinstance(arg, tuple))
+        args = as_tuple(arg for arg in args if not isinstance(arg, tuple))
 
         return sym.InlineCall(name, parameters=args, kw_parameters=kw_args, source=kwargs['source'])
 

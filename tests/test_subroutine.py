@@ -1268,7 +1268,8 @@ end subroutine test_subroutine_rescope
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
-    routine._members = (nested_routine,)
+    contains = [nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body]
+    routine.contains = routine.contains.clone(body=contains)
 
     # Now, all variables should still be well-defined and fgen should produce the same string
     assert all(var.scope is not None for var in nested_routine.variables)
@@ -1363,7 +1364,8 @@ end subroutine test_subroutine_rescope_clone
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
-    routine._members = (nested_routine,)
+    contains = [nested_routine if isinstance(c, Subroutine) else c for c in routine.contains.body]
+    routine.contains = routine.contains.clone(body=contains)
 
     # Now, all variables should still be well-defined and fgen should produce the same string
     assert all(var.scope is not None for var in nested_routine.variables)
@@ -1431,6 +1433,7 @@ end subroutine subroutine_stmt_func
     assert function(3) == 14
     clean_test(filepath)
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_mixed_declaration_interface(frontend):
     """
@@ -1450,3 +1453,40 @@ end subroutine valid_fortran
         _ = routine.interface
 
     assert "Declarations must have intents" in str(error.value)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Prefix support not implemented')]))
+def test_subroutine_prefix(frontend):
+    """
+    Test various prefixes that can occur in function/subroutine definitions
+    """
+    fcode = """
+pure elemental real function f_elem(a)
+    real, intent(in) :: a
+    f_elem = a
+end function f_elem
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert 'PURE' in routine.prefix
+    assert 'ELEMENTAL' in routine.prefix
+    assert routine.is_function is True
+    assert routine.return_type.dtype is BasicType.REAL
+
+    assert routine.name in routine.symbol_map
+    decl = [d for d in FindNodes(VariableDeclaration).visit(routine.spec) if routine.name in d.symbols]
+    assert len(decl) == 1
+    decl = decl[0]
+
+    assert routine.procedure_type.is_function is True
+    assert routine.procedure_type.return_type.dtype is BasicType.REAL
+    assert routine.procedure_type.procedure is routine
+
+    assert routine.procedure_symbol.type.dtype.is_function is True
+    assert routine.procedure_symbol.type.dtype.return_type.dtype is BasicType.REAL
+    assert routine.procedure_symbol.type.dtype.procedure is routine
+
+    code = fgen(routine)
+    assert 'PURE' in code
+    assert 'ELEMENTAL' in code
+    assert fgen(decl) in code

@@ -15,7 +15,7 @@ from loki.sourcefile import Sourcefile
 from loki.frontend import FP
 from loki.build import workqueue
 from loki.lint import Linter, Reporter, DefaultHandler, JunitXmlHandler, ViolationFileHandler
-from loki.tools import yaml_include_constructor, auto_post_mortem_debugger
+from loki.tools import yaml_include_constructor, auto_post_mortem_debugger, as_tuple
 
 # Bootstrap the local linting rules directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -187,7 +187,6 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
                     'This allows to exclude files that were included by '
                     '--include.'))
 @click.option('--basedir', type=click.Path(exists=True, file_okay=False),
-              default=Path.cwd(), show_default=True,
               help=('Base directory relative to which --include/--exclude '
                     'patterns are interpreted.'))
 @click.option('--config', '-c', type=click.File(),
@@ -211,6 +210,21 @@ def rules(ctx, with_title, sort_by):  # pylint: disable=unused-argument
               help='Enable output in JUnit XML format to the given file.')
 @click.pass_context
 def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, write_violation_file, junitxml):
+    yaml.add_constructor('!include', yaml_include_constructor, yaml.SafeLoader)
+    config_values = yaml.safe_load(config) if config else {}
+    if ctx.obj['DEBUG']:
+        worker = 1
+
+    if 'include' in config_values:
+        include += as_tuple(config_values['include'])
+    if 'exclude' in config_values:
+        exclude += as_tuple(config_values['exclude'])
+
+    if basedir and 'basedir' in config_values:
+        warning('basedir given as explicit argument and in the config file. Ignoring the config file value.')
+    if not basedir:
+        basedir = config_values.get('basedir', Path.cwd())
+
     info('Base directory: %s', basedir)
     info('Include patterns:')
     for p in include:
@@ -219,11 +233,6 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker, wr
     for p in exclude:
         info('  - %s', p)
     info('')
-
-    yaml.add_constructor('!include', yaml_include_constructor, yaml.SafeLoader)
-    config_values = yaml.safe_load(config) if config else {}
-    if ctx.obj['DEBUG']:
-        worker = 1
 
     debug('Searching for files using specified patterns...')
     files, excludes = get_file_list(include, exclude, basedir)

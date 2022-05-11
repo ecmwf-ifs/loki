@@ -507,7 +507,17 @@ class LokiIdentityMapper(IdentityMapper):
             # it does not affect the outcome of expr.clone
             expr.scope.symbol_attrs[expr.name] = expr.type.clone(kind=kind)
 
-        initial = self.rec(expr.type.initial, *args, **kwargs)
+        if expr.scope and expr.type.initial and expr.name == expr.type.initial:
+            # FIXME: This is a hack to work around situations where a constant
+            # symbol (from a parent scope) with the same name as the declared
+            # variable is used as initializer. This hands down the correct scope
+            # (in case this traversal is part of ``AttachScopesMapper``) and thus
+            # interrupts an otherwise infinite recursion (see LOKI-52).
+            _kwargs = kwargs.copy()
+            _kwargs['scope'] = expr.scope.parent
+            initial = self.rec(expr.type.initial, *args, **_kwargs)
+        else:
+            initial = self.rec(expr.type.initial, *args, **kwargs)
         if initial is not expr.type.initial and expr.scope:
             # Update symbol table entry for initial directly because with a scope attached
             # it does not affect the outcome of expr.clone
