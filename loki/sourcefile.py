@@ -11,7 +11,7 @@ from loki.logging import info
 from loki.frontend import (
     OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_omni_ast, parse_fparser_ast
+    parse_omni_ast, parse_ofp_ast, parse_fparser_ast
 )
 from loki.ir import Section
 from loki.backend.fgen import fgen
@@ -32,18 +32,19 @@ class Sourcefile:
     ----------
     path : str
         The name of the source file.
-    content : :any:`Section`, optional
-        The file content (:any:`Subroutine`, :any:`Module`, :any:`Comment` etc.)
+    ir : :any:`Section`, optional
+        The IR of the file content (including :any:`Subroutine`, :any:`Module`,
+        :any:`Comment` etc.)
     ast : optional
         Parser-AST of the original source file.
     source : :any:`Source`, optional
         Raw source string and line information about the original source file.
     """
 
-    def __init__(self, path, content=None, ast=None, source=None):
+    def __init__(self, path, ir=None, ast=None, source=None):
         self.path = Path(path) if path is not None else path
-        assert content is None or isinstance(content, Section)
-        self.content = content
+        assert ir is None or isinstance(ir, Section)
+        self.ir = ir
         self._ast = ast
         self._source = source
 
@@ -161,22 +162,29 @@ class Sourcefile:
         else:
             symbol_map = None
 
-        content = parse_omni_ast(
+        ir = parse_omni_ast(
             ast=ast, definitions=definitions, raw_source=raw_source,
             type_map=type_map, symbol_map=symbol_map
         )
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, content=content, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
         """
-        Parse a given source file with the OFP frontend to instantiate
-        a `Sourcefile` object.
-        """
+        Parse a given source file using the Open Fortran Parser (OFP) frontend
 
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        filepath : str or :any:`pathlib.Path`
+            The filepath of this source file
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        """
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
         source, pp_info = sanitize_input(source=raw_source, frontend=OFP, filepath=filepath)
@@ -190,19 +198,14 @@ class Sourcefile:
     @classmethod
     def _from_ofp_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
         """
-        Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
+        Generate the full set of :any:`Subroutine` and :any:`Module` members
+        in the :any:`Sourcefile`.
         """
-        routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source,
-                                        definitions=definitions, pp_info=pp_info)
-                    for routine in list(ast.find('file'))
-                    if routine.tag in ('subroutine', 'function')]
-
-        modules = [Module.from_ofp(ast=module, definitions=definitions, raw_source=raw_source,
-                                   pp_info=pp_info) for module in ast.findall('file/module')]
+        ir = parse_ofp_ast(ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
@@ -218,7 +221,6 @@ class Sourcefile:
         definitions : list
             List of external :any:`Module` to provide derived-type and procedure declarations
         """
-
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
         source, pp_info = sanitize_input(source=raw_source, frontend=FP, filepath=filepath)
@@ -235,11 +237,11 @@ class Sourcefile:
         Generate the full set of :any:`Subroutine` and :any:`Module` members
         in the :any:`Sourcefile`.
         """
-        content = parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source)
+        ir = parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, content=content, ast=ast, source=source)
+        return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
@@ -287,10 +289,10 @@ class Sourcefile:
         """
         List of :class:`Module` objects that are members of this :class:`Sourcefile`.
         """
-        if self.content is None:
+        if self.ir is None:
             return ()
         return as_tuple([
-            module for module in self.content.body if isinstance(module, Module)
+            module for module in self.ir.body if isinstance(module, Module)
         ])
 
     @property
@@ -298,10 +300,10 @@ class Sourcefile:
         """
         List of :class:`Subroutine` objects that are members of this :class:`Sourcefile`.
         """
-        if self.content is None:
+        if self.ir is None:
             return ()
         return as_tuple([
-            routine for routine in self.content.body if isinstance(routine, Subroutine)
+            routine for routine in self.ir.body if isinstance(routine, Subroutine)
         ])
 
     subroutines = routines
@@ -324,7 +326,7 @@ class Sourcefile:
         return None
 
     def __iter__(self):
-        raise TypeError('Sourcefiles alone cannot be traversed! Try traversing "Sourcefile.subroutines".')
+        raise TypeError('Sourcefiles alone cannot be traversed! Try traversing "Sourcefile.ir".')
 
     def __bool__(self):
         """
@@ -345,11 +347,17 @@ class Sourcefile:
 
     def write(self, path=None, source=None, conservative=False):
         """
-        Write content to file
+        Write content as Fortran source code to file
 
-        :param str path: Optional filepath; if not provided, `self.path` is used
-        :param str source: Optional source string; if not provided `self.to_fortran()` is used
-        :param bool conservative: Enable conservative output of the backend.
+        Parameters
+        ----------
+        path : str, optional
+            Filepath of target file; if not provided, :any:`Sourcefile.path` is used
+        source : str, optional
+            Write the provided string instead of generating via :any:`Sourcefile.to_fortran`
+        conservative : bool, optional
+            Enable conservative output in the backend, aiming to be as much string-identical
+            as possible (default: False)
         """
         path = self.path if path is None else Path(path)
         source = self.to_fortran(conservative) if source is None else source
@@ -358,8 +366,7 @@ class Sourcefile:
     @classmethod
     def to_file(cls, source, path):
         """
-        Same as ``write(source, filename)``, but can be called from a
-        static context.
+        Same as :meth:`write` but can be called from a static context.
         """
         info(f'Writing {path}')
         with path.open('w') as f:

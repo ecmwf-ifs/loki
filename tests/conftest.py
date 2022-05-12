@@ -109,7 +109,7 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
 
         elif isinstance(source, (Module, Subroutine)):
             filepath = path/f'{source.name}.f90'
-            source = Sourcefile(filepath, content=Section(body=as_tuple(source)))
+            source = Sourcefile(filepath, ir=Section(body=as_tuple(source)))
             source.write(path=filepath)
             sourcefiles.append(source.path)
 

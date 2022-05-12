@@ -179,6 +179,10 @@ class OFP2IR(GenericVisitor):
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
+    def visit_file(self, o, **kwargs):
+        body = [self.visit(c, **kwargs) for c in o]
+        return ir.Section(body=as_tuple(body))
+
     def visit_specification(self, o, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
         body = tuple(c for c in body if c is not None)

@@ -238,6 +238,6 @@ class DependencyTransformation(Transformation):
                 # standalone routine
                 modname = f'{routine.name}{self.module_suffix}'
                 module = Module(name=modname, contains=Section(body=as_tuple(routine)))
-                sourcefile.content._update(body=as_tuple(
-                    module if c is routine else c for c in sourcefile.content.body
+                sourcefile.ir._update(body=as_tuple(
+                    module if c is routine else c for c in sourcefile.ir.body
                 ))
