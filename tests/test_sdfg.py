@@ -8,11 +8,18 @@ from conftest import jit_compile, clean_test, available_frontends
 from loki import Subroutine, FortranPythonTransformation
 
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec('dace') is None,
-    reason='DaCe is not installed'
-)
 
+pytestmark = [
+    # Skip tests if dace is not installed
+    pytest.mark.skipif(
+      importlib.util.find_spec('dace') is None,
+      reason='DaCe is not installed'
+    ),
+    # Disable warnings from Dace about np.bool being deprecated
+    pytest.mark.filterwarnings(
+        "ignore:`np.bool` is a deprecated alias:DeprecationWarning"
+    )
+]
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -82,6 +89,7 @@ end subroutine routine_copy
 
 
 @pytest.mark.xfail(reason='Scalar inout arguments do not work in dace')
+@pytest.mark.filterwarnings('ignore:The value of the smallest subnormal.*class \'numpy.float64\':UserWarning')
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_sdfg_routine_axpy_scalar(here, frontend):
 
