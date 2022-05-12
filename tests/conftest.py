@@ -6,7 +6,7 @@ import pytest
 
 from loki import (
     Sourcefile, Module, Subroutine, fgen, OFP, compile_and_load, FindNodes, CallStatement,
-    as_tuple, Frontend
+    as_tuple, Frontend, Section
 )
 from loki.build import Builder, Lib, Obj
 from loki.tools import gettempdir, filehash
@@ -107,15 +107,9 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
             source.write(path=filepath)
             sourcefiles.append(source.path)
 
-        elif isinstance(source, Module):
+        elif isinstance(source, (Module, Subroutine)):
             filepath = path/f'{source.name}.f90'
-            source = Sourcefile(filepath, modules=[source])
-            source.write(path=filepath)
-            sourcefiles.append(source.path)
-
-        elif isinstance(source, Subroutine):
-            filepath = path/f'{source.name}.f90'
-            source = Sourcefile(filepath, routines=[source])
+            source = Sourcefile(filepath, content=Section(body=as_tuple(source)))
             source.write(path=filepath)
             sourcefiles.append(source.path)
 

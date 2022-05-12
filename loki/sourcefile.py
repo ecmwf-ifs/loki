@@ -31,20 +31,18 @@ class Sourcefile:
     ----------
     path : str
         The name of the source file.
-    routines : tuple of :any:`Subroutine`, optional
-        The subroutines (functions) contained in this source file.
-    modules : tuple of :any:`Module`, optional
-        The Fortran modules contained in this source file.
+    content : :any:`Section`, optional
+        The file content (:any:`Subroutine`, :any:`Module`, :any:`Comment` etc.)
     ast : optional
         Parser-AST of the original source file.
     source : :any:`Source`, optional
         Raw source string and line information about the original source file.
     """
 
-    def __init__(self, path, routines=None, modules=None, ast=None, source=None):
+    def __init__(self, path, content=None, ast=None, source=None):
         self.path = Path(path) if path is not None else path
-        self._routines = routines
-        self._modules = modules
+        assert content is None or isinstance(content, Section)
+        self.content = content
         self._ast = ast
         self._source = source
 
@@ -242,15 +240,31 @@ class Sourcefile:
 
     @property
     def modules(self):
-        return as_tuple(self._modules)
+        """
+        List of :class:`Module` objects that are members of this :class:`Sourcefile`.
+        """
+        if self.content is None:
+            return ()
+        return as_tuple([
+            module for module in self.content.body if isinstance(module, Module)
+        ])
 
     @property
-    def subroutines(self):
-        return as_tuple(self._routines)
+    def routines(self):
+        """
+        List of :class:`Subroutine` objects that are members of this :class:`Sourcefile`.
+        """
+        if self.content is None:
+            return ()
+        return as_tuple([
+            routine for routine in self.content.body if isinstance(routine, Subroutine)
+        ])
+
+    subroutines = routines
 
     @property
     def all_subroutines(self):
-        routines = as_tuple(self._routines)
+        routines = self.subroutines
         routines += as_tuple(flatten(m.subroutines for m in self.modules))
         return routines
 
