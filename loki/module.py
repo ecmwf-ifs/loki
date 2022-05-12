@@ -151,7 +151,6 @@ class Module(Scope):
             type_map=type_map, symbol_map=symbol_map, scope=parent
         )
 
-
     @classmethod
     def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
         """

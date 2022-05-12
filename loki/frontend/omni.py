@@ -189,6 +189,10 @@ class OMNI2IR(GenericVisitor):
             return children[0]  # Flatten hierarchy if possible
         return children if len(children) > 0 else None
 
+    def visit_XcodeProgram(self, o, **kwargs):
+        body = [self.visit(c, **kwargs) for c in o.find('globalDeclarations')]
+        return ir.Section(body=as_tuple(body))
+
     def visit_FuseDecl(self, o, **kwargs):
         # No ONLY list
         nature = 'intrinsic' if o.attrib.get('intrinsic') == 'true' else None

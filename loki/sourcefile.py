@@ -11,7 +11,7 @@ from loki.logging import info
 from loki.frontend import (
     OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_fparser_ast,
+    parse_omni_ast, parse_fparser_ast
 )
 from loki.ir import Section
 from loki.backend.fgen import fgen
@@ -113,10 +113,29 @@ class Sourcefile:
     def from_omni(cls, raw_source, filepath, definitions=None, includes=None,
                   defines=None, xmods=None, omni_includes=None):
         """
-        Use the OMNI compiler frontend to generate internal subroutine
-        and module IRs.
-        """
+        Parse a given source file using the OMNI frontend
 
+        Parameters
+        ----------
+        raw_source : str
+            Fortran source string
+        filepath : str or :any:`pathlib.Path`
+            The filepath of this source file
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        includes : list of str, optional
+            Include paths to pass to the C-preprocessor.
+        defines : list of str, optional
+            Symbol definitions to pass to the C-preprocessor.
+        xmods : str, optional
+            Path to directory to find and store ``.xmod`` files when using the
+            OMNI frontend.
+        omni_includes: list of str, optional
+            Additional include paths to pass to the preprocessor run as part of
+            the OMNI frontend parse. If set, this **replaces** (!)
+            :data:`includes`, otherwise :data:`omni_includes` defaults to the
+            value of :data:`includes`.
+        """
         # Always CPP-preprocess source files for OMNI, but optionally
         # use a different set of include paths if specified that way.
         # (It's a hack, I know, but OMNI sucks, so what can I do...?)
@@ -136,17 +155,20 @@ class Sourcefile:
         """
         Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
         """
-        ast_r = ast.findall('./globalDeclarations/FfunctionDefinition')
-        routines = [Subroutine.from_omni(ast=routine, definitions=definitions, raw_source=raw_source,
-                                         typetable=typetable) for routine in ast_r]
+        type_map = {t.attrib['type']: t for t in typetable}
+        if ast.find('symbols') is not None:
+            symbol_map = {s.attrib['type']: s for s in ast.find('symbols')}
+        else:
+            symbol_map = None
 
-        ast_m = ast.findall('./globalDeclarations/FmoduleDefinition')
-        modules = [Module.from_omni(ast=module, definitions=definitions, raw_source=raw_source,
-                                    typetable=typetable) for module in ast_m]
+        content = parse_omni_ast(
+            ast=ast, definitions=definitions, raw_source=raw_source,
+            type_map=type_map, symbol_map=symbol_map
+        )
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
+        return cls(path=path, content=content, ast=ast, source=source)
 
     @classmethod
     def from_ofp(cls, raw_source, filepath, definitions=None):
@@ -185,12 +207,10 @@ class Sourcefile:
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
         """
-        Create :any:`Sourcefile` from :any:`FP` parse tree
+        Parse a given source file using the fparser frontend
 
         Parameters
         ----------
-        ast :
-            The FParser parse tree
         raw_source : str
             Fortran source string
         filepath : str or :any:`pathlib.Path`
@@ -223,7 +243,22 @@ class Sourcefile:
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=FP):
+        """
+        Constructor from raw source string that invokes specified frontend parser
 
+        Parameters
+        ----------
+        source : str
+            Fortran source string
+        xmods : str, optional
+            Path to directory to find and store ``.xmod`` files when using the
+            OMNI frontend.
+        definitions : list of :any:`Module`, optional
+            :any:`Module` object(s) that may supply external type or procedure
+            definitions.
+        frontend : :any:`Frontend`, optional
+            Frontend to use for producing the AST (default :any:`FP`).
+        """
         if frontend == OMNI:
             ast = parse_omni_source(source, xmods=xmods)
             typetable = ast.find('typeTable')
