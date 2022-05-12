@@ -11,8 +11,9 @@ from loki.logging import info
 from loki.frontend import (
     OMNI, OFP, FP, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
-    get_fparser_node
+    parse_fparser_ast,
 )
+from loki.ir import Section
 from loki.backend.fgen import fgen
 
 
@@ -183,6 +184,20 @@ class Sourcefile:
 
     @classmethod
     def from_fparser(cls, raw_source, filepath, definitions=None):
+        """
+        Create :any:`Sourcefile` from :any:`FP` parse tree
+
+        Parameters
+        ----------
+        ast :
+            The FParser parse tree
+        raw_source : str
+            Fortran source string
+        filepath : str or :any:`pathlib.Path`
+            The filepath of this source file
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        """
 
         # Preprocess using internal frontend-specific PP rules
         # to sanitize input and work around known frontend problems.
@@ -197,20 +212,14 @@ class Sourcefile:
     @classmethod
     def _from_fparser_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
         """
-        Generate the full set of `Subroutine` and `Module` members of the `Sourcefile`.
+        Generate the full set of :any:`Subroutine` and :any:`Module` members
+        in the :any:`Sourcefile`.
         """
-        routines = [
-            Subroutine.from_fparser(ast=routine, definitions=definitions, pp_info=pp_info, raw_source=raw_source)
-            for routine in get_fparser_node(ast, ('Subroutine_Subprogram', 'Function_Subprogram'), first_only=False)
-        ]
-        modules = [
-            Module.from_fparser(ast=module, definitions=definitions, pp_info=pp_info, raw_source=raw_source)
-            for module in get_fparser_node(ast, 'Module', first_only=False)
-        ]
+        content = parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, routines=routines, modules=modules, ast=ast, source=source)
+        return cls(path=path, content=content, ast=ast, source=source)
 
     @classmethod
     def from_source(cls, source, xmods=None, definitions=None, frontend=FP):

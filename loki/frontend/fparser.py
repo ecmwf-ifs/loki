@@ -321,6 +321,7 @@ class FParser2IR(GenericVisitor):
 
     visit_Implicit_Part = visit_List
 
+    visit_Program = visit_Specification_Part
     visit_Execution_Part = visit_Specification_Part
     visit_Internal_Subprogram_Part = visit_Specification_Part
     visit_Module_Subprogram_Part = visit_Specification_Part
