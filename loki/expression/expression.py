@@ -390,5 +390,5 @@ class AttachScopes(Visitor):
         # Then recurse to all children
         kwargs['scope'] = o
         o.spec = self.visit(o.spec, **kwargs)
-        o.routines = self.visit(o.routines, **kwargs)
+        o.contains = self.visit(o.contains, **kwargs)
         return o

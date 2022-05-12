@@ -126,9 +126,9 @@ class Subroutine(Scope):
         ----------
         source : str
             Fortran source string
-        definitions : list
+        definitions : list, optional
             List of external :any:`Module` to provide derived-type and procedure declarations
-        xmods :
+        xmods : list, optional
             List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
         frontend : :any:`Frontend`, optional
             Choice of frontend to use for parsing source (default :any:`Frontend.FP`)

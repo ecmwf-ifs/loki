@@ -31,8 +31,9 @@ class Module(Scope):
         Name of the module.
     spec : :any:`Section`, optional
         The spec section of the module.
-    routines : tuple of :any:`Subroutine`, optional
-        The routines contained in the module.
+    contains : tuple of :any:`Subroutine`, optional
+        The module-subprogram part following a ``CONTAINS`` statement declaring
+        member procedures.
     ast : optional
         The node for this module from the parse tree produced by the frontend.
     source : :any:`Source`, optional
@@ -40,14 +41,22 @@ class Module(Scope):
     rescope_symbols : bool, optional
         Ensure that the type information for all :any:`TypedSymbol` in the
         module's IR exist in the module's scope. Defaults to `False`.
+    parent : :any:`Scope`, optional
+        The enclosing parent scope of the module. Declarations from the parent
+        scope remain valid within the module's scope (unless shadowed by local
+        declarations).
+    symbol_attrs : :any:`SymbolTable`, optional
+        Use the provided :any:`SymbolTable` object instead of creating a new
     """
 
-    def __init__(self, name=None, spec=None, routines=None, ast=None, source=None, rescope_symbols=False,
-                 parent=None, symbol_attrs=None):
+    def __init__(self, name=None, spec=None, contains=None, ast=None, source=None,
+                 rescope_symbols=False, parent=None, symbol_attrs=None):
         # First, store all local properties
         self.name = name or ast.attrib['name']
+        assert isinstance(spec, Section) or spec is None
         self.spec = spec
-        self.routines = routines
+        assert isinstance(contains, Section) or contains is None
+        self.contains = contains
 
         self._ast = ast
         self._source = source
@@ -59,13 +68,20 @@ class Module(Scope):
         super().__init__(parent=parent, symbol_attrs=symbol_attrs, rescope_symbols=rescope_symbols)
 
     @classmethod
-    def from_source(cls, source, xmods=None, definitions=None, frontend=Frontend.FP):
+    def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP):
         """
         Create `Module` object from raw source string using given frontend.
 
-        :param str source: Fortran source string
-        :param xmods: Locations of "xmods" module directory for OMNI frontend
-        :param frontend: Choice of frontend to use for parsing source (default FP)
+        Parameters
+        ----------
+        source : str
+            Fortran source string
+        definitions : list, optional
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        xmods : list, optional
+            List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
+        frontend : :any:`Frontend`, optional
+            Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
         """
         if frontend == Frontend.OMNI:
             ast = parse_omni_source(source, xmods=xmods)
@@ -339,11 +355,17 @@ class Module(Scope):
         )
 
     @property
-    def subroutines(self):
+    def routines(self):
         """
         List of :class:`Subroutine` objects that are members of this :class:`Module`.
         """
-        return as_tuple(self.routines)
+        if self.contains is None:
+            return ()
+        return as_tuple([
+            routine for routine in self.contains.body if isinstance(routine, Subroutine)
+        ])
+
+    subroutines = routines
 
     @property
     def source(self):

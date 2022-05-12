@@ -4,7 +4,7 @@ import numpy as np
 
 from conftest import jit_compile, jit_compile_lib, clean_test, available_frontends
 from loki import (
-    Builder, Module, Subroutine, as_tuple,
+    Builder, Module, Subroutine, Section, as_tuple,
     FindNodes, Loop, Assignment, CallStatement
 )
 from loki.expression import symbols as sym
@@ -393,7 +393,8 @@ end subroutine transform_region_to_call
     assert len(FindNodes(CallStatement).visit(routine.body)) == 1
 
     # Test transformation
-    module = Module(name=f'{routine.name}_mod', spec=(), routines=[*routines, routine])
+    contains = Section(body=as_tuple([*routines, routine]))
+    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
     mod_function = getattr(mod, routine.name)
@@ -453,7 +454,8 @@ end subroutine transform_region_to_call_multiple
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
 
     # Test transformation
-    module = Module(name=f'{routine.name}_mod', spec=(), routines=[*routines, routine])
+    contains = Section(body=as_tuple([*routines, routine]))
+    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
     mod_function = getattr(mod, routine.name)
@@ -526,7 +528,8 @@ end subroutine transform_region_to_call_arguments
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
 
     # Test transformation
-    module = Module(name=f'{routine.name}_mod', spec=(), routines=[*routines, routine])
+    contains = Section(body=as_tuple([*routines, routine]))
+    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
     mod_function = getattr(mod, routine.name)
@@ -600,7 +603,8 @@ end subroutine transform_region_to_call_arrays
     assert routines[0].variable_map['a'].dimensions[0].scope is routines[0]
 
     # Test transformation
-    module = Module(name=f'{routine.name}_mod', spec=(), routines=[*routines, routine])
+    contains = Section(body=as_tuple([*routines, routine]))
+    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
     mod_filepath = here/(f'{module.name}_converted_{frontend}.f90')
     mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
     mod_function = getattr(mod, routine.name)
@@ -691,7 +695,7 @@ end module transform_region_to_call_imports_mod
     assert {(str(a), a.type.intent) for a in routines[2].arguments} == {('a(10)', 'in'), ('b(10)', 'out')}
 
     # Insert created routines into module
-    module.routines += as_tuple(routines)
+    module.contains.append(routines)
 
     obj = jit_compile_lib([module, ext_module], path=here, name=f'{module.name}_{frontend}', builder=builder)
     mod_function = getattr(getattr(obj, module.name), module.subroutines[0].name)
