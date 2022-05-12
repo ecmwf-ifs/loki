@@ -179,52 +179,24 @@ class Module(Scope):
         return module
 
     @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
-        name = name or ast.content[0].items[1].tostr()
-        source = extract_fparser_source(ast, raw_source)
+    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
+        """
+        Create :any:`Subroutine` from :any:`FP` parse tree
 
-        module = cls(name=name, ast=ast, source=source)
-
-        # Pre-populate symbol table with procedure types declared in this module
-        # to correctly classify inline function calls and type-bound procedures
-        routines_asts = get_fparser_node(ast, 'Module_Subprogram_Part')
-        if routines_asts is not None:
-            # We need to pre-populate the ProcedureType type table to
-            # correctly class inline function calls within the module
-            routine_asts = get_fparser_node(
-                routines_asts, ('Subroutine_Subprogram', 'Function_Subprogram'),
-                first_only=False
-            )
-
-            for s in routine_asts:
-                if type(s).__name__ == 'Function_Subprogram':
-                    routine_stmt = get_fparser_node(s, 'Function_Stmt')
-                    fname = routine_stmt.items[1].tostr()
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    routine_stmt = get_fparser_node(s, 'Subroutine_Stmt')
-                    fname = routine_stmt.get_name().string
-                    dtype = ProcedureType(fname, is_function=False)
-                module.symbol_attrs[fname] = SymbolAttributes(dtype)
-
-        spec_ast = get_fparser_node(ast, 'Specification_Part')
-        if spec_ast is not None:
-            spec = parse_fparser_ast(spec_ast, definitions=definitions, scope=module,
-                                     pp_info=pp_info, raw_source=raw_source)
-        else:
-            spec = Section(body=())
-        module.spec = spec
-
-        if routines_asts is not None:
-            # Now create the actual Subroutine objects
-            module.routines = as_tuple([
-                Subroutine.from_fparser(
-                    ast=s, definitions=definitions, parent=module, pp_info=pp_info, raw_source=raw_source
-                ) for s in routine_asts
-            ])
-
-        return module
+        Parameters
+        ----------
+        ast :
+            The FParser parse tree node corresponding to the subroutine
+        raw_source : str
+            Fortran source string
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        pp_info :
+            Preprocessing info as obtained by :any:`sanitize_input`
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
+        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
 
     @property
     def typedefs(self):
