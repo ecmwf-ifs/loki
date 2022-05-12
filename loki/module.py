@@ -1,7 +1,7 @@
 """
 Contains the declaration of :any:`Module` to represent Fortran modules.
 """
-from loki.frontend import Frontend, extract_source, get_fparser_node
+from loki.frontend import Frontend, get_fparser_node
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
 from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
@@ -12,7 +12,7 @@ from loki.ir import (
 )
 from loki.visitors import FindNodes, Transformer
 from loki.subroutine import Subroutine
-from loki.types import ProcedureType, SymbolAttributes, BasicType
+from loki.types import ProcedureType
 from loki.scope import Scope
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import pragmas_attached, process_dimension_pragmas
@@ -102,42 +102,24 @@ class Module(Scope):
         raise NotImplementedError(f'Unknown frontend: {frontend}')
 
     @classmethod
-    def from_ofp(cls, ast, raw_source, name=None, definitions=None, pp_info=None):
-        source = extract_source(ast, raw_source, full_lines=True)
+    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        """
+        Create :any:`Module` from :any:`OFP` parse tree
 
-        # Process module-level type specifications
-        name = name or ast.attrib['name']
-        module = cls(name=name, ast=ast, source=source)
-
-        # Pre-populate symbol table with procedure types declared in this module
-        # to correctly classify inline function calls and type-bound procedures
-        routine_asts = None
-        if ast.find('members') is not None:
-            routine_asts = [s for s in ast.find('members') if s.tag in ('subroutine', 'function')]
-            for routine_ast in routine_asts:
-                fname = routine_ast.attrib['name']
-                if routine_ast.tag == 'function':
-                    # This is a function, type definition will be updated properly by the
-                    # Subroutine constructor later
-                    return_type = SymbolAttributes(BasicType.DEFERRED)
-                    dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-                else:
-                    dtype = ProcedureType(fname, is_function=False)
-                module.symbol_attrs[fname] = SymbolAttributes(dtype)
-
-        # Parse type definitions into IR and store
-        spec_ast = ast.find('body/specification')
-        module.spec = parse_ofp_ast(spec_ast, raw_source=raw_source, definitions=definitions,
-                                    scope=module, pp_info=pp_info)
-
-        # Parse member subroutines and functions
-        if routine_asts:
-            routines = [Subroutine.from_ofp(ast=routine, raw_source=raw_source, definitions=definitions,
-                                            parent=module, pp_info=pp_info)
-                        for routine in routine_asts if routine.tag in ('subroutine', 'function')]
-            module.routines = as_tuple(routines)
-
-        return module
+        Parameters
+        ----------
+        ast :
+            The OFP parse tree node corresponding to the module
+        raw_source : str
+            Fortran source string
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        pp_info :
+            Preprocessing info as obtained by :any:`sanitize_input`
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the module.
+        """
+        return parse_ofp_ast(ast=ast, pp_info=pp_info, raw_source=raw_source, definitions=definitions, scope=parent)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):

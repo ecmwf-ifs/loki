@@ -144,6 +144,14 @@ class OFP2IR(GenericVisitor):
             return o.attrib['label']
         return self.get_label(o.find('label'))
 
+    def get_source(self, o, label=None):
+        """Helper method that builds the source object for a node"""
+        try:
+            source = extract_source(o.attrib, self._raw_source, label=label)
+        except KeyError:
+            source = None
+        return source
+
     def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
         """
         Generic dispatch method that tries to generate meta-data from source.
@@ -153,11 +161,7 @@ class OFP2IR(GenericVisitor):
 
         kwargs['label'] = self.get_label(o)
         kwargs.setdefault('scope', self.default_scope)
-
-        try:
-            kwargs['source'] = extract_source(o.attrib, self._raw_source, label=kwargs['label'])
-        except KeyError:
-            kwargs['source'] = None
+        kwargs['source'] = self.get_source(o, kwargs['label'])
         return super().visit(o, **kwargs)
 
     def visit_tuple(self, o, **kwargs):
@@ -855,6 +859,7 @@ class OFP2IR(GenericVisitor):
 
             # Finally: update the typedef with its body
             typedef._update(body=body)
+            typedef.rescope_symbols()
             return typedef
 
         # First, declaration attributes
@@ -1017,6 +1022,11 @@ class OFP2IR(GenericVisitor):
                 module = None, symbols=symbols, f_import=True, source=kwargs['source']
             )
 
+        if o.find('prefix-spec') is not None:
+            # This is the prefix specification of a subroutine/function. We can't
+            # handle this, yet
+            return None
+
         # This should never happen:
         raise ValueError('Unknown Declaration')
 
@@ -1067,19 +1077,20 @@ class OFP2IR(GenericVisitor):
         name = f'OPERATOR({o.attrib["definedOp"]})'
         return sym.Variable(name=name, source=kwargs['source'])
 
-    def visit_subroutine(self, o, **kwargs):
+    def _create_Subroutine_object(self, o, scope):
+        """Helper method to instantiate a Subroutine object"""
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
-
-        # Extract known sections
+        assert o.tag in ('subroutine', 'function')
         name = o.attrib['name']
-        header_ast = o.find('header')
-        body_ast = list(o.find('body'))
-        spec_ast = o.find('body/specification')
-        spec_ast_idx = body_ast.index(spec_ast)
-        docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
-        members_ast = o.find('members')
+
+        # Check if the Subroutine node has been created before by looking it up in the scope
+        if scope is not None and name in scope.symbol_attrs:
+            proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
+            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+                return proc_type.dtype.procedure
 
         # Dummy args and procedure attributes
+        header_ast = o.find('header')
         if o.tag == 'function':
             is_function = True
             args = [a.attrib['id'].upper() for a in header_ast.findall('names/name')]
@@ -1089,12 +1100,24 @@ class OFP2IR(GenericVisitor):
             if header_ast.find('subroutine-stmt').attrib['hasBindingSpec'] == 'true':
                 self.warn_or_fail('binding-spec not implemented')
 
-        # Instantiate the object
         routine = Subroutine(
             name=name, args=args, prefix=None, bind=None,
-            is_function=is_function, parent=kwargs['scope'],
-            ast=o, source=kwargs['source']
+            is_function=is_function, parent=scope,
+            ast=o, source=self.get_source(o)
         )
+
+        return routine
+
+    def visit_subroutine(self, o, **kwargs):
+        # Extract known sections
+        body_ast = list(o.find('body'))
+        spec_ast = o.find('body/specification')
+        spec_ast_idx = body_ast.index(spec_ast)
+        docs_ast, body_ast = body_ast[:spec_ast_idx], body_ast[spec_ast_idx+1:]
+        members_ast = o.find('members')
+
+        # Instantiate the object
+        routine = self._create_Subroutine_object(o, kwargs['scope'])
         kwargs['scope'] = routine
 
         # Create IRs for the docstring and the declaration spec
@@ -1143,6 +1166,46 @@ class OFP2IR(GenericVisitor):
         body = [self.visit(c, **kwargs) for c in o]
         body = [c for c in body if c is not None]
         return ir.Section(body=as_tuple(body), source=kwargs['source'])
+
+    def visit_module(self, o, **kwargs):
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+
+        # Instantiate the object
+        name = o.attrib['name']
+        module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
+        kwargs['scope'] = module
+
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
+        contains_ast = o.find('members')
+        if contains_ast is not None:
+            # Note that we overwrite this variable subsequently with the fully parsed subroutines
+            # where the visit-method for the subroutine/function statement will pick out the existing
+            # subroutine objects using the weakref pointers stored in the symbol table.
+            # I know, it's not pretty but alternatively we could hand down this array as part of
+            # kwargs but that feels like carrying around a lot of bulk, too.
+            contains = [
+                self._create_Subroutine_object(member_ast, kwargs['scope'])
+                for member_ast in contains_ast if member_ast.tag in ('subroutine', 'function')
+            ]
+
+        # Parse the spec
+        spec = self.visit(o.find('body/specification'), **kwargs)
+        spec = sanitize_ir(spec, OFP, pp_registry=sanitize_registry[OFP], pp_info=self.pp_info)
+
+        # Parse member subroutines and functions
+        if contains_ast is not None:
+            contains = self.visit(contains_ast, **kwargs)
+        else:
+            contains = None
+
+        # Finally, call the module constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        module.__init__(
+            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
+            source=kwargs['source'], parent=module.parent, symbol_attrs=module.symbol_attrs
+        )
+        return module
 
     def visit_association(self, o, **kwargs):
         return sym.Variable(name=o.attrib['associate-name'])
