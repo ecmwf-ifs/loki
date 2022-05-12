@@ -118,8 +118,8 @@ class OMNI2IR(GenericVisitor):
         super().__init__()
 
         self.definitions = CaseInsensitiveDict((d.name, d) for d in as_tuple(definitions))
-        self.type_map = type_map
-        self.symbol_map = symbol_map
+        self.type_map = type_map or {}
+        self.symbol_map = symbol_map or {}
         self.raw_source = raw_source.splitlines(keepends=True)
         self.default_scope = scope
 
@@ -156,10 +156,8 @@ class OMNI2IR(GenericVisitor):
             return self._handlers[tag]
         return super().lookup_method(instance)
 
-    def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
-        """
-        Generic dispatch method that tries to generate meta-data from source.
-        """
+    def get_source(self, o):
+        """Helper method that builds the source object for a node"""
         file = o.attrib.get('file', None)
         lineno = o.attrib.get('lineno', None)
         if lineno:
@@ -169,8 +167,15 @@ class OMNI2IR(GenericVisitor):
         else:
             lines = (None, None)
             string = None
-        kwargs['source'] = Source(lines=lines, string=string, file=file)
+        return Source(lines=lines, string=string, file=file)
+
+    def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
+        """
+        Generic dispatch method that tries to generate meta-data from source.
+        """
+        kwargs['source'] = self.get_source(o)
         kwargs.setdefault('scope', self.default_scope)
+        kwargs.setdefault('symbol_map', self.symbol_map)
         return super().visit(o, **kwargs)
 
     def visit_Element(self, o, **kwargs):
@@ -280,13 +285,21 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
-    def visit_FfunctionDefinition(self, o, **kwargs):
+    def _create_Subroutine_object(self, o, scope, symbol_map):
+        """Helper method to instantiate a Subroutine object"""
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
-
-        # Name and dummy args
+        assert o.tag in ('FfunctionDefinition', 'FfunctionDecl')
         name = o.find('name').text
+
+        # Check if the Subroutine node has been created before by looking it up in the scope
+        if scope is not None and name in scope.symbol_attrs:
+            proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
+            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+                return proc_type.dtype.procedure
+
+        # Return type and dummy args
         ftype = self.type_map[o.find('name').attrib['type']]
-        proc_type = self.visit(ftype, **kwargs)
+        proc_type = self.visit(ftype, scope=scope, symbol_map=symbol_map)
         is_function = ftype.attrib['return_type'] != 'Fvoid'
         args = tuple(a.text for a in ftype.findall('params/name'))
 
@@ -299,9 +312,19 @@ class OMNI2IR(GenericVisitor):
         # Instantiate the object
         routine = Subroutine(
             name=name, args=args, prefix=prefix, bind=None,
-            is_function=is_function, parent=kwargs['scope'],
-            ast=o, source=kwargs['source']
+            is_function=is_function, parent=scope,
+            ast=o, source=self.get_source(o)
         )
+
+        return routine
+
+    def visit_FfunctionDefinition(self, o, **kwargs):
+        # Update the symbol map with local entries
+        kwargs['symbol_map'] = kwargs['symbol_map'].copy()
+        kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
+
+        # Instantiate the object
+        routine = self._create_Subroutine_object(o, kwargs['scope'], kwargs['symbol_map'])
         kwargs['scope'] = routine
 
         # Parse the spec
@@ -311,10 +334,10 @@ class OMNI2IR(GenericVisitor):
         # Filter out the declaration for the subroutine name but keep it for functions (since
         # this declares the return type)
         spec_map = {}
-        if not is_function:
+        if not routine.is_function:
             spec_map.update({
                 d: None for d in FindNodes((ir.ProcedureDeclaration, ir.VariableDeclaration)).visit(spec)
-                if name in d.symbols
+                if routine.name in d.symbols
             })
 
         # Hack: We remove comments from the beginning of the spec to get the docstring
@@ -387,6 +410,51 @@ class OMNI2IR(GenericVisitor):
         symbols = as_tuple(self.visit(o.find('name'), **kwargs))
         symbols = AttachScopesMapper()(symbols, scope=kwargs['scope'])
         return ir.ProcedureDeclaration(symbols=symbols, module=True, source=kwargs.get('source'))
+
+    def visit_FmoduleDefinition(self, o, **kwargs):
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+
+        # Update the symbol map with local entries
+        kwargs['symbol_map'] = kwargs['symbol_map'].copy()
+        kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
+
+        # Instantiate the object
+        name = o.attrib['name']
+        module = Module(name=name, parent=kwargs['scope'], ast=o, source=kwargs['source'])
+        kwargs['scope'] = module
+
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
+        contains_ast = o.find('FcontainsStatement')
+        if contains_ast is not None:
+            # Note that we overwrite this variable subsequently with the fully parsed subroutines
+            # where the visit-method for the subroutine/function statement will pick out the existing
+            # subroutine objects using the weakref pointers stored in the symbol table.
+            # I know, it's not pretty but alternatively we could hand down this array as part of
+            # kwargs but that feels like carrying around a lot of bulk, too.
+            contains = [
+                self._create_Subroutine_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
+                for member_ast in contains_ast.findall('FfunctionDefinition')
+            ]
+
+        # Parse the spec
+        spec = self.visit(o.find('declarations'), **kwargs)
+        spec = sanitize_ir(spec, OMNI)
+
+        # Parse member functions
+        if contains_ast is not None:
+            contains = self.visit(contains_ast, **kwargs)
+        else:
+            contains = None
+
+        # Finally, call the module constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        module.__init__(
+            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
+            source=kwargs['source'], parent=module.parent, symbol_attrs=module.symbol_attrs
+        )
+
+        return module
 
     def visit_declarations(self, o, **kwargs):
         body = tuple(self.visit(c, **kwargs) for c in o)
@@ -474,7 +542,7 @@ class OMNI2IR(GenericVisitor):
         # Type attributes
         abstract = struct_type.get('is_abstract') == 'true'
         if 'extends' in struct_type.attrib:
-            base_type = self.symbol_map[struct_type.attrib['extends']]
+            base_type = kwargs['symbol_map'][struct_type.attrib['extends']]
             extends = base_type.find('name').text
         else:
             extends = None
@@ -709,8 +777,8 @@ class OMNI2IR(GenericVisitor):
         else:
             raise ValueError
 
-        if o.attrib['type'] in self.symbol_map:
-            name = self.symbol_map[o.attrib['type']].find('name').text
+        if o.attrib['type'] in kwargs['symbol_map']:
+            name = kwargs['symbol_map'][o.attrib['type']].find('name').text
         else:
             name = kwargs.get('name', 'UNKNOWN')
         dtype = ProcedureType(name, is_function=return_type is not None, return_type=return_type)
@@ -726,8 +794,8 @@ class OMNI2IR(GenericVisitor):
         # We have encountered a derived type as part of the declaration in the spec
         # of a routine.
         name = o.attrib['type']
-        if self.symbol_map is not None and name in self.symbol_map:
-            name = self.symbol_map[name].find('name').text
+        if name in kwargs['symbol_map']:
+            name = kwargs['symbol_map'][name].find('name').text
 
         # Check if we know that type already
         dtype = kwargs['scope'].symbol_attrs.lookup(name, recursive=True)

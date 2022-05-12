@@ -183,10 +183,13 @@ class Subroutine(Scope):
             The OMNI parse tree node corresponding to the subroutine
         raw_source : str
             Fortran source string
+        typetable :
+            The ``typeTable`` AST node from the OMNI parse tree, containing the mapping from
+            type hash identifiers to type definitions
         definitions : list
             List of external :any:`Module` to provide derived-type and procedure declarations
-        pp_info :
-            Preprocessing info as obtained by :any:`sanitize_input`
+        symbol_map : dict, optional
+            The mapping from symbol hash identifiers to symbol attributes
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
         """

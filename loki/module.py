@@ -1,10 +1,10 @@
 """
 Contains the declaration of :any:`Module` to represent Fortran modules.
 """
-from loki.frontend import Frontend, Source, extract_source, get_fparser_node
+from loki.frontend import Frontend, extract_source, get_fparser_node
 from loki.frontend.omni import parse_omni_ast, parse_omni_source
 from loki.frontend.ofp import parse_ofp_ast, parse_ofp_source
-from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source, extract_fparser_source
+from loki.frontend.fparser import parse_fparser_ast, parse_fparser_source
 from loki.backend.fgen import fgen
 from loki.ir import (
     ProcedureDeclaration, TypeDef, Section, VariableDeclaration, Import, Enumeration,
@@ -140,53 +140,45 @@ class Module(Scope):
         return module
 
     @classmethod
-    def from_omni(cls, ast, raw_source, typetable, name=None, definitions=None, symbol_map=None):
-        name = name or ast.attrib['name']
-        type_map = {t.attrib['type']: t for t in typetable}
-        symbol_map = symbol_map or {s.attrib['type']: s for s in ast.find('symbols')}
-        source = Source((ast.attrib['lineno'], ast.attrib['lineno']))
-
-        module = cls(name=name, ast=ast, source=source)
-
-        # Pre-populate symbol table with procedure types declared in this module
-        # to correctly classify inline function calls and type-bound procedures
-        routine_asts = list(ast.findall('FcontainsStatement/FfunctionDefinition'))
-        for routine_ast in routine_asts:
-            fname = routine_ast.find('name').text
-            fname_id = routine_ast.find('name').attrib['type']
-            if fname_id in type_map and type_map[fname_id].attrib['return_type'] != 'Fvoid':
-                # This is a function, type definition will be updated properly by the
-                # Subroutine constructor later
-                return_type = SymbolAttributes(BasicType.DEFERRED)
-                dtype = ProcedureType(fname, is_function=True, return_type=return_type)
-            else:
-                dtype = ProcedureType(fname, is_function=False)
-            module.symbol_attrs[fname] = SymbolAttributes(dtype)
-
-        # Generate spec, filter out external declarations and insert `implicit none`
-        module.spec = parse_omni_ast(ast.find('declarations'), type_map=type_map, symbol_map=symbol_map,
-                                     definitions=definitions, raw_source=raw_source, scope=module)
-
-        # Parse member functions
-        if routine_asts:
-            module.routines = as_tuple([
-                Subroutine.from_omni(
-                    ast=s, typetable=typetable, symbol_map=symbol_map, definitions=definitions,
-                    raw_source=raw_source, parent=module
-                ) for s in routine_asts
-            ])
-
-        return module
-
-    @classmethod
-    def from_fparser(cls, ast, raw_source, name=None, definitions=None, pp_info=None, parent=None):
+    def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):
         """
-        Create :any:`Subroutine` from :any:`FP` parse tree
+        Create :any:`Module` from :any:`OMNI` parse tree
 
         Parameters
         ----------
         ast :
-            The FParser parse tree node corresponding to the subroutine
+            The OMNI parse tree node corresponding to the module
+        raw_source : str
+            Fortran source string
+        typetable :
+            The ``typeTable`` AST node from the OMNI parse tree, containing the mapping from
+            type hash identifiers to type definitions
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        symbol_map : dict, optional
+            The mapping from symbol hash identifiers to symbol attributes
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the module
+        """
+        type_map = {t.attrib['type']: t for t in typetable}
+        symbol_map = symbol_map or {}
+        symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
+
+        return parse_omni_ast(
+            ast=ast, definitions=definitions, raw_source=raw_source,
+            type_map=type_map, symbol_map=symbol_map, scope=parent
+        )
+
+
+    @classmethod
+    def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        """
+        Create :any:`Module` from :any:`FP` parse tree
+
+        Parameters
+        ----------
+        ast :
+            The FParser parse tree node corresponding to the module
         raw_source : str
             Fortran source string
         definitions : list
@@ -194,7 +186,7 @@ class Module(Scope):
         pp_info :
             Preprocessing info as obtained by :any:`sanitize_input`
         parent : :any:`Scope`, optional
-            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+            The enclosing parent scope of the module.
         """
         return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
 
