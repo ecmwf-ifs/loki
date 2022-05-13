@@ -48,9 +48,8 @@ ecbuild_add_option(
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
-include( python_venv )
-include( claw_compiler )
-include( loki_transform )
+add_subdirectory( cmake )
+install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
 
 if( NOT ${HAVE_EDITABLE} )
     message( FATAL_ERROR "Loki currently supports only editable install" )
@@ -67,19 +66,17 @@ if( HAVE_NO_INSTALL )
     add_executable( loki-transform.py IMPORTED GLOBAL )
     set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} )
 
-    # Find clawfc on the PATH to make available as target
-    find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
-    add_executable( clawfc IMPORTED GLOBAL )
-    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
-
 else()
 
     if( ${HAVE_CLAW} )
+        include( claw_compiler )
         install_claw_compiler( mlange-dev )
     endif()
 
     # Setup Python virtual environment
-    python_venv( loki_env )
+    include( python_venv )
+    setup_python_venv( ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
+    install( DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/loki_env DESTINATION . USE_SOURCE_PERMISSIONS )
 
     # Enable Pytest testing
     if( ${ENABLE_TESTS} )
@@ -125,7 +122,7 @@ else()
     endif()
 
     # We install Loki at configure time (for now), since bulk-transformation planning
-    # requires configure time execution to allow injection with CMake targets. 
+    # requires configure time execution to allow injection with CMake targets.
     message( STATUS "Install Loki in virtual environment" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
     message( STATUS "Install Loki in virtual environment - done" )
@@ -137,9 +134,20 @@ else()
     add_executable( loki-transform.py IMPORTED GLOBAL )
     set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-transform.py )
 
-    if( ${HAVE_CLAW} )
+    if( HAVE_CLAW )
         add_dependencies( loki-transform.py clawfc )
     endif()
+
+    update_python_shebang( ${Python3_VENV_BIN}/loki-lint.py ${Python3_VENV_BIN}/loki-transform.py )
+
+endif()
+
+if ( HAVE_NO_INSTALL OR NOT HAVE_CLAW )
+
+    # Find clawfc on the PATH to make available as target, if it hasn't been installed by us
+    find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
+    add_executable( clawfc IMPORTED GLOBAL )
+    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
 
 endif()
 
