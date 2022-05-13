@@ -48,7 +48,10 @@ ecbuild_add_option(
     DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
 )
 
+# Make CMake script files available in build and install directory
 add_subdirectory( cmake )
+file( MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/share/loki )
+execute_process( COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_BINARY_DIR}/share/loki/cmake )
 install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
 
 if( NOT ${HAVE_EDITABLE} )

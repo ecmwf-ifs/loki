@@ -103,9 +103,10 @@ def fixture_loki_install(here, ecbuild):
         ['cmake', '--install', '.', '--prefix', str(lokidir)],
         silent=True, cwd=builddir
     )
-    shutil.rmtree(builddir)
 
-    yield lokidir
+    yield builddir, lokidir
+    if builddir.exists():
+        shutil.rmtree(builddir)
     if lokidir.exists():
         shutil.rmtree(lokidir)
 
@@ -179,38 +180,37 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild):
     assert config.exists()
     assert cmake_project.exists()
 
-    # TODO: If the Loki installation should ever be switched to a CMake-based one under the hood,
-    #       then we can run this test also using the currently active installation (mimicking the
-    #       behaviour in ecbundle builds)
+    for loki_root in loki_install:
+        with clean_builddir('test_cmake_plan') as builddir:
+            execute(
+                [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
+                cwd=builddir, silent=True
+            )
 
-    with clean_builddir('test_cmake_plan') as builddir:
-        execute(
-            [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_install}'],
-            cwd=builddir, silent=True
-        )
+            # Make sure the plan files have been created
+            assert (builddir/'loki_plan.cmake').exists()
+            assert (builddir/'loki_callgraph.pdf').exists()
 
-        # Make sure the plan files have been created
-        assert (builddir/'loki_plan.cmake').exists()
-        assert (builddir/'loki_callgraph.pdf').exists()
+            # Validate the content of the plan file
+            loki_plan = (builddir/'loki_plan.cmake').read_text()
+            plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+            plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
 
-        # Validate the content of the plan file
-        loki_plan = (builddir/'loki_plan.cmake').read_text()
-        plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
-        plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+            expected_files = {
+                'driverB_mod', 'kernelB_mod',
+                'compute_l1_mod', 'compute_l2_mod',
+                'ext_driver_mod', 'ext_kernel'
+            }
 
-        expected_files = {
-            'driverB_mod', 'kernelB_mod',
-            'compute_l1_mod', 'compute_l2_mod',
-            'ext_driver_mod', 'ext_kernel'
-        }
+            assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
 
-        assert 'LOKI_SOURCES_TO_TRANSFORM' in plan_dict
-        assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
+            assert 'LOKI_SOURCES_TO_REMOVE' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
 
-        assert 'LOKI_SOURCES_TO_REMOVE' in plan_dict
-        assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
+            assert 'LOKI_SOURCES_TO_APPEND' in plan_dict
+            assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
+                f'{name}.idem' for name in expected_files
+            }
 
-        assert 'LOKI_SOURCES_TO_APPEND' in plan_dict
-        assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
-            f'{name}.idem' for name in expected_files
-        }
+        shutil.rmtree(loki_root)

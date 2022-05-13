@@ -1,27 +1,27 @@
 # Make Loki CMake macro scripts available on the search path
 set(loki_MACROS_DIR ${loki_BASE_DIR}/share/loki/cmake)
 message(STATUS "loki_BASE_DIR=${loki_BASE_DIR}")
+message(STATUS "loki_MACROS_DIR=${loki_MACROS_DIR}")
 if(NOT ${loki_MACROS_DIR} IN_LIST CMAKE_MODULE_PATH)
     list(INSERT CMAKE_MODULE_PATH 0 ${loki_MACROS_DIR})
 endif()
 
 # Make Loki executables (and clawfc) available as imported executable targets
 # (this is required for the macros in loki_transform to set up their environment)
-if( loki_HAVE_NO_INSTALL )
+if( @HAVE_NO_INSTALL@ )
 
-    # Find loki-transform.py and loki-lint.py on the PATH to make available as targets
-    find_program ( _LOKI_LINT_EXECUTABLE NAMES loki-lint.py )
-    add_executable( loki-lint.py IMPORTED GLOBAL )
-    set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${_LOKI_LINT_EXECUTABLE} )
+    if( NOT TARGET loki-lint.py )
+        # Find loki-transform.py and loki-lint.py on the PATH to make available as targets
+        find_program ( _LOKI_LINT_EXECUTABLE NAMES loki-lint.py )
+        add_executable( loki-lint.py IMPORTED GLOBAL )
+        set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${_LOKI_LINT_EXECUTABLE} )
+    endif()
 
-    find_program ( _LOKI_TRANSFORM_EXECUTABLE NAMES loki-transform.py )
-    add_executable( loki-transform.py IMPORTED GLOBAL )
-    set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} )
-
-    # Find clawfc on the PATH to make available as target
-    find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
-    add_executable( clawfc IMPORTED GLOBAL )
-    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
+    if( NOT TARGET loki-transform.py )
+        find_program ( _LOKI_TRANSFORM_EXECUTABLE NAMES loki-transform.py )
+        add_executable( loki-transform.py IMPORTED GLOBAL )
+        set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${_LOKI_TRANSFORM_EXECUTABLE} )
+    endif()
 
 else()
 
@@ -30,16 +30,29 @@ else()
     find_python_venv( ${loki_BASE_DIR}/loki_env )
 
     # Make CLI executables available in add_custom_command
-    add_executable( loki-lint.py IMPORTED GLOBAL )
-    set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-lint.py )
+    if( NOT TARGET loki-lint.py )
+        add_executable( loki-lint.py IMPORTED GLOBAL )
+        set_property( TARGET loki-lint.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-lint.py )
+    endif()
 
-    add_executable( loki-transform.py IMPORTED GLOBAL )
-    set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-transform.py )
+    if( NOT TARGET loki-transform.py )
+        add_executable( loki-transform.py IMPORTED GLOBAL )
+        set_property( TARGET loki-transform.py PROPERTY IMPORTED_LOCATION ${Python3_VENV_BIN}/loki-transform.py )
+    endif()
 
-    if( loki_HAVE_CLAW )
+    if( @HAVE_CLAW@ )
         add_dependencies( loki-transform.py clawfc )
     endif()
 
+endif()
+
+# Find clawfc on the PATH to make available as target
+if( @HAVE_NO_INSTALL@ OR NOT @HAVE_CLAW@)
+    if( NOT TARGET clawfc )
+        find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
+        add_executable( clawfc IMPORTED GLOBAL )
+        set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
+    endif()
 endif()
 
 # Make the Loki transformation functions available
