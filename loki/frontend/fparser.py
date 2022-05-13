@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
-from loki.logging import DEBUG, warning, error, debug
+from loki.logging import DEBUG, warning, error, info
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -42,6 +42,7 @@ def parse_fparser_file(filename):
     """
     Generate a parse tree from file via fparser
     """
+    info(f'[Loki::FP] Parsing {filename}')
     fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
 
@@ -1680,9 +1681,7 @@ class FParser2IR(GenericVisitor):
             # Return the subroutine object along with any clutter before it for interface declarations
             return (*pre, routine)
 
-        if pre:
-            debug('Comments (or other nodes) ignored before Subroutine %s', routine.name)
-        return routine
+        return (*pre, routine)
 
     visit_Function_Subprogram = visit_Subroutine_Subprogram
     visit_Subroutine_Body = visit_Subroutine_Subprogram
@@ -1841,9 +1840,7 @@ class FParser2IR(GenericVisitor):
             source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
         )
 
-        if pre:
-            debug('Comments (or other nodes) ignored before Module %s', module.name)
-        return module
+        return (*pre, module)
 
     #
     # Conditional

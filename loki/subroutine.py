@@ -220,7 +220,7 @@ class Subroutine(Scope):
         parent : :any:`Scope`, optional
             The enclosing parent scope of the subroutine, typically a :any:`Module`.
         """
-        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
+        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)[-1]
 
     @property
     def procedure_symbol(self):
