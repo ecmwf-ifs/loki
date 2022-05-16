@@ -36,6 +36,12 @@ def fixture_here():
     return Path(__file__).parent
 
 
+@pytest.fixture(scope='module', name='silent')
+def fixture_silent(pytestconfig):
+    """Whether to run commands without output"""
+    return pytestconfig.getoption("verbose") == 0
+
+
 @pytest.fixture(scope='module', name='srcdir')
 def fixture_srcdir(here):
     """Base directory of CMake sources"""
@@ -83,7 +89,7 @@ def fixture_ecbuild():
 
 
 @pytest.fixture(scope='module', name='loki_install')
-def fixture_loki_install(here, ecbuild):
+def fixture_loki_install(here, ecbuild, silent):
     """
     Install Loki using CMake into an install directory
     """
@@ -93,7 +99,7 @@ def fixture_loki_install(here, ecbuild):
     builddir.mkdir()
     execute(
         [f'{ecbuild}/bin/ecbuild', str(here.parent), '-DENABLE_CLAW=OFF'],
-        silent=True, cwd=builddir
+        silent=silent, cwd=builddir
     )
 
     lokidir = gettempdir()/'loki'
@@ -166,7 +172,7 @@ loki_transform_plan(
     (srcdir/'loki').unlink()
 
 
-def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild):
+def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild, silent):
     """
     Test the `loki_transform_plan` CMake function with a single task
     graph spanning two projects
@@ -184,7 +190,7 @@ def test_cmake_plan(srcdir, config, cmake_project, loki_install, ecbuild):
         with clean_builddir('test_cmake_plan') as builddir:
             execute(
                 [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
-                cwd=builddir, silent=True
+                cwd=builddir, silent=silent
             )
 
             # Make sure the plan files have been created

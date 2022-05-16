@@ -28,8 +28,6 @@
 
 function( find_python_venv VENV_PATH )
 
-    message( STATUS "VENV_PATH=${VENV_PATH}")
-
     # Update the environment with VIRTUAL_ENV variable (mimic the activate script)
     set( ENV{VIRTUAL_ENV} ${VENV_PATH} )
 
@@ -161,6 +159,8 @@ function( update_python_shebang )
         # "true" '''\'
         # exec "$(dirname "$(readlink -f "$0")")"/python "$0" "$@"
         # '''
+
+        ecbuild_debug( "Update shebang for ${_exe}" )
 
         execute_process(
             COMMAND
