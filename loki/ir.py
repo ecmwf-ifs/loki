@@ -934,9 +934,13 @@ class CommentBlock(LeafNode):
 
         self.comments = comments
 
+    @property
+    def text(self):
+        """The combined string of all comments in this block"""
+        return ''.join(comment.text for comment in self.comments)
+
     def __repr__(self):
-        string = ''.join(comment.text for comment in self.comments)
-        return f'CommentBlock:: {truncate_string(string)}'
+        return f'CommentBlock:: {truncate_string(self.text)}'
 
 
 class Pragma(LeafNode):

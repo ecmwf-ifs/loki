@@ -86,9 +86,7 @@ class PyCodegen(Stringifier):
           ...modules...
           ...subroutines...
         """
-        modules = self.visit_all(o.modules, **kwargs)
-        subroutines = self.visit_all(o.subroutines, **kwargs)
-        return self.join_lines(*modules, *subroutines)
+        return self.visit(o.ir, **kwargs)
 
     def visit_Module(self, o, **kwargs):
         raise NotImplementedError()

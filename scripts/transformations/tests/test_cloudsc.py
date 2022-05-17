@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from conftest import available_frontends
-from loki import execute, OMNI, HAVE_FP, HAVE_OMNI
+from loki import execute, OMNI, HAVE_FP, HAVE_OMNI, warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
 
@@ -28,7 +28,7 @@ def fixture_bundle_create(here):
 ))
 def test_cloudsc(here, frontend):
     build_cmd = [
-        './cloudsc-bundle', 'build', '--verbose', '--clean',
+        './cloudsc-bundle', 'build', '--retry-verbose', '--clean',
         '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
     ]
@@ -62,18 +62,37 @@ def test_cloudsc(here, frontend):
             ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
         ]
 
-    failures = {}
+    failures, warnings = {}, {}
     for binary, *args in binaries:
-        # TODO: figure out how to source env.sh
-        run_cmd = [f"bin/{binary}", *args]
+        # Write a script to source env.sh and launch the binary
+        script = Path(here/f'build/run_{binary}.sh')
+        script.write_text(f"""
+#!/bin/bash
+
+source env.sh >&2
+bin/{binary} {' '.join(args)}
+exit $?
+        """.strip())
+        script.chmod(0o750)
+
+        # Run the script and verify error norms
         try:
-            output = execute(run_cmd, cwd=here/'build', capture_output=True, silent=False, env=env)
+            output = execute([str(script)], cwd=here/'build', capture_output=True, silent=False, env=env)
             results = pd.read_fwf(io.StringIO(output.stdout.decode()), index_col='Variable')
             no_errors = results['AbsMaxErr'].astype('float') == 0
             if not no_errors.all(axis=None):
-                failures[binary] = results
+                only_small_errors = results['MaxRelErr-%'].astype('float') < 1e-12
+                if not only_small_errors.all(axis=None):
+                    failures[binary] = results
+                else:
+                    warnings[binary] = results
         except CalledProcessError as err:
             failures[binary] = err.stderr.decode()
 
+    if warnings:
+        msg = '\n'.join([f'{binary}:\n{results}' for binary, results in warnings.items()])
+        warning(msg)
+
     if failures:
-        pytest.fail(str(failures))
+        msg = '\n'.join([f'{binary}:\n{results}' for binary, results in failures.items()])
+        pytest.fail(msg)

@@ -24,7 +24,7 @@ from loki.expression.operations import (
 from loki.expression import (
     ExpressionDimensionsMapper, FindTypedSymbols, SubstituteExpressions, AttachScopesMapper
 )
-from loki.logging import DEBUG, warning, error, debug
+from loki.logging import DEBUG, warning, error, info
 from loki.tools import timeit, as_tuple, flatten, CaseInsensitiveDict
 from loki.pragma_utils import (
     attach_pragmas, process_dimension_pragmas, detach_pragmas, pragmas_attached
@@ -42,6 +42,7 @@ def parse_fparser_file(filename):
     """
     Generate a parse tree from file via fparser
     """
+    info(f'[Loki::FP] Parsing {filename}')
     fcode = read_file(filename)
     return parse_fparser_source(source=fcode)
 
@@ -321,8 +322,10 @@ class FParser2IR(GenericVisitor):
 
     visit_Implicit_Part = visit_List
 
+    visit_Program = visit_Specification_Part
     visit_Execution_Part = visit_Specification_Part
     visit_Internal_Subprogram_Part = visit_Specification_Part
+    visit_Module_Subprogram_Part = visit_Specification_Part
 
     #
     # Variable, procedure and type names
@@ -1519,6 +1522,10 @@ class FParser2IR(GenericVisitor):
     visit_Import_Name_List = visit_List
     visit_Import_Name = visit_Name
 
+    #
+    # Subroutine and Function definitions
+    #
+
     def visit_Subroutine_Subprogram(self, o, **kwargs):
         """
         The entire block that comprises a ``SUBROUTINE`` definition, i.e.
@@ -1674,9 +1681,7 @@ class FParser2IR(GenericVisitor):
             # Return the subroutine object along with any clutter before it for interface declarations
             return (*pre, routine)
 
-        if pre:
-            debug('Comments (or other nodes) ignored before Subroutine %s', routine.name)
-        return routine
+        return (*pre, routine)
 
     visit_Function_Subprogram = visit_Subroutine_Subprogram
     visit_Subroutine_Body = visit_Subroutine_Subprogram
@@ -1757,7 +1762,85 @@ class FParser2IR(GenericVisitor):
         """
         return o.string
 
+    #
+    # Module definition
+    #
 
+    def visit_Module(self, o, **kwargs):
+        """
+        The definition of a Fortran module
+
+        :class:`fparser.two.Fortran2003.Module` has up to four children:
+            * The opening :class:`fparser.two.Fortran2003.Module_Stmt`
+            * The specification part :class:`fparser.two.Fortran2003.Specification_Part`
+            * The module subprogram part :class:`fparser.two.Fortran2003.Module_Subprogram_Part`
+            * the closing :class:`fparser.two.Fortran2003.End_Module_Stmt`
+        """
+        from loki.module import Module  # pylint: disable=import-outside-toplevel
+
+        # Find start and end of construct
+        module_stmt = get_child(o, Fortran2003.Module_Stmt)
+        module_stmt_index = o.children.index(module_stmt)
+        end_module_stmt = get_child(o, Fortran2003.End_Module_Stmt)
+        end_module_stmt_index = o.children.index(end_module_stmt)
+
+        # Everything before the construct
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:module_stmt_index])
+
+        # ...and there shouldn't be anything after the construct
+        assert end_module_stmt_index + 1 == len(o.children)
+
+        # Extract source object for construct
+        lines = (module_stmt.item.span[0], end_module_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # Instantiate the object
+        module = Module(name=module_stmt.children[1].tostr(), ast=o, source=source)
+        kwargs['scope'] = module
+
+        # We make sure the subroutine objects for all member routines are
+        # instantiated before parsing the actual spec of the module.
+        # This way, all procedure types should exist and any use of their symbol
+        # (e.g. in a derived type procedure binding etc) should be initialized correctly
+        contains_ast = get_child(o, Fortran2003.Module_Subprogram_Part)
+        if contains_ast is not None:
+            member_asts = [
+                c for c in contains_ast.children
+                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
+            ]
+            # Note that we overwrite this variable subsequently with the fully parsed subroutines
+            # where the visit-method for the subroutine/function statement will pick out the existing
+            # subroutine objects using the weakref pointers stored in the symbol table.
+            # I know, it's not pretty but alternatively we could hand down this array as part of
+            # kwargs but that feels like carrying around a lot of bulk, too.
+            contains = [
+                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
+                for c in member_asts
+            ]
+
+        # Build the spec
+        spec_ast = get_child(o, Fortran2003.Specification_Part)
+        if spec_ast:
+            spec = self.visit(spec_ast, **kwargs)
+            spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+        else:
+            spec = None
+
+        # Now that all declarations are well-defined we can parse the member routines
+        if contains_ast is not None:
+            contains = self.visit(contains_ast, **kwargs)
+        else:
+            contains = None
+
+        # Finally, call the module constructor on the object again to register all
+        # bits and pieces in place and rescope all symbols
+        module.__init__(
+            name=module.name, spec=spec, contains=contains, ast=o, rescope_symbols=True,
+            source=source, parent=module.parent, symbol_attrs=module.symbol_attrs
+        )
+
+        return (*pre, module)
 
     #
     # Conditional

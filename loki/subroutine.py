@@ -120,12 +120,18 @@ class Subroutine(Scope):
     @classmethod
     def from_source(cls, source, definitions=None, xmods=None, frontend=Frontend.FP):
         """
-        Create ``Subroutine`` entry node from raw source string using given frontend.
+        Create :any:`Subroutine` entry node from raw source string using given frontend.
 
-        :param source: Fortran source string
-        :param typdedefs: Derived-type definitions from external modules
-        :param xmods: Locations of "xmods" module directory for OMNI frontend
-        :param frontend: Choice of frontend to use for parsing source (default FP)
+        Parameters
+        ----------
+        source : str
+            Fortran source string
+        definitions : list, optional
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        xmods : list, optional
+            List of locations with "xmods" module files. Only relevant for :any:`OMNI` frontend
+        frontend : :any:`Frontend`, optional
+            Choice of frontend to use for parsing source (default :any:`Frontend.FP`)
         """
         # TODO: Enable pre-processing on-the-fly
         if frontend == Frontend.OMNI:
@@ -148,10 +154,45 @@ class Subroutine(Scope):
 
     @classmethod
     def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
+        """
+        Create :any:`Subroutine` from :any:`OFP` parse tree
+
+        Parameters
+        ----------
+        ast :
+            The OFP parse tree node corresponding to the subroutine
+        raw_source : str
+            Fortran source string
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        pp_info :
+            Preprocessing info as obtained by :any:`sanitize_input`
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
         return parse_ofp_ast(ast=ast, pp_info=pp_info, raw_source=raw_source, definitions=definitions, scope=parent)
 
     @classmethod
     def from_omni(cls, ast, raw_source, typetable, definitions=None, symbol_map=None, parent=None):
+        """
+        Create :any:`Subroutine` from :any:`OMNI` parse tree
+
+        Parameters
+        ----------
+        ast :
+            The OMNI parse tree node corresponding to the subroutine
+        raw_source : str
+            Fortran source string
+        typetable :
+            The ``typeTable`` AST node from the OMNI parse tree, containing the mapping from
+            type hash identifiers to type definitions
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        symbol_map : dict, optional
+            The mapping from symbol hash identifiers to symbol attributes
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
         type_map = {t.attrib['type']: t for t in typetable}
         symbol_map = symbol_map or {}
         symbol_map.update({s.attrib['type']: s for s in ast.find('symbols')})
@@ -163,7 +204,23 @@ class Subroutine(Scope):
 
     @classmethod
     def from_fparser(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
-        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)
+        """
+        Create :any:`Subroutine` from :any:`FP` parse tree
+
+        Parameters
+        ----------
+        ast :
+            The FParser parse tree node corresponding to the subroutine
+        raw_source : str
+            Fortran source string
+        definitions : list
+            List of external :any:`Module` to provide derived-type and procedure declarations
+        pp_info :
+            Preprocessing info as obtained by :any:`sanitize_input`
+        parent : :any:`Scope`, optional
+            The enclosing parent scope of the subroutine, typically a :any:`Module`.
+        """
+        return parse_fparser_ast(ast, pp_info=pp_info, definitions=definitions, raw_source=raw_source, scope=parent)[-1]
 
     @property
     def procedure_symbol(self):

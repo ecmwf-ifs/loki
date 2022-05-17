@@ -4,7 +4,7 @@ from loki.transform.transformation import Transformation
 from loki.subroutine import Subroutine
 from loki.module import Module
 from loki.visitors import FindNodes, Transformer
-from loki.ir import CallStatement, Import
+from loki.ir import CallStatement, Import, Section
 from loki.expression import Variable
 from loki.backend import fgen
 from loki.tools import as_tuple
@@ -234,11 +234,10 @@ class DependencyTransformation(Transformation):
                 if routine.name.upper() in targets:
                     continue
 
-                # Create wrapper module and insert into file
+                # Create wrapper module and insert into file, replacing the old
+                # standalone routine
                 modname = f'{routine.name}{self.module_suffix}'
-                module = Module(name=modname, routines=[routine])
-                sourcefile._modules += (module, )
-
-                # Remove old standalone routine
-                sourcefile._routines = as_tuple(r for r in sourcefile.subroutines
-                                                if r is not routine)
+                module = Module(name=modname, contains=Section(body=as_tuple(routine)))
+                sourcefile.ir._update(body=as_tuple(
+                    module if c is routine else c for c in sourcefile.ir.body
+                ))
