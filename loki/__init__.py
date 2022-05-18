@@ -6,6 +6,7 @@ from loki.config import *  # noqa
 from loki.frontend import *  # noqa
 from loki.sourcefile import *  # noqa
 from loki.subroutine import *  # noqa
+from loki.program_unit import * # noqa
 from loki.module import *  # noqa
 from loki.ir import *  # noqa
 from loki.expression import *  # noqa
