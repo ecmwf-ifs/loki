@@ -602,7 +602,7 @@ class SingleColumnCoalescedTransformation(Transformation):
         call : :any:`CallStatement`
             Call to subroutine from which we hoist the column arrays.
         """
-        if call.context is None or not call.context.active:
+        if call.not_active or not call.routine:
             raise RuntimeError(
                 '[Loki] SingleColumnCoalescedTransform: Target kernel is not attached '
                 'to call in driver routine.'
@@ -614,11 +614,11 @@ class SingleColumnCoalescedTransformation(Transformation):
                 'for column hoisting.'
             )
 
-        kernel = call.context.routine
+        kernel = call.routine
         call_map = {}
 
         column_locals = get_column_locals(kernel, vertical=self.vertical)
-        arg_map = dict(call.context.arg_iter(call))
+        arg_map = dict(call.arg_iter())
         arg_mapper = SubstituteExpressions(arg_map)
 
         # Create a driver-level buffer variable for all promoted column arrays

@@ -476,8 +476,8 @@ def test_scheduler_graph_multiple_separate(here, config, frontend):
 
     # Check that the call from kernelB to ext_driver has been enriched with IPA meta-info
     call = FindNodes(CallStatement).visit(schedulerA.item_map['kernelB'].routine.body)[1]
-    assert call.context is not None
-    assert fexprgen(call.context.routine.arguments) == '(vector(:), matrix(:, :))'
+    assert call.routine is not None
+    assert fexprgen(call.routine.arguments) == '(vector(:), matrix(:, :))'
 
     # Test callgraph visualisation
     cg_path = here/'callgraph_multiple_separate_B'

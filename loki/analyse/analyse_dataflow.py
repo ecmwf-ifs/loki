@@ -144,15 +144,15 @@ class DataflowAnalysisAttacher(Transformer):
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
-        if o.context:
+        if o.routine:
             # With a call context provided we can determine which arguments
             # are potentially defined and which are definitely only used by
             # this call
             defines, uses = set(), set()
-            for arg, val in o.context.arg_iter(o):
-                if o.context.routine.arguments[arg].intent.lower() in ('inout', 'out'):
+            for arg, val in o.arg_iter():
+                if o.routine.arguments[arg].intent.lower() in ('inout', 'out'):
                     defines |= self._symbols_from_expr(val)
-                if o.context.routine.arguments[arg].intent.lower() in ('in', 'inout'):
+                if o.routine.arguments[arg].intent.lower() in ('in', 'inout'):
                     uses |= self._symbols_from_expr(val)
         else:
             # We don't know the intent of any of these arguments and thus have

@@ -23,7 +23,7 @@ __all__ = [
     'PragmaRegion', 'Interface',
     # Leaf node classes
     'Assignment', 'ConditionalAssignment', 'CallStatement',
-    'CallContext', 'Allocation', 'Deallocation', 'Nullify',
+    'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'MaskedStatement',
@@ -780,62 +780,22 @@ class CallStatement(LeafNode):
             return None
         return procedure_type.procedure
 
-    @property
-    def context(self):
-        """
-        Return a :any:`CallContext` object if :attr:`routine` is available
-        """
-        procedure = self.routine
-        if procedure is None:
-            return None
-        return CallContext(routine=procedure, active=not self.not_active)
-
-
-class CallContext(LeafNode):
-    """
-    Special node type to encapsulate the target of a :any:`CallStatement`
-    node (usually a :any:`Subroutine`) alongside context-specific
-    meta-information. This is required for transformations requiring
-    context-sensitive inter-procedural analysis (IPA).
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The target of the call.
-    active : bool
-        Flag to indicate if this context is valid.
-    **kwargs : optional
-        Other parameters that are passed on to the parent class constructor.
-    """
-
-    def __init__(self, routine, active, **kwargs):
-        super().__init__(**kwargs)
-        self.routine = routine
-        self.active = active
-
-    def arg_iter(self, call):
+    def arg_iter(self):
         """
         Iterator that maps argument definitions in the target :any:`Subroutine`
-        to arguments and keyword arguments in the `call` provided.
-
-        Parameters
-        ----------
-        call : :any:`CallStatement`
-            The call statement to map.
+        to arguments and keyword arguments in the call.
 
         Returns
         -------
         iterator
-            An iterator that traverses the mapping `(arg name, call arg)` for
+            An iterator that traverses the mapping ``(arg name, call arg)`` for
             all positional and then keyword arguments.
         """
+        assert self.routine is not None
         r_args = {arg.name: arg for arg in self.routine.arguments}
-        args = zip(self.routine.arguments, call.arguments)
-        kwargs = ((r_args[kw], arg) for kw, arg in call.kwarguments)
+        args = zip(self.routine.arguments, self.arguments)
+        kwargs = ((r_args[kw], arg) for kw, arg in self.kwarguments)
         return chain(args, kwargs)
-
-    def __repr__(self):
-        return f'CallContext:: {self.routine.name}'
 
 
 class Allocation(LeafNode):

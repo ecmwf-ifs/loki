@@ -18,12 +18,12 @@ class InferArgShapeTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.context is not None and call.context.active:
-                routine = call.context.routine
+            if not call.not_active and call.routine:
+                routine = call.routine
 
                 # Create a variable map with new shape information from source
                 vmap = {}
-                for arg, val in call.context.arg_iter(call):
+                for arg, val in call.arg_iter():
                     if isinstance(arg, Array) and len(arg.shape) > 0:
                         # Only create new shapes for deferred dimension args
                         if all(str(d) == ':' for d in arg.shape):

@@ -81,12 +81,12 @@ class DerivedTypeArgumentsTransformation(Transformation):
         """
         call_mapper = {}
         for call in FindNodes(CallStatement).visit(caller.body):
-            if call.context is not None and call.context.active:
-                candidates = self._derived_type_arguments(call.context.routine)
+            if not call.not_active and call.routine:
+                candidates = self._derived_type_arguments(call.routine)
 
                 # Simultaneously walk caller and subroutine arguments
                 new_arguments = list(call.arguments)
-                for d_arg, k_arg in zip(call.arguments, call.context.routine.arguments):
+                for d_arg, k_arg in zip(call.arguments, call.routine.arguments):
                     if k_arg in candidates:
                         # Found derived-type argument, unroll according to candidate map
                         new_args = []
