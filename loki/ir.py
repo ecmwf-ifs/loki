@@ -10,10 +10,9 @@ import inspect
 
 from pymbolic.primitives import Expression
 
-from loki.tools import flatten, as_tuple, is_iterable, truncate_string
-from loki.types import DataType, DerivedType, SymbolAttributes
 from loki.scope import Scope
-from loki.tools import CaseInsensitiveDict
+from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
+from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
 
 
 __all__ = [
@@ -728,20 +727,21 @@ class CallStatement(LeafNode):
         The list of positional arguments.
     kwarguments : tuple of tuple
         The list of keyword arguments, provided as pairs of `(name, value)`.
-    context : :any:`CallContext`
-        The information about the called subroutine.
     pragma : tuple of :any:`Pragma`, optional
         Pragma(s) that appear in front of the statement. By default
         :any:`Pragma` nodes appear as standalone nodes in the IR before.
         Only a bespoke context created by :py:func:`pragmas_attached`
         attaches them for convenience.
+    not_active : bool, optional
+        Flag to indicate that this call has explicitly been marked as inactive for
+        the purpose of processing call trees (Default: `None`)
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
-    def __init__(self, name, arguments, kwarguments=None, context=None, pragma=None, **kwargs):
+    def __init__(self, name, arguments, kwarguments=None, pragma=None, not_active=None, **kwargs):
         super().__init__(**kwargs)
 
         assert isinstance(name, Expression)
@@ -755,11 +755,40 @@ class CallStatement(LeafNode):
         self.arguments = as_tuple(arguments)
         # kwarguments is kept as a list of tuples!
         self.kwarguments = as_tuple(kwarguments) if kwarguments else ()
-        self.context = context
+        self.not_active = not_active
         self.pragma = pragma
 
     def __repr__(self):
         return f'Call:: {self.name}'
+
+    @property
+    def routine(self):
+        """
+        The :any:`Subroutine` object of the called routine
+
+        Shorthand for ``call.name.type.dtype.procedure``
+
+        Returns
+        -------
+        :any:`Subroutine` or `None`
+            If the :any:`ProcedureType` object of the :any:`ProcedureSymbol`
+            in :attr:`name` is linked up to the target routine, this returns
+            the corresponding :any:`Subroutine` object, otherwise `None`.
+        """
+        procedure_type = self.name.type.dtype
+        if procedure_type is BasicType.DEFERRED:
+            return None
+        return procedure_type.procedure
+
+    @property
+    def context(self):
+        """
+        Return a :any:`CallContext` object if :attr:`routine` is available
+        """
+        procedure = self.routine
+        if procedure is None:
+            return None
+        return CallContext(routine=procedure, active=not self.not_active)
 
 
 class CallContext(LeafNode):
