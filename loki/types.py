@@ -158,7 +158,7 @@ class ProcedureType(DataType):
         The procedure this type represents
     """
 
-    def __init__(self, name=None, is_function=False, is_generic=False, procedure=None, return_type=None):
+    def __init__(self, name=None, is_function=None, is_generic=False, procedure=None, return_type=None):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel
         super().__init__()
         assert name or isinstance(procedure, Subroutine)
@@ -167,7 +167,7 @@ class ProcedureType(DataType):
         if procedure is None or isinstance(procedure, LazyNodeLookup):
             self._procedure = procedure
             self._name = name
-            self._is_function = is_function
+            self._is_function = is_function or False
             self._return_type = return_type
             # NB: not applying an assert on the procedure name for LazyNodeLookup as
             # the point of the lazy lookup is that we might not have the the procedure
