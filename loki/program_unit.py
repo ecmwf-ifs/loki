@@ -52,11 +52,15 @@ class ProgramUnit(Scope):
         self._ast = ast
         self._source = source
 
+        # Bring arguments into shape
+        if spec is not None and not isinstance(spec, ir.Section):
+            spec = ir.Section(body=spec)
+        if contains is not None and not isinstance(contains, ir.Section):
+            contains = ir.Section(body=contains)
+
         # Primary IR components
         self.docstring = as_tuple(docstring)
-        assert isinstance(spec, ir.Section) or spec is None
         self.spec = spec
-        assert isinstance(contains, ir.Section) or contains is None
         self.contains = contains
 
         # Call the parent constructor to take care of symbol table and rescoping

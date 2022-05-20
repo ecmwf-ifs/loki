@@ -65,7 +65,8 @@ class Subroutine(ProgramUnit):
         self.is_function = is_function
 
         # Additional IR components
-        assert isinstance(body, ir.Section) or body is None
+        if body is not None and not isinstance(body, ir.Section):
+            body = ir.Section(body=body)
         self.body = body
 
         # Then call the parent constructor to store common properties
